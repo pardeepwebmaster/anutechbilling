@@ -505,7 +505,11 @@ function LeadDetailSheet({
               </div>
               <p className="text-[11px] text-ink-3 mt-1.5 flex items-center gap-1">
                 <Icon name="info" size={11} />
-                Click any quote to view · or send a revised quote below
+                {lead.stage === "won"
+                  ? "Click any quote to view · upsell with a new quote below"
+                  : lead.stage === "lost"
+                  ? "Click any quote to view · re-engage with a fresh quote below"
+                  : "Click any quote to view · or send a revised quote below"}
               </p>
             </div>
           )}
@@ -572,10 +576,44 @@ function LeadDetailSheet({
             </Button>
           </div>
 
-          {/* Primary row — communication actions */}
+          {/* Primary row — communication actions
+              Stage-aware so the primary CTA always reflects the actual next
+              step a sales person would take with this lead. */}
           <div className="flex justify-end gap-2 pt-2 border-t border-hairline flex-wrap">
             <Button icon="mail" onClick={handleEmail}>Email</Button>
-            {hasQuotes ? (
+
+            {lead.stage === "won" ? (
+              <>
+                {/* Deal done — money flowed, customer record was auto-created
+                    during record_payment. Natural next moves are upsell (a
+                    fresh quote tied back to this lead) or open the customer
+                    record / accepted quote for context. */}
+                <Button icon="send" onClick={handleSendQuote}>
+                  Upsell · New quote
+                </Button>
+                {latestQuote && (
+                  <Button
+                    variant="primary"
+                    icon="receipt"
+                    onClick={() => {
+                      onClose();
+                      router.push(`/quotes/${latestQuote.id}` as any);
+                    }}
+                  >
+                    Open accepted quote
+                  </Button>
+                )}
+              </>
+            ) : lead.stage === "lost" ? (
+              <>
+                {/* Deal lost — only sensible action is to re-engage with a
+                    fresh quote (potentially with different pricing). The
+                    earlier "revise" of a rejected quote rarely lands. */}
+                <Button variant="primary" icon="send" onClick={handleSendQuote}>
+                  Re-engage · Send new quote
+                </Button>
+              </>
+            ) : hasQuotes ? (
               <>
                 <Button icon="send" onClick={handleSendQuote}>
                   New quote

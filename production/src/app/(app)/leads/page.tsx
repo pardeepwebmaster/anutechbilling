@@ -72,6 +72,10 @@ export default function LeadsPage() {
   // Kanban is great for stage flow; list view is needed once you have 50+ leads
   // and want to scan by value/age/owner. Persisted in localStorage so the user's
   // preferred view sticks across sessions.
+  // User's preferred view for the PIPELINE tab. Inbox tab always forces list
+  // view because Kanban is a stage-flow tool and raw leads (no plan picked)
+  // can only logically live in 'new' or 'contacted' — the other 4 columns
+  // would always be empty and just clutter the screen.
   const [view, setView] = React.useState<"kanban" | "list">(() => {
     if (typeof window === "undefined") return "kanban";
     return (window.localStorage.getItem("leads-view") as "kanban" | "list") ?? "kanban";
@@ -137,6 +141,11 @@ export default function LeadsPage() {
   // The Kanban / List views consume this — points at whichever tab is active.
   const filtered = tab === "inbox" ? inboxLeads : pipelineLeads;
 
+  // Inbox always renders as a list (Kanban makes no sense — raw leads can only
+  // live in 'new' or 'contacted', so 4 of 6 columns would always be empty).
+  // Pipeline respects the user's saved preference.
+  const effectiveView = tab === "inbox" ? "list" : view;
+
   // Stats are based on Pipeline (where value lives — Inbox leads have no value yet)
   const totalValue = pipelineLeads.reduce((s, l) => s + (l.value ?? 0), 0);
   const wonCount = pipelineLeads.filter((l) => l.stage === "won").length;
@@ -181,8 +190,14 @@ export default function LeadsPage() {
               onChange={(e) => setSearch(e.target.value)}
             />
           </div>
-          {/* View toggle — Kanban for stage flow, List for scale (50+ leads) */}
-          <div className="inline-flex rounded-md border border-hairline overflow-hidden">
+          {/* View toggle — Kanban for stage flow, List for scale (50+ leads).
+              Hidden on the Inbox tab because raw leads can only sit in 'new' /
+              'contacted', making Kanban mostly empty columns. Inbox always
+              renders as a list (triage queue, not stage flow). */}
+          <div className={cn(
+            "inline-flex rounded-md border border-hairline overflow-hidden",
+            tab === "inbox" && "hidden",
+          )}>
             <button
               type="button"
               onClick={() => setView("kanban")}
@@ -328,8 +343,9 @@ export default function LeadsPage() {
         />
       )}
 
-      {/* Kanban */}
-      {!isLoading && !error && leads && leads.length > 0 && view === "kanban" && (
+      {/* Kanban — only shows on Pipeline tab (raw leads in Inbox have no
+          meaningful stage flow, so we force list view there). */}
+      {!isLoading && !error && leads && leads.length > 0 && effectiveView === "kanban" && (
         <>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3 overflow-x-auto pb-4">
             {LEAD_STAGES.map((stage) => {
@@ -409,8 +425,9 @@ export default function LeadsPage() {
         </>
       )}
 
-      {/* List view — sortable table, designed for scanning at 50+ leads */}
-      {!isLoading && !error && leads && leads.length > 0 && view === "list" && (
+      {/* List view — sortable table, designed for scanning at 50+ leads.
+          Also the only view available on Inbox (triage queue). */}
+      {!isLoading && !error && leads && leads.length > 0 && effectiveView === "list" && (
         <LeadListView
           leads={filtered}
           sortBy={sortBy}

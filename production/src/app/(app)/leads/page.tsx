@@ -657,34 +657,52 @@ function LeadDetailSheet({
             </div>
           )}
 
-          {/* Quick stage change */}
-          <div>
-            <div className="text-xs uppercase tracking-wider text-ink-3 font-semibold mb-2">Move to stage</div>
-            <div className="flex flex-wrap gap-1.5">
-              {LEAD_STAGES.map((s) => (
-                <button
-                  key={s.id}
-                  onClick={() => {
-                    if (s.id !== lead.stage) {
-                      updateStage.mutate({ id: lead.id, stage: s.id });
-                      toast.success(`${lead.company} → ${s.label}`);
-                      onClose();
-                    }
-                  }}
-                  disabled={s.id === lead.stage}
-                  className={cn(
-                    "text-xs px-2.5 py-1 rounded-full border transition-colors",
-                    s.id === lead.stage
-                      ? "bg-amber-soft border-amber text-amber-ink font-medium cursor-default"
-                      : "border-hairline text-ink-2 hover:bg-paper-2"
-                  )}
-                >
-                  <span className={cn("inline-block w-1.5 h-1.5 rounded-full mr-1.5", s.dot)} />
-                  {s.label}
-                </button>
-              ))}
-            </div>
-          </div>
+          {/* Quick stage change
+              For a raw lead (no plan picked yet), only "new" / "contact" are
+              logically valid — demo/trial/quote/won all require a plan to
+              make sense. Show only the relevant chips + a hint to qualify
+              first if the user wants to progress further. */}
+          {(() => {
+            const isRawLead = !lead.plan || lead.plan.trim() === "";
+            const visibleStages = isRawLead
+              ? LEAD_STAGES.filter((s) => s.id === "new" || s.id === "contact")
+              : LEAD_STAGES;
+            return (
+              <div>
+                <div className="text-xs uppercase tracking-wider text-ink-3 font-semibold mb-2">Move to stage</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {visibleStages.map((s) => (
+                    <button
+                      key={s.id}
+                      onClick={() => {
+                        if (s.id !== lead.stage) {
+                          updateStage.mutate({ id: lead.id, stage: s.id });
+                          toast.success(`${lead.company} → ${s.label}`);
+                          onClose();
+                        }
+                      }}
+                      disabled={s.id === lead.stage}
+                      className={cn(
+                        "text-xs px-2.5 py-1 rounded-full border transition-colors",
+                        s.id === lead.stage
+                          ? "bg-amber-soft border-amber text-amber-ink font-medium cursor-default"
+                          : "border-hairline text-ink-2 hover:bg-paper-2"
+                      )}
+                    >
+                      <span className={cn("inline-block w-1.5 h-1.5 rounded-full mr-1.5", s.dot)} />
+                      {s.label}
+                    </button>
+                  ))}
+                </div>
+                {isRawLead && (
+                  <p className="text-[11px] text-ink-3 mt-2 flex items-start gap-1">
+                    <Icon name="info" size={11} className="mt-0.5 flex-shrink-0" />
+                    Pick a plan (Edit) to unlock <b>Demo · Trial · Quote · Won</b> stages — those require a known plan + value.
+                  </p>
+                )}
+              </div>
+            );
+          })()}
         </div>
 
         <SheetFooter className="!p-4 border-t border-hairline !flex-col !items-stretch gap-2">

@@ -695,10 +695,26 @@ function LeadDetailSheet({
                   ))}
                 </div>
                 {isRawLead && (
-                  <p className="text-[11px] text-ink-3 mt-2 flex items-start gap-1">
-                    <Icon name="info" size={11} className="mt-0.5 flex-shrink-0" />
-                    Pick a plan (Edit) to unlock <b>Demo · Trial · Quote · Won</b> stages — those require a known plan + value.
-                  </p>
+                  // Actionable in place of explanatory text — one click takes
+                  // the rep into the Edit form where they pick the plan; once
+                  // saved, the lead leaves the Leads tab and lands in Deals
+                  // with all six stages unlocked.
+                  <button
+                    type="button"
+                    onClick={() => onEdit(lead)}
+                    className={cn(
+                      "mt-3 w-full text-left text-xs px-3 py-2 rounded-md",
+                      "bg-amber-soft hover:bg-amber/15 border border-amber/40",
+                      "text-amber-ink font-medium",
+                      "inline-flex items-center justify-between gap-2 transition-colors",
+                    )}
+                  >
+                    <span className="inline-flex items-center gap-1.5">
+                      <Icon name="sparkles" size={13} />
+                      Qualify lead · pick plan + value to unlock later stages
+                    </span>
+                    <Icon name="arrow_right" size={13} />
+                  </button>
                 )}
               </div>
             );

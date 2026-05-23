@@ -72,7 +72,7 @@ export default function LeadsPage() {
   // Kanban is great for stage flow; list view is needed once you have 50+ leads
   // and want to scan by value/age/owner. Persisted in localStorage so the user's
   // preferred view sticks across sessions.
-  // User's preferred view for the PIPELINE tab. Inbox tab always forces list
+  // User's preferred view for the DEALS tab. Leads tab always forces list
   // view because Kanban is a stage-flow tool and raw leads (no plan picked)
   // can only logically live in 'new' or 'contacted' — the other 4 columns
   // would always be empty and just clutter the screen.
@@ -114,11 +114,14 @@ export default function LeadsPage() {
     router.replace("/leads" as any);
   }, [focusLeadId, leads, router]);
 
-  // ── Inbox vs Pipeline split ─────────────────────────────────────────────
-  // Inbox  = raw leads, no plan yet (NULL or empty). Awaiting qualification.
-  // Pipeline = qualified deals (plan set) flowing through stages.
+  // ── Leads vs Deals split ────────────────────────────────────────────────
+  // Leads = raw inquiries, no plan picked yet (NULL or empty). Awaiting
+  //         qualification.
+  // Deals = qualified opportunities (plan set) flowing through stages.
   // Same DB table; different filter cut so the two concepts don't mix.
-  const [tab, setTab] = React.useState<"inbox" | "pipeline">("pipeline");
+  // Industry convention (HubSpot / Salesforce / Pipedrive) — direct entity
+  // naming beats metaphors like "Inbox" / "Pipeline".
+  const [tab, setTab] = React.useState<"leads" | "deals">("deals");
 
   // Search applies BEFORE the tab cut so both views respect the search box.
   const searched = React.useMemo(() => {
@@ -135,22 +138,22 @@ export default function LeadsPage() {
   }, [leads, search]);
 
   const isRaw = (l: Lead) => !l.plan || l.plan.trim() === "";
-  const inboxLeads    = React.useMemo(() => searched.filter(isRaw),       [searched]);
-  const pipelineLeads = React.useMemo(() => searched.filter((l) => !isRaw(l)), [searched]);
+  const rawLeads      = React.useMemo(() => searched.filter(isRaw),       [searched]);
+  const qualifiedDeals = React.useMemo(() => searched.filter((l) => !isRaw(l)), [searched]);
 
   // The Kanban / List views consume this — points at whichever tab is active.
-  const filtered = tab === "inbox" ? inboxLeads : pipelineLeads;
+  const filtered = tab === "leads" ? rawLeads : qualifiedDeals;
 
-  // Inbox always renders as a list (Kanban makes no sense — raw leads can only
-  // live in 'new' or 'contacted', so 4 of 6 columns would always be empty).
-  // Pipeline respects the user's saved preference.
-  const effectiveView = tab === "inbox" ? "list" : view;
+  // Leads tab always renders as a list (Kanban makes no sense — raw leads can
+  // only live in 'new' or 'contacted', so 4 of 6 columns would always be empty).
+  // Deals tab respects the user's saved preference.
+  const effectiveView = tab === "leads" ? "list" : view;
 
-  // Stats are based on Pipeline (where value lives — Inbox leads have no value yet)
-  const totalValue = pipelineLeads.reduce((s, l) => s + (l.value ?? 0), 0);
-  const wonCount = pipelineLeads.filter((l) => l.stage === "won").length;
+  // Stats are based on Deals (where value lives — raw leads have no value yet)
+  const totalValue = qualifiedDeals.reduce((s, l) => s + (l.value ?? 0), 0);
+  const wonCount = qualifiedDeals.filter((l) => l.stage === "won").length;
   const conversion =
-    pipelineLeads.length > 0 ? Math.round((wonCount / pipelineLeads.length) * 100) : 0;
+    qualifiedDeals.length > 0 ? Math.round((wonCount / qualifiedDeals.length) * 100) : 0;
 
   // Drag handlers
   const handleDrop = (toStage: Lead["stage"]) => {
@@ -191,12 +194,12 @@ export default function LeadsPage() {
             />
           </div>
           {/* View toggle — Kanban for stage flow, List for scale (50+ leads).
-              Hidden on the Inbox tab because raw leads can only sit in 'new' /
-              'contacted', making Kanban mostly empty columns. Inbox always
+              Hidden on the Leads tab because raw leads can only sit in 'new' /
+              'contacted', making Kanban mostly empty columns. Leads tab always
               renders as a list (triage queue, not stage flow). */}
           <div className={cn(
             "inline-flex rounded-md border border-hairline overflow-hidden",
-            tab === "inbox" && "hidden",
+            tab === "leads" && "hidden",
           )}>
             <button
               type="button"
@@ -251,55 +254,55 @@ export default function LeadsPage() {
         </div>
       )}
 
-      {/* Inbox / Pipeline tab bar — primary separation of raw inquiries vs
-          qualified deals. Counts come from the SEARCH-FILTERED data so the
-          numbers reflect what the user is currently scanning. */}
+      {/* Leads / Deals tab bar — primary separation of raw inquiries vs
+          qualified opportunities. Counts come from the SEARCH-FILTERED data
+          so the numbers reflect what the user is currently scanning. */}
       {!isLoading && !error && leads && leads.length > 0 && (
         <div className="mb-4 flex items-center gap-1 border-b border-hairline">
           <button
             type="button"
-            onClick={() => setTab("inbox")}
+            onClick={() => setTab("leads")}
             className={cn(
               "px-3 py-2 text-sm font-medium inline-flex items-center gap-2 transition-colors border-b-2 -mb-px",
-              tab === "inbox"
+              tab === "leads"
                 ? "border-amber text-ink"
                 : "border-transparent text-ink-3 hover:text-ink",
             )}
-            aria-pressed={tab === "inbox"}
+            aria-pressed={tab === "leads"}
           >
             <Icon name="inbox" size={14} />
-            Inbox
+            Leads
             <span className={cn(
               "text-[10px] tabular-nums rounded-full px-1.5 py-0.5",
-              tab === "inbox" ? "bg-amber text-paper" : "bg-paper-2 text-ink-3",
+              tab === "leads" ? "bg-amber text-paper" : "bg-paper-2 text-ink-3",
             )}>
-              {inboxLeads.length}
+              {rawLeads.length}
             </span>
           </button>
           <button
             type="button"
-            onClick={() => setTab("pipeline")}
+            onClick={() => setTab("deals")}
             className={cn(
               "px-3 py-2 text-sm font-medium inline-flex items-center gap-2 transition-colors border-b-2 -mb-px",
-              tab === "pipeline"
+              tab === "deals"
                 ? "border-amber text-ink"
                 : "border-transparent text-ink-3 hover:text-ink",
             )}
-            aria-pressed={tab === "pipeline"}
+            aria-pressed={tab === "deals"}
           >
             <Icon name="target" size={14} />
-            Pipeline
+            Deals
             <span className={cn(
               "text-[10px] tabular-nums rounded-full px-1.5 py-0.5",
-              tab === "pipeline" ? "bg-amber text-paper" : "bg-paper-2 text-ink-3",
+              tab === "deals" ? "bg-amber text-paper" : "bg-paper-2 text-ink-3",
             )}>
-              {pipelineLeads.length}
+              {qualifiedDeals.length}
             </span>
           </button>
           <p className="ml-auto text-[11px] text-ink-3 pb-1">
-            {tab === "inbox"
-              ? "Raw leads — no plan picked yet. Qualify to move into Pipeline."
-              : "Qualified deals with plan + value, flowing through stages."}
+            {tab === "leads"
+              ? "Raw inquiries — no plan picked yet. Qualify to move into Deals."
+              : "Qualified opportunities with plan + value, flowing through stages."}
           </p>
         </div>
       )}
@@ -343,8 +346,8 @@ export default function LeadsPage() {
         />
       )}
 
-      {/* Kanban — only shows on Pipeline tab (raw leads in Inbox have no
-          meaningful stage flow, so we force list view there). */}
+      {/* Kanban — only shows on Deals tab (raw leads in the Leads tab have
+          no meaningful stage flow, so we force list view there). */}
       {!isLoading && !error && leads && leads.length > 0 && effectiveView === "kanban" && (
         <>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3 overflow-x-auto pb-4">
@@ -426,7 +429,7 @@ export default function LeadsPage() {
       )}
 
       {/* List view — sortable table, designed for scanning at 50+ leads.
-          Also the only view available on Inbox (triage queue). */}
+          Also the only view available on the Leads tab (triage queue). */}
       {!isLoading && !error && leads && leads.length > 0 && effectiveView === "list" && (
         <LeadListView
           leads={filtered}

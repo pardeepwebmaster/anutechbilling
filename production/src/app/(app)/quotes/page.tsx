@@ -110,21 +110,35 @@ export default function QuotesPage() {
     router.push(`/quotes/new?${params.toString()}` as any);
   };
 
-  // Counts per status
+  // Counts per status — adds an "invoiced" bucket on top of the quote.status
+  // enum, derived from payment_status. Truly-done deals (accepted + paid +
+  // GST invoice issued) get their own tab; the Accepted tab then surfaces
+  // only the still-in-flight ones (accepted but money flow incomplete).
   const counts = React.useMemo(() => {
-    const map: Record<string, number> = { all: quotes?.length ?? 0 };
+    const map: Record<string, number> = { all: quotes?.length ?? 0, invoiced: 0 };
     for (const q of quotes ?? []) {
-      map[q.status] = (map[q.status] ?? 0) + 1;
+      if (q.payment_status === "invoiced") {
+        map.invoiced += 1;
+        // also count under the underlying status (usually 'accepted') for
+        // tracking, but the Accepted tab excludes invoiced ones below
+        map[q.status] = (map[q.status] ?? 0) + 1;
+      } else {
+        map[q.status] = (map[q.status] ?? 0) + 1;
+      }
     }
     return map;
   }, [quotes]);
+
+  // Accepted-but-not-yet-invoiced count for the tab badge
+  const acceptedActive = (counts.accepted ?? 0) - (counts.invoiced ?? 0);
 
   const tabs: TabBarItem[] = [
     { id: "all",      label: "All",      count: counts.all ?? 0 },
     { id: "draft",    label: "Draft",    count: counts.draft ?? 0, dot: "slate" },
     { id: "sent",     label: "Sent",     count: counts.sent ?? 0, dot: "amber" },
     { id: "viewed",   label: "Viewed",   count: counts.viewed ?? 0, dot: "indigo" },
-    { id: "accepted", label: "Accepted", count: counts.accepted ?? 0, dot: "emerald" },
+    { id: "accepted", label: "Accepted", count: acceptedActive,        dot: "emerald" },
+    { id: "invoiced", label: "Invoiced", count: counts.invoiced ?? 0,  dot: "emerald" },
     { id: "expired",  label: "Expired",  count: (counts.expired ?? 0) + (counts.rejected ?? 0), dot: "rose" },
   ];
 
@@ -132,6 +146,12 @@ export default function QuotesPage() {
   const filtered = (quotes ?? []).filter((q) => {
     if (tab === "expired") {
       if (q.status !== "expired" && q.status !== "rejected") return false;
+    } else if (tab === "invoiced") {
+      // Invoiced bucket is defined by payment_status, not quote.status
+      if (q.payment_status !== "invoiced") return false;
+    } else if (tab === "accepted") {
+      // Accepted tab excludes those that have already graduated to invoiced
+      if (q.status !== "accepted" || q.payment_status === "invoiced") return false;
     } else if (tab !== "all" && q.status !== tab) return false;
     if (!search.trim()) return true;
     const s = search.toLowerCase();

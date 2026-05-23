@@ -62,6 +62,7 @@ export default function LeadsPage() {
 
   const { data: leads, isLoading, error, refetch } = useLeads();
   const updateStage = useUpdateLeadStage();
+  const { data: currentUser } = useCurrentUser();
 
   const [search, setSearch] = React.useState("");
   const [dragId, setDragId] = React.useState<string | null>(null);
@@ -234,27 +235,79 @@ export default function LeadsPage() {
         </div>
       </div>
 
-      {/* AI lead intelligence */}
-      {!isLoading && leads && leads.length > 0 && (
-        <div className="mb-4">
-          <GeminiCard
-            title="Lead intelligence · Today"
-            actions={
-              <>
-                <Button size="sm" variant="primary" icon="phone" onClick={() => toast("Call queued")}>
-                  Call top lead now
-                </Button>
-                <Button size="sm" icon="mail" onClick={() => toast("Nudge drafted")}>
-                  Send nudge
-                </Button>
-              </>
-            }
-          >
-            <b className="text-ink">{Math.min(3, filtered.filter((l) => l.stage === "quote" || l.stage === "trial").length)} hot leads worth focusing today.</b>{" "}
-            Leads in <b>Quote Sent</b> or <b>Trial Active</b> have the highest conversion. Prioritize follow-ups today.
-          </GeminiCard>
-        </div>
-      )}
+      {/* AI lead intelligence
+          "Hot leads" = highest-value rows in quote/trial stages — these
+          convert at the highest rate per the prototype-era data, and they're
+          the ones a rep should actually touch today. The two action buttons
+          target the single TOP hot lead (highest value) — Call opens the
+          phone dialer; Send nudge opens the mail client with a pre-written
+          follow-up. Both gracefully degrade if the contact info is missing. */}
+      {!isLoading && leads && leads.length > 0 && (() => {
+        const hotLeads = filtered
+          .filter((l) => l.stage === "quote" || l.stage === "trial")
+          .sort((a, b) => (b.value ?? 0) - (a.value ?? 0));
+        const topHot = hotLeads[0] ?? null;
+
+        const handleCallTop = () => {
+          if (!topHot) { toast.info("No hot leads right now"); return; }
+          if (!topHot.contact_phone) {
+            toast.error(`${topHot.company} has no phone on record · open the lead to add one`);
+            return;
+          }
+          // tel: schemes ignore spaces but be defensive
+          window.location.href = `tel:${topHot.contact_phone.replace(/\s+/g, "")}`;
+        };
+
+        const handleSendNudge = () => {
+          if (!topHot) { toast.info("No hot leads right now"); return; }
+          if (!topHot.contact_email) {
+            toast.error(`${topHot.company} has no email on record · open the lead to add one`);
+            return;
+          }
+          const signoff = currentUser?.tenantName ?? "your team";
+          const subject = `Following up · ${topHot.company}`;
+          const body =
+            `Hi ${topHot.contact_name ?? "there"},\n\n` +
+            `Just checking in on ${topHot.plan ? `the ${topHot.plan} discussion` : "your inquiry"}. ` +
+            `Let me know if you have any questions or want to set up a quick call.\n\n` +
+            `— ${signoff}`;
+          window.location.href = `mailto:${topHot.contact_email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+        };
+
+        return (
+          <div className="mb-4">
+            <GeminiCard
+              title="Lead intelligence · Today"
+              actions={
+                <>
+                  <Button
+                    size="sm"
+                    variant="primary"
+                    icon="phone"
+                    disabled={!topHot}
+                    onClick={handleCallTop}
+                  >
+                    {topHot ? `Call ${topHot.company.split(/\s+/)[0]}` : "Call top lead"}
+                  </Button>
+                  <Button
+                    size="sm"
+                    icon="mail"
+                    disabled={!topHot}
+                    onClick={handleSendNudge}
+                  >
+                    Send nudge
+                  </Button>
+                </>
+              }
+            >
+              <b className="text-ink">{hotLeads.length} hot lead{hotLeads.length === 1 ? "" : "s"} worth focusing today.</b>{" "}
+              {topHot
+                ? <>Top: <b>{topHot.company}</b> ({topHot.plan ?? "—"}, {topHot.value ? rupee(topHot.value, { compact: true }) : "value pending"}). Quote/Trial stages convert highest — prioritize today.</>
+                : <>No leads in Quote Sent or Trial Active right now. Move some forward to surface hot opportunities.</>}
+            </GeminiCard>
+          </div>
+        );
+      })()}
 
       {/* Leads / Deals tab bar — primary separation of raw inquiries vs
           qualified opportunities. Counts come from the SEARCH-FILTERED data

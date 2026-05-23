@@ -11,6 +11,9 @@
 "use client";
 
 import * as React from "react";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
 import { toast } from "sonner";
 import { Button, IconButton } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -20,6 +23,8 @@ import { Input } from "@/components/ui/input";
 import { TabBar, type TabBarItem } from "@/components/ui/tabs";
 import { Avatar } from "@/components/ui/avatar";
 import { useCurrentUser } from "@/lib/hooks/useCurrentUser";
+import { useUpdateTenant } from "@/lib/queries/tenant";
+import { isValidGstin } from "@/lib/utils";
 
 // ─── Demo data ────────────────────────────────────────────────────────────────
 
@@ -70,56 +75,167 @@ function Field({
 
 // ─── Company tab ──────────────────────────────────────────────────────────────
 
+const companySchema = z.object({
+  name:       z.string().min(1, "Required").max(120),
+  gstin:      z.string().trim().optional().refine(
+    (v) => !v || isValidGstin(v),
+    "Must be a valid 15-char GSTIN (e.g. 27AABCE1234D1Z9)",
+  ),
+  state:      z.string().trim().max(40).optional(),
+  state_code: z.string().trim().regex(/^\d{0,2}$/, "1–2 digit code (e.g. 27)").optional(),
+  email:      z.string().email("Invalid email").or(z.literal("")).optional(),
+  phone:      z.string().trim().max(20).optional(),
+  address:    z.string().trim().max(300).optional(),
+});
+type CompanyForm = z.infer<typeof companySchema>;
+
 function CompanyTab() {
-  const { data: me } = useCurrentUser();
-  // Values reflect the actual tenant — form is read-only preview for now.
-  // Persisting edits is a separate work item (needs UPDATE on tenants table
-  // gated by owner role + RHF submit handler).
+  const { data: me, isLoading } = useCurrentUser();
+  const updateTenant = useUpdateTenant();
+  const isOwner = me?.role === "owner";
+
+  const defaults: CompanyForm = React.useMemo(
+    () => ({
+      name:       me?.tenantName       ?? "",
+      gstin:      me?.tenantGstin      ?? "",
+      state:      me?.tenantState      ?? "",
+      state_code: me?.tenantStateCode  ?? "",
+      email:      me?.tenantEmail      ?? "",
+      phone:      me?.tenantPhone      ?? "",
+      address:    me?.tenantAddress    ?? "",
+    }),
+    [me],
+  );
+
+  const {
+    register,
+    handleSubmit,
+    reset,
+    formState: { errors, isDirty, isSubmitting },
+  } = useForm<CompanyForm>({
+    resolver: zodResolver(companySchema),
+    defaultValues: defaults,
+  });
+
+  // Refresh defaults once useCurrentUser settles
+  React.useEffect(() => { reset(defaults); }, [defaults, reset]);
+
+  const onSubmit = (values: CompanyForm) => {
+    // Normalize empty strings to null so DB nulls stay null and constraints are honored
+    const patch = {
+      name:       values.name.trim(),
+      gstin:      values.gstin?.trim()      || null,
+      state:      values.state?.trim()      || null,
+      state_code: values.state_code?.trim() || null,
+      email:      values.email?.trim()      || me?.tenantEmail || "",  // keep existing if blanked — email is NOT NULL on tenants
+      phone:      values.phone?.trim()      || null,
+      address:    values.address?.trim()    || null,
+    };
+    updateTenant.mutate(patch, { onSuccess: () => reset(values) });
+  };
+
   return (
     <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
       {/* Company information */}
       <Card className="p-5">
-        <div className="mb-4 flex items-center justify-between">
-          <p className="text-sm font-semibold text-ink">Company information</p>
-          <Badge kind="muted">Read-only preview</Badge>
-        </div>
-        <div className="space-y-3">
-          <Field label="Legal name">
-            <Input key={me?.tenantName} defaultValue={me?.tenantName ?? ""} readOnly />
-          </Field>
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="GSTIN">
-              <Input key={me?.tenantGstin} className="font-mono" defaultValue={me?.tenantGstin ?? ""} placeholder="Not set" readOnly />
-            </Field>
-            <Field label="State code">
-              <Input key={me?.tenantStateCode} className="font-mono" defaultValue={me?.tenantStateCode ?? ""} placeholder="—" readOnly />
-            </Field>
+        <form onSubmit={handleSubmit(onSubmit)} noValidate>
+          <div className="mb-4 flex items-center justify-between">
+            <p className="text-sm font-semibold text-ink">Company information</p>
+            {!isOwner && <Badge kind="muted">Owner-only · view</Badge>}
+            {isOwner && isDirty && <Badge kind="warning" dot>Unsaved changes</Badge>}
           </div>
-          <Field label="Registered state">
-            <Input key={me?.tenantState} defaultValue={me?.tenantState ?? ""} placeholder="Not set" readOnly />
-          </Field>
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Billing email">
-              <Input key={me?.tenantEmail} className="font-mono" defaultValue={me?.tenantEmail ?? ""} placeholder="—" readOnly />
-            </Field>
-            <Field label="Phone">
-              <Input key={me?.tenantPhone} className="font-mono" defaultValue={me?.tenantPhone ?? ""} placeholder="—" readOnly />
-            </Field>
-          </div>
-          <Field label="Currency">
-            <Input defaultValue="INR (₹)" readOnly />
-          </Field>
-          <Field label="Address">
-            <textarea
-              key={me?.tenantAddress}
-              defaultValue={me?.tenantAddress ?? ""}
-              placeholder="Not set"
-              rows={3}
-              readOnly
-              className="w-full rounded-md border border-hairline bg-paper px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-amber resize-none"
-            />
-          </Field>
-        </div>
+
+          {isLoading ? (
+            <p className="text-xs text-ink-3">Loading…</p>
+          ) : (
+            <fieldset disabled={!isOwner || isSubmitting} className="space-y-3 disabled:opacity-60">
+              <Field label="Legal name *">
+                <Input
+                  placeholder="E.g., Excel Technologies Pvt Ltd"
+                  error={errors.name?.message}
+                  {...register("name")}
+                />
+              </Field>
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="GSTIN">
+                  <Input
+                    className="font-mono uppercase"
+                    placeholder="27AABCE1234D1Z9"
+                    error={errors.gstin?.message}
+                    {...register("gstin")}
+                  />
+                </Field>
+                <Field label="State code">
+                  <Input
+                    className="font-mono"
+                    placeholder="27"
+                    maxLength={2}
+                    error={errors.state_code?.message}
+                    {...register("state_code")}
+                  />
+                </Field>
+              </div>
+              <Field label="Registered state">
+                <Input
+                  placeholder="E.g., Maharashtra"
+                  error={errors.state?.message}
+                  {...register("state")}
+                />
+              </Field>
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Billing email">
+                  <Input
+                    type="email"
+                    className="font-mono"
+                    placeholder="billing@example.in"
+                    error={errors.email?.message}
+                    {...register("email")}
+                  />
+                </Field>
+                <Field label="Phone">
+                  <Input
+                    className="font-mono"
+                    placeholder="+91 98765 43210"
+                    error={errors.phone?.message}
+                    {...register("phone")}
+                  />
+                </Field>
+              </div>
+              <Field label="Currency">
+                <Input defaultValue="INR (₹)" readOnly title="Multi-currency support coming later" />
+              </Field>
+              <Field label="Address">
+                <textarea
+                  placeholder="Building, street, city, state, PIN"
+                  rows={3}
+                  className="w-full rounded-md border border-hairline bg-paper px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-amber resize-none"
+                  {...register("address")}
+                />
+                {errors.address && (
+                  <p className="mt-1 text-xs text-rose">{errors.address.message}</p>
+                )}
+              </Field>
+
+              <div className="flex items-center justify-end gap-2 pt-2">
+                {isDirty && (
+                  <Button type="button" variant="ghost" size="sm" onClick={() => reset(defaults)}>
+                    Discard
+                  </Button>
+                )}
+                <Button
+                  type="submit"
+                  size="sm"
+                  variant="primary"
+                  icon="check"
+                  loading={updateTenant.isPending}
+                  disabled={!isDirty || !isOwner}
+                >
+                  Save changes
+                </Button>
+              </div>
+            </fieldset>
+          )}
+        </form>
       </Card>
 
       {/* Team members */}
@@ -257,36 +373,18 @@ function ComingSoon({ label }: { label: string }) {
 
 export default function SettingsPage() {
   const [tab, setTab] = React.useState("company");
-  const [saving, setSaving] = React.useState(false);
-
-  async function handleSave() {
-    setSaving(true);
-    await new Promise((r) => setTimeout(r, 600));
-    setSaving(false);
-    toast.success("Settings saved");
-  }
 
   return (
     <div className="mx-auto max-w-screen-xl px-8 pb-20 pt-7">
       {/* ── Page header ── */}
-      <div className="mb-6 flex items-start justify-between gap-4">
-        <div>
-          <p className="mb-0.5 text-xs font-medium uppercase tracking-widest text-ink-3">
-            System
-          </p>
-          <h1 className="font-serif text-3xl text-ink">Settings & Team</h1>
-          <p className="mt-1 text-sm text-ink-3">
-            Configure your reseller business
-          </p>
-        </div>
-        <Button
-          variant="primary"
-          onClick={handleSave}
-          loading={saving}
-        >
-          <Icon name="check" size={14} />
-          Save changes
-        </Button>
+      <div className="mb-6">
+        <p className="mb-0.5 text-xs font-medium uppercase tracking-widest text-ink-3">
+          System
+        </p>
+        <h1 className="font-serif text-3xl text-ink">Settings & Team</h1>
+        <p className="mt-1 text-sm text-ink-3">
+          Configure your reseller business
+        </p>
       </div>
 
       {/* ── Tabs ── */}

@@ -228,7 +228,9 @@ export default function LeadsPage() {
           </div>
           <Button icon="filter">Filter</Button>
           <Button icon="download">Import CSV</Button>
-          <Button variant="primary" icon="plus" onClick={() => setAddOpen(true)}>Add Lead</Button>
+          <Button variant="primary" icon="plus" onClick={() => setAddOpen(true)}>
+            {tab === "leads" ? "Add Lead" : "Add Deal"}
+          </Button>
         </div>
       </div>
 
@@ -413,7 +415,7 @@ export default function LeadsPage() {
                       stageLeads.length === 0 ? "" : "mt-1"
                     )}
                   >
-                    <Icon name="plus" size={12} /> Add lead
+                    <Icon name="plus" size={12} /> Add deal
                   </button>
                 </div>
               );

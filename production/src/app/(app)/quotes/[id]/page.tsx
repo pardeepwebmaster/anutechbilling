@@ -368,13 +368,34 @@ export default function QuoteDetailPage() {
           </div>
         )}
 
-        {quote.status === "accepted" && quote.payment_status === "received" && (
+        {/* Generate Tax Invoice — legally allowed both for fully-received AND
+            partial-paid quotes per CGST §13(2) (supply triggers invoicing,
+            not full payment) + Rule 47 (30-day clock from first advance).
+            The frozen advance-adjustment snapshot in the Invoice PDF shows
+            customer exactly how much was already received via RV(s) and
+            what's still due. */}
+        {quote.status === "accepted"
+          && (quote.payment_status === "received" || quote.payment_status === "partial") && (
           <div className="flex items-center justify-between gap-3 flex-wrap">
             <div className="text-sm">
-              <span className="font-medium text-emerald">
-                ✓ Payment of {rupee(quote.payment_amount ?? total)} received via {quote.payment_method?.toUpperCase()}
-              </span>{" "}
-              <span className="text-ink-3">on {quote.payment_received_at ? formatDate(quote.payment_received_at) : "—"}. You can now generate the GST invoice.</span>
+              {quote.payment_status === "received" ? (
+                <>
+                  <span className="font-medium text-emerald">
+                    ✓ Payment of {rupee(quote.payment_amount ?? total)} received via {quote.payment_method?.toUpperCase()}
+                  </span>{" "}
+                  <span className="text-ink-3">on {quote.payment_received_at ? formatDate(quote.payment_received_at) : "—"}. You can now generate the GST invoice.</span>
+                </>
+              ) : (
+                <>
+                  <span className="font-medium text-amber-ink">
+                    ⓘ Partial payment received · {rupee(quote.payment_amount ?? 0)} of {rupee(total)}
+                  </span>{" "}
+                  <span className="text-ink-3">
+                    — service started? Issue the GST invoice now (legally allowed under CGST §13(2)).
+                    Net payable on invoice will be <b className="text-ink">{rupee(Math.max(0, total - (quote.payment_amount ?? 0)))}</b>.
+                  </span>
+                </>
+              )}
             </div>
             <Button
               variant="primary"

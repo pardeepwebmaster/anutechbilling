@@ -66,6 +66,19 @@ export default function LeadsPage() {
   const [addOpen, setAddOpen]   = React.useState(false);
   const [selected, setSelected] = React.useState<Lead | null>(null);
   const [editingLead, setEditingLead] = React.useState<Lead | null>(null);
+  // Kanban is great for stage flow; list view is needed once you have 50+ leads
+  // and want to scan by value/age/owner. Persisted in localStorage so the user's
+  // preferred view sticks across sessions.
+  const [view, setView] = React.useState<"kanban" | "list">(() => {
+    if (typeof window === "undefined") return "kanban";
+    return (window.localStorage.getItem("leads-view") as "kanban" | "list") ?? "kanban";
+  });
+  React.useEffect(() => {
+    if (typeof window !== "undefined") window.localStorage.setItem("leads-view", view);
+  }, [view]);
+  // Sort state for the list view (kanban ignores this)
+  const [sortBy, setSortBy] = React.useState<"created" | "value" | "company" | "stage" | "age">("created");
+  const [sortDir, setSortDir] = React.useState<"asc" | "desc">("desc");
 
   // ── Deep-link: open the drawer for the lead in ?lead=<id> ──
   // Runs once when leads load and the URL param is present.
@@ -152,6 +165,33 @@ export default function LeadsPage() {
               onChange={(e) => setSearch(e.target.value)}
             />
           </div>
+          {/* View toggle — Kanban for stage flow, List for scale (50+ leads) */}
+          <div className="inline-flex rounded-md border border-hairline overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setView("kanban")}
+              className={cn(
+                "px-2.5 py-1.5 text-xs font-medium inline-flex items-center gap-1.5 transition-colors",
+                view === "kanban" ? "bg-ink text-paper" : "bg-paper text-ink-2 hover:bg-paper-2",
+              )}
+              aria-pressed={view === "kanban"}
+              title="Kanban view — best for stage flow"
+            >
+              <Icon name="layout" size={13} /> Kanban
+            </button>
+            <button
+              type="button"
+              onClick={() => setView("list")}
+              className={cn(
+                "px-2.5 py-1.5 text-xs font-medium inline-flex items-center gap-1.5 transition-colors border-l border-hairline",
+                view === "list" ? "bg-ink text-paper" : "bg-paper text-ink-2 hover:bg-paper-2",
+              )}
+              aria-pressed={view === "list"}
+              title="List view — best for scanning many leads by value/age"
+            >
+              <Icon name="more_h" size={13} /> List
+            </button>
+          </div>
           <Button icon="filter">Filter</Button>
           <Button icon="download">Import CSV</Button>
           <Button variant="primary" icon="plus" onClick={() => setAddOpen(true)}>Add Lead</Button>
@@ -220,7 +260,7 @@ export default function LeadsPage() {
       )}
 
       {/* Kanban */}
-      {!isLoading && !error && leads && leads.length > 0 && (
+      {!isLoading && !error && leads && leads.length > 0 && view === "kanban" && (
         <>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3 overflow-x-auto pb-4">
             {LEAD_STAGES.map((stage) => {
@@ -298,6 +338,20 @@ export default function LeadsPage() {
             Drag any card across columns to update stage. Activity log updates automatically.
           </div>
         </>
+      )}
+
+      {/* List view — sortable table, designed for scanning at 50+ leads */}
+      {!isLoading && !error && leads && leads.length > 0 && view === "list" && (
+        <LeadListView
+          leads={filtered}
+          sortBy={sortBy}
+          sortDir={sortDir}
+          onSort={(col) => {
+            if (sortBy === col) setSortDir(sortDir === "asc" ? "desc" : "asc");
+            else { setSortBy(col); setSortDir(col === "company" ? "asc" : "desc"); }
+          }}
+          onRowClick={(l) => setSelected(l)}
+        />
       )}
 
       {/* No results from search */}
@@ -631,6 +685,161 @@ function LeadDetailSheet({
         </SheetFooter>
       </SheetContent>
     </Sheet>
+  );
+}
+
+// ============================================================
+// LeadListView — table view for scanning leads at scale (50+).
+// Same data source + same row-click drawer as Kanban; just a different lens.
+// ============================================================
+
+type SortCol = "created" | "value" | "company" | "stage" | "age";
+
+const STAGE_DOT: Record<Lead["stage"], string> = {
+  new:     "bg-slate",
+  contact: "bg-amber",
+  demo:    "bg-indigo",
+  trial:   "bg-rose",
+  quote:   "bg-indigo",
+  won:     "bg-emerald",
+  lost:    "bg-ink-3",
+};
+const STAGE_LABEL: Record<Lead["stage"], string> = {
+  new: "New", contact: "Contacted", demo: "Demo Done", trial: "Trial Active",
+  quote: "Quote Sent", won: "Won", lost: "Lost",
+};
+
+/** Days since `updated_at`. >14 means stale. */
+function daysSince(iso: string): number {
+  return Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
+}
+
+function LeadListView({
+  leads,
+  sortBy,
+  sortDir,
+  onSort,
+  onRowClick,
+}: {
+  leads: Lead[];
+  sortBy: SortCol;
+  sortDir: "asc" | "desc";
+  onSort: (col: SortCol) => void;
+  onRowClick: (l: Lead) => void;
+}) {
+  // Apply sort (memo so we don't resort on every render)
+  const sorted = React.useMemo(() => {
+    const out = [...leads];
+    const dir = sortDir === "asc" ? 1 : -1;
+    out.sort((a, b) => {
+      switch (sortBy) {
+        case "value":   return ((a.value ?? 0) - (b.value ?? 0)) * dir;
+        case "company": return a.company.localeCompare(b.company) * dir;
+        case "stage":   return a.stage.localeCompare(b.stage) * dir;
+        case "age":     return (daysSince(a.updated_at) - daysSince(b.updated_at)) * dir;
+        case "created":
+        default:        return (new Date(a.created_at).getTime() - new Date(b.created_at).getTime()) * dir;
+      }
+    });
+    return out;
+  }, [leads, sortBy, sortDir]);
+
+  const SortHeader = ({ col, label, align = "left" }: { col: SortCol; label: string; align?: "left" | "right" }) => (
+    <th
+      onClick={() => onSort(col)}
+      className={cn(
+        "p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider cursor-pointer select-none hover:text-ink",
+        align === "right" ? "text-right" : "text-left",
+      )}
+    >
+      <span className="inline-flex items-center gap-1">
+        {label}
+        {sortBy === col && (
+          <Icon name={sortDir === "asc" ? "chevron_up" : "chevron_down"} size={11} />
+        )}
+      </span>
+    </th>
+  );
+
+  return (
+    <div className="border border-hairline rounded-md overflow-hidden bg-paper">
+      <table className="w-full">
+        <thead className="bg-paper-2 border-b border-hairline">
+          <tr>
+            <SortHeader col="company" label="Company" />
+            <th className="p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider text-left">Contact</th>
+            <th className="p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider text-left">Plan</th>
+            <th className="p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider text-right">Seats</th>
+            <SortHeader col="value" label="Value" align="right" />
+            <SortHeader col="stage" label="Stage" />
+            <SortHeader col="created" label="Created" />
+            <SortHeader col="age" label="Last update" />
+          </tr>
+        </thead>
+        <tbody>
+          {sorted.map((lead) => {
+            const stale = daysSince(lead.updated_at) > 14 && lead.stage !== "won" && lead.stage !== "lost";
+            const age   = daysSince(lead.updated_at);
+            return (
+              <tr
+                key={lead.id}
+                data-lead-id={lead.id}
+                onClick={() => onRowClick(lead)}
+                className="border-b border-hairline last:border-0 hover:bg-paper-2/40 cursor-pointer transition-colors"
+              >
+                <td className="p-3">
+                  <div className="flex items-center gap-2">
+                    {stale && (
+                      <span
+                        className="w-2 h-2 rounded-full bg-rose shrink-0"
+                        title={`Stale — no activity for ${age} days`}
+                      />
+                    )}
+                    <div className="min-w-0">
+                      <div className="font-medium text-ink truncate">{lead.company}</div>
+                      <div className="text-[10px] text-ink-3 font-mono">{lead.id}</div>
+                    </div>
+                  </div>
+                </td>
+                <td className="p-3 text-sm">
+                  <div className="text-ink">{lead.contact_name ?? "—"}</div>
+                  <div className="text-[11px] text-ink-3 font-mono truncate max-w-[180px]">
+                    {lead.contact_email ?? lead.contact_phone ?? ""}
+                  </div>
+                </td>
+                <td className="p-3 text-sm text-ink-2">{lead.plan ?? "—"}</td>
+                <td className="p-3 text-right tabular-nums text-sm">{lead.seats ?? "—"}</td>
+                <td className="p-3 text-right tabular-nums text-sm font-medium">
+                  {lead.value ? rupee(lead.value) : <span className="text-ink-3">—</span>}
+                </td>
+                <td className="p-3">
+                  <span className="inline-flex items-center gap-1.5 text-xs">
+                    <span className={cn("w-1.5 h-1.5 rounded-full", STAGE_DOT[lead.stage])} />
+                    {STAGE_LABEL[lead.stage]}
+                  </span>
+                </td>
+                <td className="p-3 text-sm text-ink-2">{formatDate(lead.created_at)}</td>
+                <td className="p-3 text-sm">
+                  <span className={cn(
+                    "tabular-nums",
+                    stale ? "text-rose font-medium" : "text-ink-3",
+                  )}>
+                    {age === 0 ? "today" : age === 1 ? "1d ago" : `${age}d ago`}
+                  </span>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      {sorted.length === 0 && (
+        <div className="p-8 text-center text-sm text-ink-3 italic">No leads match.</div>
+      )}
+      <div className="px-3 py-2 border-t border-hairline bg-paper-2/40 text-[11px] text-ink-3 flex items-center gap-2">
+        <Icon name="info" size={11} />
+        Click any row to open the lead drawer · Red dot = stale (no activity 14+ days) · Click column headers to sort
+      </div>
+    </div>
   );
 }
 

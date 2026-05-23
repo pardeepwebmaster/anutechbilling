@@ -391,11 +391,50 @@ export default function QuotesPage() {
                               <Link href={`/quotes/${q.id}` as any}>Open</Link>
                             </Button>
                           )}
-                          {q.status === "accepted" && (
-                            <Button asChild size="sm" icon="receipt">
-                              <Link href={`/quotes/${q.id}` as any}>Process</Link>
-                            </Button>
-                          )}
+                          {q.status === "accepted" && (() => {
+                            // What happens NEXT on an accepted quote depends on
+                            // how far the money flow has progressed. The button
+                            // tells the operator exactly which step is pending.
+                            const ps = q.payment_status;
+                            if (ps === "invoiced") {
+                              // Terminal — money flow complete, jump to the
+                              // actual invoice (auto-opens that dialog via
+                              // ?open=INV-XX deep link on /invoices)
+                              return (
+                                <Button asChild size="sm" icon="receipt">
+                                  <Link
+                                    href={
+                                      q.invoice_id
+                                        ? (`/invoices?open=${q.invoice_id}` as any)
+                                        : (`/quotes/${q.id}` as any)
+                                    }
+                                  >
+                                    Invoiced
+                                  </Link>
+                                </Button>
+                              );
+                            }
+                            if (ps === "received") {
+                              return (
+                                <Button asChild size="sm" variant="primary" icon="receipt">
+                                  <Link href={`/quotes/${q.id}` as any}>Generate invoice</Link>
+                                </Button>
+                              );
+                            }
+                            if (ps === "partial") {
+                              return (
+                                <Button asChild size="sm" icon="rupee">
+                                  <Link href={`/quotes/${q.id}` as any}>Continue billing</Link>
+                                </Button>
+                              );
+                            }
+                            // 'none' or 'awaiting' — money hasn't started flowing yet
+                            return (
+                              <Button asChild size="sm" variant="primary" icon="rupee">
+                                <Link href={`/quotes/${q.id}` as any}>Record payment</Link>
+                              </Button>
+                            );
+                          })()}
                           {(q.status === "expired" || q.status === "rejected") && (
                             <Button asChild size="sm" icon="copy">
                               <Link href={`/quotes/new` as any}>Re-quote</Link>

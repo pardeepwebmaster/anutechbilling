@@ -13,6 +13,7 @@
 
 import * as React from "react";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useInvoices, useQuotesAwaitingInvoice, useGenerateInvoice } from "@/lib/queries/invoices";
 import { useQuoteByInvoiceId } from "@/lib/queries/quotes";
 import { usePaymentsByQuote } from "@/lib/queries/payments";
@@ -34,6 +35,12 @@ import { rupee, formatDate, daysBetween } from "@/lib/utils";
 import type { Invoice } from "@/lib/supabase/database.types";
 
 export default function InvoicesPage() {
+  const router       = useRouter();
+  const searchParams = useSearchParams();
+  /** Deep-link target: `?open=INV-XXX` auto-opens that invoice's dialog (set by
+   *  the "Invoiced" button on the Quotes list). Consumed once + URL cleaned. */
+  const openInvoiceId = searchParams.get("open");
+
   const { data: invoices, isLoading, error, refetch } = useInvoices();
   const { data: pending } = useQuotesAwaitingInvoice();
   const generateInvoice = useGenerateInvoice();
@@ -41,6 +48,16 @@ export default function InvoicesPage() {
   const [selected, setSelected] = React.useState<Set<string>>(new Set());
   const [pendingSelected, setPendingSelected] = React.useState<Set<string>>(new Set());
   const [generating, setGenerating] = React.useState(false);
+
+  // Strip the ?open param once the invoice list has loaded the target row,
+  // so refreshing the page doesn't keep re-opening the dialog.
+  React.useEffect(() => {
+    if (!openInvoiceId || !invoices) return;
+    if (!invoices.some((i) => i.id === openInvoiceId)) return;
+    // Wait a tick so the InvoiceRow's autoOpen effect fires first
+    const t = setTimeout(() => router.replace("/invoices" as any), 200);
+    return () => clearTimeout(t);
+  }, [openInvoiceId, invoices, router]);
 
   // Counts
   const counts = React.useMemo(() => {
@@ -460,6 +477,7 @@ export default function InvoicesPage() {
                   inv={inv}
                   checked={selected.has(inv.id)}
                   onToggle={() => toggleOne(inv.id)}
+                  autoOpen={inv.id === openInvoiceId}
                 />
               ))}
             </tbody>
@@ -488,8 +506,28 @@ export default function InvoicesPage() {
 // ============================================================
 // Invoice row
 // ============================================================
-function InvoiceRow({ inv, checked, onToggle }: { inv: Invoice; checked: boolean; onToggle: () => void }) {
+function InvoiceRow({
+  inv,
+  checked,
+  onToggle,
+  autoOpen = false,
+}: {
+  inv: Invoice;
+  checked: boolean;
+  onToggle: () => void;
+  /** When true (set by `?open=INV-XX` deep link), opens the preview dialog
+   *  immediately. Fires once via a ref guard so re-renders don't re-open. */
+  autoOpen?: boolean;
+}) {
   const [previewOpen, setPreviewOpen] = React.useState(false);
+  const autoOpenFired = React.useRef(false);
+
+  React.useEffect(() => {
+    if (autoOpen && !autoOpenFired.current) {
+      autoOpenFired.current = true;
+      setPreviewOpen(true);
+    }
+  }, [autoOpen]);
 
   return (
     <tr className="border-b border-hairline last:border-0 hover:bg-paper-2/40">

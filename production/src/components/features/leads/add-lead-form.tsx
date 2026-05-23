@@ -92,14 +92,19 @@ const PLAN_PRICE_PER_SEAT_PM: Record<string, number> = {
   "Plus + Voice add-on":              1800,
 };
 
+// Plan + seats + value are OPTIONAL on the lead schema.
+//   • Filled → the lead enters the Deal Pipeline as a qualified deal.
+//   • Empty  → the lead lives in the Lead Inbox awaiting qualification.
+// This matches the conceptual split: raw inquiries (Inbox) vs qualified
+// opportunities (Pipeline). Same DB table, different filter cuts.
 const schema = z.object({
   company:       z.string().min(2, "Company name is required"),
   contact_name:  z.string().optional(),
   contact_email: z.string().email("Invalid email").optional().or(z.literal("")),
   contact_phone: z.string().optional(),
-  plan:          z.string().min(1, "Plan is required"),
-  seats:         z.coerce.number().int().min(1, "At least 1 seat").max(10000),
-  value:         z.coerce.number().int().min(0).max(100_000_000),
+  plan:          z.string().optional().or(z.literal("")),
+  seats:         z.coerce.number().int().min(0).max(10000).optional(),
+  value:         z.coerce.number().int().min(0).max(100_000_000).optional(),
   stage:         z.enum(["new", "contact", "demo", "trial", "quote", "won", "lost"]),
   source:        z.string(),
   notes:         z.string().optional(),
@@ -197,6 +202,13 @@ export function AddLeadForm({ open, onOpenChange, editingLead }: AddLeadFormProp
 
   const onSubmit = async (data: FormData) => {
     try {
+      // Normalize empties → null so the DB row honors "not qualified yet".
+      // A raw lead (no plan/seats/value) lives in Inbox; once these get set,
+      // it transitions into the Deal Pipeline.
+      const planVal  = data.plan?.trim()  ? data.plan  : null;
+      const seatsVal = (data.seats !== undefined && data.seats !== null && !Number.isNaN(data.seats) && data.seats > 0) ? data.seats : null;
+      const valueVal = (data.value !== undefined && data.value !== null && !Number.isNaN(data.value) && data.value > 0) ? data.value : null;
+
       if (isEditing && editingLead) {
         // ─── Update existing lead ───
         await updateLead.mutateAsync({
@@ -206,9 +218,9 @@ export function AddLeadForm({ open, onOpenChange, editingLead }: AddLeadFormProp
             contact_name:  data.contact_name  || null,
             contact_email: data.contact_email || null,
             contact_phone: data.contact_phone || null,
-            plan:          data.plan,
-            seats:         data.seats,
-            value:         data.value,
+            plan:          planVal,
+            seats:         seatsVal,
+            value:         valueVal,
             stage:         data.stage,
             source:        data.source,
             notes:         data.notes || null,
@@ -223,9 +235,9 @@ export function AddLeadForm({ open, onOpenChange, editingLead }: AddLeadFormProp
           contact_name:  data.contact_name  || null,
           contact_email: data.contact_email || null,
           contact_phone: data.contact_phone || null,
-          plan:          data.plan,
-          seats:         data.seats,
-          value:         data.value,
+          plan:          planVal,
+          seats:         seatsVal,
+          value:         valueVal,
           stage:         data.stage,
           source:        data.source,
           notes:         data.notes || null,
@@ -288,18 +300,18 @@ export function AddLeadForm({ open, onOpenChange, editingLead }: AddLeadFormProp
             </FormField>
           </div>
 
-          {/* Plan */}
-          <FormField label="Interested plan" required htmlFor="plan">
+          {/* Plan — optional. If empty → lead lands in Inbox (raw, awaiting
+              qualification). If picked → lead enters Pipeline as a deal. */}
+          <FormField label="Interested plan" htmlFor="plan">
             <Select
               value={plan}
               onValueChange={(v) => {
                 setPlan(v);
-                // also push to RHF so validation passes
                 (register("plan") as any).onChange({ target: { value: v, name: "plan" } });
               }}
             >
               <SelectTrigger id="plan" error={!!errors.plan}>
-                <SelectValue placeholder="Pick a plan" />
+                <SelectValue placeholder="Skip to capture as raw lead (Inbox)" />
               </SelectTrigger>
               <SelectContent>
                 {PLANS.map((p) => (
@@ -310,23 +322,26 @@ export function AddLeadForm({ open, onOpenChange, editingLead }: AddLeadFormProp
               </SelectContent>
             </Select>
             <input type="hidden" {...register("plan")} value={plan} />
-            {errors.plan && (
-              <p className="text-xs text-rose mt-1">{errors.plan.message}</p>
-            )}
+            <p className="text-[11px] text-ink-3 mt-1">
+              {plan
+                ? "Will go straight into Deal Pipeline as a qualified opportunity."
+                : "Leave empty to drop into Lead Inbox — you can qualify later."}
+            </p>
           </FormField>
 
-          {/* Seats + Value in grid */}
+          {/* Seats + Value in grid — both optional now */}
           <div className="grid grid-cols-2 gap-3">
-            <FormField label="Seats" required htmlFor="seats">
+            <FormField label="Seats" htmlFor="seats">
               <Input
                 id="seats"
                 type="number"
-                min={1}
+                min={0}
+                placeholder="—"
                 error={errors.seats?.message}
-                {...register("seats", { valueAsNumber: true })}
+                {...register("seats", { valueAsNumber: true, setValueAs: (v) => v === "" || v === null ? undefined : Number(v) })}
               />
             </FormField>
-            <FormField label="Deal value (₹)" required htmlFor="value">
+            <FormField label="Deal value (₹)" htmlFor="value">
               <Input
                 id="value"
                 type="text"
@@ -336,13 +351,13 @@ export function AddLeadForm({ open, onOpenChange, editingLead }: AddLeadFormProp
                 {...register("value")}
               />
               {/* Auto-calc hint */}
-              {PLAN_PRICE_PER_SEAT_PM[plan] && watchedSeats >= 1 && (
+              {PLAN_PRICE_PER_SEAT_PM[plan] && (watchedSeats ?? 0) >= 1 && (
                 <p className="mt-1 text-xs text-ink-3">
                   ₹{PLAN_PRICE_PER_SEAT_PM[plan].toLocaleString("en-IN")}/seat/mo
                   {" × "}{watchedSeats} seats × 12 mo
                   {" = "}
                   <span className="font-semibold text-ink">
-                    ₹{(PLAN_PRICE_PER_SEAT_PM[plan] * watchedSeats * 12).toLocaleString("en-IN")}
+                    ₹{(PLAN_PRICE_PER_SEAT_PM[plan] * (watchedSeats ?? 0) * 12).toLocaleString("en-IN")}
                   </span>
                 </p>
               )}

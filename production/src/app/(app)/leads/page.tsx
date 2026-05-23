@@ -110,8 +110,14 @@ export default function LeadsPage() {
     router.replace("/leads" as any);
   }, [focusLeadId, leads, router]);
 
-  // Filtered leads
-  const filtered = React.useMemo(() => {
+  // ── Inbox vs Pipeline split ─────────────────────────────────────────────
+  // Inbox  = raw leads, no plan yet (NULL or empty). Awaiting qualification.
+  // Pipeline = qualified deals (plan set) flowing through stages.
+  // Same DB table; different filter cut so the two concepts don't mix.
+  const [tab, setTab] = React.useState<"inbox" | "pipeline">("pipeline");
+
+  // Search applies BEFORE the tab cut so both views respect the search box.
+  const searched = React.useMemo(() => {
     if (!leads) return [];
     if (!search.trim()) return leads;
     const s = search.toLowerCase();
@@ -124,11 +130,18 @@ export default function LeadsPage() {
     );
   }, [leads, search]);
 
-  // Aggregates
-  const totalValue = filtered.reduce((s, l) => s + (l.value ?? 0), 0);
-  const wonCount = filtered.filter((l) => l.stage === "won").length;
+  const isRaw = (l: Lead) => !l.plan || l.plan.trim() === "";
+  const inboxLeads    = React.useMemo(() => searched.filter(isRaw),       [searched]);
+  const pipelineLeads = React.useMemo(() => searched.filter((l) => !isRaw(l)), [searched]);
+
+  // The Kanban / List views consume this — points at whichever tab is active.
+  const filtered = tab === "inbox" ? inboxLeads : pipelineLeads;
+
+  // Stats are based on Pipeline (where value lives — Inbox leads have no value yet)
+  const totalValue = pipelineLeads.reduce((s, l) => s + (l.value ?? 0), 0);
+  const wonCount = pipelineLeads.filter((l) => l.stage === "won").length;
   const conversion =
-    filtered.length > 0 ? Math.round((wonCount / filtered.length) * 100) : 0;
+    pipelineLeads.length > 0 ? Math.round((wonCount / pipelineLeads.length) * 100) : 0;
 
   // Drag handlers
   const handleDrop = (toStage: Lead["stage"]) => {
@@ -220,6 +233,59 @@ export default function LeadsPage() {
             <b className="text-ink">{Math.min(3, filtered.filter((l) => l.stage === "quote" || l.stage === "trial").length)} hot leads worth focusing today.</b>{" "}
             Leads in <b>Quote Sent</b> or <b>Trial Active</b> have the highest conversion. Prioritize follow-ups today.
           </GeminiCard>
+        </div>
+      )}
+
+      {/* Inbox / Pipeline tab bar — primary separation of raw inquiries vs
+          qualified deals. Counts come from the SEARCH-FILTERED data so the
+          numbers reflect what the user is currently scanning. */}
+      {!isLoading && !error && leads && leads.length > 0 && (
+        <div className="mb-4 flex items-center gap-1 border-b border-hairline">
+          <button
+            type="button"
+            onClick={() => setTab("inbox")}
+            className={cn(
+              "px-3 py-2 text-sm font-medium inline-flex items-center gap-2 transition-colors border-b-2 -mb-px",
+              tab === "inbox"
+                ? "border-amber text-ink"
+                : "border-transparent text-ink-3 hover:text-ink",
+            )}
+            aria-pressed={tab === "inbox"}
+          >
+            <Icon name="inbox" size={14} />
+            Inbox
+            <span className={cn(
+              "text-[10px] tabular-nums rounded-full px-1.5 py-0.5",
+              tab === "inbox" ? "bg-amber text-paper" : "bg-paper-2 text-ink-3",
+            )}>
+              {inboxLeads.length}
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setTab("pipeline")}
+            className={cn(
+              "px-3 py-2 text-sm font-medium inline-flex items-center gap-2 transition-colors border-b-2 -mb-px",
+              tab === "pipeline"
+                ? "border-amber text-ink"
+                : "border-transparent text-ink-3 hover:text-ink",
+            )}
+            aria-pressed={tab === "pipeline"}
+          >
+            <Icon name="target" size={14} />
+            Pipeline
+            <span className={cn(
+              "text-[10px] tabular-nums rounded-full px-1.5 py-0.5",
+              tab === "pipeline" ? "bg-amber text-paper" : "bg-paper-2 text-ink-3",
+            )}>
+              {pipelineLeads.length}
+            </span>
+          </button>
+          <p className="ml-auto text-[11px] text-ink-3 pb-1">
+            {tab === "inbox"
+              ? "Raw leads — no plan picked yet. Qualify to move into Pipeline."
+              : "Qualified deals with plan + value, flowing through stages."}
+          </p>
         </div>
       )}
 

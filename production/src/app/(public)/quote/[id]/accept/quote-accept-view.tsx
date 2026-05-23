@@ -34,14 +34,18 @@ function billingScheduleLabel(c?: LineCommitment): string {
 }
 
 interface Props {
-  quote:        Quote;
-  lineItems:    QuoteLineItem[];
-  tenantName:   string;
-  tenantGstin:  string | null;
-  tenantEmail:  string | null;
+  quote:         Quote;
+  lineItems:     QuoteLineItem[];
+  tenantName:    string;
+  tenantGstin:   string | null;
+  tenantEmail:   string | null;
+  tenantPhone?:  string | null;
+  tenantAddress?: string | null;
 }
 
-export function QuoteAcceptView({ quote, lineItems, tenantName, tenantGstin, tenantEmail }: Props) {
+export function QuoteAcceptView({
+  quote, lineItems, tenantName, tenantGstin, tenantEmail, tenantPhone, tenantAddress,
+}: Props) {
   const [accepting, setAccepting] = React.useState(false);
   const [accepted, setAccepted] = React.useState(quote.status === "accepted");
 
@@ -154,10 +158,19 @@ export function QuoteAcceptView({ quote, lineItems, tenantName, tenantGstin, ten
               <div>
                 <div className="font-serif text-2xl leading-tight">{tenantName}</div>
                 {tenantGstin && (
-                  <div className="text-xs text-ink-3 mt-0.5">GSTIN: {tenantGstin}</div>
+                  <div className="text-xs text-ink-3 mt-0.5">
+                    GSTIN: <span className="font-mono">{tenantGstin}</span>
+                  </div>
                 )}
-                {tenantEmail && (
-                  <div className="text-xs text-ink-3 font-mono">{tenantEmail}</div>
+                {tenantAddress && (
+                  <div className="text-xs text-ink-3 mt-0.5 max-w-[280px]">{tenantAddress}</div>
+                )}
+                {(tenantEmail || tenantPhone) && (
+                  <div className="text-xs text-ink-3 font-mono mt-0.5">
+                    {tenantEmail}
+                    {tenantEmail && tenantPhone && " · "}
+                    {tenantPhone}
+                  </div>
                 )}
               </div>
             </div>

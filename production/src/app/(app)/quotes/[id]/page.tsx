@@ -10,6 +10,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 
 import { useQuote } from "@/lib/queries/quotes";
+import { useGenerateInvoice } from "@/lib/queries/invoices";
 import { createClient } from "@/lib/supabase/client";
 import { Card } from "@/components/ui/card";
 import { Button, IconButton } from "@/components/ui/button";
@@ -117,58 +118,11 @@ export default function QuoteDetailPage() {
     onError: (e) => toast.error((e as Error).message),
   });
 
-  const generateInvoice = useMutation({
-    mutationFn: async () => {
-      if (!quote) throw new Error("Quote not loaded");
-      const supabase = createClient();
-
-      // Get tenant_id
-      const { data: authData } = await supabase.auth.getUser();
-      if (!authData?.user) throw new Error("Not authenticated");
-      const { data: me } = await supabase.from("users").select("tenant_id").eq("id", authData.user.id).single();
-      if (!me) throw new Error("User not linked to tenant");
-
-      // Generate invoice ID
-      const yr = new Date().getFullYear();
-      const rand = Math.floor(Math.random() * 9000 + 1000);
-      const invoiceId = `INV-${yr}-${rand}`;
-
-      const today = new Date().toISOString().slice(0, 10);
-      const dueDate = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
-
-      // Insert invoice
-      const { error: invError } = await supabase.from("invoices").insert({
-        id: invoiceId,
-        tenant_id: me.tenant_id,
-        customer_id: quote.customer_id,
-        customer_name: quote.customer_name,
-        amount: quote.amount ?? 0,
-        status: "paid",                 // already paid
-        invoice_date: today,
-        due_date: dueDate,
-        paid_date: quote.payment_received_at ? quote.payment_received_at.slice(0, 10) : today,
-        razorpay_id: quote.payment_method === "razorpay" ? quote.payment_reference : null,
-        // gst_irn: would be filled in by real IRP integration
-      });
-      if (invError) throw invError;
-
-      // Update quote: link to invoice, mark payment_status invoiced
-      const { error: qErr } = await supabase
-        .from("quotes")
-        .update({ payment_status: "invoiced", invoice_id: invoiceId })
-        .eq("id", params.id);
-      if (qErr) throw qErr;
-
-      return invoiceId;
-    },
-    onSuccess: (invoiceId) => {
-      qc.invalidateQueries({ queryKey: ["quotes"] });
-      qc.invalidateQueries({ queryKey: ["quotes", params.id] });
-      qc.invalidateQueries({ queryKey: ["invoices"] });
-      toast.success(`Invoice ${invoiceId} generated`);
-    },
-    onError: (e) => toast.error((e as Error).message),
-  });
+  // Use the central useGenerateInvoice hook — it calls next_document_number RPC
+  // (sequential GST-compliant), compute_advance_adjustment RPC (frozen
+  // snapshot per Rule 53), and links quote_id correctly. The previous local
+  // implementation used Math.random() which broke all three properties.
+  const generateInvoice = useGenerateInvoice();
 
   // ────────── Loading / Error ──────────
   if (isLoading) {
@@ -426,7 +380,7 @@ export default function QuoteDetailPage() {
               variant="primary"
               icon="receipt"
               loading={generateInvoice.isPending}
-              onClick={() => generateInvoice.mutate()}
+              onClick={() => generateInvoice.mutate(params.id)}
             >
               Generate GST Invoice
             </Button>

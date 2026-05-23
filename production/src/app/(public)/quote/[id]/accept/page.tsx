@@ -56,10 +56,12 @@ export default async function QuoteAcceptPage({ params }: Props) {
     notFound();
   }
 
-  // Fetch tenant name for the brand header
+  // Fetch tenant info for the brand header. Phone + address help the customer
+  // contact the reseller before accepting (especially for India where WhatsApp
+  // calls happen on the visible phone number).
   const { data: tenant } = await supabase
     .from("tenants")
-    .select("name, gstin, email")
+    .select("name, gstin, email, phone, address")
     .eq("id", quote.tenant_id)
     .maybeSingle();
 
@@ -75,6 +77,8 @@ export default async function QuoteAcceptPage({ params }: Props) {
       tenantName={tenant?.name ?? "Reseller"}
       tenantGstin={tenant?.gstin ?? null}
       tenantEmail={tenant?.email ?? null}
+      tenantPhone={tenant?.phone ?? null}
+      tenantAddress={tenant?.address ?? null}
     />
   );
 }

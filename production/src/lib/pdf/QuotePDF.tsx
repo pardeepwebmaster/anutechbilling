@@ -1,0 +1,549 @@
+/**
+ * QuotePDF — server/browser-renderable PDF version of the quote preview.
+ *
+ * Mirrors the layout of `quote-preview-dialog.tsx` but in @react-pdf/renderer
+ * primitives (Document/Page/View/Text). Used by the "Download PDF" button on
+ * the quote detail page and (soon) by the email-send flow that attaches the
+ * generated PDF.
+ *
+ * Layout (A4 portrait):
+ *   1. Brand header  — tenant monogram, name, GSTIN, contact / quotation #, dates
+ *   2. Bill to       — customer name + contact + place-of-supply + HSN/SAC
+ *   3. Line items    — table with qty / rate / amount
+ *   4. Totals        — subtotal / discount / GST split / grand total
+ *   5. Notes         — optional
+ *   6. Terms footer  — payment terms + validity + signoff
+ *
+ * Money is formatted via `rupee()` so Indian lakh/crore grouping is preserved.
+ */
+import {
+  Document,
+  Page,
+  View,
+  Text,
+  StyleSheet,
+} from "@react-pdf/renderer";
+import { rupee, formatDate } from "@/lib/utils";
+import type { QuoteLineItem, LineCommitment } from "@/lib/supabase/database.types";
+
+// ─── Commitment helpers (mirrors QuoteBuilder + dialog) ────────────────────
+
+function invoicesPerYear(c?: LineCommitment): number {
+  if (c === "annual_yearly")      return 1;
+  if (c === "annual_half_yearly") return 2;
+  if (c === "annual_quarterly")   return 4;
+  return 12;
+}
+function billingUnitLabel(c?: LineCommitment): string {
+  if (c === "annual_yearly")      return "/yr";
+  if (c === "annual_half_yearly") return "/half-yr";
+  if (c === "annual_quarterly")   return "/qtr";
+  return "/mo";
+}
+function billingScheduleLabel(c?: LineCommitment): string {
+  if (c === "monthly")            return "Monthly (flex)";
+  if (c === "annual_monthly")     return "Annual commit, monthly billing";
+  if (c === "annual_quarterly")   return "Annual commit, quarterly billing";
+  if (c === "annual_half_yearly") return "Annual commit, half-yearly billing";
+  if (c === "annual_yearly")      return "Annual commit, single yearly invoice";
+  return "Annual";
+}
+
+// ─── Props ────────────────────────────────────────────────────────────────
+
+export interface QuotePDFProps {
+  // Tenant (supplier)
+  tenantName:     string;
+  tenantGstin?:   string | null;
+  tenantEmail?:   string | null;
+  tenantPhone?:   string | null;
+  tenantAddress?: string | null;
+
+  // Quote
+  quoteId:       string;
+  customerName:  string;
+  contactName?:  string | null;
+  contactEmail?: string | null;
+  contactPhone?: string | null;
+  createdDate?:  string | Date | null;
+  expiresDate?:  string | Date | null;
+  validityDays:  number;
+  lineItems:     QuoteLineItem[];
+  subtotal:      number;
+  discountPct:   number;
+  discount:      number;
+  taxable:       number;
+  taxRate:       number;
+  tax:           number;
+  total:         number;
+  interState:    boolean;
+  notes?:        string;
+}
+
+// ─── Styles ───────────────────────────────────────────────────────────────
+
+// @react-pdf/renderer doesn't support Tailwind. We define a tight set of
+// reusable styles that map closely to the dialog's visual hierarchy.
+const COLORS = {
+  ink:    "#1A1A1A",
+  ink2:   "#3A3A3A",
+  ink3:   "#7A7A7A",
+  paper:  "#FFFFFF",
+  amber:  "#C2410C",
+  hairline: "#E4E4E4",
+};
+
+const s = StyleSheet.create({
+  page: {
+    paddingHorizontal: 40,
+    paddingVertical:   36,
+    fontFamily:        "Helvetica",
+    fontSize:          10,
+    color:             COLORS.ink,
+    backgroundColor:   COLORS.paper,
+  },
+
+  // Header
+  header: {
+    flexDirection:    "row",
+    justifyContent:   "space-between",
+    alignItems:       "flex-start",
+    borderBottomWidth: 2,
+    borderBottomColor: COLORS.ink,
+    paddingBottom:    14,
+    marginBottom:     18,
+  },
+  brandBlock: {
+    flexDirection: "row",
+    alignItems:    "flex-start",
+  },
+  brandMonogram: {
+    width:            36,
+    height:           36,
+    backgroundColor:  COLORS.ink,
+    color:            COLORS.paper,
+    fontFamily:       "Helvetica-Bold",
+    fontSize:         18,
+    textAlign:        "center",
+    paddingTop:       7,
+    marginRight:      10,
+  },
+  brandName: {
+    fontFamily: "Helvetica-Bold",
+    fontSize:   16,
+    color:      COLORS.ink,
+  },
+  brandMeta: {
+    fontSize: 9,
+    color:    COLORS.ink3,
+    marginTop: 2,
+  },
+  quoteMetaBlock: {
+    alignItems: "flex-end",
+  },
+  quoteLabel: {
+    fontSize:      8,
+    letterSpacing: 1.5,
+    color:         COLORS.ink3,
+    fontFamily:    "Helvetica-Bold",
+    textTransform: "uppercase",
+  },
+  quoteId: {
+    fontFamily: "Helvetica-Bold",
+    fontSize:   22,
+    color:      COLORS.ink,
+    marginTop:  2,
+  },
+  quoteDate: {
+    fontSize:  9,
+    color:     COLORS.ink3,
+    marginTop: 2,
+  },
+
+  // 2-column block
+  twoCol: {
+    flexDirection:  "row",
+    justifyContent: "space-between",
+    marginBottom:   18,
+  },
+  colLeft:  { flex: 1, paddingRight: 12 },
+  colRight: { flex: 1, alignItems: "flex-end" },
+
+  sectionLabel: {
+    fontSize:      8,
+    letterSpacing: 1.5,
+    color:         COLORS.ink3,
+    fontFamily:    "Helvetica-Bold",
+    textTransform: "uppercase",
+    marginBottom:  3,
+  },
+  customerName: {
+    fontFamily: "Helvetica-Bold",
+    fontSize:   13,
+    color:      COLORS.ink,
+  },
+  customerLine: {
+    fontSize: 10,
+    color:    COLORS.ink2,
+    marginTop: 2,
+  },
+  customerMono: {
+    fontFamily: "Courier",
+    fontSize:   9,
+    color:      COLORS.ink3,
+    marginTop:  1,
+  },
+  metaValue: {
+    fontSize: 10,
+    color:    COLORS.ink,
+    marginTop: 1,
+  },
+  metaValueMono: {
+    fontFamily: "Courier",
+    fontSize:   10,
+  },
+  metaGroup: { marginTop: 8 },
+
+  // Line items table
+  table: { marginBottom: 14 },
+  trHeader: {
+    flexDirection:    "row",
+    borderTopWidth:   2,
+    borderBottomWidth: 2,
+    borderColor:      COLORS.ink,
+    paddingVertical:  6,
+  },
+  tr: {
+    flexDirection:    "row",
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.hairline,
+    paddingVertical:  8,
+  },
+  thDesc:    { flex: 4, fontFamily: "Helvetica-Bold", fontSize: 9, textTransform: "uppercase", letterSpacing: 1 },
+  thQty:     { width: 40, fontFamily: "Helvetica-Bold", fontSize: 9, textTransform: "uppercase", letterSpacing: 1, textAlign: "right" },
+  thRate:    { width: 70, fontFamily: "Helvetica-Bold", fontSize: 9, textTransform: "uppercase", letterSpacing: 1, textAlign: "right" },
+  thAmount:  { width: 90, fontFamily: "Helvetica-Bold", fontSize: 9, textTransform: "uppercase", letterSpacing: 1, textAlign: "right" },
+  tdDesc:    { flex: 4 },
+  tdQty:     { width: 40, fontSize: 10, textAlign: "right" },
+  tdRate:    { width: 70, fontSize: 10, textAlign: "right" },
+  tdAmount:  { width: 90, textAlign: "right" },
+
+  lineName: { fontFamily: "Helvetica-Bold", fontSize: 10, color: COLORS.ink },
+  lineMeta: { fontSize: 9, color: COLORS.ink3, marginTop: 2 },
+  lineAmount: { fontFamily: "Helvetica-Bold", fontSize: 10 },
+  lineAmountSub: { fontSize: 8, color: COLORS.ink3, marginTop: 1 },
+
+  emptyRow: {
+    paddingVertical: 20,
+    textAlign:       "center",
+    color:           COLORS.ink3,
+    fontSize:        10,
+    fontStyle:       "italic",
+  },
+
+  // Totals
+  totalsWrap: {
+    flexDirection:  "row",
+    justifyContent: "flex-end",
+    marginBottom:   16,
+  },
+  totalsBox: { width: 250 },
+  totalRow: {
+    flexDirection:   "row",
+    justifyContent:  "space-between",
+    paddingVertical: 3,
+    fontSize:        10,
+  },
+  totalLabel: { color: COLORS.ink3 },
+  totalValue: { color: COLORS.ink },
+  totalValueAccent: { color: "#059669" /* emerald */ },
+
+  grandTotalDivider: {
+    borderTopWidth: 2,
+    borderTopColor: COLORS.ink,
+    marginTop:      6,
+    paddingTop:     6,
+  },
+  grandLabel: {
+    fontSize:      9,
+    letterSpacing: 1.5,
+    textTransform: "uppercase",
+    fontFamily:    "Helvetica-Bold",
+  },
+  grandValue: {
+    fontFamily: "Helvetica-Bold",
+    fontSize:   18,
+  },
+  perInvoiceRow: {
+    flexDirection:  "row",
+    justifyContent: "space-between",
+    marginTop:      4,
+    fontSize:       9,
+    color:          COLORS.ink3,
+  },
+
+  // Notes
+  notesBox: {
+    borderTopWidth: 1,
+    borderTopColor: COLORS.hairline,
+    paddingTop:     10,
+    marginBottom:   14,
+  },
+  notesText: {
+    fontSize:   10,
+    color:      COLORS.ink2,
+    lineHeight: 1.4,
+  },
+
+  // Footer
+  footer: {
+    borderTopWidth: 1,
+    borderTopColor: COLORS.hairline,
+    paddingTop:     10,
+    marginTop:      16,
+  },
+  footerLine: {
+    fontSize:   9,
+    color:      COLORS.ink3,
+    marginBottom: 3,
+    lineHeight: 1.4,
+  },
+  footerBold: {
+    fontFamily: "Helvetica-Bold",
+    color:      COLORS.ink2,
+  },
+});
+
+// ─── Document ─────────────────────────────────────────────────────────────
+
+export function QuotePDF(props: QuotePDFProps) {
+  const {
+    tenantName, tenantGstin, tenantEmail, tenantPhone, tenantAddress,
+    quoteId, customerName, contactName, contactEmail, contactPhone,
+    createdDate, expiresDate, validityDays,
+    lineItems, subtotal, discountPct, discount, taxable, taxRate, tax, total,
+    interState, notes,
+  } = props;
+
+  const brandInitial = (tenantName?.trim()?.[0] ?? "?").toUpperCase();
+  const created = createdDate ? new Date(createdDate) : new Date();
+  const expires = expiresDate
+    ? new Date(expiresDate)
+    : new Date(Date.now() + validityDays * 86400000);
+
+  // Detect shared billing cycle to render "per invoice" totals if all lines agree
+  const firstCommitment = lineItems[0]?.commitment;
+  const sharedBilling = lineItems.length > 0
+    && lineItems.every((l) => invoicesPerYear(l.commitment) === invoicesPerYear(firstCommitment));
+  const billingN    = sharedBilling ? invoicesPerYear(firstCommitment) : 1;
+  const billingUnit = sharedBilling ? billingUnitLabel(firstCommitment) : "";
+  const perInvoice  = sharedBilling && billingN > 1;
+  const fmt = (n: number) =>
+    perInvoice ? `${rupee(Math.round(n / billingN))}${billingUnit}` : rupee(n);
+
+  return (
+    <Document
+      title={`Quote ${quoteId}`}
+      author={tenantName}
+      subject={`Quotation ${quoteId} for ${customerName}`}
+    >
+      <Page size="A4" style={s.page}>
+
+        {/* ── Header ──────────────────────────────────────────────── */}
+        <View style={s.header}>
+          <View style={s.brandBlock}>
+            <Text style={s.brandMonogram}>{brandInitial}</Text>
+            <View>
+              <Text style={s.brandName}>{tenantName}</Text>
+              {tenantGstin && (
+                <Text style={s.brandMeta}>GSTIN: {tenantGstin}</Text>
+              )}
+              {tenantAddress && (
+                <Text style={s.brandMeta}>{tenantAddress}</Text>
+              )}
+              {(tenantEmail || tenantPhone) && (
+                <Text style={s.brandMeta}>
+                  {[tenantEmail, tenantPhone].filter(Boolean).join("  ·  ")}
+                </Text>
+              )}
+            </View>
+          </View>
+          <View style={s.quoteMetaBlock}>
+            <Text style={s.quoteLabel}>Quotation</Text>
+            <Text style={s.quoteId}>{quoteId}</Text>
+            <Text style={s.quoteDate}>Dated: {formatDate(created)}</Text>
+            <Text style={s.quoteDate}>Valid until: {formatDate(expires)}</Text>
+          </View>
+        </View>
+
+        {/* ── Bill to + Meta ──────────────────────────────────────── */}
+        <View style={s.twoCol}>
+          <View style={s.colLeft}>
+            <Text style={s.sectionLabel}>Bill to</Text>
+            <Text style={s.customerName}>{customerName}</Text>
+            {contactName && (
+              <Text style={s.customerLine}>Attn: {contactName}</Text>
+            )}
+            {contactEmail && (
+              <Text style={s.customerMono}>{contactEmail}</Text>
+            )}
+            {contactPhone && (
+              <Text style={s.customerMono}>{contactPhone}</Text>
+            )}
+          </View>
+          <View style={s.colRight}>
+            <Text style={s.sectionLabel}>Place of supply</Text>
+            <Text style={s.metaValue}>
+              {interState ? "Inter-state (IGST applies)" : "Intra-state (CGST + SGST)"}
+            </Text>
+            {sharedBilling && firstCommitment && (
+              <View style={s.metaGroup}>
+                <Text style={s.sectionLabel}>Billing schedule</Text>
+                <Text style={s.metaValue}>{billingScheduleLabel(firstCommitment)}</Text>
+                {billingN > 1 && (
+                  <Text style={[s.metaValue, { fontSize: 9, color: COLORS.ink3 }]}>
+                    {billingN} invoices per year
+                  </Text>
+                )}
+              </View>
+            )}
+            <View style={s.metaGroup}>
+              <Text style={s.sectionLabel}>HSN / SAC</Text>
+              <Text style={[s.metaValue, s.metaValueMono]}>998313</Text>
+            </View>
+          </View>
+        </View>
+
+        {/* ── Line items ──────────────────────────────────────────── */}
+        <View style={s.table}>
+          <View style={s.trHeader}>
+            <Text style={s.thDesc}>Description</Text>
+            <Text style={s.thQty}>Qty</Text>
+            <Text style={s.thRate}>Rate</Text>
+            <Text style={s.thAmount}>Amount</Text>
+          </View>
+
+          {lineItems.length === 0 ? (
+            <Text style={s.emptyRow}>No line items.</Text>
+          ) : (
+            lineItems.map((line) => {
+              const lineN    = invoicesPerYear(line.commitment);
+              const lineUnit = billingUnitLabel(line.commitment);
+              const showPer  = lineN > 1;
+              const rate     = showPer ? Math.round(line.rate / lineN) : line.rate;
+              const amount   = line.qty * rate;
+              return (
+                <View key={line.id} style={s.tr} wrap={false}>
+                  <View style={s.tdDesc}>
+                    <Text style={s.lineName}>{line.name}</Text>
+                    <Text style={s.lineMeta}>
+                      Per seat{showPer ? "" : " per year"} · HSN 998313
+                      {line.commitment && ` · ${billingScheduleLabel(line.commitment)}`}
+                    </Text>
+                  </View>
+                  <Text style={s.tdQty}>{line.qty}</Text>
+                  <Text style={s.tdRate}>
+                    {rupee(rate)}{showPer ? lineUnit : ""}
+                  </Text>
+                  <View style={s.tdAmount}>
+                    <Text style={s.lineAmount}>
+                      {rupee(amount)}{showPer ? lineUnit : ""}
+                    </Text>
+                    {showPer && (
+                      <Text style={s.lineAmountSub}>
+                        = {rupee(line.qty * line.rate)}/yr
+                      </Text>
+                    )}
+                  </View>
+                </View>
+              );
+            })
+          )}
+        </View>
+
+        {/* ── Totals ──────────────────────────────────────────────── */}
+        {lineItems.length > 0 && (
+          <View style={s.totalsWrap}>
+            <View style={s.totalsBox}>
+              <View style={s.totalRow}>
+                <Text style={s.totalLabel}>
+                  {perInvoice ? "Subtotal (per invoice)" : "Subtotal"}
+                </Text>
+                <Text style={s.totalValue}>{fmt(subtotal)}</Text>
+              </View>
+              {discountPct > 0 && (
+                <View style={s.totalRow}>
+                  <Text style={s.totalLabel}>Discount ({discountPct}%)</Text>
+                  <Text style={s.totalValueAccent}>-{fmt(discount)}</Text>
+                </View>
+              )}
+              <View style={s.totalRow}>
+                <Text style={s.totalLabel}>Taxable amount</Text>
+                <Text style={s.totalValue}>{fmt(taxable)}</Text>
+              </View>
+              {interState ? (
+                <View style={s.totalRow}>
+                  <Text style={s.totalLabel}>IGST ({taxRate}%)</Text>
+                  <Text style={s.totalValue}>{fmt(tax)}</Text>
+                </View>
+              ) : (
+                <>
+                  <View style={s.totalRow}>
+                    <Text style={s.totalLabel}>CGST ({taxRate / 2}%)</Text>
+                    <Text style={s.totalValue}>{fmt(Math.round(tax / 2))}</Text>
+                  </View>
+                  <View style={s.totalRow}>
+                    <Text style={s.totalLabel}>SGST ({taxRate / 2}%)</Text>
+                    <Text style={s.totalValue}>{fmt(tax - Math.round(tax / 2))}</Text>
+                  </View>
+                </>
+              )}
+              <View style={s.grandTotalDivider}>
+                <View style={s.totalRow}>
+                  <Text style={s.grandLabel}>
+                    {perInvoice ? `Per invoice (${billingN}/yr)` : "Grand total"}
+                  </Text>
+                  <Text style={s.grandValue}>
+                    {perInvoice
+                      ? `${rupee(Math.round(total / billingN))}${billingUnit}`
+                      : rupee(total)}
+                  </Text>
+                </View>
+                {perInvoice && (
+                  <View style={s.perInvoiceRow}>
+                    <Text>Annual contract value</Text>
+                    <Text>{rupee(total)}/yr</Text>
+                  </View>
+                )}
+              </View>
+            </View>
+          </View>
+        )}
+
+        {/* ── Notes ───────────────────────────────────────────────── */}
+        {notes && notes.trim().length > 0 && (
+          <View style={s.notesBox}>
+            <Text style={s.sectionLabel}>Notes</Text>
+            <Text style={[s.notesText, { marginTop: 4 }]}>{notes}</Text>
+          </View>
+        )}
+
+        {/* ── Terms footer ────────────────────────────────────────── */}
+        <View style={s.footer}>
+          <Text style={s.footerLine}>
+            <Text style={s.footerBold}>Payment terms: </Text>
+            Net 7 days from acceptance. UPI / NEFT / Razorpay accepted.
+          </Text>
+          <Text style={s.footerLine}>
+            <Text style={s.footerBold}>Quote validity: </Text>
+            {validityDays} days from issue date.
+          </Text>
+          <Text style={[s.footerLine, { marginTop: 4 }]}>
+            Thank you for considering {tenantName}.
+            {tenantEmail && ` Reach out at ${tenantEmail} for any clarifications.`}
+          </Text>
+        </View>
+      </Page>
+    </Document>
+  );
+}

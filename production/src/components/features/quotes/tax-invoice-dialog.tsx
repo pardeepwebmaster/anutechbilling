@@ -100,6 +100,8 @@ export function TaxInvoiceDialog({
   tenantAddress,
   tenantState,
 }: Props) {
+  const [downloadingPdf, setDownloadingPdf] = React.useState(false);
+
   const cgst = interState ? 0 : Math.round(tax / 2);
   const sgst = interState ? 0 : tax - cgst;
   const igst = interState ? tax : 0;
@@ -146,8 +148,29 @@ export function TaxInvoiceDialog({
             )}
           </div>
           <div className="flex gap-2">
-            <Button size="sm" icon="file" onClick={() => window.print()}>
-              Print / Save as PDF
+            <Button
+              size="sm"
+              icon="download"
+              loading={downloadingPdf}
+              onClick={async () => {
+                setDownloadingPdf(true);
+                try {
+                  const { downloadInvoicePDF } = await import("@/lib/pdf");
+                  await downloadInvoicePDF({
+                    invoice, lineItems, subtotal, discountPct, discount,
+                    taxable, taxRate, tax, total, interState,
+                    customerGstin, customerEmail, customerAddress, customerState,
+                    tenantName, tenantGstin, tenantEmail, tenantPhone,
+                    tenantAddress, tenantState,
+                  });
+                } catch (err) {
+                  console.error("Invoice PDF failed:", err);
+                } finally {
+                  setDownloadingPdf(false);
+                }
+              }}
+            >
+              Download PDF
             </Button>
             <Button size="sm" variant="ghost" icon="x" onClick={() => onOpenChange(false)}>
               Close

@@ -63,6 +63,8 @@ export function ReceiptVoucherDialog({
   quoteId,
   gstRate = 18,
 }: Props) {
+  const [downloadingPdf, setDownloadingPdf] = React.useState(false);
+
   // GST calculation — reverse-out from gross amount (Indian standard)
   // amount received = taxable + GST → taxable = amount × 100 / (100 + rate)
   const taxable = Math.round((payment.amount * 100) / (100 + gstRate));
@@ -83,8 +85,29 @@ export function ReceiptVoucherDialog({
             <span className="text-sm font-semibold text-ink">Receipt Voucher · GST-compliant</span>
           </div>
           <div className="flex gap-2">
-            <Button size="sm" icon="file" onClick={() => window.print()}>
-              Print / Save as PDF
+            <Button
+              size="sm"
+              icon="download"
+              loading={downloadingPdf}
+              onClick={async () => {
+                setDownloadingPdf(true);
+                try {
+                  const { downloadReceiptVoucherPDF } = await import("@/lib/pdf");
+                  await downloadReceiptVoucherPDF({
+                    payment,
+                    customerName, customerGstin, customerEmail, customerAddress,
+                    tenantName, tenantGstin, tenantEmail, tenantPhone,
+                    tenantAddress, tenantState,
+                    interState, gstRate, quoteId,
+                  });
+                } catch (err) {
+                  console.error("Receipt voucher PDF failed:", err);
+                } finally {
+                  setDownloadingPdf(false);
+                }
+              }}
+            >
+              Download PDF
             </Button>
             <Button size="sm" variant="ghost" icon="x" onClick={() => onOpenChange(false)}>
               Close

@@ -61,6 +61,7 @@ export default function QuoteDetailPage() {
   const qc = useQueryClient();
   const [paymentOpen, setPaymentOpen] = React.useState(false);
   const [previewOpen, setPreviewOpen] = React.useState(false);
+  const [downloadingPdf, setDownloadingPdf] = React.useState(false);
   const [receiptPayment, setReceiptPayment] = React.useState<Payment | null>(null);
 
   const totalReceivedSoFar = sumReceived(paymentHistory ?? []);
@@ -262,6 +263,50 @@ export default function QuoteDetailPage() {
         <div className="flex gap-2 flex-wrap">
           <Button icon="file" onClick={() => setPreviewOpen(true)}>
             Preview
+          </Button>
+          <Button
+            icon="download"
+            loading={downloadingPdf}
+            onClick={async () => {
+              setDownloadingPdf(true);
+              try {
+                const { downloadQuotePDF } = await import("@/lib/pdf");
+                await downloadQuotePDF({
+                  tenantName:    me?.tenantName    ?? "Workspace",
+                  tenantGstin:   me?.tenantGstin,
+                  tenantEmail:   me?.tenantEmail,
+                  tenantPhone:   me?.tenantPhone,
+                  tenantAddress: me?.tenantAddress,
+                  quoteId:       quote.id,
+                  customerName:  quote.customer_name,
+                  contactName:   null,
+                  contactEmail:  null,
+                  contactPhone:  null,
+                  createdDate:   quote.created_at,
+                  expiresDate:   quote.expires_date,
+                  validityDays:  quote.expires_date
+                    ? Math.max(1, daysBetween(new Date(quote.created_at), quote.expires_date))
+                    : 30,
+                  lineItems:     items,
+                  subtotal:      quote.subtotal,
+                  discountPct:   quote.discount_pct,
+                  discount,
+                  taxable,
+                  taxRate:       quote.tax_rate,
+                  tax,
+                  total,
+                  interState:    false,
+                  notes:         quote.notes ?? "",
+                });
+                toast.success(`${quote.id}.pdf downloaded`);
+              } catch (err) {
+                toast.error(`PDF generation failed: ${(err as Error).message}`);
+              } finally {
+                setDownloadingPdf(false);
+              }
+            }}
+          >
+            Download PDF
           </Button>
           <Button
             icon="copy"

@@ -34,7 +34,7 @@ import { AddLineItemDialog } from "@/components/features/quotes/add-line-item-di
 import { QuotePreviewDialog } from "@/components/features/quotes/quote-preview-dialog";
 import { useCustomers } from "@/lib/queries/customers";
 import { useCreateQuote, useQuote } from "@/lib/queries/quotes";
-import { useUpdateLeadStage } from "@/lib/queries/leads";
+import { useUpdateLead } from "@/lib/queries/leads";
 import { useItems } from "@/lib/queries/items";
 import { useCurrentUser } from "@/lib/hooks/useCurrentUser";
 import { rupee, formatDate } from "@/lib/utils";
@@ -89,7 +89,7 @@ export function QuoteBuilder() {
   const { data: catalog } = useItems();
   const { data: currentUser } = useCurrentUser();
   const createQuote     = useCreateQuote();
-  const updateLeadStage = useUpdateLeadStage();
+  const updateLead = useUpdateLead();
 
   // Lead pre-fill context (when navigated from Lead Detail → Send Quote).
   // When leadId is present, we're in "lead mode" — quote belongs to a prospect,
@@ -380,12 +380,26 @@ export function QuoteBuilder() {
         plan:          lineItems[0]?.name ?? null,
       });
 
-      // If created from a lead AND quote actually went out (not just saved as draft),
-      // advance the lead stage to "quote" (Quote Sent). Drafts keep the lead untouched.
+      // If created from a lead AND quote actually went out (not just saved as
+      // draft), graduate the lead from "raw" (Leads tab) to "qualified"
+      // (Deals tab) AND advance its stage to "quote". We pull plan/seats/value
+      // from the just-sent quote so the lead row reflects what the customer
+      // is actually being quoted — otherwise a raw lead would end up in
+      // stage='quote' with plan=NULL, looking like a Quote Sent lead in the
+      // Leads (raw) tab forever.
       if (isLeadMode && leadId && status === "sent") {
         try {
-          await updateLeadStage.mutateAsync({ id: leadId, stage: "quote" });
-          toast.success(`Lead moved to "Quote Sent"`);
+          const totalSeats = lineItems.reduce((s, l) => s + l.qty, 0);
+          await updateLead.mutateAsync({
+            id: leadId,
+            patch: {
+              stage: "quote",
+              plan:  lineItems[0]?.name ?? null,
+              seats: totalSeats > 0 ? totalSeats : null,
+              value: total > 0     ? total     : null,
+            },
+          });
+          toast.success(`Lead moved to "Quote Sent" · qualified`);
         } catch {
           // Don't block the redirect if stage update fails; quote is saved.
         }

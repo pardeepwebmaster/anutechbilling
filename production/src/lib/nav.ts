@@ -31,7 +31,13 @@ export const APP_NAV: NavSection[] = [
     section: "Workspace",
     items: [
       { id: "dashboard",  href: "/dashboard",  label: "Dashboard",     icon: "home" },
-      { id: "lead-gen",   href: "/lead-gen",   label: "Lead Sources",  icon: "inbox" },
+      // Lead Sources page kept at /lead-gen but removed from sidebar — its
+      // recent-inbound-leads section duplicates Deal Pipeline → Leads tab,
+      // and the channel/webhook config is premature for the typical v1
+      // tenant (Excel Tech ships v1 with manual entry + WhatsApP, no embedded
+      // forms or webhooks). Surface it back here once real acquisition
+      // channels exist or move its config bits into Settings → Integrations.
+      // { id: "lead-gen",   href: "/lead-gen",   label: "Lead Sources",  icon: "inbox" },
       { id: "leads",      href: "/leads",      label: "Deal Pipeline", icon: "target" },
       { id: "customers",  href: "/customers",  label: "Customers",     icon: "users" },
       { id: "contacts",   href: "/contacts",   label: "Contacts",      icon: "user" },

@@ -32,7 +32,7 @@ export const APP_NAV: NavSection[] = [
     items: [
       { id: "dashboard",  href: "/dashboard",  label: "Dashboard",     icon: "home" },
       { id: "lead-gen",   href: "/lead-gen",   label: "Lead Sources",  icon: "inbox" },
-      { id: "leads",      href: "/leads",      label: "Lead Pipeline", icon: "target" },
+      { id: "leads",      href: "/leads",      label: "Deal Pipeline", icon: "target" },
       { id: "customers",  href: "/customers",  label: "Customers",     icon: "users" },
       { id: "contacts",   href: "/contacts",   label: "Contacts",      icon: "user" },
       { id: "items",      href: "/items",      label: "Items Catalog", icon: "package" },
@@ -93,7 +93,7 @@ export const CUSTOMER_NAV: NavSection[] = [
 export const SCREEN_TITLES: Record<string, string[]> = {
   "/dashboard":       ["Workspace", "Dashboard"],
   "/lead-gen":        ["Workspace", "Lead Sources"],
-  "/leads":           ["Workspace", "Lead Pipeline"],
+  "/leads":           ["Workspace", "Deal Pipeline"],
   "/customers":       ["Workspace", "Customers"],
   "/contacts":        ["Workspace", "Contacts"],
   "/items":           ["Workspace", "Items Catalog"],

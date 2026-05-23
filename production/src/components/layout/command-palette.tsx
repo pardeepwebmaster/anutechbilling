@@ -131,7 +131,7 @@ export function CommandPalette({
                 <PaletteItem
                   icon="plus"
                   label="Create new lead"
-                  meta="Add to Lead Pipeline"
+                  meta="Add to Deal Pipeline"
                   onSelect={() => runAction("New lead form opening…")}
                 />
                 <PaletteItem

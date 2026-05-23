@@ -1,15 +1,18 @@
 /**
- * Lead Pipeline — Kanban matching prototype design.
+ * Deal Pipeline — Kanban or list view of every active deal.
  *
- * Layout (from prototype/screens/leads.jsx):
- *   - Header: eyebrow "Sales" + title + subtitle with counts
- *   - Actions: inline search + Filter + Import CSV + Add Lead
+ * Naming note: the entity is still `leads` in DB / queries (each row starts
+ * life as a lead at the "new" stage). The PIPELINE view shows them after
+ * they've acquired a value + stage — at which point they behave as deals,
+ * not leads. Industry convention (HubSpot / Salesforce / Pipedrive) matches.
+ *
+ * Layout:
+ *   - Header: eyebrow "Sales" + "Deal Pipeline" + subtitle with counts
+ *   - Actions: search + view toggle (Kanban / List) + Filter + Import + Add Lead
  *   - GeminiCard with AI lead intelligence
- *   - Kanban: 6 columns (LEAD_STAGES) with header (dot + label + count + value)
- *   - Each card: company name + owner avatar / seats · plan / value | age
- *   - "Add lead" affordance at bottom of each column
- *   - Help text at bottom
- *   - Detail Sheet on card click
+ *   - Kanban (default): 6 columns (LEAD_STAGES) with drag-drop stage update
+ *   - List (toggle): sortable table for scanning many deals at scale
+ *   - Detail Sheet on card / row click
  */
 "use client";
 
@@ -147,10 +150,10 @@ export default function LeadsPage() {
       <div className="flex items-end justify-between gap-3 flex-wrap mb-6">
         <div>
           <p className="text-xs uppercase tracking-wider text-ink-3 font-semibold mb-1">Sales</p>
-          <h1 className="font-serif text-3xl md:text-4xl leading-tight">Lead Pipeline</h1>
+          <h1 className="font-serif text-3xl md:text-4xl leading-tight">Deal Pipeline</h1>
           {!isLoading && leads && (
             <p className="text-sm text-ink-3 mt-1 tabular-nums">
-              <b>{filtered.length}</b> active leads ·{" "}
+              <b>{filtered.length}</b> active deals ·{" "}
               <b>{rupee(totalValue, { compact: true })}</b> total pipeline ·{" "}
               <b>{conversion}%</b> conversion
             </p>

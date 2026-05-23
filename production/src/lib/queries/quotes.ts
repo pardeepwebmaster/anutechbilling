@@ -1,0 +1,179 @@
+/**
+ * Quotes — TanStack Query hooks.
+ */
+"use client";
+
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
+import { createClient } from "@/lib/supabase/client";
+import type { Quote, Database } from "@/lib/supabase/database.types";
+
+type QuoteInsert = Database["public"]["Tables"]["quotes"]["Insert"];
+type QuoteStatus = Quote["status"];
+
+// ============================================================
+// List
+// ============================================================
+export function useQuotes(filter?: { status?: QuoteStatus | "all" }) {
+  return useQuery({
+    queryKey: ["quotes", filter?.status ?? "all"],
+    queryFn: async (): Promise<Quote[]> => {
+      const supabase = createClient();
+      let query = supabase
+        .from("quotes")
+        .select("*")
+        .order("created_date", { ascending: false });
+
+      if (filter?.status && filter.status !== "all") {
+        query = query.eq("status", filter.status);
+      }
+
+      const { data, error } = await query;
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+}
+
+// ============================================================
+// Single
+// ============================================================
+export function useQuote(id: string | undefined) {
+  return useQuery({
+    queryKey: ["quotes", id],
+    enabled: !!id,
+    queryFn: async (): Promise<Quote | null> => {
+      const supabase = createClient();
+      const { data, error } = await supabase
+        .from("quotes")
+        .select("*")
+        .eq("id", id!)
+        .maybeSingle();
+      if (error) throw error;
+      return data;
+    },
+  });
+}
+
+// ============================================================
+// Quote linked to a given invoice — reverse lookup via quotes.invoice_id.
+// Used by TaxInvoiceDialog to fetch line items, discount, tax of the parent quote.
+// ============================================================
+export function useQuoteByInvoiceId(invoiceId: string | undefined) {
+  return useQuery({
+    queryKey: ["quotes", "by-invoice", invoiceId],
+    enabled: !!invoiceId,
+    queryFn: async (): Promise<Quote | null> => {
+      const supabase = createClient();
+      const { data, error } = await supabase
+        .from("quotes")
+        .select("*")
+        .eq("invoice_id", invoiceId!)
+        .maybeSingle();
+      if (error) throw error;
+      return data;
+    },
+  });
+}
+
+// ============================================================
+// Quotes for a specific lead (history of quotes sent to a prospect)
+// ============================================================
+export function useQuotesByLead(leadId: string | null | undefined) {
+  return useQuery({
+    queryKey: ["quotes", "by-lead", leadId],
+    enabled: !!leadId,
+    queryFn: async (): Promise<Quote[]> => {
+      const supabase = createClient();
+      const { data, error } = await supabase
+        .from("quotes")
+        .select("*")
+        .eq("lead_id", leadId!)
+        .order("created_date", { ascending: false });
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+}
+
+// ============================================================
+// Create
+// ============================================================
+export function useCreateQuote() {
+  const qc = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (input: Omit<QuoteInsert, "tenant_id">) => {
+      const supabase = createClient();
+
+      const { data: authData } = await supabase.auth.getUser();
+      if (!authData?.user) throw new Error("Not authenticated");
+
+      const { data: me, error: meErr } = await supabase
+        .from("users")
+        .select("tenant_id")
+        .eq("id", authData.user.id)
+        .single();
+      if (meErr || !me) throw new Error("User not linked to a tenant");
+
+      const { data, error } = await supabase
+        .from("quotes")
+        .insert({ ...input, tenant_id: me.tenant_id })
+        .select()
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["quotes"] });
+      toast.success("Quote created");
+    },
+    onError: (err) => toast.error((err as Error).message),
+  });
+}
+
+// ============================================================
+// Delete — permanently remove a quote (with a guard for accepted/invoiced quotes)
+// ============================================================
+export function useDeleteQuote() {
+  const qc = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const supabase = createClient();
+      const { error } = await supabase.from("quotes").delete().eq("id", id);
+      if (error) throw error;
+      return id;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["quotes"] });
+      toast.success("Quote deleted");
+    },
+    onError: (err) => toast.error((err as Error).message),
+  });
+}
+
+// ============================================================
+// Update status
+// ============================================================
+export function useUpdateQuoteStatus() {
+  const qc = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ id, status }: { id: string; status: QuoteStatus }) => {
+      const supabase = createClient();
+      const { data, error } = await supabase
+        .from("quotes")
+        .update({ status })
+        .eq("id", id)
+        .select()
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["quotes"] });
+    },
+    onError: (err) => toast.error((err as Error).message),
+  });
+}

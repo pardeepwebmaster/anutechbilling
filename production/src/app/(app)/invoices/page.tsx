@@ -1,0 +1,647 @@
+/**
+ * Invoices — list matching prototype design.
+ *
+ * Layout:
+ *   - Header: eyebrow "Revenue" + title + subtitle
+ *   - Actions: Export GSTR-1 + Push to Zoho + New invoice
+ *   - 5 KPIs: Outstanding / Overdue / Collected MTD / Margin MTD / Avg collection
+ *   - Status tabs (All/Paid/Pending/Overdue/Draft) with counts
+ *   - Table: checkbox / Invoice # / Customer / Date / Due / Amount / Status / Action
+ *   - Auto-Sync Status card at bottom
+ */
+"use client";
+
+import * as React from "react";
+import Link from "next/link";
+import { useInvoices, useQuotesAwaitingInvoice, useGenerateInvoice } from "@/lib/queries/invoices";
+import { useQuoteByInvoiceId } from "@/lib/queries/quotes";
+import { usePaymentsByQuote } from "@/lib/queries/payments";
+import { useCustomer } from "@/lib/queries/customers";
+import { useCurrentUser } from "@/lib/hooks/useCurrentUser";
+import { TaxInvoiceDialog } from "@/components/features/quotes/tax-invoice-dialog";
+import { Icon } from "@/components/ui/icon";
+import { toast } from "sonner";
+import { GeminiCard } from "@/components/shared/gemini-card";
+import { EmptyState } from "@/components/shared/empty-state";
+import { KPI } from "@/components/shared/kpi";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Card } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
+import { TabBar, type TabBarItem } from "@/components/ui/tabs";
+import { rupee, formatDate, daysBetween } from "@/lib/utils";
+import type { Invoice } from "@/lib/supabase/database.types";
+
+export default function InvoicesPage() {
+  const { data: invoices, isLoading, error, refetch } = useInvoices();
+  const { data: pending } = useQuotesAwaitingInvoice();
+  const generateInvoice = useGenerateInvoice();
+  const [tab, setTab] = React.useState("all");
+  const [selected, setSelected] = React.useState<Set<string>>(new Set());
+  const [pendingSelected, setPendingSelected] = React.useState<Set<string>>(new Set());
+  const [generating, setGenerating] = React.useState(false);
+
+  // Counts
+  const counts = React.useMemo(() => {
+    const map: Record<string, number> = { all: invoices?.length ?? 0 };
+    for (const inv of invoices ?? []) {
+      map[inv.status] = (map[inv.status] ?? 0) + 1;
+    }
+    return map;
+  }, [invoices]);
+
+  const tabs: TabBarItem[] = [
+    { id: "all",     label: "All",     count: counts.all ?? 0 },
+    { id: "paid",    label: "Paid",    count: counts.paid ?? 0, dot: "emerald" },
+    { id: "pending", label: "Pending", count: counts.pending ?? 0, dot: "amber" },
+    { id: "overdue", label: "Overdue", count: counts.overdue ?? 0, dot: "rose" },
+    { id: "draft",   label: "Draft",   count: counts.draft ?? 0 },
+  ];
+
+  // Filter
+  const rows = (invoices ?? []).filter((i) => tab === "all" || i.status === tab);
+
+  // KPIs
+  const outstanding = (invoices ?? [])
+    .filter((i) => i.status !== "paid")
+    .reduce((s, i) => s + i.amount, 0);
+  const overdueTotal = (invoices ?? [])
+    .filter((i) => i.status === "overdue")
+    .reduce((s, i) => s + i.amount, 0);
+  const overdueCount = counts.overdue ?? 0;
+  const collectedMTD = (invoices ?? [])
+    .filter((i) => {
+      if (i.status !== "paid" || !i.paid_date) return false;
+      const d = new Date(i.paid_date);
+      const now = new Date();
+      return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+    })
+    .reduce((s, i) => s + i.amount, 0);
+  const marginMTD = Math.round(collectedMTD * 0.17); // 17% avg estimate
+  const paidInvoices = (invoices ?? []).filter((i) => i.status === "paid" && i.paid_date);
+  const avgCollection = paidInvoices.length > 0
+    ? Math.round(paidInvoices.reduce((s, i) => s + daysBetween(i.invoice_date, i.paid_date!), 0) / paidInvoices.length)
+    : 0;
+
+  // Toggle selection
+  const toggleAll = () => {
+    if (selected.size === rows.length) {
+      setSelected(new Set());
+    } else {
+      setSelected(new Set(rows.map((r) => r.id)));
+    }
+  };
+  const toggleOne = (id: string) => {
+    const next = new Set(selected);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setSelected(next);
+  };
+
+  return (
+    <div className="p-4 md:p-6 lg:p-8 max-w-[1400px] mx-auto">
+      {/* Header */}
+      <div className="flex items-end justify-between gap-3 flex-wrap mb-6">
+        <div>
+          <p className="text-xs uppercase tracking-wider text-ink-3 font-semibold mb-1">Revenue</p>
+          <h1 className="font-serif text-3xl md:text-4xl leading-tight">Invoices</h1>
+          <p className="text-sm text-ink-3 mt-1">All GST invoices · sorted by most recent</p>
+        </div>
+        <div className="flex gap-2 flex-wrap">
+          <Button icon="upload" onClick={() => toast("Export GSTR-1 — coming soon")}>Export GSTR-1</Button>
+          <Button icon="refresh" onClick={() => toast("Zoho Books sync — coming soon")}>Push to Zoho</Button>
+          <Button variant="primary" icon="plus" onClick={() => toast.info("Generate invoices from accepted+paid quotes at /quotes")}>
+            New invoice
+          </Button>
+        </div>
+      </div>
+
+      {/* ── Pending generation — partial OR fully-paid quotes awaiting GST invoice ──
+           Legal context: CGST Section 13(2) + Rule 47 — supply trigger for services
+           = earlier of invoice OR payment. So aging clock starts from FIRST advance
+           receipt, not last payment. 30-day deadline drives bucket thresholds:
+             0-15d   = fresh
+             16-30d  = approaching deadline (issue soon)
+             31-60d  = OVERDUE — legal violation, audit risk
+             60+d    = critical — penalty likely
+      */}
+      {pending && pending.length > 0 && (() => {
+        const now = Date.now();
+        const buckets = { fresh: [] as any[], warn: [] as any[], urgent: [] as any[], overdue: [] as any[] };
+        for (const q of pending) {
+          // Legal aging anchor = first advance received (not last payment)
+          const anchor = q.first_advance_at ?? q.payment_received_at;
+          const days = anchor
+            ? Math.floor((now - new Date(anchor).getTime()) / 86400000)
+            : 0;
+          if (days <= 15)       buckets.fresh.push({ ...q, days });
+          else if (days <= 30)  buckets.warn.push({ ...q, days });
+          else if (days <= 60)  buckets.urgent.push({ ...q, days });
+          else                  buckets.overdue.push({ ...q, days });
+        }
+        const sumAmt = (arr: any[]) => arr.reduce((s, q) => s + (q.amount ?? 0), 0);
+        const totalAmt = sumAmt(pending);
+
+        const togglePending = (id: string) => {
+          const next = new Set(pendingSelected);
+          if (next.has(id)) next.delete(id); else next.add(id);
+          setPendingSelected(next);
+        };
+        const toggleAllPending = () => {
+          if (pendingSelected.size === pending.length) setPendingSelected(new Set());
+          else setPendingSelected(new Set(pending.map((q) => q.id)));
+        };
+
+        const generateSelected = async () => {
+          if (pendingSelected.size === 0) {
+            toast.error("Select at least one quote");
+            return;
+          }
+          setGenerating(true);
+          let ok = 0, fail = 0;
+          for (const id of pendingSelected) {
+            try {
+              await generateInvoice.mutateAsync(id);
+              ok++;
+            } catch {
+              fail++;
+            }
+          }
+          setGenerating(false);
+          setPendingSelected(new Set());
+          if (ok > 0) toast.success(`Generated ${ok} invoice${ok === 1 ? "" : "s"}` + (fail ? ` · ${fail} failed` : ""));
+          if (fail > 0 && ok === 0) toast.error(`${fail} invoice${fail === 1 ? "" : "s"} failed`);
+        };
+
+        return (
+          <Card className="mb-6 border-amber/40 bg-amber-soft/30">
+            <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
+              <div className="flex items-center gap-2.5">
+                <Icon name="receipt" size={18} className="text-amber-ink" />
+                <div>
+                  <h2 className="font-semibold text-ink">Pending GST invoice generation</h2>
+                  <p className="text-xs text-ink-3">
+                    {pending.length} quote{pending.length === 1 ? "" : "s"} ·{" "}
+                    {pending.filter((q: any) => q.payment_status === "partial").length} partially paid ·{" "}
+                    {rupee(totalAmt)} total · invoice mandatory within 30 days of first advance (CGST §13, Rule 47)
+                  </p>
+                </div>
+              </div>
+              <div className="flex gap-2">
+                {pendingSelected.size > 0 && (
+                  <Button
+                    variant="primary"
+                    icon="receipt"
+                    loading={generating}
+                    onClick={generateSelected}
+                  >
+                    Generate {pendingSelected.size} invoice{pendingSelected.size === 1 ? "" : "s"}
+                  </Button>
+                )}
+              </div>
+            </div>
+
+            {/* Aging buckets — 30-day GST clock (Rule 47) */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-3">
+              <BucketTile label="0–15 days · fresh"      count={buckets.fresh.length}   amount={sumAmt(buckets.fresh)}   tone="emerald" />
+              <BucketTile label="16–30 days · issue soon" count={buckets.warn.length}    amount={sumAmt(buckets.warn)}    tone="amber" />
+              <BucketTile label="31–60 days · overdue"   count={buckets.urgent.length}  amount={sumAmt(buckets.urgent)}  tone="rose-soft" />
+              <BucketTile label="60+ days · audit risk"  count={buckets.overdue.length} amount={sumAmt(buckets.overdue)} tone="rose" />
+            </div>
+
+            {/* Table of pending quotes */}
+            <div className="rounded-md border border-hairline bg-paper overflow-hidden">
+              <table className="w-full">
+                <thead className="bg-paper-2 border-b border-hairline">
+                  <tr>
+                    <th className="p-2 w-10">
+                      <input
+                        type="checkbox"
+                        checked={pendingSelected.size === pending.length && pending.length > 0}
+                        onChange={toggleAllPending}
+                        className="w-3.5 h-3.5 accent-amber cursor-pointer"
+                        aria-label="Select all pending"
+                      />
+                    </th>
+                    <th className="text-left p-2 text-[10px] uppercase tracking-wider font-semibold text-ink-3">Quote</th>
+                    <th className="text-left p-2 text-[10px] uppercase tracking-wider font-semibold text-ink-3">Customer</th>
+                    <th className="text-right p-2 text-[10px] uppercase tracking-wider font-semibold text-ink-3">Amount</th>
+                    <th className="text-left p-2 text-[10px] uppercase tracking-wider font-semibold text-ink-3">Payment</th>
+                    <th className="text-left p-2 text-[10px] uppercase tracking-wider font-semibold text-ink-3">First advance</th>
+                    <th className="text-left p-2 text-[10px] uppercase tracking-wider font-semibold text-ink-3">Aging</th>
+                    <th className="w-32"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pending.map((q: any) => {
+                    // Legal aging anchor — first advance receipt date (Sec 13(2))
+                    const anchor = q.first_advance_at ?? q.payment_received_at;
+                    const days = anchor
+                      ? Math.floor((now - new Date(anchor).getTime()) / 86400000)
+                      : 0;
+                    const ageKind: "emerald" | "amber" | "rose" =
+                      days <= 15 ? "emerald" : days <= 30 ? "amber" : "rose";
+                    const isSel = pendingSelected.has(q.id);
+                    const isPartial = q.payment_status === "partial";
+                    return (
+                      <tr
+                        key={q.id}
+                        className={`border-b border-hairline last:border-0 hover:bg-paper-2/30 ${
+                          isSel ? "bg-amber-soft/30" : ""
+                        }`}
+                      >
+                        <td className="p-2">
+                          <input
+                            type="checkbox"
+                            checked={isSel}
+                            onChange={() => togglePending(q.id)}
+                            className="w-3.5 h-3.5 accent-amber cursor-pointer"
+                            aria-label={`Select ${q.id}`}
+                          />
+                        </td>
+                        <td className="p-2">
+                          <Link
+                            href={`/quotes/${q.id}` as any}
+                            className="font-mono text-xs font-semibold text-ink hover:text-amber-ink hover:underline"
+                          >
+                            {q.id}
+                          </Link>
+                        </td>
+                        <td className="p-2 text-sm">{q.customer_name}</td>
+                        <td className="p-2 text-right tabular-nums text-sm font-medium">
+                          {rupee(q.amount ?? 0)}
+                          {isPartial && q.payment_amount != null && (
+                            <div className="text-[10px] text-amber-ink mt-0.5">
+                              {rupee(q.payment_amount)} received
+                            </div>
+                          )}
+                        </td>
+                        <td className="p-2">
+                          {isPartial ? (
+                            <Badge kind="info" dot>Partial</Badge>
+                          ) : (
+                            <Badge kind="success" dot>Fully paid</Badge>
+                          )}
+                        </td>
+                        <td className="p-2 text-xs text-ink-2">
+                          {anchor ? formatDate(anchor) : "—"}
+                        </td>
+                        <td className="p-2">
+                          <Badge kind={ageKind === "rose" ? "danger" : ageKind === "amber" ? "warning" : "success"} dot>
+                            {days}d ago
+                          </Badge>
+                        </td>
+                        <td className="p-2 text-right">
+                          <Button
+                            size="sm"
+                            variant="primary"
+                            icon="receipt"
+                            loading={generateInvoice.isPending}
+                            onClick={() => generateInvoice.mutate(q.id)}
+                          >
+                            Generate
+                          </Button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+        );
+      })()}
+
+      {/* KPIs */}
+      {!isLoading && invoices && (
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 mb-6">
+          <KPI
+            label="Outstanding"
+            value={rupee(outstanding, { compact: true })}
+            trend={`${(counts.pending ?? 0) + (counts.overdue ?? 0)} invoices`}
+            trendKind="down"
+            trendIcon="alert"
+            icon="receipt"
+          />
+          <KPI
+            label="Overdue"
+            value={rupee(overdueTotal, { compact: true })}
+            trend={`${overdueCount} aging`}
+            trendKind={overdueCount > 0 ? "down" : "up"}
+            trendIcon={overdueCount > 0 ? "alert" : "check_circle"}
+          />
+          <KPI
+            label="Collected · MTD"
+            value={rupee(collectedMTD, { compact: true })}
+            trend="This month"
+            trendKind="up"
+            trendIcon="trending_up"
+          />
+          <KPI
+            label="Margin · MTD"
+            value={rupee(marginMTD, { compact: true })}
+            trend="~17% avg"
+            trendKind="up"
+            icon="rupee"
+          />
+          <KPI
+            label="Avg collection"
+            value={avgCollection}
+            unit=" days"
+            trend={avgCollection > 0 ? "from paid invoices" : "No data"}
+            icon="clock"
+          />
+        </div>
+      )}
+
+      {/* AI suggestion */}
+      {!isLoading && invoices && overdueCount > 0 && (
+        <div className="mb-4">
+          <GeminiCard
+            title="Collection intelligence"
+            actions={
+              <Button size="sm" variant="primary" icon="phone" onClick={() => toast("Bulk follow-up queued")}>
+                Call all overdue
+              </Button>
+            }
+            compact
+          >
+            <b>{overdueCount} overdue invoice{overdueCount === 1 ? "" : "s"} worth {rupee(overdueTotal, { compact: true })}.</b>{" "}
+            Customers with overdue invoices have 2× higher churn risk. Reach out today.
+          </GeminiCard>
+        </div>
+      )}
+
+      {/* Tabs */}
+      {!isLoading && invoices && invoices.length > 0 && (
+        <div className="mb-3">
+          <TabBar value={tab} onChange={setTab} items={tabs} />
+        </div>
+      )}
+
+      {/* Error */}
+      {error && (
+        <EmptyState
+          icon="alert"
+          title="Could not load invoices"
+          body={error.message}
+          action={<Button icon="refresh" onClick={() => refetch()}>Try again</Button>}
+        />
+      )}
+
+      {/* Loading */}
+      {isLoading && (
+        <Card flush>
+          <table className="w-full">
+            <tbody>
+              {[1, 2, 3, 4, 5].map((i) => (
+                <tr key={i} className="border-b border-hairline">
+                  {[1, 2, 3, 4, 5].map((j) => (
+                    <td key={j} className="p-3"><Skeleton className="h-3 w-full" /></td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Card>
+      )}
+
+      {/* Empty */}
+      {!isLoading && !error && invoices && invoices.length === 0 && (
+        <EmptyState
+          icon="receipt"
+          title="No invoices yet"
+          body="Invoices are generated when a quote is accepted and payment is recorded. Start by creating a quote."
+          action={
+            <Button asChild variant="primary" icon="file">
+              <a href="/quotes/new">Create a quote</a>
+            </Button>
+          }
+        />
+      )}
+
+      {/* Filtered empty */}
+      {!isLoading && !error && invoices && invoices.length > 0 && rows.length === 0 && (
+        <EmptyState
+          icon="receipt"
+          title={`No ${tab} invoices`}
+          body={tab === "overdue" ? "🎉 All clear! No overdue invoices." : `No invoices in "${tab}" status right now.`}
+          action={tab !== "all" ? <Button icon="x" onClick={() => setTab("all")}>Show all</Button> : undefined}
+          compact
+        />
+      )}
+
+      {/* Table */}
+      {!isLoading && !error && rows.length > 0 && (
+        <Card flush>
+          <table className="w-full">
+            <thead className="bg-paper-2 border-b border-hairline">
+              <tr>
+                <th className="w-10 p-3">
+                  <Checkbox
+                    checked={selected.size === rows.length && rows.length > 0}
+                    onCheckedChange={toggleAll}
+                  />
+                </th>
+                <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Invoice #</th>
+                <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Customer</th>
+                <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Date</th>
+                <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Due date</th>
+                <th className="text-right p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Amount</th>
+                <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Status</th>
+                <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((inv) => (
+                <InvoiceRow
+                  key={inv.id}
+                  inv={inv}
+                  checked={selected.has(inv.id)}
+                  onToggle={() => toggleOne(inv.id)}
+                />
+              ))}
+            </tbody>
+          </table>
+        </Card>
+      )}
+
+      {/* Auto-sync card */}
+      {!isLoading && invoices && invoices.length > 0 && (
+        <Card className="mt-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-sm font-semibold">Auto-Sync Status</div>
+              <div className="text-xs text-ink-3 mt-0.5">
+                Zoho Books sync · Coming in Phase 2 · Currently manual
+              </div>
+            </div>
+            <Badge kind="warning" dot>Not configured</Badge>
+          </div>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
+// Invoice row
+// ============================================================
+function InvoiceRow({ inv, checked, onToggle }: { inv: Invoice; checked: boolean; onToggle: () => void }) {
+  const [previewOpen, setPreviewOpen] = React.useState(false);
+
+  return (
+    <tr className="border-b border-hairline last:border-0 hover:bg-paper-2/40">
+      <td className="p-3">
+        <Checkbox checked={checked} onCheckedChange={onToggle} />
+      </td>
+      <td className="p-3 font-mono text-xs font-semibold">{inv.id}</td>
+      <td className="p-3 text-sm font-medium">{inv.customer_name}</td>
+      <td className="p-3 text-sm text-ink-2">{formatDate(inv.invoice_date)}</td>
+      <td className="p-3 text-sm text-ink-2">{inv.due_date ? formatDate(inv.due_date) : "—"}</td>
+      <td className="p-3 text-right">
+        <div className="flex flex-col items-end gap-0.5">
+          <span className="tabular-nums text-sm font-medium">{rupee(inv.amount)}</span>
+          {/* Surface net-payable when advances were adjusted at issue time
+              (CGST Rule 53). Otherwise the gross alone is misleading — paid
+              invoices may have most of the amount cleared via advance receipts. */}
+          {inv.net_payable !== null && inv.net_payable < inv.amount && (
+            <span className="text-[10px] font-medium tabular-nums leading-tight text-ink-3">
+              Net <span className="text-ink-2">{rupee(inv.net_payable)}</span>
+              <span className="text-emerald"> · {rupee(inv.amount - inv.net_payable)} adv</span>
+            </span>
+          )}
+        </div>
+      </td>
+      <td className="p-3">
+        {inv.status === "paid"    && <Badge kind="success" dot>Paid</Badge>}
+        {inv.status === "pending" && <Badge kind="warning" dot>Pending</Badge>}
+        {inv.status === "overdue" && <Badge kind="danger"  dot>Overdue {inv.overdue_days}d</Badge>}
+        {inv.status === "draft"   && <Badge kind="muted">Draft</Badge>}
+        {inv.status === "void"    && <Badge kind="muted">Void</Badge>}
+      </td>
+      <td className="p-3">
+        <div className="flex gap-1">
+          {/* View — opens the full GST tax invoice PDF dialog */}
+          {inv.status !== "draft" && inv.status !== "void" && (
+            <Button size="sm" icon="file" variant="ghost" onClick={() => setPreviewOpen(true)}>
+              View
+            </Button>
+          )}
+          {inv.status === "overdue" && (
+            <Button size="sm" variant="danger" icon="phone" onClick={() => toast(`Calling ${inv.customer_name}…`)}>
+              Call
+            </Button>
+          )}
+          {inv.status === "pending" && (
+            <Button size="sm" icon="mail" onClick={() => toast(`Reminder emailed to ${inv.customer_name}`)}>
+              Remind
+            </Button>
+          )}
+          {inv.status === "draft" && (
+            <Button size="sm" variant="primary" icon="send">Send</Button>
+          )}
+        </div>
+        {previewOpen && (
+          <InvoicePreviewContainer
+            invoice={inv}
+            open={previewOpen}
+            onOpenChange={setPreviewOpen}
+          />
+        )}
+      </td>
+    </tr>
+  );
+}
+
+/**
+ * InvoicePreviewContainer — lazily loads the parent quote + advances when the
+ * dialog opens, then renders TaxInvoiceDialog. Lives in its own component so
+ * the network calls only fire on first "View" click (not for every row).
+ */
+function InvoicePreviewContainer({
+  invoice,
+  open,
+  onOpenChange,
+}: {
+  invoice: Invoice;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const { data: quote, isLoading: qLoading } = useQuoteByInvoiceId(invoice.id);
+  const { data: payments } = usePaymentsByQuote(quote?.id);
+  const { data: customer } = useCustomer(invoice.customer_id ?? undefined);
+  const { data: me } = useCurrentUser();
+
+  // Derive totals from quote (same math as quote detail page) — falls back to invoice.amount
+  const lineItems = quote?.line_items ?? [];
+  const subtotal  = quote?.subtotal ?? invoice.amount;
+  const discount  = Math.round(subtotal * ((quote?.discount_pct ?? 0) / 100));
+  const taxable   = subtotal - discount;
+  const taxRate   = quote?.tax_rate ?? 18;
+  const tax       = Math.round(taxable * (taxRate / 100));
+  const total     = quote?.amount ?? invoice.amount;
+
+  const interState = Boolean(
+    customer?.state_code && me?.tenantStateCode && customer.state_code !== me.tenantStateCode,
+  );
+
+  const receivedPayments = (payments ?? []).filter((p) => p.status === "received");
+
+  if (qLoading || !me) {
+    return (
+      <div className="text-[10px] text-ink-3 mt-1 italic">Loading invoice…</div>
+    );
+  }
+
+  return (
+    <TaxInvoiceDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      invoice={invoice}
+      lineItems={lineItems}
+      subtotal={subtotal}
+      discountPct={quote?.discount_pct ?? 0}
+      discount={discount}
+      taxable={taxable}
+      taxRate={taxRate}
+      tax={tax}
+      total={total}
+      receivedPayments={receivedPayments}
+      interState={interState}
+      customerGstin={customer?.gstin}
+      customerEmail={customer?.contact_email}
+      customerState={customer?.state}
+      tenantName={me.tenantName}
+      tenantGstin={me.tenantGstin}
+      tenantEmail={me.tenantEmail}
+      tenantPhone={me.tenantPhone}
+      tenantAddress={me.tenantAddress}
+      tenantState={me.tenantState}
+    />
+  );
+}
+
+// ============================================================
+// BucketTile — aging bucket summary for pending invoice generation
+// ============================================================
+function BucketTile({ label, count, amount, tone }: {
+  label:  string;
+  count:  number;
+  amount: number;
+  tone:   "emerald" | "amber" | "rose-soft" | "rose";
+}) {
+  const styles =
+    tone === "emerald"   ? "bg-emerald-soft border-emerald/30 text-emerald" :
+    tone === "amber"     ? "bg-amber-soft border-amber/30 text-amber-ink" :
+    tone === "rose-soft" ? "bg-rose-soft border-rose/30 text-amber-ink" :
+                           "bg-rose-soft border-rose/40 text-rose";
+  return (
+    <div className={`rounded-md border ${styles} p-3`}>
+      <div className="text-[10px] uppercase tracking-wider font-semibold opacity-80">{label}</div>
+      <div className="font-serif text-xl mt-0.5 tabular-nums">{count}</div>
+      <div className="text-[11px] tabular-nums opacity-80 mt-0.5">{rupee(amount)}</div>
+    </div>
+  );
+}

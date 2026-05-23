@@ -1,0 +1,2198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ResellerOS — Complete Project Demo for Client Review</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg-color: #0f0c29;
+  --bg-gradient: linear-gradient(135deg, #24243e, #302b63, #0f0c29);
+  --surface: rgba(255, 255, 255, 0.04);
+  --surface-hover: rgba(255, 255, 255, 0.08);
+  --border: rgba(255, 255, 255, 0.1);
+  --text-primary: #ffffff;
+  --text-secondary: #94a3b8;
+  --text-muted: #64748b;
+  --accent: #8b5cf6;
+  --accent-hover: #7c3aed;
+  --accent-soft: rgba(139, 92, 246, 0.15);
+  --danger: #ef4444;
+  --warning: #f59e0b;
+  --success: #10b981;
+  --info: #3b82f6;
+  --pink: #ec4899;
+  --font-sans: 'Inter', system-ui, sans-serif;
+  --font-display: 'Outfit', system-ui, sans-serif;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: var(--bg-color); background-image: var(--bg-gradient); background-attachment: fixed; color: var(--text-primary); font-family: var(--font-sans); min-height: 100vh; font-size: 14px; line-height: 1.5; }
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
+.demo-banner { position: fixed; top: 0; left: 0; right: 0; background: linear-gradient(90deg, #8b5cf6, #ec4899); color: white; text-align: center; padding: 0.4rem; font-size: 0.75rem; font-weight: 600; z-index: 1000; letter-spacing: 0.05em; }
+.app-shell { display: flex; min-height: 100vh; padding-top: 32px; }
+.sidebar { width: 250px; min-width: 250px; background: rgba(15,12,41,0.6); backdrop-filter: blur(20px); border-right: 1px solid var(--border); padding: 1.25rem 0.85rem; position: sticky; top: 32px; height: calc(100vh - 32px); overflow-y: auto; }
+.sidebar-logo { font-family: var(--font-display); font-size: 1.35rem; font-weight: 700; background: linear-gradient(to right, #fff, #a78bfa); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 1.25rem; display: flex; align-items: center; gap: 0.5rem; padding: 0 0.5rem; }
+.sidebar-section { font-size: 0.65rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.1em; padding: 0.7rem 0.75rem 0.35rem; font-weight: 700; }
+.nav-item { display: flex; align-items: center; gap: 0.55rem; padding: 0.45rem 0.7rem; border-radius: 7px; color: var(--text-secondary); margin-bottom: 0.1rem; font-weight: 500; font-size: 0.82rem; cursor: pointer; transition: all 0.15s; border: none; background: transparent; width: 100%; text-align: left; font-family: inherit; }
+.nav-item:hover { background: var(--surface); color: var(--text-primary); }
+.nav-item.active { background: var(--accent-soft); color: var(--accent); }
+.nav-item .ico { font-size: 0.95rem; width: 16px; text-align: center; }
+.content { flex: 1; overflow-y: auto; min-width: 0; }
+.screen { display: none; padding: 1.25rem 2rem 3rem; }
+.screen.active { display: block; animation: fadeIn 0.25s ease; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+.screen-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.25rem; padding-bottom: 0.85rem; border-bottom: 1px solid var(--border); flex-wrap: wrap; gap: 1rem; }
+.screen-title { font-family: var(--font-display); font-size: 1.45rem; font-weight: 700; }
+.screen-subtitle { color: var(--text-secondary); font-size: 0.85rem; margin-top: 0.2rem; }
+.glass { background: var(--surface); backdrop-filter: blur(16px); border: 1px solid var(--border); border-radius: 14px; padding: 1.15rem; }
+.btn { display: inline-flex; align-items: center; justify-content: center; padding: 0.55rem 1.1rem; border-radius: 9px; font-weight: 500; font-size: 0.85rem; cursor: pointer; border: none; gap: 0.4rem; font-family: var(--font-sans); transition: all 0.15s; text-decoration: none; }
+.btn-primary { background: var(--accent); color: white; }
+.btn-primary:hover { background: var(--accent-hover); }
+.btn-secondary { background: var(--surface); color: var(--text-primary); border: 1px solid var(--border); }
+.btn-secondary:hover { background: var(--surface-hover); }
+.btn-success { background: var(--success); color: white; }
+.btn-danger { background: var(--danger); color: white; }
+.btn-warning { background: var(--warning); color: white; }
+.btn-sm { padding: 0.3rem 0.7rem; font-size: 0.75rem; }
+.btn-lg { padding: 0.85rem 1.5rem; font-size: 0.95rem; }
+.input { background: rgba(0,0,0,0.25); border: 1px solid var(--border); color: var(--text-primary); padding: 0.5rem 0.85rem; border-radius: 8px; font-family: inherit; font-size: 0.85rem; outline: none; width: 100%; }
+.input:focus { border-color: var(--accent); }
+.badge { padding: 0.15rem 0.55rem; border-radius: 6px; font-size: 0.65rem; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; display: inline-block; }
+.badge-new { background: rgba(59,130,246,0.15); color: #60a5fa; }
+.badge-contacted { background: rgba(245,158,11,0.15); color: #fbbf24; }
+.badge-demo { background: rgba(168,85,247,0.15); color: #c084fc; }
+.badge-trial { background: rgba(236,72,153,0.15); color: #f472b6; }
+.badge-quote { background: rgba(14,165,233,0.15); color: #38bdf8; }
+.badge-won { background: rgba(16,185,129,0.15); color: #34d399; }
+.badge-urgent { background: rgba(239,68,68,0.18); color: #f87171; }
+.badge-upcoming { background: rgba(245,158,11,0.15); color: #fbbf24; }
+.badge-active { background: rgba(16,185,129,0.15); color: #34d399; }
+.badge-paid { background: rgba(16,185,129,0.15); color: #34d399; }
+.badge-pending { background: rgba(245,158,11,0.15); color: #fbbf24; }
+.badge-overdue { background: rgba(239,68,68,0.18); color: #f87171; }
+.badge-draft { background: rgba(148,163,184,0.18); color: #cbd5e1; }
+.avatar { width: 28px; height: 28px; border-radius: 50%; background: var(--accent); display: inline-flex; align-items: center; justify-content: center; font-size: 0.7rem; font-weight: 600; color: white; }
+.kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 0.85rem; margin-bottom: 1.25rem; }
+.kpi-card { padding: 1rem 1.15rem; }
+.kpi-label { font-size: 0.7rem; color: var(--text-secondary); margin-bottom: 0.3rem; text-transform: uppercase; letter-spacing: 0.05em; }
+.kpi-value { font-size: 1.55rem; font-weight: 700; font-family: var(--font-display); }
+.kpi-trend { font-size: 0.7rem; margin-top: 0.25rem; }
+.trend-up { color: var(--success); }
+.trend-down { color: var(--danger); }
+.table { width: 100%; border-collapse: collapse; font-size: 0.83rem; }
+.table th { text-align: left; padding: 0.65rem 0.8rem; font-size: 0.68rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid var(--border); font-weight: 600; }
+.table td { padding: 0.7rem 0.8rem; border-bottom: 1px solid var(--border); }
+.table tr:last-child td { border-bottom: none; }
+.table tr:hover td { background: rgba(255,255,255,0.02); }
+.kanban { display: flex; gap: 0.75rem; overflow-x: auto; padding-bottom: 0.5rem; }
+.kanban-col { min-width: 215px; flex: 1; background: rgba(0,0,0,0.15); border: 2px dashed var(--border); border-radius: 12px; padding: 0.7rem; }
+.kanban-col-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.65rem; padding: 0 0.2rem; }
+.kanban-col-title { font-size: 0.76rem; font-weight: 600; display: flex; align-items: center; gap: 0.35rem; }
+.kanban-col-title .dot { width: 8px; height: 8px; border-radius: 50%; }
+.kanban-count { background: var(--surface); padding: 0.05rem 0.45rem; border-radius: 99px; font-size: 0.68rem; color: var(--text-secondary); }
+.kanban-card { background: var(--surface); padding: 0.55rem 0.7rem; border-radius: 8px; margin-bottom: 0.45rem; border: 1px solid var(--border); cursor: grab; }
+.kanban-card:hover { background: var(--surface-hover); transform: translateY(-1px); }
+.kanban-card .name { font-weight: 600; font-size: 0.8rem; margin-bottom: 0.15rem; }
+.kanban-card .meta { font-size: 0.68rem; color: var(--text-secondary); }
+.kanban-card .footer { display: flex; justify-content: space-between; align-items: center; margin-top: 0.4rem; padding-top: 0.35rem; border-top: 1px solid var(--border); font-size: 0.68rem; color: var(--text-secondary); }
+.kanban-card .footer .avatar { width: 20px; height: 20px; font-size: 0.6rem; }
+.timeline-day { font-size: 0.72rem; color: var(--text-secondary); margin: 0.85rem 0 0.45rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
+.timeline-item { display: flex; gap: 0.75rem; padding: 0.75rem 0; border-bottom: 1px solid var(--border); }
+.timeline-icon { width: 32px; height: 32px; border-radius: 50%; background: var(--accent-soft); display: flex; align-items: center; justify-content: center; font-size: 0.95rem; flex-shrink: 0; }
+.timeline-content { flex: 1; }
+.timeline-title { font-weight: 500; font-size: 0.85rem; margin-bottom: 0.2rem; }
+.timeline-meta { font-size: 0.7rem; color: var(--text-secondary); }
+.tabs { display: flex; gap: 0.25rem; border-bottom: 1px solid var(--border); margin-bottom: 1rem; flex-wrap: wrap; }
+.tab { padding: 0.5rem 0.95rem; cursor: pointer; color: var(--text-secondary); font-size: 0.85rem; font-weight: 500; border-bottom: 2px solid transparent; }
+.tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+.stage-chip { font-size: 0.7rem; padding: 0.2rem 0.5rem; border-radius: 99px; background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.hero { text-align: center; padding: 2.5rem 1rem; background: linear-gradient(135deg, rgba(139,92,246,0.12), transparent); border-radius: 20px; margin-bottom: 1.5rem; }
+.hero h1 { font-family: var(--font-display); font-size: 2.4rem; font-weight: 700; margin-bottom: 0.75rem; line-height: 1.15; }
+.hero h1 .grad { background: linear-gradient(to right, #a78bfa, #f472b6); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+.hero p { color: var(--text-secondary); font-size: 1rem; max-width: 620px; margin: 0 auto 1.5rem; }
+.hero-cta { display: flex; gap: 0.75rem; justify-content: center; flex-wrap: wrap; }
+.vendor-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 1rem; margin: 1.25rem 0; }
+.vendor-card { padding: 1.5rem; text-align: center; transition: all 0.2s; cursor: pointer; }
+.vendor-card:hover { transform: translateY(-3px); border-color: var(--accent); }
+.vendor-logo { font-size: 2rem; margin-bottom: 0.5rem; }
+.vendor-name { font-family: var(--font-display); font-size: 1.05rem; font-weight: 600; margin-bottom: 0.25rem; }
+.vendor-price { color: var(--accent); font-weight: 600; margin-bottom: 0.7rem; }
+.feature-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.85rem; margin-top: 1.25rem; }
+.feature-item { display: flex; gap: 0.5rem; align-items: flex-start; font-size: 0.85rem; }
+.feature-item .check { color: var(--success); flex-shrink: 0; margin-top: 1px; }
+.portal-shell { max-width: 900px; margin: 0 auto; }
+.portal-greeting { font-size: 1.1rem; margin-bottom: 0.4rem; }
+.sub-card { padding: 1.35rem; margin-bottom: 1rem; }
+.sub-card .header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.85rem; flex-wrap: wrap; gap: 0.5rem; }
+.sub-card .header h3 { font-family: var(--font-display); font-size: 1.05rem; }
+.sub-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(135px, 1fr)); gap: 0.75rem; margin-bottom: 0.95rem; }
+.sub-info { font-size: 0.8rem; }
+.sub-info .label { color: var(--text-secondary); margin-bottom: 0.15rem; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; }
+.sub-info .value { font-weight: 600; }
+.quote-items { width: 100%; }
+.quote-item-row { display: grid; grid-template-columns: 3fr 1fr 0.7fr 1fr 1.2fr; gap: 0.5rem; padding: 0.6rem 0.5rem; align-items: center; font-size: 0.82rem; border-bottom: 1px solid var(--border); }
+.quote-item-row.header { font-size: 0.68rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
+.totals { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border); }
+.totals-row { display: flex; justify-content: space-between; padding: 0.22rem 0; font-size: 0.85rem; }
+.totals-row.grand { font-size: 1.05rem; font-weight: 700; padding-top: 0.55rem; margin-top: 0.4rem; border-top: 1px solid var(--border); }
+.totals-row.grand .val { color: var(--accent); }
+.renew-section { margin-bottom: 1.25rem; }
+.renew-section-title { display: flex; align-items: center; gap: 0.5rem; font-size: 0.95rem; font-weight: 600; margin-bottom: 0.65rem; }
+.renew-section-title .dot { width: 10px; height: 10px; border-radius: 50%; }
+.rule-card { padding: 0.95rem 1.15rem; margin-bottom: 0.7rem; }
+.rule-when, .rule-then { font-size: 0.78rem; color: var(--text-secondary); margin-top: 0.25rem; }
+.rule-meta { font-size: 0.68rem; color: var(--text-muted); margin-top: 0.35rem; }
+.mobile-frame { max-width: 320px; margin: 0 auto; border: 8px solid #1e1b3a; border-radius: 30px; overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,0.4); }
+.mobile-content { background: var(--bg-color); background-image: var(--bg-gradient); padding: 1rem; min-height: 580px; }
+.mobile-topbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
+.mobile-card { padding: 0.75rem; margin-bottom: 0.55rem; }
+.mobile-tab { background: rgba(255,255,255,0.03); padding: 0.5rem; border-radius: 8px; font-size: 0.7rem; text-align: center; flex: 1; color: var(--text-secondary); }
+.mobile-tab.active { background: var(--accent-soft); color: var(--accent); }
+.stat-row { display: flex; justify-content: space-between; padding: 0.35rem 0; font-size: 0.83rem; border-bottom: 1px solid var(--border); }
+.stat-row:last-child { border-bottom: none; }
+.stat-row .label { color: var(--text-secondary); }
+.stat-row .value { font-weight: 600; }
+.flex { display: flex; }
+.flex-1 { flex: 1; }
+.items-center { align-items: center; }
+.justify-between { justify-content: space-between; }
+.justify-center { justify-content: center; }
+.gap-2 { gap: 0.5rem; }
+.gap-3 { gap: 0.75rem; }
+.mt-1 { margin-top: 0.25rem; }
+.mt-2 { margin-top: 0.5rem; }
+.mt-3 { margin-top: 0.75rem; }
+.mt-4 { margin-top: 1rem; }
+.mb-2 { margin-bottom: 0.5rem; }
+.mb-3 { margin-bottom: 0.75rem; }
+.text-sm { font-size: 0.8rem; }
+.text-xs { font-size: 0.72rem; }
+.text-secondary { color: var(--text-secondary); }
+.text-accent { color: var(--accent); }
+.text-success { color: var(--success); }
+.text-danger { color: var(--danger); }
+.text-warning { color: var(--warning); }
+.text-center { text-align: center; }
+.text-right { text-align: right; }
+.font-bold { font-weight: 700; }
+.font-display { font-family: var(--font-display); }
+
+/* Welcome / Strategic screens */
+.intro-card { padding: 2rem; margin-bottom: 1rem; }
+.big-number { font-family: var(--font-display); font-size: 3rem; font-weight: 700; line-height: 1; background: linear-gradient(to right, #a78bfa, #f472b6); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+.compare-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; margin-bottom: 1rem; }
+.compare-card { padding: 1.5rem; }
+.compare-card.before { border: 1px solid rgba(239,68,68,0.3); background: rgba(239,68,68,0.05); }
+.compare-card.after { border: 1px solid rgba(16,185,129,0.3); background: rgba(16,185,129,0.05); }
+.compare-row { padding: 0.5rem 0; border-bottom: 1px dashed var(--border); font-size: 0.85rem; }
+.compare-row:last-child { border-bottom: none; }
+.timeline-bar { display: flex; gap: 0.5rem; margin: 1rem 0; height: 80px; }
+.timeline-phase { flex: 1; padding: 0.85rem; border-radius: 10px; display: flex; flex-direction: column; justify-content: space-between; color: white; font-size: 0.78rem; font-weight: 600; }
+.timeline-phase.p1 { background: linear-gradient(135deg, #3b82f6, #60a5fa); }
+.timeline-phase.p2 { background: linear-gradient(135deg, #8b5cf6, #a78bfa); }
+.timeline-phase.p3 { background: linear-gradient(135deg, #ec4899, #f472b6); }
+.timeline-phase.p4 { background: linear-gradient(135deg, #10b981, #34d399); }
+.gantt-row { display: grid; grid-template-columns: 200px 1fr; gap: 0.5rem; align-items: center; padding: 0.5rem 0; font-size: 0.82rem; }
+.gantt-track { position: relative; height: 26px; background: rgba(255,255,255,0.05); border-radius: 5px; }
+.gantt-bar { position: absolute; top: 0; bottom: 0; border-radius: 5px; display: flex; align-items: center; padding: 0 0.5rem; color: white; font-size: 0.7rem; font-weight: 600; }
+.pricing-card { padding: 1.5rem; text-align: center; }
+.pricing-card.featured { border: 2px solid var(--accent); position: relative; }
+.pricing-card.featured::before { content: 'RECOMMENDED'; position: absolute; top: -10px; left: 50%; transform: translateX(-50%); background: var(--accent); color: white; padding: 0.2rem 0.75rem; border-radius: 99px; font-size: 0.65rem; font-weight: 700; letter-spacing: 0.05em; }
+.pricing-amount { font-family: var(--font-display); font-size: 2.2rem; font-weight: 700; margin: 0.5rem 0; }
+.faq-item { padding: 1rem 1.25rem; margin-bottom: 0.5rem; }
+.faq-q { font-weight: 600; font-size: 0.95rem; margin-bottom: 0.4rem; color: var(--accent); }
+.faq-a { color: var(--text-secondary); font-size: 0.85rem; line-height: 1.6; }
+
+.step-row { display: flex; gap: 0.85rem; padding: 0.85rem 0; }
+.step-num { width: 32px; height: 32px; border-radius: 50%; background: var(--accent); color: white; display: flex; align-items: center; justify-content: center; font-weight: 700; flex-shrink: 0; }
+.step-content { flex: 1; }
+
+.wizard-shell { max-width: 700px; margin: 0 auto; }
+.wizard-steps { display: flex; gap: 0.5rem; margin-bottom: 1.5rem; }
+.wizard-step { flex: 1; height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; }
+.wizard-step.done { background: var(--success); }
+.wizard-step.active { background: var(--accent); }
+
+@media (max-width: 768px) { .sidebar { display: none; } .screen { padding: 1rem; } .compare-grid { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+
+<div class="demo-banner">
+  ✨ ResellerOS — Complete Project Demo • For Client Decision-Making
+</div>
+
+<div class="app-shell">
+
+  <aside class="sidebar">
+    <div class="sidebar-logo"><span style="font-size: 1.5rem;">⚡</span> ResellerOS</div>
+
+    <div class="sidebar-section">📖 Project Brief</div>
+    <button class="nav-item active" onclick="show('welcome', this)"><span class="ico">🏠</span> Welcome / Overview</button>
+    <button class="nav-item" onclick="show('plan', this)"><span class="ico">📅</span> Project Plan & Timeline</button>
+    <button class="nav-item" onclick="show('investment', this)"><span class="ico">💰</span> Investment & Pricing</button>
+    <button class="nav-item" onclick="show('compare', this)"><span class="ico">🆚</span> Before vs After</button>
+    <button class="nav-item" onclick="show('faq', this)"><span class="ico">❓</span> FAQ</button>
+
+    <div class="sidebar-section">🌐 Customer-Facing</div>
+    <button class="nav-item" onclick="show('landing', this)"><span class="ico">🎯</span> Marketing Page</button>
+    <button class="nav-item" onclick="show('onboarding', this)"><span class="ico">📝</span> Onboarding Wizard</button>
+    <button class="nav-item" onclick="show('portal', this)"><span class="ico">👤</span> Customer Portal</button>
+    <button class="nav-item" onclick="show('quote-accept', this)"><span class="ico">💳</span> Quote Accept + Pay</button>
+    <button class="nav-item" onclick="show('cust-support', this)"><span class="ico">🆘</span> Customer Support</button>
+
+    <div class="sidebar-section">💼 Internal CRM</div>
+    <button class="nav-item" onclick="show('dashboard', this)"><span class="ico">📊</span> Dashboard</button>
+    <button class="nav-item" onclick="show('leads', this)"><span class="ico">🎯</span> Lead Pipeline</button>
+    <button class="nav-item" onclick="show('customer', this)"><span class="ico">👥</span> Customer 360°</button>
+    <button class="nav-item" onclick="show('items', this)"><span class="ico">📦</span> Items Catalog</button>
+    <button class="nav-item" onclick="show('quote', this)"><span class="ico">📋</span> Quote Builder</button>
+    <button class="nav-item" onclick="show('invoices', this)"><span class="ico">📄</span> Invoices</button>
+    <button class="nav-item" onclick="show('subscriptions', this)"><span class="ico">🔄</span> Subscriptions</button>
+    <button class="nav-item" onclick="show('renewals', this)"><span class="ico">⏰</span> Renewals</button>
+    <button class="nav-item" onclick="show('support', this)"><span class="ico">🎫</span> Support Center</button>
+
+    <div class="sidebar-section">⚡ Power Features</div>
+    <button class="nav-item" onclick="show('automation', this)"><span class="ico">⚙️</span> Automation</button>
+    <button class="nav-item" onclick="show('campaigns', this)"><span class="ico">💬</span> Campaigns</button>
+    <button class="nav-item" onclick="show('reports', this)"><span class="ico">📈</span> Reports & Analytics</button>
+    <button class="nav-item" onclick="show('settings', this)"><span class="ico">🔧</span> Settings & Team</button>
+    <button class="nav-item" onclick="show('mobile', this)"><span class="ico">📱</span> Mobile View</button>
+  </aside>
+
+  <main class="content">
+
+    <!-- ========== WELCOME ========== -->
+    <section id="screen-welcome" class="screen active">
+      <div class="hero">
+        <h1>Welcome to <span class="grad">ResellerOS</span></h1>
+        <p>Your complete Google Workspace, Microsoft 365, and Zoho reseller business — automated end-to-end. From lead generation to renewal collection, on one platform.</p>
+        <div class="hero-cta">
+          <button class="btn btn-primary btn-lg" onclick="show('plan', findNav('plan'))">📅 See Timeline</button>
+          <button class="btn btn-secondary btn-lg" onclick="show('investment', findNav('investment'))">💰 View Investment</button>
+        </div>
+      </div>
+
+      <div class="kpi-grid">
+        <div class="glass kpi-card text-center">
+          <div class="big-number">24</div>
+          <div class="kpi-label mt-2">Screens / Modules</div>
+        </div>
+        <div class="glass kpi-card text-center">
+          <div class="big-number">8</div>
+          <div class="kpi-label mt-2">Weeks to Launch</div>
+        </div>
+        <div class="glass kpi-card text-center">
+          <div class="big-number">30+</div>
+          <div class="kpi-label mt-2">Hours/Week Saved</div>
+        </div>
+        <div class="glass kpi-card text-center">
+          <div class="big-number">5</div>
+          <div class="kpi-label mt-2">Team Roles Supported</div>
+        </div>
+      </div>
+
+      <div class="glass intro-card">
+        <h2 class="font-display mb-3" style="font-size: 1.3rem;">🎯 What This Project Solves</h2>
+        <div class="step-row">
+          <div class="step-num">1</div>
+          <div class="step-content">
+            <div class="font-bold mb-2">Lead Confusion Eliminated</div>
+            <div class="text-secondary text-sm">Sales team Excel chodke ek Kanban pe leads track karega. Kisi lead ka status pata nahi hai? Yeh problem khatam.</div>
+          </div>
+        </div>
+        <div class="step-row">
+          <div class="step-num">2</div>
+          <div class="step-content">
+            <div class="font-bold mb-2">Quote → Invoice → Payment Fully Automated</div>
+            <div class="text-secondary text-sm">GST auto-calculate, PDF auto-generate, WhatsApp pe send, Razorpay se pay, Zoho me sync — sab ek click me.</div>
+          </div>
+        </div>
+        <div class="step-row">
+          <div class="step-num">3</div>
+          <div class="step-content">
+            <div class="font-bold mb-2">Renewals Kabhi Miss Nahi Honge</div>
+            <div class="text-secondary text-sm">T-90, T-60, T-30, T-7 din pehle automatic alerts. ARR risk dashboard pe live dikhega. 15-20% revenue loss bachega.</div>
+          </div>
+        </div>
+        <div class="step-row">
+          <div class="step-num">4</div>
+          <div class="step-content">
+            <div class="font-bold mb-2">Customer Self-Service Portal</div>
+            <div class="text-secondary text-sm">Customer khud login karke subscriptions manage, invoices download, tickets raise kare. Support load 40% kam.</div>
+          </div>
+        </div>
+        <div class="step-row">
+          <div class="step-num">5</div>
+          <div class="step-content">
+            <div class="font-bold mb-2">Team Productivity 3x</div>
+            <div class="text-secondary text-sm">Role-based dashboards, mobile app, activity timeline, automation rules — har team member ko exactly jo chahiye wahi dikhe.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="glass intro-card mt-3">
+        <h2 class="font-display mb-3" style="font-size: 1.3rem;">📋 How To Review This Demo</h2>
+        <ol style="padding-left: 1.5rem; line-height: 2;">
+          <li><strong>Project Brief section</strong> dekho (Timeline, Investment, Before/After, FAQ) — strategic decision ke liye</li>
+          <li><strong>Customer-Facing screens</strong> dekho — jo aapke customer dekhenge</li>
+          <li><strong>Internal CRM screens</strong> dekho — jo aapki team daily use karegi</li>
+          <li><strong>Power Features</strong> dekho — automation, campaigns, reports, mobile</li>
+          <li><strong>Questions?</strong> WhatsApp/call karein — clarify kar denge</li>
+        </ol>
+        <div class="text-center mt-4">
+          <button class="btn btn-primary btn-lg" onclick="show('landing', findNav('landing'))">Start the Tour →</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== PROJECT PLAN ========== -->
+    <section id="screen-plan" class="screen">
+      <div class="screen-header">
+        <div>
+          <div class="screen-title">📅 Project Plan & Timeline</div>
+          <div class="screen-subtitle">8-week phased delivery with milestone-based sign-offs</div>
+        </div>
+      </div>
+
+      <div class="glass intro-card mb-3">
+        <h3 class="font-display mb-3" style="font-size: 1.1rem;">🚀 4 Phases — 8 Weeks Total</h3>
+        <div class="timeline-bar">
+          <div class="timeline-phase p1">
+            <div>PHASE 1<br>Week 1-2</div>
+            <div style="font-weight: 400; font-size: 0.7rem;">Foundation</div>
+          </div>
+          <div class="timeline-phase p2">
+            <div>PHASE 2<br>Week 3-4</div>
+            <div style="font-weight: 400; font-size: 0.7rem;">Sales Pipeline</div>
+          </div>
+          <div class="timeline-phase p3">
+            <div>PHASE 3<br>Week 5-6</div>
+            <div style="font-weight: 400; font-size: 0.7rem;">Automation</div>
+          </div>
+          <div class="timeline-phase p4">
+            <div>PHASE 4<br>Week 7-8</div>
+            <div style="font-weight: 400; font-size: 0.7rem;">Engagement</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="glass mb-3">
+        <h3 class="font-display mb-3" style="font-size: 1.05rem;">📊 Gantt View</h3>
+        <div class="gantt-row">
+          <div>Data Cleanup + RBAC</div>
+          <div class="gantt-track"><div class="gantt-bar" style="left: 0; width: 25%; background: #3b82f6;">W1-W2</div></div>
+        </div>
+        <div class="gantt-row">
+          <div>SOPs + Email Templates</div>
+          <div class="gantt-track"><div class="gantt-bar" style="left: 6%; width: 19%; background: #3b82f6;">W1.5-W2</div></div>
+        </div>
+        <div class="gantt-row">
+          <div>Leads Kanban Module</div>
+          <div class="gantt-track"><div class="gantt-bar" style="left: 25%; width: 25%; background: #8b5cf6;">W3-W4</div></div>
+        </div>
+        <div class="gantt-row">
+          <div>Activity Timeline</div>
+          <div class="gantt-track"><div class="gantt-bar" style="left: 25%; width: 25%; background: #8b5cf6;">W3-W4</div></div>
+        </div>
+        <div class="gantt-row">
+          <div>Automation Engine</div>
+          <div class="gantt-track"><div class="gantt-bar" style="left: 50%; width: 25%; background: #ec4899;">W5-W6</div></div>
+        </div>
+        <div class="gantt-row">
+          <div>Auto-Email + Renewals</div>
+          <div class="gantt-track"><div class="gantt-bar" style="left: 50%; width: 25%; background: #ec4899;">W5-W6</div></div>
+        </div>
+        <div class="gantt-row">
+          <div>WhatsApp Integration</div>
+          <div class="gantt-track"><div class="gantt-bar" style="left: 75%; width: 25%; background: #10b981;">W7-W8</div></div>
+        </div>
+        <div class="gantt-row">
+          <div>Customer Portal</div>
+          <div class="gantt-track"><div class="gantt-bar" style="left: 75%; width: 25%; background: #10b981;">W7-W8</div></div>
+        </div>
+      </div>
+
+      <div class="kpi-grid">
+        <div class="glass kpi-card">
+          <div class="kpi-label" style="color: #60a5fa;">🔵 PHASE 1 (Week 1-2)</div>
+          <div class="font-bold mt-2" style="font-size: 1rem;">Foundation</div>
+          <div class="text-secondary text-xs mt-2">
+            ✓ Data cleanup<br>
+            ✓ Team roles audit<br>
+            ✓ Dashboard customized<br>
+            ✓ Email templates<br>
+            ✓ SOPs published
+          </div>
+          <div class="mt-3 text-xs"><strong>Milestone 1:</strong> Cleanup signed off</div>
+        </div>
+        <div class="glass kpi-card">
+          <div class="kpi-label" style="color: #a78bfa;">🟣 PHASE 2 (Week 3-4)</div>
+          <div class="font-bold mt-2" style="font-size: 1rem;">Sales Pipeline</div>
+          <div class="text-secondary text-xs mt-2">
+            ✓ Lead Kanban built<br>
+            ✓ Activity timeline<br>
+            ✓ Tasks + priorities<br>
+            ✓ Onboarding checklist<br>
+            ✓ Lead → Customer flow
+          </div>
+          <div class="mt-3 text-xs"><strong>Milestone 2:</strong> Sales demo + sign-off</div>
+        </div>
+        <div class="glass kpi-card">
+          <div class="kpi-label" style="color: #f472b6;">🌸 PHASE 3 (Week 5-6)</div>
+          <div class="font-bold mt-2" style="font-size: 1rem;">Automation</div>
+          <div class="text-secondary text-xs mt-2">
+            ✓ Rule builder UI<br>
+            ✓ 12 pre-built rules<br>
+            ✓ Cloud Function runner<br>
+            ✓ Custom reports<br>
+            ✓ AI suggestions
+          </div>
+          <div class="mt-3 text-xs"><strong>Milestone 3:</strong> Automation live + sign-off</div>
+        </div>
+        <div class="glass kpi-card">
+          <div class="kpi-label" style="color: #34d399;">🟢 PHASE 4 (Week 7-8)</div>
+          <div class="font-bold mt-2" style="font-size: 1rem;">Engagement</div>
+          <div class="text-secondary text-xs mt-2">
+            ✓ WhatsApp integration<br>
+            ✓ Bulk campaigns<br>
+            ✓ Customer portal<br>
+            ✓ Quote → Pay flow<br>
+            ✓ AI lead scoring
+          </div>
+          <div class="mt-3 text-xs"><strong>Milestone 4:</strong> Final UAT + Go-Live</div>
+        </div>
+      </div>
+
+      <div class="glass mt-3">
+        <h3 class="font-display mb-3" style="font-size: 1.05rem;">✅ Milestone-Based Payment Schedule</h3>
+        <table class="table">
+          <thead><tr><th>Milestone</th><th>Deliverable</th><th>Sign-off By</th><th>Payment %</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Kick-off</strong></td><td>Project start, planning</td><td>Day 0</td><td>25%</td></tr>
+            <tr><td><strong>M1: Foundation</strong></td><td>Cleanup + SOPs + Roles</td><td>End Week 2</td><td>15%</td></tr>
+            <tr><td><strong>M2: Sales Pipeline</strong></td><td>Leads + Activities + Tasks</td><td>End Week 4</td><td>20%</td></tr>
+            <tr><td><strong>M3: Automation</strong></td><td>Rule engine + 12 rules</td><td>End Week 6</td><td>20%</td></tr>
+            <tr><td><strong>M4: Go-Live</strong></td><td>WhatsApp + Portal + UAT</td><td>End Week 8</td><td>20%</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ========== INVESTMENT ========== -->
+    <section id="screen-investment" class="screen">
+      <div class="screen-header">
+        <div>
+          <div class="screen-title">💰 Investment & Pricing</div>
+          <div class="screen-subtitle">Transparent breakdown of cost, what's included, and ROI</div>
+        </div>
+      </div>
+
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1rem;">
+        <div class="glass pricing-card">
+          <div class="text-secondary text-sm">STARTER</div>
+          <div class="pricing-amount">₹1.2L</div>
+          <div class="text-secondary text-sm mb-3">One-time + 3 months support</div>
+          <div style="text-align: left; padding: 0 0.5rem;">
+            <div class="text-sm" style="padding: 0.3rem 0;">✓ Foundation (Phase 1)</div>
+            <div class="text-sm" style="padding: 0.3rem 0;">✓ Sales Pipeline (Phase 2)</div>
+            <div class="text-sm" style="padding: 0.3rem 0;">✓ Activity Timeline</div>
+            <div class="text-sm" style="padding: 0.3rem 0;">✓ Basic automation (3 rules)</div>
+            <div class="text-sm text-muted" style="padding: 0.3rem 0;">✗ WhatsApp integration</div>
+            <div class="text-sm text-muted" style="padding: 0.3rem 0;">✗ Customer Portal</div>
+            <div class="text-sm text-muted" style="padding: 0.3rem 0;">✗ AI features</div>
+          </div>
+          <button class="btn btn-secondary mt-3" style="width: 100%; margin-top: 1rem;">Choose Starter</button>
+        </div>
+
+        <div class="glass pricing-card featured">
+          <div class="text-secondary text-sm">COMPLETE</div>
+          <div class="pricing-amount">₹2.5L</div>
+          <div class="text-secondary text-sm mb-3">One-time + 6 months support</div>
+          <div style="text-align: left; padding: 0 0.5rem;">
+            <div class="text-sm" style="padding: 0.3rem 0;">✓ <strong>Everything in Starter</strong></div>
+            <div class="text-sm" style="padding: 0.3rem 0;">✓ Automation Engine (Phase 3)</div>
+            <div class="text-sm" style="padding: 0.3rem 0;">✓ 12+ pre-built rules</div>
+            <div class="text-sm" style="padding: 0.3rem 0;">✓ WhatsApp Integration</div>
+            <div class="text-sm" style="padding: 0.3rem 0;">✓ Customer Self-Service Portal</div>
+            <div class="text-sm" style="padding: 0.3rem 0;">✓ Bulk Campaigns</div>
+            <div class="text-sm" style="padding: 0.3rem 0;">✓ Custom Reports</div>
+            <div class="text-sm" style="padding: 0.3rem 0;">✓ AI Lead Scoring</div>
+          </div>
+          <button class="btn btn-primary mt-3" style="width: 100%; margin-top: 1rem;">Choose Complete</button>
+        </div>
+
+        <div class="glass pricing-card">
+          <div class="text-secondary text-sm">ENTERPRISE</div>
+          <div class="pricing-amount">₹4.5L</div>
+          <div class="text-secondary text-sm mb-3">One-time + 12 months support</div>
+          <div style="text-align: left; padding: 0 0.5rem;">
+            <div class="text-sm" style="padding: 0.3rem 0;">✓ <strong>Everything in Complete</strong></div>
+            <div class="text-sm" style="padding: 0.3rem 0;">✓ Multi-vendor (Google + MS + Zoho)</div>
+            <div class="text-sm" style="padding: 0.3rem 0;">✓ Custom branding / White-label</div>
+            <div class="text-sm" style="padding: 0.3rem 0;">✓ Advanced AI analyst</div>
+            <div class="text-sm" style="padding: 0.3rem 0;">✓ Priority support (4hr SLA)</div>
+            <div class="text-sm" style="padding: 0.3rem 0;">✓ Custom integrations</div>
+            <div class="text-sm" style="padding: 0.3rem 0;">✓ Dedicated account manager</div>
+          </div>
+          <button class="btn btn-secondary mt-3" style="width: 100%; margin-top: 1rem;">Choose Enterprise</button>
+        </div>
+      </div>
+
+      <div class="glass mt-4">
+        <h3 class="font-display mb-3" style="font-size: 1.05rem;">📋 What's Included in Every Plan</h3>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.85rem;">
+          <div class="feature-item"><span class="check">✓</span><span>Source code ownership (full rights)</span></div>
+          <div class="feature-item"><span class="check">✓</span><span>Firebase deployment included</span></div>
+          <div class="feature-item"><span class="check">✓</span><span>Documentation + SOPs</span></div>
+          <div class="feature-item"><span class="check">✓</span><span>Team training (2 sessions)</span></div>
+          <div class="feature-item"><span class="check">✓</span><span>Data migration from existing tools</span></div>
+          <div class="feature-item"><span class="check">✓</span><span>Razorpay + GST + Zoho integration</span></div>
+          <div class="feature-item"><span class="check">✓</span><span>Mobile-responsive design</span></div>
+          <div class="feature-item"><span class="check">✓</span><span>Bug fixes during support period</span></div>
+        </div>
+      </div>
+
+      <div class="glass mt-3">
+        <h3 class="font-display mb-3" style="font-size: 1.05rem;">💸 Recurring Costs (Not in Project Fee)</h3>
+        <table class="table">
+          <thead><tr><th>Service</th><th>Provider</th><th>Estimated Monthly</th></tr></thead>
+          <tbody>
+            <tr><td>Firebase Hosting + Firestore</td><td>Google</td><td>₹500-1,500 (free tier covers most)</td></tr>
+            <tr><td>Cloud Functions</td><td>Google</td><td>₹0-500 (free tier)</td></tr>
+            <tr><td>WhatsApp Business API</td><td>Meta / Twilio</td><td>₹1-2 per message</td></tr>
+            <tr><td>Razorpay transaction fee</td><td>Razorpay</td><td>2% of transaction</td></tr>
+            <tr><td>Domain + SSL</td><td>Any registrar</td><td>₹100/mo (₹1,200/year)</td></tr>
+            <tr><td><strong>Total Recurring</strong></td><td></td><td><strong>~₹1,500-3,000/month</strong></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="glass mt-3" style="background: rgba(16,185,129,0.08); border-color: rgba(16,185,129,0.3);">
+        <h3 class="font-display mb-3" style="font-size: 1.05rem;">📈 Return on Investment (ROI)</h3>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem;">
+          <div>
+            <div class="text-secondary text-xs">CURRENT REVENUE</div>
+            <div class="font-display font-bold" style="font-size: 1.5rem;">₹50L/year</div>
+            <div class="text-secondary text-xs">Baseline</div>
+          </div>
+          <div>
+            <div class="text-secondary text-xs">RENEWALS SAVED</div>
+            <div class="font-display font-bold text-success" style="font-size: 1.5rem;">+₹7.5L/year</div>
+            <div class="text-secondary text-xs">15% renewal rate improvement</div>
+          </div>
+          <div>
+            <div class="text-secondary text-xs">SALES VELOCITY</div>
+            <div class="font-display font-bold text-success" style="font-size: 1.5rem;">+₹10L/year</div>
+            <div class="text-secondary text-xs">20% faster close cycle</div>
+          </div>
+          <div>
+            <div class="text-secondary text-xs">PAYBACK PERIOD</div>
+            <div class="font-display font-bold" style="font-size: 1.5rem;">3-4 months</div>
+            <div class="text-secondary text-xs">Complete plan</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== BEFORE vs AFTER ========== -->
+    <section id="screen-compare" class="screen">
+      <div class="screen-header">
+        <div>
+          <div class="screen-title">🆚 Before vs After</div>
+          <div class="screen-subtitle">Aaj kya hai vs ResellerOS ke baad kya hoga — saaf comparison</div>
+        </div>
+      </div>
+
+      <div class="compare-grid">
+        <div class="glass compare-card before">
+          <h3 class="font-display mb-3" style="font-size: 1.1rem; color: #f87171;">❌ Aaj (Manual System)</h3>
+          <div class="compare-row"><strong>Lead Management:</strong> Excel sheets, WhatsApp screenshots, kuch leads bhool jaate hain</div>
+          <div class="compare-row"><strong>Quote Sending:</strong> Word/Excel me banake email karna, GST manual calculate</div>
+          <div class="compare-row"><strong>Invoicing:</strong> Manual entry, Zoho me alag log in karna, errors common</div>
+          <div class="compare-row"><strong>Renewals:</strong> Spreadsheet me track, alarm pe depend, 30% renewals slip</div>
+          <div class="compare-row"><strong>Payment Reconcile:</strong> Bank statement check, manual match, weekly 5 hours waste</div>
+          <div class="compare-row"><strong>Customer Support:</strong> Email back-and-forth, history Gmail me khoyi, repeat questions</div>
+          <div class="compare-row"><strong>Reports:</strong> 3 spreadsheets se collate, owner ko monthly 1 din lagta</div>
+          <div class="compare-row"><strong>Team Collaboration:</strong> "Mujhe nahi pata, X ko poocho" — constant context switching</div>
+          <div class="compare-row"><strong>Customer Experience:</strong> Email pe wait karein, koi self-service nahi</div>
+          <div class="compare-row"><strong>Mobile Access:</strong> Nahi hai, laptop chahiye</div>
+        </div>
+
+        <div class="glass compare-card after">
+          <h3 class="font-display mb-3" style="font-size: 1.1rem; color: #34d399;">✅ ResellerOS ke Baad</h3>
+          <div class="compare-row"><strong>Lead Management:</strong> Kanban pipeline, drag-drop, auto-assigned, kuch miss nahi hota</div>
+          <div class="compare-row"><strong>Quote Sending:</strong> 2 click me quote ban jata, GST auto, PDF + WhatsApp send</div>
+          <div class="compare-row"><strong>Invoicing:</strong> Auto-generate from quote, Zoho sync automatic, zero errors</div>
+          <div class="compare-row"><strong>Renewals:</strong> T-90/60/30 day alerts, dashboard pe live, 90%+ renewal rate</div>
+          <div class="compare-row"><strong>Payment Reconcile:</strong> Razorpay webhook auto-marks paid, weekly 0 hours manual</div>
+          <div class="compare-row"><strong>Customer Support:</strong> Ticket system + activity timeline, full history one click</div>
+          <div class="compare-row"><strong>Reports:</strong> Live dashboard 24x7, MRR/ARR/churn auto-calculate</div>
+          <div class="compare-row"><strong>Team Collaboration:</strong> Role-based dashboards, sab ek system me, context shared</div>
+          <div class="compare-row"><strong>Customer Experience:</strong> Self-service portal, subscriptions manage khud, support tickets online</div>
+          <div class="compare-row"><strong>Mobile Access:</strong> PWA app, anywhere from phone, offline mode</div>
+        </div>
+      </div>
+
+      <div class="glass mt-3">
+        <h3 class="font-display mb-3" style="font-size: 1.05rem;">📊 Quantified Impact</h3>
+        <table class="table">
+          <thead><tr><th>Metric</th><th>Today (Manual)</th><th>With ResellerOS</th><th>Improvement</th></tr></thead>
+          <tbody>
+            <tr><td>Time spent on data entry</td><td>30 hrs/week (team)</td><td>5 hrs/week</td><td class="text-success">▼ 83%</td></tr>
+            <tr><td>Quote creation time</td><td>30-45 min</td><td>2-3 min</td><td class="text-success">▼ 90%</td></tr>
+            <tr><td>Invoice generation</td><td>15 min each</td><td>Auto (0 min)</td><td class="text-success">▼ 100%</td></tr>
+            <tr><td>Renewals missed</td><td>30% (industry avg)</td><td>5-10%</td><td class="text-success">▼ 70%</td></tr>
+            <tr><td>Sales close time</td><td>35 days</td><td>21 days</td><td class="text-success">▼ 40%</td></tr>
+            <tr><td>Customer support response</td><td>24-48 hours</td><td>2-4 hours</td><td class="text-success">▼ 85%</td></tr>
+            <tr><td>Onboarding time</td><td>5-7 days</td><td>24-48 hours</td><td class="text-success">▼ 70%</td></tr>
+            <tr><td>Error rate (wrong GST/invoice)</td><td>5-8 per month</td><td>0-1 per month</td><td class="text-success">▼ 90%</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ========== FAQ ========== -->
+    <section id="screen-faq" class="screen">
+      <div class="screen-header">
+        <div>
+          <div class="screen-title">❓ Frequently Asked Questions</div>
+          <div class="screen-subtitle">Aapke common questions ka jawab</div>
+        </div>
+      </div>
+
+      <div class="glass faq-item">
+        <div class="faq-q">Q1: Kya mera existing data migrate hoga?</div>
+        <div class="faq-a">Haan, bilkul. Aapke existing customers, subscriptions, invoices — sab kuch ResellerOS me migrate ho jayega. Migration script Phase 1 me hi run karenge. Aapko ek baar verify karna padega, fir purana system band kar sakte ho.</div>
+      </div>
+
+      <div class="glass faq-item">
+        <div class="faq-q">Q2: Project ke baad maintenance ka kya?</div>
+        <div class="faq-a">Support period me (3-12 months depending on plan) sab bug fixes free hain. Uske baad annual maintenance contract le sakte ho ₹50K/year se shuru. Ya khud manage kar lo — source code aapka hai.</div>
+      </div>
+
+      <div class="glass faq-item">
+        <div class="faq-q">Q3: Source code mera hoga?</div>
+        <div class="faq-a">Haan, **full source code ownership** aapko milta hai. Project deliver hone ke baad GitHub access transfer ho jayega. Aap chahein toh future me kisi aur developer se bhi kaam karwa sakte ho.</div>
+      </div>
+
+      <div class="glass faq-item">
+        <div class="faq-q">Q4: Tech stack kya hai? Future me extend ho payega?</div>
+        <div class="faq-a">Vite + Vanilla JS + Firebase Firestore + Cloud Functions. Modern, modular, scalable. New features add karna easy hai. Industry-standard tools — koi propriety lock-in nahi.</div>
+      </div>
+
+      <div class="glass faq-item">
+        <div class="faq-q">Q5: Team ko training kaise milegi?</div>
+        <div class="faq-a">2 dedicated training sessions included hain — ek admin team ke liye (settings, automation), doosri sales/finance team ke liye (daily usage). Plus video tutorials aur written SOPs (Standard Operating Procedures) bhi milenge.</div>
+      </div>
+
+      <div class="glass faq-item">
+        <div class="faq-q">Q6: Agar beech me scope change karna ho?</div>
+        <div class="faq-a">Phase boundaries pe scope change kar sakte ho. Phase 1 sign-off ke baad Phase 2 ka scope finalize hota hai. Mid-phase changes possible hain lekin uska additional cost lagega — separate change request raise karna padta hai.</div>
+      </div>
+
+      <div class="glass faq-item">
+        <div class="faq-q">Q7: Multi-vendor (Google + Microsoft + Zoho) ek saath manage kar sakte hain?</div>
+        <div class="faq-a">Haan — Enterprise plan me. Items catalog me har vendor ke SKUs separately, customer portal me filter, alag-alag landing pages — sab ready hai. Reseller API integration teeno vendors ke liye.</div>
+      </div>
+
+      <div class="glass faq-item">
+        <div class="faq-q">Q8: GST compliance properly handle hota hai?</div>
+        <div class="faq-a">Bilkul. CGST + SGST (intra-state), IGST (inter-state) — automatic state-based detection. HSN code (998313) auto-populate. GSTR-1 friendly export. PDF invoices fully GST-compliant. Future me e-invoice IRN support bhi add ho sakta hai.</div>
+      </div>
+
+      <div class="glass faq-item">
+        <div class="faq-q">Q9: Mobile app bhi milega?</div>
+        <div class="faq-a">PWA (Progressive Web App) milega — phone me browser se khol ke "Add to Home Screen" karo, app jaisa kaam karega. Offline mode, push notifications, camera (photo capture), GPS check-in — sab kuch. Native iOS/Android app nahi hai abhi, lekin PWA usually enough hai 95% use cases ke liye.</div>
+      </div>
+
+      <div class="glass faq-item">
+        <div class="faq-q">Q10: Data security kaisa hai?</div>
+        <div class="faq-a">Firebase Auth + Firestore Security Rules + Cloud Functions. Multi-tenant architecture — aapke data dusre kisi tenant ko nahi dikhega. RBAC (Role-Based Access Control) — sales rep apne hi leads dekhe, support tickets owner-only, etc. Data India region (asia-south1, Mumbai) me hai. Sentry error monitoring. Daily Firestore backups.</div>
+      </div>
+
+      <div class="glass faq-item">
+        <div class="faq-q">Q11: Payment terms kya hain?</div>
+        <div class="faq-a">25% kick-off pe, fir 4 milestones pe 15-20% har baar. Total payment 8 weeks me distribute hota hai. Razorpay/Bank/UPI — koi bhi mode chalega. Invoice GST ke saath milega har milestone pe.</div>
+      </div>
+
+      <div class="glass faq-item">
+        <div class="faq-q">Q12: Agar project complete time pe nahi hua to?</div>
+        <div class="faq-a">8-week timeline aggressive lekin realistic hai. Milestone-based delivery hota hai — har 2 weeks pe demo + sign-off. Agar koi delay hota hai (mere taraf se), aapko advance notice milega aur plan adjust karenge. Aap bhi timely feedback dein — har milestone pe.</div>
+      </div>
+
+      <div class="glass faq-item">
+        <div class="faq-q">Q13: Existing gw-pro system ka kya hoga?</div>
+        <div class="faq-a">gw-pro hi base hai ResellerOS ka — usko enhance kar rahe hain. Aapka existing data, settings, integrations — sab kuch reuse hoga. Brand rename ho sakta hai (ResellerOS), URL change kar sakte ho, but core system continuous hai.</div>
+      </div>
+
+      <div class="glass mt-3 text-center" style="padding: 1.5rem;">
+        <h3 class="font-display mb-2" style="font-size: 1.1rem;">Aur Sawaal Hain?</h3>
+        <p class="text-secondary mb-3">WhatsApp ya call karein — ek call me sab clarify ho jayega</p>
+        <button class="btn btn-primary">📞 Schedule a Call</button>
+      </div>
+    </section>
+
+    <!-- ========== LANDING ========== -->
+    <section id="screen-landing" class="screen">
+      <div class="hero">
+        <h1>Your Reseller Business,<br><span class="grad">on Autopilot.</span></h1>
+        <p>Sell, Provision, Bill & Renew Google Workspace, Microsoft 365, and Zoho — all in one platform. Built for Indian resellers, with GST, WhatsApp, and Razorpay built-in.</p>
+        <div class="hero-cta">
+          <button class="btn btn-primary btn-lg">Start Free Trial →</button>
+          <button class="btn btn-secondary btn-lg">▶ Watch 2-min Demo</button>
+        </div>
+      </div>
+
+      <h2 class="font-display text-center mb-3" style="font-size: 1.3rem;">Choose Your Vendor</h2>
+
+      <div class="vendor-grid">
+        <div class="glass vendor-card">
+          <div class="vendor-logo">🟦</div>
+          <div class="vendor-name">Google Workspace</div>
+          <div class="vendor-price">from ₹136 /user/mo</div>
+          <button class="btn btn-primary btn-sm">Explore Plans →</button>
+        </div>
+        <div class="glass vendor-card">
+          <div class="vendor-logo">🟧</div>
+          <div class="vendor-name">Microsoft 365</div>
+          <div class="vendor-price">from ₹200 /user/mo</div>
+          <button class="btn btn-primary btn-sm">Explore Plans →</button>
+        </div>
+        <div class="glass vendor-card">
+          <div class="vendor-logo">🟥</div>
+          <div class="vendor-name">Zoho Workplace</div>
+          <div class="vendor-price">from ₹120 /user/mo</div>
+          <button class="btn btn-primary btn-sm">Explore Plans →</button>
+        </div>
+      </div>
+
+      <div class="glass mt-4">
+        <h3 class="font-display mb-3" style="font-size: 1.1rem;">Why Excel Technologies?</h3>
+        <div class="feature-strip">
+          <div class="feature-item"><span class="check">✓</span><span>Google Authorized Reseller (10+ years)</span></div>
+          <div class="feature-item"><span class="check">✓</span><span>500+ businesses migrated successfully</span></div>
+          <div class="feature-item"><span class="check">✓</span><span>24×7 India-based support</span></div>
+          <div class="feature-item"><span class="check">✓</span><span>Free DNS, MX, SPF, DKIM setup</span></div>
+          <div class="feature-item"><span class="check">✓</span><span>GST-compliant invoicing</span></div>
+          <div class="feature-item"><span class="check">✓</span><span>WhatsApp & Razorpay billing</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== ONBOARDING WIZARD ========== -->
+    <section id="screen-onboarding" class="screen">
+      <div class="screen-header">
+        <div>
+          <div class="screen-title">📝 Onboarding Wizard</div>
+          <div class="screen-subtitle">Customer signup → live in 4 simple steps</div>
+        </div>
+      </div>
+
+      <div class="wizard-shell">
+        <div class="wizard-steps">
+          <div class="wizard-step done"></div>
+          <div class="wizard-step done"></div>
+          <div class="wizard-step active"></div>
+          <div class="wizard-step"></div>
+        </div>
+
+        <div class="glass mb-3">
+          <div class="text-secondary text-xs mb-2">STEP 3 OF 4</div>
+          <h2 class="font-display mb-3" style="font-size: 1.3rem;">DNS Setup Verification</h2>
+          <p class="text-secondary mb-3">Hum aapke domain pe MX, SPF, DKIM, DMARC records configure karenge. Niche jo records hain woh apne domain control panel me add karein.</p>
+
+          <div class="glass mb-2" style="background: rgba(0,0,0,0.2);">
+            <div class="font-bold mb-2">MX Records (Mail Routing)</div>
+            <table class="table">
+              <thead><tr><th>Priority</th><th>Hostname</th><th>Value</th><th>Status</th></tr></thead>
+              <tbody>
+                <tr><td>1</td><td>@</td><td>aspmx.l.google.com</td><td><span class="badge badge-active">✓ Verified</span></td></tr>
+                <tr><td>5</td><td>@</td><td>alt1.aspmx.l.google.com</td><td><span class="badge badge-active">✓ Verified</span></td></tr>
+                <tr><td>5</td><td>@</td><td>alt2.aspmx.l.google.com</td><td><span class="badge badge-pending">⏳ Pending</span></td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="glass mb-2" style="background: rgba(0,0,0,0.2);">
+            <div class="font-bold mb-2">SPF Record</div>
+            <code style="display: block; padding: 0.5rem; background: #000; border-radius: 6px; font-size: 0.78rem; word-break: break-all;">v=spf1 include:_spf.google.com ~all</code>
+            <div class="mt-2"><span class="badge badge-active">✓ Verified</span></div>
+          </div>
+
+          <div class="glass" style="background: rgba(0,0,0,0.2);">
+            <div class="font-bold mb-2">Domain Ownership Verification</div>
+            <code style="display: block; padding: 0.5rem; background: #000; border-radius: 6px; font-size: 0.78rem;">google-site-verification=abc123xyz...</code>
+            <div class="mt-2"><span class="badge badge-pending">⏳ Will verify in 24 hrs</span></div>
+          </div>
+        </div>
+
+        <div class="flex gap-2 justify-between">
+          <button class="btn btn-secondary">← Back</button>
+          <div class="flex gap-2">
+            <button class="btn btn-secondary">💬 Need Help?</button>
+            <button class="btn btn-primary">Continue → Provisioning</button>
+          </div>
+        </div>
+
+        <div class="glass mt-3 text-center" style="background: rgba(139,92,246,0.08);">
+          <div class="text-sm">📞 <strong>Stuck somewhere?</strong> Our team will jump on a 15-min screen-share to fix DNS for you. <strong style="color: var(--accent);">Free.</strong></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== CUSTOMER PORTAL ========== -->
+    <section id="screen-portal" class="screen">
+      <div class="portal-shell">
+        <div class="screen-header">
+          <div>
+            <div class="portal-greeting">Welcome, <strong>Rajesh</strong> 👋</div>
+            <div class="screen-subtitle">Acme Corp Pvt Ltd • acmecorp.com</div>
+          </div>
+          <button class="btn btn-secondary btn-sm">⏻ Logout</button>
+        </div>
+
+        <div class="kpi-grid">
+          <div class="glass kpi-card"><div class="kpi-label">Active Subs</div><div class="kpi-value">2</div></div>
+          <div class="glass kpi-card"><div class="kpi-label">Total Seats</div><div class="kpi-value">30</div></div>
+          <div class="glass kpi-card"><div class="kpi-label">Monthly Spend</div><div class="kpi-value">₹38.5K</div></div>
+          <div class="glass kpi-card"><div class="kpi-label">Open Tickets</div><div class="kpi-value">1</div></div>
+        </div>
+
+        <div class="glass sub-card">
+          <div class="header">
+            <h3>Google Workspace Plus</h3>
+            <span class="badge badge-active">🟢 Active</span>
+          </div>
+          <div class="sub-grid">
+            <div class="sub-info"><div class="label">Seats</div><div class="value">25 <span class="text-secondary text-sm">(3 unused)</span></div></div>
+            <div class="sub-info"><div class="label">Monthly Cost</div><div class="value">₹34,500</div></div>
+            <div class="sub-info"><div class="label">Billing</div><div class="value">Annual</div></div>
+            <div class="sub-info"><div class="label">Renewal Due</div><div class="value">15 Sep 2026 <span class="text-secondary text-sm">(118 days)</span></div></div>
+          </div>
+          <div class="flex gap-2" style="flex-wrap: wrap;">
+            <button class="btn btn-primary btn-sm">Manage Users</button>
+            <button class="btn btn-secondary btn-sm">Upgrade Plan</button>
+            <button class="btn btn-secondary btn-sm">Get Renewal Quote</button>
+            <button class="btn btn-secondary btn-sm">Contact Support</button>
+          </div>
+        </div>
+
+        <div class="glass sub-card">
+          <div class="header">
+            <h3>Google Voice Standard</h3>
+            <span class="badge badge-active">🟢 Active</span>
+          </div>
+          <div class="sub-grid">
+            <div class="sub-info"><div class="label">Seats</div><div class="value">5</div></div>
+            <div class="sub-info"><div class="label">Monthly Cost</div><div class="value">₹4,000</div></div>
+            <div class="sub-info"><div class="label">Billing</div><div class="value">Annual</div></div>
+            <div class="sub-info"><div class="label">Renewal Due</div><div class="value">15 Sep 2026</div></div>
+          </div>
+        </div>
+
+        <div class="glass mb-3">
+          <h3 class="font-display mb-3" style="font-size: 1rem;">Quick Actions</h3>
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0.75rem;">
+            <div class="glass text-center" style="padding: 0.85rem; cursor: pointer;">📄<br><span class="text-sm">Download Invoices</span></div>
+            <div class="glass text-center" style="padding: 0.85rem; cursor: pointer;">🎫<br><span class="text-sm">Raise Ticket</span></div>
+            <div class="glass text-center" style="padding: 0.85rem; cursor: pointer;">📞<br><span class="text-sm">Schedule Call</span></div>
+            <div class="glass text-center" style="padding: 0.85rem; cursor: pointer;">📊<br><span class="text-sm">Usage Report</span></div>
+          </div>
+        </div>
+
+        <div class="glass">
+          <div class="flex justify-between items-center mb-2">
+            <h3 class="font-display" style="font-size: 1rem;">Recent Invoices</h3>
+            <a href="#" class="text-accent text-sm">View All →</a>
+          </div>
+          <table class="table">
+            <thead><tr><th>Invoice #</th><th>Date</th><th>Amount</th><th>Status</th><th></th></tr></thead>
+            <tbody>
+              <tr><td>INV-2026-0042</td><td>15 Sep 2025</td><td>₹4,90,644</td><td><span class="badge badge-paid">Paid</span></td><td><button class="btn btn-secondary btn-sm">📥 PDF</button></td></tr>
+              <tr><td>INV-2025-0098</td><td>15 Sep 2024</td><td>₹4,15,200</td><td><span class="badge badge-paid">Paid</span></td><td><button class="btn btn-secondary btn-sm">📥 PDF</button></td></tr>
+              <tr><td>INV-2024-0156</td><td>15 Sep 2023</td><td>₹3,80,400</td><td><span class="badge badge-paid">Paid</span></td><td><button class="btn btn-secondary btn-sm">📥 PDF</button></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== QUOTE ACCEPT ========== -->
+    <section id="screen-quote-accept" class="screen">
+      <div style="max-width: 750px; margin: 0 auto;">
+        <div class="text-center" style="padding: 1rem 0 1.5rem;">
+          <div class="font-display font-bold" style="font-size: 1.3rem;">Excel Technologies</div>
+          <div class="text-secondary text-sm">Google Workspace Authorized Reseller</div>
+        </div>
+
+        <div class="glass">
+          <div class="mb-3">
+            <div class="text-sm text-secondary">Hi Rajesh,</div>
+            <div class="mt-1">Here is your quotation for Google Workspace Plus upgrade.</div>
+          </div>
+
+          <div class="flex justify-between items-center mb-3" style="flex-wrap: wrap; gap: 0.5rem;">
+            <div>
+              <div class="font-display font-bold" style="font-size: 1.15rem;">Quotation #Q-2026-0042</div>
+              <div class="text-sm text-secondary">For: Acme Corp Pvt Ltd</div>
+            </div>
+            <div class="text-sm text-secondary text-right">Valid until: <strong style="color: var(--text-primary)">18 Jun 2026</strong></div>
+          </div>
+
+          <div class="quote-items">
+            <div class="quote-item-row header">
+              <div>Product</div><div>HSN</div><div>Qty</div><div>Rate</div><div style="text-align:right">Amount</div>
+            </div>
+            <div class="quote-item-row">
+              <div><strong>Google Workspace Plus</strong><br><span class="text-sm text-secondary">Annual commitment</span></div>
+              <div>998313</div><div>25</div><div>₹1,380/mo</div><div style="text-align:right"><strong>₹34,500/mo</strong></div>
+            </div>
+            <div class="quote-item-row">
+              <div><strong>Google Voice Standard</strong></div>
+              <div>998313</div><div>5</div><div>₹800/mo</div><div style="text-align:right"><strong>₹4,000/mo</strong></div>
+            </div>
+          </div>
+
+          <div class="totals">
+            <div class="totals-row"><div>Subtotal (Annual)</div><div>₹4,62,000</div></div>
+            <div class="totals-row"><div>Discount (10%)</div><div class="text-success">-₹46,200</div></div>
+            <div class="totals-row"><div>IGST (18%)</div><div>₹74,844</div></div>
+            <div class="totals-row grand"><div>Total Payable</div><div class="val">₹4,90,644</div></div>
+          </div>
+
+          <div class="flex gap-3 mt-3" style="margin-top: 1.5rem; flex-wrap: wrap;">
+            <button class="btn btn-primary" style="flex:1; min-width: 180px; padding: 0.85rem;">✅ Accept & Pay via Razorpay</button>
+            <button class="btn btn-secondary" style="flex:1; min-width: 180px; padding: 0.85rem;">💬 Discuss / Modify</button>
+          </div>
+
+          <div class="text-sm text-secondary text-center mt-4">
+            Once payment is received, your Workspace will be provisioned within 24 hours.<br>
+            We'll guide you through DNS and admin setup.
+          </div>
+        </div>
+
+        <div class="flex justify-between mt-3">
+          <button class="btn btn-secondary btn-sm">📥 Download PDF</button>
+          <button class="btn btn-secondary btn-sm">📧 Email me a copy</button>
+          <button class="btn btn-secondary btn-sm">❓ Got a question?</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== CUSTOMER SUPPORT ========== -->
+    <section id="screen-cust-support" class="screen">
+      <div class="portal-shell">
+        <div class="screen-header">
+          <div>
+            <div class="screen-title">🆘 Support Center</div>
+            <div class="screen-subtitle">Acme Corp • Logged in as Rajesh</div>
+          </div>
+          <button class="btn btn-primary btn-sm">+ Raise New Ticket</button>
+        </div>
+
+        <div class="kpi-grid">
+          <div class="glass kpi-card"><div class="kpi-label">Open Tickets</div><div class="kpi-value">1</div></div>
+          <div class="glass kpi-card"><div class="kpi-label">Avg Response</div><div class="kpi-value">2.5h</div></div>
+          <div class="glass kpi-card"><div class="kpi-label">Resolved (30d)</div><div class="kpi-value">8</div></div>
+          <div class="glass kpi-card"><div class="kpi-label">CSAT Score</div><div class="kpi-value">4.8/5</div></div>
+        </div>
+
+        <div class="glass mb-3">
+          <h3 class="font-display mb-3" style="font-size: 1rem;">📌 Open Tickets</h3>
+          <div class="glass" style="background: rgba(245,158,11,0.05); border-color: rgba(245,158,11,0.3); margin-bottom: 0.5rem;">
+            <div class="flex justify-between items-center">
+              <div>
+                <div class="font-bold">#TKT-2026-0142: Unable to add user to Workspace</div>
+                <div class="text-secondary text-sm mt-1">Opened: 2 hours ago • Priority: Medium • Assigned: Priya R</div>
+              </div>
+              <span class="badge badge-pending">In Progress</span>
+            </div>
+            <div class="text-sm mt-3">"We're trying to add a new user but getting 'license limit exceeded' error..."</div>
+            <button class="btn btn-secondary btn-sm mt-3">View Conversation</button>
+          </div>
+        </div>
+
+        <div class="glass mb-3">
+          <h3 class="font-display mb-3" style="font-size: 1rem;">📚 Knowledge Base — Most Searched</h3>
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 0.75rem;">
+            <div class="glass" style="cursor: pointer;">
+              <div class="font-bold">How to add a new user to Workspace?</div>
+              <div class="text-secondary text-sm">3 min read • Updated last week</div>
+            </div>
+            <div class="glass" style="cursor: pointer;">
+              <div class="font-bold">DNS records setup guide</div>
+              <div class="text-secondary text-sm">5 min read • Updated yesterday</div>
+            </div>
+            <div class="glass" style="cursor: pointer;">
+              <div class="font-bold">Migrating emails from Outlook</div>
+              <div class="text-secondary text-sm">8 min read • Updated 2 weeks ago</div>
+            </div>
+            <div class="glass" style="cursor: pointer;">
+              <div class="font-bold">Two-factor authentication setup</div>
+              <div class="text-secondary text-sm">4 min read • Updated 3 weeks ago</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="glass">
+          <h3 class="font-display mb-3" style="font-size: 1rem;">📞 Need Urgent Help?</h3>
+          <div class="flex gap-3" style="flex-wrap: wrap;">
+            <div class="glass flex-1" style="min-width: 200px;">
+              <div class="text-secondary text-xs">PHONE SUPPORT</div>
+              <div class="font-bold mt-1">+91 99999 99999</div>
+              <div class="text-secondary text-sm">9 AM - 9 PM IST, all days</div>
+            </div>
+            <div class="glass flex-1" style="min-width: 200px;">
+              <div class="text-secondary text-xs">WHATSAPP</div>
+              <div class="font-bold mt-1">+91 88888 88888</div>
+              <div class="text-secondary text-sm">24×7 chat support</div>
+            </div>
+            <div class="glass flex-1" style="min-width: 200px;">
+              <div class="text-secondary text-xs">EMAIL</div>
+              <div class="font-bold mt-1">support@excelt.in</div>
+              <div class="text-secondary text-sm">4 hr response SLA</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== DASHBOARD ========== -->
+    <section id="screen-dashboard" class="screen">
+      <div class="screen-header">
+        <div>
+          <div class="screen-title">Welcome back, Pardeep 👋</div>
+          <div class="screen-subtitle">Here's what's happening at Excel Technologies today</div>
+        </div>
+        <div class="flex gap-2 items-center">
+          <input class="input" placeholder="🔍 Search anything..." style="width: 240px;">
+          <button class="btn btn-primary btn-sm">+ Quick Add</button>
+        </div>
+      </div>
+
+      <div class="kpi-grid">
+        <div class="glass kpi-card">
+          <div class="kpi-label">💰 MRR</div>
+          <div class="kpi-value">₹4.2L</div>
+          <div class="kpi-trend trend-up">▲ +12% vs last month</div>
+        </div>
+        <div class="glass kpi-card">
+          <div class="kpi-label">🎯 Pipeline</div>
+          <div class="kpi-value">₹18L</div>
+          <div class="kpi-trend text-secondary">23 deals in motion</div>
+        </div>
+        <div class="glass kpi-card">
+          <div class="kpi-label">⏰ Renewals Due</div>
+          <div class="kpi-value">12</div>
+          <div class="kpi-trend trend-down">5 in next 30 days</div>
+        </div>
+        <div class="glass kpi-card">
+          <div class="kpi-label">🚨 Overdue</div>
+          <div class="kpi-value">₹3.5L</div>
+          <div class="kpi-trend trend-down">7 invoices pending</div>
+        </div>
+        <div class="glass kpi-card">
+          <div class="kpi-label">😊 CSAT</div>
+          <div class="kpi-value">4.8</div>
+          <div class="kpi-trend trend-up">▲ +0.2 this quarter</div>
+        </div>
+        <div class="glass kpi-card">
+          <div class="kpi-label">🔄 Churn (annual)</div>
+          <div class="kpi-value">8%</div>
+          <div class="kpi-trend trend-down">▼ -3% improved</div>
+        </div>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1.5fr 1fr; gap: 1rem;">
+        <div class="glass">
+          <h3 class="font-display mb-3" style="font-size: 1rem;">📌 Today's Focus</h3>
+          <div class="stat-row"><span class="label">⚠️ 3 renewals due this week</span><span class="value text-danger">Action needed</span></div>
+          <div class="stat-row"><span class="label">📧 5 overdue invoices — total ₹3.5L</span><span class="value text-danger">Follow up</span></div>
+          <div class="stat-row"><span class="label">✅ 8 tasks pending — 2 yours</span><span class="value">View</span></div>
+          <div class="stat-row"><span class="label">🎉 4 new leads since yesterday</span><span class="value text-success">Hot</span></div>
+          <div class="stat-row"><span class="label">🎫 2 open support tickets</span><span class="value text-warning">In progress</span></div>
+
+          <h3 class="font-display mb-3 mt-4" style="font-size: 1rem;">📝 Recent Activity</h3>
+          <div class="timeline-item">
+            <div class="timeline-icon">💰</div>
+            <div class="timeline-content">
+              <div class="timeline-title">Rahul closed <strong>Acme Corp</strong> deal — ₹2.4L</div>
+              <div class="timeline-meta">10:32 AM today</div>
+            </div>
+          </div>
+          <div class="timeline-item">
+            <div class="timeline-icon">🎯</div>
+            <div class="timeline-content">
+              <div class="timeline-title">New lead: <strong>TechBrand Pvt Ltd</strong> (Referral)</div>
+              <div class="timeline-meta">09:15 AM • Assigned to Priya</div>
+            </div>
+          </div>
+          <div class="timeline-item" style="border-bottom: none;">
+            <div class="timeline-icon">📄</div>
+            <div class="timeline-content">
+              <div class="timeline-title">3 invoices auto-generated for renewals</div>
+              <div class="timeline-meta">Yesterday 9:00 AM</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="glass">
+          <h3 class="font-display mb-3" style="font-size: 1rem;">🏆 Sales Leaderboard</h3>
+          <div class="text-sm text-secondary mb-2">This month</div>
+          <div class="stat-row"><span>🥇 Rahul B</span><span class="value">₹8.2L <span class="text-secondary text-sm">(12)</span></span></div>
+          <div class="stat-row"><span>🥈 Priya R</span><span class="value">₹5.6L <span class="text-secondary text-sm">(8)</span></span></div>
+          <div class="stat-row"><span>🥉 Amit M</span><span class="value">₹3.1L <span class="text-secondary text-sm">(6)</span></span></div>
+          <div class="stat-row" style="border-bottom: none;"><span>4️⃣ Sneha K</span><span class="value">₹1.8L <span class="text-secondary text-sm">(4)</span></span></div>
+
+          <h3 class="font-display mb-3 mt-4" style="font-size: 1rem;">📅 Coming Up</h3>
+          <div class="stat-row"><span>Demo: TechBrand</span><span class="text-secondary text-sm">2:30 PM</span></div>
+          <div class="stat-row"><span>Call: Cosmo (renewal)</span><span class="text-secondary text-sm">4:00 PM</span></div>
+          <div class="stat-row" style="border-bottom: none;"><span>Demo: Beta</span><span class="text-secondary text-sm">Tomorrow 11AM</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== LEADS ========== -->
+    <section id="screen-leads" class="screen">
+      <div class="screen-header">
+        <div>
+          <div class="screen-title">🎯 Lead Pipeline</div>
+          <div class="screen-subtitle">23 active leads • ₹18L total pipeline value • 87% conversion</div>
+        </div>
+        <div class="flex gap-2 items-center">
+          <input class="input" placeholder="🔍 Search leads..." style="width: 200px;">
+          <button class="btn btn-secondary btn-sm">⇩ Import CSV</button>
+          <button class="btn btn-primary btn-sm">+ Add Lead</button>
+        </div>
+      </div>
+
+      <div class="kanban">
+        <div class="kanban-col">
+          <div class="kanban-col-header"><div class="kanban-col-title"><span class="dot" style="background:#60a5fa"></span>New</div><span class="kanban-count">5</span></div>
+          <div class="kanban-card"><div class="name">TechBrand Pvt Ltd</div><div class="meta">25 seats • Workspace Std</div><div class="footer"><span>₹2L • 2d ago</span><div class="avatar">PR</div></div></div>
+          <div class="kanban-card"><div class="name">Hotel Royal Group</div><div class="meta">40 seats • Mixed plans</div><div class="footer"><span>₹4L • 3d ago</span><div class="avatar">RB</div></div></div>
+          <div class="kanban-card"><div class="name">Kilo Foods Ltd</div><div class="meta">15 seats • Starter</div><div class="footer"><span>₹3L • 4d ago</span><div class="avatar">AM</div></div></div>
+        </div>
+        <div class="kanban-col">
+          <div class="kanban-col-header"><div class="kanban-col-title"><span class="dot" style="background:#fbbf24"></span>Contacted</div><span class="kanban-count">4</span></div>
+          <div class="kanban-card"><div class="name">Beta Industries</div><div class="meta">15 seats • Standard</div><div class="footer"><span>₹5L • 1d ago</span><div class="avatar">PR</div></div></div>
+          <div class="kanban-card"><div class="name">Gamma Holdings</div><div class="meta">8 seats • Starter</div><div class="footer"><span>₹1L • 5d ago</span><div class="avatar">AM</div></div></div>
+        </div>
+        <div class="kanban-col">
+          <div class="kanban-col-header"><div class="kanban-col-title"><span class="dot" style="background:#c084fc"></span>Demo Done</div><span class="kanban-count">3</span></div>
+          <div class="kanban-card"><div class="name">Cosmo Tech</div><div class="meta">12 seats • Plus</div><div class="footer"><span>₹8L • 5h ago</span><div class="avatar">AM</div></div></div>
+          <div class="kanban-card"><div class="name">Hi-Tech Solutions</div><div class="meta">20 seats • Plus</div><div class="footer"><span>₹6L • 2d ago</span><div class="avatar">PR</div></div></div>
+        </div>
+        <div class="kanban-col">
+          <div class="kanban-col-header"><div class="kanban-col-title"><span class="dot" style="background:#f472b6"></span>Trial Active</div><span class="kanban-count">4</span></div>
+          <div class="kanban-card"><div class="name">Delta Pvt Ltd</div><div class="meta">50 seats • Plus</div><div class="footer"><span>₹12L • 3d ago</span><div class="avatar">RB</div></div></div>
+          <div class="kanban-card"><div class="name">Iota Ventures</div><div class="meta">10 seats • Std</div><div class="footer"><span>₹2L • 4d ago</span><div class="avatar">RB</div></div></div>
+        </div>
+        <div class="kanban-col">
+          <div class="kanban-col-header"><div class="kanban-col-title"><span class="dot" style="background:#38bdf8"></span>Quote Sent</div><span class="kanban-count">2</span></div>
+          <div class="kanban-card"><div class="name">Echo Pharma</div><div class="meta">80 seats • Enterprise</div><div class="footer"><span>₹18L • 4d ago</span><div class="avatar">PR</div></div></div>
+          <div class="kanban-card"><div class="name">Acme Corp</div><div class="meta">25 seats • Plus upgrade</div><div class="footer"><span>₹4.9L • 1d ago</span><div class="avatar">RB</div></div></div>
+        </div>
+        <div class="kanban-col">
+          <div class="kanban-col-header"><div class="kanban-col-title"><span class="dot" style="background:#34d399"></span>Won 🎉</div><span class="kanban-count">12</span></div>
+          <div class="kanban-card"><div class="name">Foxtrot Logistics</div><div class="meta">35 seats • Plus</div><div class="footer"><span class="text-success">✅ ₹4L</span><div class="avatar">AM</div></div></div>
+          <div class="kanban-card"><div class="name">Golf Resorts</div><div class="meta">22 seats • Std</div><div class="footer"><span class="text-success">✅ ₹5L</span><div class="avatar">PR</div></div></div>
+          <div class="text-sm text-secondary text-center mt-2">+10 more this month</div>
+        </div>
+      </div>
+
+      <div class="text-sm text-secondary text-center mt-3">💡 Drag any card across columns to update stage. Activity log updates automatically.</div>
+    </section>
+
+    <!-- ========== CUSTOMER 360 ========== -->
+    <section id="screen-customer" class="screen">
+      <div class="screen-header">
+        <div class="flex gap-2 items-center">
+          <button class="btn btn-secondary btn-sm">← Back</button>
+          <div>
+            <div class="screen-title">Acme Corp Pvt Ltd</div>
+            <div class="screen-subtitle">acmecorp.com • Customer since 15 Sep 2023</div>
+          </div>
+        </div>
+        <div class="flex gap-2">
+          <button class="btn btn-secondary btn-sm">Edit</button>
+          <button class="btn btn-primary btn-sm">+ New Activity</button>
+        </div>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 1rem; margin-bottom: 1rem;">
+        <div class="glass">
+          <h3 class="font-display mb-3" style="font-size: 1rem;">📋 Business Info</h3>
+          <div class="stat-row"><span class="label">Legal Name</span><span class="value">Acme Corp Pvt Ltd</span></div>
+          <div class="stat-row"><span class="label">Domain</span><span class="value">acmecorp.com</span></div>
+          <div class="stat-row"><span class="label">GSTIN</span><span class="value">27AABCS1234D1Z5</span></div>
+          <div class="stat-row"><span class="label">State</span><span class="value">Maharashtra (27)</span></div>
+          <div class="stat-row"><span class="label">Primary Contact</span><span class="value">Rajesh K (CTO)</span></div>
+          <div class="stat-row"><span class="label">Email</span><span class="value">rajesh@acmecorp.com</span></div>
+          <div class="stat-row" style="border-bottom: none;"><span class="label">Phone</span><span class="value">+91 98765 43210</span></div>
+        </div>
+        <div class="glass">
+          <h3 class="font-display mb-3" style="font-size: 1rem;">💚 Health & Revenue</h3>
+          <div class="text-center" style="padding: 0.5rem 0;">
+            <div style="font-size: 2.2rem; font-weight: 700; color: var(--success);">85<span style="font-size: 1rem; color: var(--text-secondary);">/100</span></div>
+            <div class="text-sm text-secondary">Healthy</div>
+          </div>
+          <div class="stat-row"><span class="label">MRR</span><span class="value">₹18,400</span></div>
+          <div class="stat-row"><span class="label">ARR</span><span class="value">₹2,20,800</span></div>
+          <div class="stat-row"><span class="label">Renewal</span><span class="value">15 Sep 2026</span></div>
+          <div class="stat-row" style="border-bottom: none;"><span class="label">Account Mgr</span><span class="value">Rahul B</span></div>
+        </div>
+      </div>
+
+      <div class="tabs">
+        <div class="tab">Overview</div>
+        <div class="tab">Subscriptions</div>
+        <div class="tab">Quotes</div>
+        <div class="tab">Invoices</div>
+        <div class="tab active">Activities</div>
+        <div class="tab">Files</div>
+      </div>
+
+      <div class="glass">
+        <div class="timeline-day">📅 Today</div>
+        <div class="timeline-item">
+          <div class="timeline-icon">📞</div>
+          <div class="timeline-content">
+            <div class="timeline-title"><strong>Call with Rajesh</strong> — Discussed Plus upgrade</div>
+            <div class="timeline-meta">11:30 AM • Outcome: Positive • Next: Send revised quote by 2 PM • By Rahul B</div>
+          </div>
+        </div>
+        <div class="timeline-item">
+          <div class="timeline-icon">📧</div>
+          <div class="timeline-content">
+            <div class="timeline-title">Email received: <strong>"Re: Workspace upgrade query"</strong></div>
+            <div class="timeline-meta">09:45 AM • From: rajesh@acmecorp.com</div>
+          </div>
+        </div>
+        <div class="timeline-day">📅 Yesterday</div>
+        <div class="timeline-item">
+          <div class="timeline-icon">🔄</div>
+          <div class="timeline-content">
+            <div class="timeline-title">Status changed: Trial Active → <strong>Quote Sent</strong></div>
+            <div class="timeline-meta">04:15 PM • Quote #Q-2026-0042 sent for ₹4.9L</div>
+          </div>
+        </div>
+        <div class="timeline-day">📅 Last Week</div>
+        <div class="timeline-item">
+          <div class="timeline-icon">🤝</div>
+          <div class="timeline-content">
+            <div class="timeline-title"><strong>Demo scheduled</strong> — 2 hours @ Mumbai office</div>
+            <div class="timeline-meta">4 attendees • Outcome: Strong interest in Plus</div>
+          </div>
+        </div>
+        <div class="timeline-item" style="border-bottom: none;">
+          <div class="timeline-icon">📝</div>
+          <div class="timeline-content">
+            <div class="timeline-title">Note added</div>
+            <div class="timeline-meta">"Decision maker = CTO Rajesh, not founder. Budget approved ₹3L."</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== ITEMS CATALOG ========== -->
+    <section id="screen-items" class="screen">
+      <div class="screen-header">
+        <div>
+          <div class="screen-title">📦 Items Catalog</div>
+          <div class="screen-subtitle">Master SKU list • Pricing • Wholesale costs • Margins</div>
+        </div>
+        <div class="flex gap-2">
+          <button class="btn btn-secondary btn-sm">⇩ Import</button>
+          <button class="btn btn-secondary btn-sm">⇧ Export</button>
+          <button class="btn btn-primary btn-sm">+ Add SKU</button>
+        </div>
+      </div>
+
+      <div class="kpi-grid">
+        <div class="glass kpi-card"><div class="kpi-label">Total SKUs</div><div class="kpi-value">47</div></div>
+        <div class="glass kpi-card"><div class="kpi-label">Google Plans</div><div class="kpi-value">12</div></div>
+        <div class="glass kpi-card"><div class="kpi-label">Microsoft Plans</div><div class="kpi-value">18</div></div>
+        <div class="glass kpi-card"><div class="kpi-label">Zoho Plans</div><div class="kpi-value">9</div></div>
+        <div class="glass kpi-card"><div class="kpi-label">Avg Margin</div><div class="kpi-value">18%</div></div>
+      </div>
+
+      <div class="tabs">
+        <div class="tab active">All (47)</div>
+        <div class="tab">🟦 Google (12)</div>
+        <div class="tab">🟧 Microsoft (18)</div>
+        <div class="tab">🟥 Zoho (9)</div>
+        <div class="tab">➕ Add-ons (8)</div>
+      </div>
+
+      <div class="glass">
+        <table class="table">
+          <thead>
+            <tr><th>Product</th><th>SKU</th><th>HSN</th><th>MSRP</th><th>Wholesale</th><th>Margin</th><th>Stock</th><th></th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Google Workspace Starter</strong><br><span class="text-xs text-secondary">Annual / Flex</span></td>
+              <td>GW-STR</td><td>998313</td>
+              <td>₹136/mo</td><td>₹110/mo</td>
+              <td class="text-success">19%</td><td>♾️ Unlimited</td>
+              <td><button class="btn btn-secondary btn-sm">⚙️</button></td>
+            </tr>
+            <tr>
+              <td><strong>Google Workspace Standard</strong><br><span class="text-xs text-secondary">Annual / Flex</span></td>
+              <td>GW-STD</td><td>998313</td>
+              <td>₹736/mo</td><td>₹620/mo</td>
+              <td class="text-success">16%</td><td>♾️ Unlimited</td>
+              <td><button class="btn btn-secondary btn-sm">⚙️</button></td>
+            </tr>
+            <tr>
+              <td><strong>Google Workspace Plus</strong><br><span class="text-xs text-secondary">Annual / Flex</span></td>
+              <td>GW-PLS</td><td>998313</td>
+              <td>₹1,380/mo</td><td>₹1,150/mo</td>
+              <td class="text-success">17%</td><td>♾️ Unlimited</td>
+              <td><button class="btn btn-secondary btn-sm">⚙️</button></td>
+            </tr>
+            <tr>
+              <td><strong>Google Voice Standard</strong><br><span class="text-xs text-secondary">Annual</span></td>
+              <td>GV-STD</td><td>998313</td>
+              <td>₹800/mo</td><td>₹680/mo</td>
+              <td class="text-success">15%</td><td>♾️ Unlimited</td>
+              <td><button class="btn btn-secondary btn-sm">⚙️</button></td>
+            </tr>
+            <tr>
+              <td><strong>Microsoft 365 Business Basic</strong><br><span class="text-xs text-secondary">Annual</span></td>
+              <td>M365-BB</td><td>998313</td>
+              <td>₹200/mo</td><td>₹165/mo</td>
+              <td class="text-success">18%</td><td>♾️ Unlimited</td>
+              <td><button class="btn btn-secondary btn-sm">⚙️</button></td>
+            </tr>
+            <tr>
+              <td><strong>Microsoft 365 Business Standard</strong></td>
+              <td>M365-BS</td><td>998313</td>
+              <td>₹990/mo</td><td>₹820/mo</td>
+              <td class="text-success">17%</td><td>♾️ Unlimited</td>
+              <td><button class="btn btn-secondary btn-sm">⚙️</button></td>
+            </tr>
+            <tr>
+              <td><strong>Zoho Workplace Standard</strong></td>
+              <td>ZW-STD</td><td>998313</td>
+              <td>₹120/mo</td><td>₹95/mo</td>
+              <td class="text-success">21%</td><td>♾️ Unlimited</td>
+              <td><button class="btn btn-secondary btn-sm">⚙️</button></td>
+            </tr>
+            <tr>
+              <td><strong>AppSheet Core</strong></td>
+              <td>GW-APP-C</td><td>998313</td>
+              <td>₹830/mo</td><td>₹720/mo</td>
+              <td class="text-success">13%</td><td>♾️ Unlimited</td>
+              <td><button class="btn btn-secondary btn-sm">⚙️</button></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="glass mt-3" style="background: rgba(245,158,11,0.08); border-color: rgba(245,158,11,0.3);">
+        <div class="flex justify-between items-center">
+          <div>
+            <div class="font-bold">⚠️ 3 SKUs have pending MSRP price changes</div>
+            <div class="text-secondary text-sm mt-1">Google updated pricing for Plus, Voice Standard, AppSheet</div>
+          </div>
+          <button class="btn btn-warning btn-sm">Review Changes</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== QUOTE BUILDER ========== -->
+    <section id="screen-quote" class="screen">
+      <div class="screen-header">
+        <div>
+          <div class="screen-title">📋 New Quotation</div>
+          <div class="screen-subtitle">Q-2026-0042 • Auto-generated</div>
+        </div>
+        <div class="flex gap-2">
+          <button class="btn btn-secondary btn-sm">💾 Save Draft</button>
+          <button class="btn btn-secondary btn-sm">📄 Preview PDF</button>
+          <button class="btn btn-primary btn-sm">📧 Send Quote</button>
+        </div>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
+        <div class="glass">
+          <h3 class="font-display mb-3" style="font-size: 0.95rem;">Customer Details</h3>
+          <label class="text-sm text-secondary">Customer</label>
+          <input class="input mb-2 mt-1" value="Acme Corp Pvt Ltd">
+          <label class="text-sm text-secondary">Domain</label>
+          <input class="input mb-2 mt-1" value="acmecorp.com">
+          <div class="stat-row mt-2"><span class="label">GSTIN</span><span class="value">27AABCS1234D1Z5</span></div>
+          <div class="stat-row"><span class="label">State</span><span class="value">Maharashtra (27)</span></div>
+        </div>
+        <div class="glass">
+          <h3 class="font-display mb-3" style="font-size: 0.95rem;">Quote Settings</h3>
+          <label class="text-sm text-secondary">Valid for</label>
+          <input class="input mb-2 mt-1" value="30 days">
+          <label class="text-sm text-secondary">Billing Cycle</label>
+          <div class="flex gap-2 mt-2">
+            <button class="btn btn-primary btn-sm" style="flex:1;">Annual</button>
+            <button class="btn btn-secondary btn-sm" style="flex:1;">Monthly</button>
+            <button class="btn btn-secondary btn-sm" style="flex:1;">Quarterly</button>
+          </div>
+          <div class="stat-row mt-3"><span class="label">Commitment</span><span class="value">12 months</span></div>
+        </div>
+      </div>
+
+      <div class="glass">
+        <div class="flex justify-between items-center mb-3">
+          <h3 class="font-display" style="font-size: 0.95rem;">Line Items</h3>
+          <button class="btn btn-secondary btn-sm">+ Add Item</button>
+        </div>
+        <div class="quote-items">
+          <div class="quote-item-row header"><div>Description</div><div>HSN</div><div>Qty</div><div>Rate</div><div style="text-align:right">Amount</div></div>
+          <div class="quote-item-row">
+            <div><strong>Google Workspace Plus</strong><br><span class="text-sm text-secondary">Annual commitment</span></div>
+            <div>998313</div><div>25</div><div>₹1,380/mo</div><div style="text-align:right"><strong>₹34,500/mo</strong></div>
+          </div>
+          <div class="quote-item-row">
+            <div><strong>Google Voice Standard</strong></div>
+            <div>998313</div><div>5</div><div>₹800/mo</div><div style="text-align:right"><strong>₹4,000/mo</strong></div>
+          </div>
+        </div>
+
+        <div class="totals">
+          <div class="totals-row"><div>Subtotal (12 months)</div><div>₹4,62,000</div></div>
+          <div class="totals-row"><div>Discount <span class="stage-chip" style="margin-left: 0.5rem;">10%</span></div><div class="text-success">-₹46,200</div></div>
+          <div class="totals-row"><div>Taxable Amount</div><div>₹4,15,800</div></div>
+          <div class="totals-row text-sm text-secondary"><div>📍 Different state (MH ≠ DL) → IGST applicable @ 18%</div><div></div></div>
+          <div class="totals-row"><div>IGST (18%)</div><div>₹74,844</div></div>
+          <div class="totals-row grand"><div>Grand Total</div><div class="val">₹4,90,644</div></div>
+        </div>
+
+        <div class="flex gap-2 mt-4" style="flex-wrap: wrap;">
+          <button class="btn btn-secondary btn-sm">💾 Save Draft</button>
+          <button class="btn btn-primary btn-sm">📧 Send via Email</button>
+          <button class="btn btn-success btn-sm">💬 Send via WhatsApp</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== INVOICES ========== -->
+    <section id="screen-invoices" class="screen">
+      <div class="screen-header">
+        <div>
+          <div class="screen-title">📄 Invoices</div>
+          <div class="screen-subtitle">All invoices • Auto-sync with Zoho Books</div>
+        </div>
+        <div class="flex gap-2">
+          <button class="btn btn-secondary btn-sm">⇧ Export GSTR-1</button>
+          <button class="btn btn-secondary btn-sm">⇡ Push to Zoho</button>
+          <button class="btn btn-primary btn-sm">+ New Invoice</button>
+        </div>
+      </div>
+
+      <div class="kpi-grid">
+        <div class="glass kpi-card"><div class="kpi-label">Total Outstanding</div><div class="kpi-value">₹8.2L</div><div class="kpi-trend text-danger">14 invoices</div></div>
+        <div class="glass kpi-card"><div class="kpi-label">Overdue</div><div class="kpi-value">₹3.5L</div><div class="kpi-trend text-danger">7 overdue</div></div>
+        <div class="glass kpi-card"><div class="kpi-label">Collected (MTD)</div><div class="kpi-value">₹12.4L</div><div class="kpi-trend trend-up">▲ 18%</div></div>
+        <div class="glass kpi-card"><div class="kpi-label">Avg Collection</div><div class="kpi-value">12d</div><div class="kpi-trend trend-up">▼ -3d</div></div>
+      </div>
+
+      <div class="tabs">
+        <div class="tab active">All (47)</div>
+        <div class="tab">🟢 Paid (28)</div>
+        <div class="tab">🟡 Pending (12)</div>
+        <div class="tab">🔴 Overdue (7)</div>
+        <div class="tab">📝 Draft (3)</div>
+      </div>
+
+      <div class="glass">
+        <table class="table">
+          <thead><tr><th>Invoice #</th><th>Customer</th><th>Date</th><th>Due Date</th><th>Amount</th><th>Status</th><th>Action</th></tr></thead>
+          <tbody>
+            <tr><td><strong>INV-2026-0089</strong></td><td>Acme Corp</td><td>15 May 2026</td><td>15 Jun 2026</td><td>₹4,90,644</td><td><span class="badge badge-pending">Pending</span></td><td><button class="btn btn-secondary btn-sm">📧</button></td></tr>
+            <tr><td><strong>INV-2026-0088</strong></td><td>Beta Industries</td><td>14 May 2026</td><td>14 Jun 2026</td><td>₹1,32,480</td><td><span class="badge badge-paid">Paid</span></td><td><button class="btn btn-secondary btn-sm">📥</button></td></tr>
+            <tr><td><strong>INV-2026-0087</strong></td><td>Cosmo Tech</td><td>12 May 2026</td><td>12 Jun 2026</td><td>₹1,98,720</td><td><span class="badge badge-pending">Pending</span></td><td><button class="btn btn-secondary btn-sm">📧</button></td></tr>
+            <tr><td><strong>INV-2026-0086</strong></td><td>Delta Pvt Ltd</td><td>10 May 2026</td><td>10 Jun 2026</td><td>₹8,28,000</td><td><span class="badge badge-paid">Paid</span></td><td><button class="btn btn-secondary btn-sm">📥</button></td></tr>
+            <tr><td><strong>INV-2026-0085</strong></td><td>Echo Pharma</td><td>05 Apr 2026</td><td>05 May 2026</td><td>₹2,15,640</td><td><span class="badge badge-overdue">Overdue 14d</span></td><td><button class="btn btn-danger btn-sm">📞 Call</button></td></tr>
+            <tr><td><strong>INV-2026-0084</strong></td><td>Foxtrot Logistics</td><td>02 Apr 2026</td><td>02 May 2026</td><td>₹4,72,000</td><td><span class="badge badge-overdue">Overdue 17d</span></td><td><button class="btn btn-danger btn-sm">📞 Call</button></td></tr>
+            <tr><td><strong>INV-2026-0083</strong></td><td>Golf Resorts</td><td>28 Mar 2026</td><td>28 Apr 2026</td><td>₹5,89,400</td><td><span class="badge badge-paid">Paid</span></td><td><button class="btn btn-secondary btn-sm">📥</button></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="glass mt-3" style="background: rgba(16,185,129,0.05); border-color: rgba(16,185,129,0.3);">
+        <div class="flex justify-between items-center">
+          <div>
+            <div class="font-bold">🤖 Auto-Sync Status</div>
+            <div class="text-secondary text-sm mt-1">Last synced with Zoho Books: 2 minutes ago • 47/47 invoices in sync</div>
+          </div>
+          <span class="badge badge-active">✓ Healthy</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== SUBSCRIPTIONS ========== -->
+    <section id="screen-subscriptions" class="screen">
+      <div class="screen-header">
+        <div>
+          <div class="screen-title">🔄 Subscriptions</div>
+          <div class="screen-subtitle">All active + expired subscriptions across all vendors • Auto-synced</div>
+        </div>
+        <div class="flex gap-2">
+          <button class="btn btn-secondary btn-sm">🔄 Sync from Vendor APIs</button>
+          <button class="btn btn-secondary btn-sm">⇧ Export</button>
+          <button class="btn btn-primary btn-sm">+ Manual Add</button>
+        </div>
+      </div>
+
+      <div class="kpi-grid">
+        <div class="glass kpi-card"><div class="kpi-label">Total Subs</div><div class="kpi-value">47</div><div class="kpi-trend trend-up">▲ +4 this month</div></div>
+        <div class="glass kpi-card"><div class="kpi-label">Active MRR</div><div class="kpi-value">₹4.2L</div><div class="kpi-trend trend-up">▲ +12%</div></div>
+        <div class="glass kpi-card"><div class="kpi-label">Active ARR</div><div class="kpi-value">₹50.4L</div><div class="kpi-trend trend-up">▲ +14%</div></div>
+        <div class="glass kpi-card"><div class="kpi-label">Total Seats</div><div class="kpi-value">847</div><div class="kpi-trend text-secondary">782 active, 65 unused</div></div>
+        <div class="glass kpi-card"><div class="kpi-label">At Risk</div><div class="kpi-value">5</div><div class="kpi-trend text-danger">₹38K MRR</div></div>
+        <div class="glass kpi-card"><div class="kpi-label">Avg Tenure</div><div class="kpi-value">2.4y</div><div class="kpi-trend trend-up">▲ +0.3y</div></div>
+      </div>
+
+      <div class="tabs">
+        <div class="tab active">All (47)</div>
+        <div class="tab">🟢 Active (42)</div>
+        <div class="tab">🟠 Expiring 30d (12)</div>
+        <div class="tab">🔴 Expired (3)</div>
+        <div class="tab">⏸️ Suspended (2)</div>
+        <div class="tab">🔍 Reconciliation</div>
+      </div>
+
+      <div class="flex gap-2 mb-3" style="flex-wrap: wrap;">
+        <button class="btn btn-secondary btn-sm">All Vendors</button>
+        <button class="btn btn-primary btn-sm">🟦 Google (32)</button>
+        <button class="btn btn-secondary btn-sm">🟧 Microsoft (10)</button>
+        <button class="btn btn-secondary btn-sm">🟥 Zoho (5)</button>
+        <input class="input" placeholder="🔍 Search customer or domain..." style="width: 240px; margin-left: auto;">
+      </div>
+
+      <div class="glass mb-3">
+        <table class="table">
+          <thead>
+            <tr><th>Customer / Domain</th><th>Plan</th><th>Vendor</th><th>Seats</th><th>MRR</th><th>Started</th><th>Renewal</th><th>Status</th><th></th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Acme Corp</strong><br><span class="text-xs text-secondary">acmecorp.com</span></td>
+              <td>Workspace Plus</td>
+              <td>🟦 Google</td>
+              <td>25 <span class="text-xs text-secondary">(22 used)</span></td>
+              <td>₹34,500</td>
+              <td>15 Sep 2023</td>
+              <td>15 Sep 2026 <span class="text-xs text-secondary">(118d)</span></td>
+              <td><span class="badge badge-active">Active</span></td>
+              <td><button class="btn btn-secondary btn-sm">⋯</button></td>
+            </tr>
+            <tr>
+              <td><strong>Acme Corp</strong><br><span class="text-xs text-secondary">acmecorp.com • Add-on</span></td>
+              <td>Voice Standard</td>
+              <td>🟦 Google</td>
+              <td>5 <span class="text-xs text-secondary">(5 used)</span></td>
+              <td>₹4,000</td>
+              <td>15 Sep 2023</td>
+              <td>15 Sep 2026</td>
+              <td><span class="badge badge-active">Active</span></td>
+              <td><button class="btn btn-secondary btn-sm">⋯</button></td>
+            </tr>
+            <tr>
+              <td><strong>Cosmo Tech</strong><br><span class="text-xs text-secondary">cosmotech.in</span></td>
+              <td>Workspace Plus</td>
+              <td>🟦 Google</td>
+              <td>12</td>
+              <td>₹16,560</td>
+              <td>21 May 2025</td>
+              <td>21 May 2026 <span class="badge badge-urgent" style="margin-left:0.25rem;">2d</span></td>
+              <td><span class="badge badge-active">Active</span></td>
+              <td><button class="btn btn-danger btn-sm">📞 Renew</button></td>
+            </tr>
+            <tr>
+              <td><strong>Delta Pvt Ltd</strong><br><span class="text-xs text-secondary">deltapvt.com</span></td>
+              <td>Workspace Plus</td>
+              <td>🟦 Google</td>
+              <td>50 <span class="text-xs text-secondary">(48 used)</span></td>
+              <td>₹69,000</td>
+              <td>22 Jun 2024</td>
+              <td>22 Jun 2026</td>
+              <td><span class="badge badge-active">Active</span></td>
+              <td><button class="btn btn-secondary btn-sm">⋯</button></td>
+            </tr>
+            <tr>
+              <td><strong>Echo Pharma</strong><br><span class="text-xs text-secondary">echopharma.in</span></td>
+              <td>Enterprise</td>
+              <td>🟦 Google</td>
+              <td>80</td>
+              <td>₹1,15,200</td>
+              <td>10 Jan 2024</td>
+              <td>10 Jan 2027</td>
+              <td><span class="badge badge-active">Active</span></td>
+              <td><button class="btn btn-secondary btn-sm">⋯</button></td>
+            </tr>
+            <tr>
+              <td><strong>Hotel Royal Group</strong><br><span class="text-xs text-secondary">hotelroyalgroup.com</span></td>
+              <td>Workspace Standard</td>
+              <td>🟦 Google</td>
+              <td>8</td>
+              <td>₹5,888</td>
+              <td>24 May 2025</td>
+              <td>24 May 2026 <span class="badge badge-urgent" style="margin-left:0.25rem;">5d</span></td>
+              <td><span class="badge badge-active">Active</span></td>
+              <td><button class="btn btn-danger btn-sm">📞 Renew</button></td>
+            </tr>
+            <tr>
+              <td><strong>Foxtrot Logistics</strong><br><span class="text-xs text-secondary">foxtrotlog.com</span></td>
+              <td>Microsoft 365 Business Std</td>
+              <td>🟧 Microsoft</td>
+              <td>35</td>
+              <td>₹34,650</td>
+              <td>02 Apr 2024</td>
+              <td>02 Apr 2027</td>
+              <td><span class="badge badge-active">Active</span></td>
+              <td><button class="btn btn-secondary btn-sm">⋯</button></td>
+            </tr>
+            <tr>
+              <td><strong>Golf Resorts</strong><br><span class="text-xs text-secondary">golfresorts.in</span></td>
+              <td>Zoho Workplace Std</td>
+              <td>🟥 Zoho</td>
+              <td>22</td>
+              <td>₹2,640</td>
+              <td>28 Mar 2025</td>
+              <td>28 Mar 2026</td>
+              <td><span class="badge badge-overdue">Expired 52d</span></td>
+              <td><button class="btn btn-warning btn-sm">⚠️ Action</button></td>
+            </tr>
+            <tr>
+              <td><strong>India Foods</strong><br><span class="text-xs text-secondary">indiafoods.in</span></td>
+              <td>Workspace Starter</td>
+              <td>🟦 Google</td>
+              <td>15</td>
+              <td>₹2,040</td>
+              <td>05 Feb 2024</td>
+              <td>05 Feb 2026</td>
+              <td><span class="badge badge-pending">Suspended</span></td>
+              <td><button class="btn btn-secondary btn-sm">⋯</button></td>
+            </tr>
+            <tr>
+              <td colspan="9" class="text-center text-secondary text-sm">+ 38 more subscriptions</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+        <div class="glass">
+          <h3 class="font-display mb-3" style="font-size: 1rem;">🔍 Vendor Reconciliation</h3>
+          <div class="text-sm text-secondary mb-3">Compare our records vs vendor API (last sync: 5 min ago)</div>
+          <div class="stat-row"><span class="label">🟦 Google Reseller API</span><span class="value text-success">32 ✓ matched</span></div>
+          <div class="stat-row"><span class="label">🟧 Microsoft Partner Center</span><span class="value text-success">10 ✓ matched</span></div>
+          <div class="stat-row"><span class="label">🟥 Zoho Workplace</span><span class="value text-warning">4 matched, 1 ⚠️ mismatch</span></div>
+          <div class="stat-row" style="border-bottom: none;"><span class="label">Total Discrepancies</span><span class="value text-warning">1 needs review</span></div>
+          <button class="btn btn-warning btn-sm mt-3">⚠️ Review 1 Discrepancy</button>
+        </div>
+
+        <div class="glass">
+          <h3 class="font-display mb-3" style="font-size: 1rem;">📊 Subscriptions by Plan</h3>
+          <div class="stat-row"><span class="label">Google Workspace Plus</span><span class="value">14 subs • ₹1.9L MRR</span></div>
+          <div class="stat-row"><span class="label">Google Workspace Standard</span><span class="value">12 subs • ₹89K MRR</span></div>
+          <div class="stat-row"><span class="label">Google Workspace Starter</span><span class="value">5 subs • ₹14K MRR</span></div>
+          <div class="stat-row"><span class="label">Google Enterprise</span><span class="value">1 sub • ₹1.15L MRR</span></div>
+          <div class="stat-row"><span class="label">Microsoft 365 Business Std</span><span class="value">8 subs • ₹78K MRR</span></div>
+          <div class="stat-row" style="border-bottom: none;"><span class="label">Zoho + Add-ons</span><span class="value">7 subs • ₹35K MRR</span></div>
+        </div>
+      </div>
+
+      <div class="glass mt-3" style="background: rgba(245,158,11,0.08); border-color: rgba(245,158,11,0.3);">
+        <h3 class="font-display mb-3" style="font-size: 1rem;">🔗 Multi-Cycle Subscriptions</h3>
+        <div class="text-sm text-secondary mb-3">Annual subscriptions billed in quarterly/monthly cycles — collapsed view</div>
+        <table class="table">
+          <thead><tr><th>Customer</th><th>Plan</th><th>Cycle</th><th>Total Term</th><th>Current Period</th><th>Status</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Delta Pvt Ltd</strong></td><td>Plus (50 seats)</td><td>Quarterly</td><td>3 years</td><td>Cycle 4 of 12 (Q2 2026)</td><td><span class="badge badge-active">Active</span></td></tr>
+            <tr><td><strong>Echo Pharma</strong></td><td>Enterprise (80 seats)</td><td>Annual</td><td>3 years</td><td>Year 2 of 3</td><td><span class="badge badge-active">Active</span></td></tr>
+            <tr><td><strong>Foxtrot Logistics</strong></td><td>M365 Std (35 seats)</td><td>Monthly</td><td>3 years</td><td>Month 14 of 36</td><td><span class="badge badge-active">Active</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ========== RENEWALS ========== -->
+    <section id="screen-renewals" class="screen">
+      <div class="screen-header">
+        <div>
+          <div class="screen-title">⏰ Renewals Dashboard</div>
+          <div class="screen-subtitle">47 active subscriptions • ARR ₹38.4L at risk</div>
+        </div>
+        <div class="flex gap-2">
+          <button class="btn btn-secondary btn-sm">⇧ Export</button>
+          <button class="btn btn-primary btn-sm">📧 Bulk Reminder</button>
+        </div>
+      </div>
+
+      <div class="kpi-grid">
+        <div class="glass kpi-card"><div class="kpi-label">🔴 Urgent (≤7d)</div><div class="kpi-value">3</div><div class="kpi-trend text-danger">₹26.5K MRR</div></div>
+        <div class="glass kpi-card"><div class="kpi-label">🟠 Upcoming (30d)</div><div class="kpi-value">12</div><div class="kpi-trend">₹1.45L MRR</div></div>
+        <div class="glass kpi-card"><div class="kpi-label">🟢 Future (31-90d)</div><div class="kpi-value">35</div><div class="kpi-trend text-success">₹2.88L MRR</div></div>
+        <div class="glass kpi-card"><div class="kpi-label">Renewal Rate</div><div class="kpi-value">87%</div><div class="kpi-trend trend-up">▲ +5%</div></div>
+      </div>
+
+      <div class="renew-section">
+        <div class="renew-section-title"><span class="dot" style="background:#ef4444;"></span> 🔴 URGENT — Next 7 Days</div>
+        <div class="glass">
+          <table class="table">
+            <thead><tr><th>Customer</th><th>Plan</th><th>Seats</th><th>Renewal</th><th>MRR</th><th>Action</th></tr></thead>
+            <tbody>
+              <tr><td><strong>Cosmo Tech</strong></td><td>Plus</td><td>12</td><td>21 May <span class="badge badge-urgent">2d</span></td><td>₹16,560</td><td><button class="btn btn-primary btn-sm">📞 Call</button></td></tr>
+              <tr><td><strong>Hotel Royal Group</strong></td><td>Standard</td><td>8</td><td>24 May <span class="badge badge-urgent">5d</span></td><td>₹5,888</td><td><button class="btn btn-primary btn-sm">📞 Call</button></td></tr>
+              <tr><td><strong>Kilo Foods Ltd</strong></td><td>Starter</td><td>30</td><td>25 May <span class="badge badge-urgent">6d</span></td><td>₹4,080</td><td><button class="btn btn-primary btn-sm">📞 Call</button></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="renew-section">
+        <div class="renew-section-title"><span class="dot" style="background:#f59e0b;"></span> 🟠 UPCOMING — Next 30 Days</div>
+        <div class="glass">
+          <table class="table">
+            <thead><tr><th>Customer</th><th>Plan</th><th>Seats</th><th>Renewal</th><th>MRR</th><th>Action</th></tr></thead>
+            <tbody>
+              <tr><td><strong>Acme Corp</strong></td><td>Plus</td><td>25</td><td>15 Jun 2026</td><td>₹34,500</td><td><button class="btn btn-secondary btn-sm">📧</button></td></tr>
+              <tr><td><strong>Beta Industries</strong></td><td>Standard</td><td>15</td><td>18 Jun 2026</td><td>₹11,040</td><td><button class="btn btn-secondary btn-sm">📧</button></td></tr>
+              <tr><td><strong>Delta Pvt Ltd</strong></td><td>Plus</td><td>50</td><td>22 Jun 2026</td><td>₹69,000</td><td><button class="btn btn-secondary btn-sm">📧</button></td></tr>
+              <tr><td colspan="6" class="text-center text-secondary text-sm">+ 9 more renewals</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== SUPPORT ========== -->
+    <section id="screen-support" class="screen">
+      <div class="screen-header">
+        <div>
+          <div class="screen-title">🎫 Support Center</div>
+          <div class="screen-subtitle">Internal view — manage all customer tickets</div>
+        </div>
+        <div class="flex gap-2">
+          <button class="btn btn-secondary btn-sm">📚 Knowledge Base</button>
+          <button class="btn btn-primary btn-sm">+ Manual Ticket</button>
+        </div>
+      </div>
+
+      <div class="kpi-grid">
+        <div class="glass kpi-card"><div class="kpi-label">Open Tickets</div><div class="kpi-value">12</div></div>
+        <div class="glass kpi-card"><div class="kpi-label">Avg Response</div><div class="kpi-value">2.3h</div><div class="kpi-trend trend-up">▼ -45m</div></div>
+        <div class="glass kpi-card"><div class="kpi-label">SLA Breached</div><div class="kpi-value">1</div><div class="kpi-trend trend-down">▲ +1</div></div>
+        <div class="glass kpi-card"><div class="kpi-label">CSAT</div><div class="kpi-value">4.8/5</div></div>
+        <div class="glass kpi-card"><div class="kpi-label">Resolved (MTD)</div><div class="kpi-value">87</div></div>
+      </div>
+
+      <div class="tabs">
+        <div class="tab active">All Open (12)</div>
+        <div class="tab">🔴 Urgent (2)</div>
+        <div class="tab">🟡 Medium (7)</div>
+        <div class="tab">🟢 Low (3)</div>
+        <div class="tab">⏰ SLA Risk (3)</div>
+      </div>
+
+      <div class="glass">
+        <table class="table">
+          <thead><tr><th>Ticket #</th><th>Customer</th><th>Subject</th><th>Priority</th><th>Assigned</th><th>Age</th><th>SLA</th></tr></thead>
+          <tbody>
+            <tr><td><strong>#0143</strong></td><td>Echo Pharma</td><td>Email not sending to external domains</td><td><span class="badge badge-urgent">Urgent</span></td><td><div class="avatar">PR</div></td><td>1h</td><td class="text-success">OK</td></tr>
+            <tr><td><strong>#0142</strong></td><td>Acme Corp</td><td>Unable to add user — license limit</td><td><span class="badge badge-upcoming">Medium</span></td><td><div class="avatar">PR</div></td><td>2h</td><td class="text-success">OK</td></tr>
+            <tr><td><strong>#0141</strong></td><td>Hi-Tech Solutions</td><td>SSO not working with Google Workspace</td><td><span class="badge badge-urgent">Urgent</span></td><td><div class="avatar">RB</div></td><td>4h</td><td class="text-warning">⚠️ Approaching</td></tr>
+            <tr><td><strong>#0140</strong></td><td>Foxtrot Logistics</td><td>Migration from O365 — calendar invites missing</td><td><span class="badge badge-upcoming">Medium</span></td><td><div class="avatar">AM</div></td><td>5h</td><td class="text-success">OK</td></tr>
+            <tr><td><strong>#0139</strong></td><td>Golf Resorts</td><td>Workspace admin password reset</td><td><span class="badge badge-future">Low</span></td><td><div class="avatar">RB</div></td><td>8h</td><td class="text-success">OK</td></tr>
+            <tr><td><strong>#0138</strong></td><td>Cosmo Tech</td><td>DMARC report query</td><td><span class="badge badge-upcoming">Medium</span></td><td><div class="avatar">AM</div></td><td>1d</td><td class="text-danger">❌ Breached</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ========== AUTOMATION ========== -->
+    <section id="screen-automation" class="screen">
+      <div class="screen-header">
+        <div>
+          <div class="screen-title">⚙️ Automation Rules</div>
+          <div class="screen-subtitle">8 active rules • Saved 15+ hours/week of manual work</div>
+        </div>
+        <button class="btn btn-primary btn-sm">+ New Rule</button>
+      </div>
+
+      <div class="kpi-grid">
+        <div class="glass kpi-card"><div class="kpi-label">Active Rules</div><div class="kpi-value">8</div></div>
+        <div class="glass kpi-card"><div class="kpi-label">Triggered Today</div><div class="kpi-value">27</div></div>
+        <div class="glass kpi-card"><div class="kpi-label">Time Saved/week</div><div class="kpi-value">15h</div></div>
+        <div class="glass kpi-card"><div class="kpi-label">Success Rate</div><div class="kpi-value">99.6%</div></div>
+      </div>
+
+      <h3 class="font-display mt-4 mb-2" style="font-size: 1rem;">📜 Active Rules</h3>
+
+      <div class="glass rule-card">
+        <div class="flex justify-between items-center">
+          <div class="flex-1">
+            <div class="font-bold">✅ Renewal Reminder T-30</div>
+            <div class="rule-when"><strong>WHEN:</strong> Subscription renewal in 30 days</div>
+            <div class="rule-then"><strong>THEN:</strong> Email customer + Create task for owner</div>
+            <div class="rule-meta">Last run: 9:00 AM today • 3 emails sent</div>
+          </div>
+          <button class="btn btn-secondary btn-sm">⚙️</button>
+        </div>
+      </div>
+      <div class="glass rule-card">
+        <div class="flex justify-between items-center">
+          <div class="flex-1">
+            <div class="font-bold">✅ Invoice Paid → Auto-Receipt</div>
+            <div class="rule-when"><strong>WHEN:</strong> Invoice status changes to "Paid"</div>
+            <div class="rule-then"><strong>THEN:</strong> Send receipt PDF via Email + WhatsApp</div>
+            <div class="rule-meta">Last run: 11:32 AM today • 5 receipts sent</div>
+          </div>
+          <button class="btn btn-secondary btn-sm">⚙️</button>
+        </div>
+      </div>
+      <div class="glass rule-card">
+        <div class="flex justify-between items-center">
+          <div class="flex-1">
+            <div class="font-bold">✅ Stuck Lead Alert</div>
+            <div class="rule-when"><strong>WHEN:</strong> Lead in same stage > 7 days, no activity</div>
+            <div class="rule-then"><strong>THEN:</strong> Flag red + notify assigned sales rep</div>
+            <div class="rule-meta">Last run: 9:00 AM today • 4 leads flagged</div>
+          </div>
+          <button class="btn btn-secondary btn-sm">⚙️</button>
+        </div>
+      </div>
+      <div class="glass rule-card">
+        <div class="flex justify-between items-center">
+          <div class="flex-1">
+            <div class="font-bold">✅ Overdue Invoice — Day 7</div>
+            <div class="rule-when"><strong>WHEN:</strong> Invoice unpaid 7+ days past due</div>
+            <div class="rule-then"><strong>THEN:</strong> Send WhatsApp reminder + Create finance task</div>
+            <div class="rule-meta">Last run: Yesterday • 2 reminders sent</div>
+          </div>
+          <button class="btn btn-secondary btn-sm">⚙️</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== CAMPAIGNS ========== -->
+    <section id="screen-campaigns" class="screen">
+      <div class="screen-header">
+        <div>
+          <div class="screen-title">💬 Campaigns</div>
+          <div class="screen-subtitle">Bulk email + WhatsApp messaging to customer segments</div>
+        </div>
+        <div class="flex gap-2">
+          <button class="btn btn-secondary btn-sm">📋 Templates</button>
+          <button class="btn btn-primary btn-sm">+ New Campaign</button>
+        </div>
+      </div>
+
+      <div class="kpi-grid">
+        <div class="glass kpi-card"><div class="kpi-label">Campaigns Sent (MTD)</div><div class="kpi-value">14</div></div>
+        <div class="glass kpi-card"><div class="kpi-label">Total Messages</div><div class="kpi-value">2,847</div></div>
+        <div class="glass kpi-card"><div class="kpi-label">Open Rate</div><div class="kpi-value">42%</div></div>
+        <div class="glass kpi-card"><div class="kpi-label">Click Rate</div><div class="kpi-value">18%</div></div>
+        <div class="glass kpi-card"><div class="kpi-label">Replies</div><div class="kpi-value">156</div></div>
+      </div>
+
+      <div class="tabs">
+        <div class="tab active">Active (3)</div>
+        <div class="tab">Scheduled (2)</div>
+        <div class="tab">Sent (47)</div>
+        <div class="tab">Drafts (5)</div>
+      </div>
+
+      <div class="glass mb-3">
+        <div class="flex justify-between items-center mb-3">
+          <div>
+            <div class="font-bold">📧 Renewal Reminder — May Batch</div>
+            <div class="text-sm text-secondary mt-1">Email + WhatsApp combo • Target: 12 customers with renewals in 30-60 days</div>
+          </div>
+          <span class="badge badge-active">🟢 Running</span>
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 0.75rem;">
+          <div class="text-sm"><div class="text-secondary text-xs">Sent</div><div class="font-bold">12 / 12</div></div>
+          <div class="text-sm"><div class="text-secondary text-xs">Opens</div><div class="font-bold">8 (66%)</div></div>
+          <div class="text-sm"><div class="text-secondary text-xs">Clicks</div><div class="font-bold">5 (41%)</div></div>
+          <div class="text-sm"><div class="text-secondary text-xs">Replies</div><div class="font-bold">3</div></div>
+          <div class="text-sm"><div class="text-secondary text-xs">Conversions</div><div class="font-bold text-success">2 (16%)</div></div>
+        </div>
+      </div>
+
+      <div class="glass mb-3">
+        <div class="flex justify-between items-center mb-3">
+          <div>
+            <div class="font-bold">💬 Win-Back Campaign — Churned Customers</div>
+            <div class="text-sm text-secondary mt-1">WhatsApp only • Target: 23 customers churned in last 90 days</div>
+          </div>
+          <span class="badge badge-pending">⏸️ Paused</span>
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 0.75rem;">
+          <div class="text-sm"><div class="text-secondary text-xs">Sent</div><div class="font-bold">23 / 23</div></div>
+          <div class="text-sm"><div class="text-secondary text-xs">Read</div><div class="font-bold">18 (78%)</div></div>
+          <div class="text-sm"><div class="text-secondary text-xs">Replies</div><div class="font-bold">6</div></div>
+          <div class="text-sm"><div class="text-secondary text-xs">Won Back</div><div class="font-bold text-success">2 (8%)</div></div>
+        </div>
+      </div>
+
+      <div class="glass">
+        <h3 class="font-display mb-3" style="font-size: 1rem;">⚡ Quick Campaign Templates</h3>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.75rem;">
+          <div class="glass" style="cursor: pointer;">
+            <div class="font-bold">🎉 New Feature Announcement</div>
+            <div class="text-sm text-secondary mt-1">Notify all customers about Workspace updates</div>
+          </div>
+          <div class="glass" style="cursor: pointer;">
+            <div class="font-bold">💰 Festive Offer (Diwali/EoY)</div>
+            <div class="text-sm text-secondary mt-1">Limited-time discount campaigns</div>
+          </div>
+          <div class="glass" style="cursor: pointer;">
+            <div class="font-bold">📊 NPS Survey</div>
+            <div class="text-sm text-secondary mt-1">Quarterly customer satisfaction</div>
+          </div>
+          <div class="glass" style="cursor: pointer;">
+            <div class="font-bold">🎁 Referral Program</div>
+            <div class="text-sm text-secondary mt-1">Ask happy customers for referrals</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== REPORTS ========== -->
+    <section id="screen-reports" class="screen">
+      <div class="screen-header">
+        <div>
+          <div class="screen-title">📈 Reports & Analytics</div>
+          <div class="screen-subtitle">Live business insights — auto-refreshed every 5 minutes</div>
+        </div>
+        <div class="flex gap-2">
+          <button class="btn btn-secondary btn-sm">📅 This Month ▼</button>
+          <button class="btn btn-secondary btn-sm">⇧ Export PDF</button>
+        </div>
+      </div>
+
+      <div class="kpi-grid">
+        <div class="glass kpi-card"><div class="kpi-label">MRR</div><div class="kpi-value">₹4.2L</div><div class="kpi-trend trend-up">▲ +12%</div></div>
+        <div class="glass kpi-card"><div class="kpi-label">ARR</div><div class="kpi-value">₹50.4L</div><div class="kpi-trend trend-up">▲ +14%</div></div>
+        <div class="glass kpi-card"><div class="kpi-label">Net New MRR</div><div class="kpi-value">₹52K</div><div class="kpi-trend trend-up">▲ +8</div></div>
+        <div class="glass kpi-card"><div class="kpi-label">Customer LTV</div><div class="kpi-value">₹3.2L</div><div class="kpi-trend trend-up">▲ ₹40K</div></div>
+        <div class="glass kpi-card"><div class="kpi-label">Churn %</div><div class="kpi-value">2.1%</div><div class="kpi-trend trend-up">▼ -0.4%</div></div>
+        <div class="glass kpi-card"><div class="kpi-label">Avg Deal Size</div><div class="kpi-value">₹2.1L</div><div class="kpi-trend trend-up">▲ ₹15K</div></div>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+        <div class="glass">
+          <h3 class="font-display mb-3" style="font-size: 1rem;">📊 MRR Trend (12 months)</h3>
+          <div style="height: 200px; display: flex; align-items: flex-end; gap: 4px; padding: 0.5rem 0;">
+            <div style="flex:1; background: linear-gradient(to top, #8b5cf6, #a78bfa); height: 30%; border-radius: 4px 4px 0 0; opacity: 0.6;"></div>
+            <div style="flex:1; background: linear-gradient(to top, #8b5cf6, #a78bfa); height: 38%; border-radius: 4px 4px 0 0; opacity: 0.65;"></div>
+            <div style="flex:1; background: linear-gradient(to top, #8b5cf6, #a78bfa); height: 45%; border-radius: 4px 4px 0 0; opacity: 0.7;"></div>
+            <div style="flex:1; background: linear-gradient(to top, #8b5cf6, #a78bfa); height: 50%; border-radius: 4px 4px 0 0; opacity: 0.72;"></div>
+            <div style="flex:1; background: linear-gradient(to top, #8b5cf6, #a78bfa); height: 55%; border-radius: 4px 4px 0 0; opacity: 0.75;"></div>
+            <div style="flex:1; background: linear-gradient(to top, #8b5cf6, #a78bfa); height: 60%; border-radius: 4px 4px 0 0; opacity: 0.8;"></div>
+            <div style="flex:1; background: linear-gradient(to top, #8b5cf6, #a78bfa); height: 65%; border-radius: 4px 4px 0 0; opacity: 0.82;"></div>
+            <div style="flex:1; background: linear-gradient(to top, #8b5cf6, #a78bfa); height: 70%; border-radius: 4px 4px 0 0; opacity: 0.85;"></div>
+            <div style="flex:1; background: linear-gradient(to top, #8b5cf6, #a78bfa); height: 78%; border-radius: 4px 4px 0 0; opacity: 0.88;"></div>
+            <div style="flex:1; background: linear-gradient(to top, #8b5cf6, #a78bfa); height: 85%; border-radius: 4px 4px 0 0; opacity: 0.92;"></div>
+            <div style="flex:1; background: linear-gradient(to top, #8b5cf6, #a78bfa); height: 92%; border-radius: 4px 4px 0 0; opacity: 0.95;"></div>
+            <div style="flex:1; background: linear-gradient(to top, #8b5cf6, #a78bfa); height: 100%; border-radius: 4px 4px 0 0;"></div>
+          </div>
+          <div class="flex justify-between text-xs text-secondary mt-2">
+            <span>Jun '25</span><span>Sep</span><span>Dec</span><span>Mar '26</span><span>May</span>
+          </div>
+        </div>
+
+        <div class="glass">
+          <h3 class="font-display mb-3" style="font-size: 1rem;">🎯 Sales Funnel (This Month)</h3>
+          <div style="padding: 1rem 0;">
+            <div class="mb-2"><div class="flex justify-between mb-1"><span class="text-sm">Leads</span><span class="text-sm font-bold">120</span></div><div style="height: 24px; background: linear-gradient(to right, #3b82f6, #60a5fa); border-radius: 4px;"></div></div>
+            <div class="mb-2"><div class="flex justify-between mb-1"><span class="text-sm">Demo Scheduled</span><span class="text-sm font-bold">68 (57%)</span></div><div style="height: 24px; background: linear-gradient(to right, #8b5cf6, #a78bfa); border-radius: 4px; width: 57%;"></div></div>
+            <div class="mb-2"><div class="flex justify-between mb-1"><span class="text-sm">Trial Active</span><span class="text-sm font-bold">45 (37%)</span></div><div style="height: 24px; background: linear-gradient(to right, #ec4899, #f472b6); border-radius: 4px; width: 37%;"></div></div>
+            <div class="mb-2"><div class="flex justify-between mb-1"><span class="text-sm">Quote Sent</span><span class="text-sm font-bold">32 (27%)</span></div><div style="height: 24px; background: linear-gradient(to right, #f59e0b, #fbbf24); border-radius: 4px; width: 27%;"></div></div>
+            <div><div class="flex justify-between mb-1"><span class="text-sm">Closed Won</span><span class="text-sm font-bold text-success">22 (18%)</span></div><div style="height: 24px; background: linear-gradient(to right, #10b981, #34d399); border-radius: 4px; width: 18%;"></div></div>
+          </div>
+        </div>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 1rem;">
+        <div class="glass">
+          <h3 class="font-display mb-3" style="font-size: 1rem;">📦 Revenue by Plan</h3>
+          <div class="stat-row"><span class="label">Workspace Plus</span><span class="value">₹2.1L (50%)</span></div>
+          <div class="stat-row"><span class="label">Workspace Standard</span><span class="value">₹1.4L (33%)</span></div>
+          <div class="stat-row"><span class="label">Workspace Starter</span><span class="value">₹45K (11%)</span></div>
+          <div class="stat-row"><span class="label">Microsoft 365</span><span class="value">₹18K (4%)</span></div>
+          <div class="stat-row" style="border-bottom: none;"><span class="label">Add-ons (Voice etc.)</span><span class="value">₹7K (2%)</span></div>
+        </div>
+
+        <div class="glass">
+          <h3 class="font-display mb-3" style="font-size: 1rem;">🏆 Top Customers (by ARR)</h3>
+          <div class="stat-row"><span class="label">Delta Pvt Ltd</span><span class="value">₹8.3L</span></div>
+          <div class="stat-row"><span class="label">Echo Pharma</span><span class="value">₹6.1L</span></div>
+          <div class="stat-row"><span class="label">Foxtrot Logistics</span><span class="value">₹4.7L</span></div>
+          <div class="stat-row"><span class="label">Acme Corp</span><span class="value">₹2.2L</span></div>
+          <div class="stat-row" style="border-bottom: none;"><span class="label">Golf Resorts</span><span class="value">₹1.8L</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== SETTINGS ========== -->
+    <section id="screen-settings" class="screen">
+      <div class="screen-header">
+        <div>
+          <div class="screen-title">🔧 Settings & Team</div>
+          <div class="screen-subtitle">Configure your reseller business</div>
+        </div>
+        <button class="btn btn-primary btn-sm">💾 Save Changes</button>
+      </div>
+
+      <div class="tabs">
+        <div class="tab active">🏢 Company</div>
+        <div class="tab">👥 Team</div>
+        <div class="tab">🔌 Integrations</div>
+        <div class="tab">🎨 Branding</div>
+        <div class="tab">🔔 Notifications</div>
+        <div class="tab">🔐 Security</div>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+        <div class="glass">
+          <h3 class="font-display mb-3" style="font-size: 1rem;">🏢 Company Information</h3>
+          <label class="text-sm text-secondary">Legal Name</label>
+          <input class="input mb-2 mt-1" value="Excel Technologies Pvt Ltd">
+          <label class="text-sm text-secondary">GSTIN</label>
+          <input class="input mb-2 mt-1" value="07AABCE1234D1Z9">
+          <label class="text-sm text-secondary">PAN</label>
+          <input class="input mb-2 mt-1" value="AABCE1234D">
+          <label class="text-sm text-secondary">Registered State</label>
+          <input class="input mb-2 mt-1" value="Delhi (07)">
+          <label class="text-sm text-secondary">Currency</label>
+          <input class="input mt-1" value="INR (₹)">
+        </div>
+
+        <div class="glass">
+          <h3 class="font-display mb-3" style="font-size: 1rem;">👥 Team Members</h3>
+          <div class="text-sm text-secondary mb-3">5 active members</div>
+          <table class="table">
+            <thead><tr><th>Name</th><th>Role</th><th>Status</th></tr></thead>
+            <tbody>
+              <tr><td><div class="flex gap-2 items-center"><div class="avatar">PA</div><strong>Pardeep</strong></div></td><td><span class="badge badge-quote">Owner</span></td><td>🟢</td></tr>
+              <tr><td><div class="flex gap-2 items-center"><div class="avatar">RB</div>Rahul B</div></td><td><span class="badge badge-new">Sales</span></td><td>🟢</td></tr>
+              <tr><td><div class="flex gap-2 items-center"><div class="avatar">PR</div>Priya R</div></td><td><span class="badge badge-new">Sales</span></td><td>🟢</td></tr>
+              <tr><td><div class="flex gap-2 items-center"><div class="avatar">AM</div>Amit M</div></td><td><span class="badge badge-contacted">Accountant</span></td><td>🟢</td></tr>
+              <tr><td><div class="flex gap-2 items-center"><div class="avatar">SK</div>Sneha K</div></td><td><span class="badge badge-demo">Support</span></td><td>🟡</td></tr>
+            </tbody>
+          </table>
+          <button class="btn btn-primary btn-sm mt-3">+ Invite Member</button>
+        </div>
+      </div>
+
+      <div class="glass mt-3">
+        <h3 class="font-display mb-3" style="font-size: 1rem;">🔌 Integrations Status</h3>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.75rem;">
+          <div class="glass"><div class="flex justify-between items-center"><div><div class="font-bold">📧 Gmail API</div><div class="text-sm text-secondary">Last synced: 5 min ago</div></div><span class="badge badge-active">Connected</span></div></div>
+          <div class="glass"><div class="flex justify-between items-center"><div><div class="font-bold">💰 Razorpay</div><div class="text-sm text-secondary">Live mode</div></div><span class="badge badge-active">Connected</span></div></div>
+          <div class="glass"><div class="flex justify-between items-center"><div><div class="font-bold">📊 Zoho Books</div><div class="text-sm text-secondary">Auto-sync ON</div></div><span class="badge badge-active">Connected</span></div></div>
+          <div class="glass"><div class="flex justify-between items-center"><div><div class="font-bold">🟦 Google Reseller API</div><div class="text-sm text-secondary">Auth valid</div></div><span class="badge badge-active">Connected</span></div></div>
+          <div class="glass"><div class="flex justify-between items-center"><div><div class="font-bold">🟧 Microsoft Partner</div><div class="text-sm text-secondary">Not configured</div></div><span class="badge badge-draft">Setup</span></div></div>
+          <div class="glass"><div class="flex justify-between items-center"><div><div class="font-bold">💬 WhatsApp Business</div><div class="text-sm text-secondary">Verified</div></div><span class="badge badge-active">Connected</span></div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== MOBILE ========== -->
+    <section id="screen-mobile" class="screen">
+      <div class="screen-header">
+        <div>
+          <div class="screen-title">📱 Mobile View — Sales Rep On Field</div>
+          <div class="screen-subtitle">PWA — install from browser, works offline</div>
+        </div>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; max-width: 800px; margin: 0 auto;">
+        <div>
+          <div class="mobile-frame">
+            <div class="mobile-content">
+              <div class="mobile-topbar">
+                <span style="font-size: 1.1rem;">☰</span>
+                <span class="font-display font-bold">ResellerOS</span>
+                <span>🔔</span>
+              </div>
+              <div class="font-bold mb-2" style="font-size: 0.95rem;">📊 My Day</div>
+              <div class="glass mobile-card">
+                <div class="text-sm text-secondary">3 Tasks Due</div>
+                <div class="text-sm text-secondary">2 Calls Pending</div>
+                <div class="text-sm font-bold mt-1">₹4.2L Pipeline</div>
+              </div>
+              <div class="text-sm text-secondary mt-3 mb-2">Today's Followups</div>
+              <div class="glass mobile-card">
+                <div class="font-bold text-sm">⚡ Acme Corp</div>
+                <div class="text-sm text-secondary">Call Rajesh — 11:30 AM</div>
+                <div class="flex gap-2 mt-2">
+                  <button class="btn btn-primary btn-sm" style="flex:1;">📞 Call</button>
+                  <button class="btn btn-secondary btn-sm" style="flex:1;">📝 Note</button>
+                </div>
+              </div>
+              <div class="glass mobile-card">
+                <div class="font-bold text-sm">📧 Beta Ltd</div>
+                <div class="text-sm text-secondary">Quote follow-up — 2:00 PM</div>
+                <div class="flex gap-2 mt-2">
+                  <button class="btn btn-primary btn-sm" style="flex:1;">📧 Email</button>
+                  <button class="btn btn-success btn-sm" style="flex:1;">💬 WApp</button>
+                </div>
+              </div>
+              <button class="btn btn-primary" style="width: 100%; margin: 0.75rem 0;">+ Quick Add</button>
+              <div class="flex gap-2">
+                <div class="mobile-tab active">📊</div>
+                <div class="mobile-tab">🎯</div>
+                <div class="mobile-tab">👥</div>
+                <div class="mobile-tab">💬</div>
+                <div class="mobile-tab">⚙️</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <h3 class="font-display mb-3" style="font-size: 1rem;">📱 Mobile Capabilities</h3>
+          <div class="glass mb-3">
+            <div class="stat-row"><span>📞 One-tap call</span><span>✅</span></div>
+            <div class="stat-row"><span>📧 Email with templates</span><span>✅</span></div>
+            <div class="stat-row"><span>💬 WhatsApp Business</span><span>✅</span></div>
+            <div class="stat-row"><span>🎯 Drag-drop kanban</span><span>✅</span></div>
+            <div class="stat-row"><span>📍 GPS check-in</span><span>✅</span></div>
+            <div class="stat-row"><span>🎙️ Voice note → activity</span><span>✅</span></div>
+            <div class="stat-row"><span>📷 Photo capture</span><span>✅</span></div>
+            <div class="stat-row" style="border-bottom: none;"><span>📴 Offline mode</span><span>✅</span></div>
+          </div>
+          <div class="glass">
+            <h3 class="font-display mb-2" style="font-size: 0.95rem;">Install as App</h3>
+            <div class="text-sm text-secondary mb-3">PWA — install from browser, no app store needed.</div>
+            <button class="btn btn-primary btn-sm">📲 Add to Home Screen</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<script>
+function show(id, btn) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById('screen-' + id).classList.add('active');
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  document.querySelector('.content').scrollTo(0, 0);
+}
+function findNav(id) {
+  return document.querySelector(`button[onclick*="'${id}'"]`);
+}
+</script>
+
+</body>
+</html>

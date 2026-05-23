@@ -1,0 +1,132 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ============================================================
+   Design tokens — HSL channels (used by Tailwind via hsl(var(--token)))
+   ============================================================ */
+@layer base {
+  :root {
+    /* Backgrounds & ink (warm cream paper aesthetic) */
+    --paper:           45 33% 97%;       /* #FAF8F2 */
+    --paper-2:         40 22% 94%;       /* #F1ECE0 */
+    --ink:             24 13% 9%;        /* #1A1815 */
+    --ink-2:           28 9% 32%;        /* #4F4A40 */
+    --ink-3:           33 7% 41%;        /* #6B6457 */
+
+    /* Hairlines & dividers */
+    --hairline:        38 25% 87%;       /* #E8E2D4 */
+    --hairline-strong: 38 18% 75%;       /* #C9C2B0 */
+
+    /* Brand accent (amber / Google Workspace authorized vibe) */
+    --amber:           20 91% 41%;       /* #C2410C */
+    --amber-soft:      28 100% 95%;      /* #FFF3E6 */
+    --amber-ink:       18 87% 33%;       /* #9F3409 */
+
+    /* Status colors */
+    --emerald:         142 71% 28%;      /* #166534 */
+    --emerald-soft:    138 50% 92%;      /* #DCFCE7 */
+    --rose:            0 76% 50%;        /* #DC2626 */
+    --rose-soft:       0 86% 96%;        /* #FEE2E2 */
+    --indigo:          240 65% 42%;      /* #3730A3 */
+    --indigo-soft:     232 100% 95%;     /* #E0E7FF */
+    --indigo-ink:      244 55% 32%;      /* #2D2873 */
+    --slate:           215 25% 35%;      /* #475569 */
+    --slate-soft:      210 25% 95%;      /* #ECEFF3 */
+
+    /* shadcn semantic aliases (computed from tokens above) */
+    --background:      45 33% 97%;
+    --foreground:      24 13% 9%;
+
+    /* Fonts */
+    --font-serif: "DM Serif Display", Georgia, serif;
+    --font-sans:  "Plus Jakarta Sans", system-ui, sans-serif;
+    --font-mono:  "JetBrains Mono", monospace;
+
+    /* Radii */
+    --radius: 8px;
+  }
+
+  .dark {
+    --paper:           24 10% 8%;
+    --paper-2:         28 8% 12%;
+    --ink:             45 33% 97%;
+    --ink-2:           33 7% 75%;
+    --ink-3:           33 7% 55%;
+
+    --hairline:        28 8% 20%;
+    --hairline-strong: 28 8% 30%;
+
+    --amber:           20 95% 55%;
+    --amber-soft:      22 50% 18%;
+    --amber-ink:       28 100% 80%;
+
+    --emerald:         142 71% 50%;
+    --emerald-soft:    142 30% 15%;
+    --rose:            0 86% 65%;
+    --rose-soft:       0 40% 18%;
+    --indigo:          240 65% 65%;
+    --indigo-soft:     232 30% 18%;
+    --indigo-ink:      232 50% 80%;
+    --slate:           215 25% 65%;
+    --slate-soft:      215 20% 18%;
+
+    --background:      24 10% 8%;
+    --foreground:      45 33% 97%;
+  }
+
+  * {
+    border-color: hsl(var(--hairline));
+  }
+
+  body {
+    @apply bg-paper text-ink font-sans antialiased;
+    font-feature-settings: "rlig" 1, "calt" 1, "tnum" 0;
+  }
+
+  /* Tabular numerals for money + counters */
+  .tnum,
+  [class*="tabular-nums"] {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Selection */
+  ::selection {
+    background: hsl(var(--amber-soft));
+    color: hsl(var(--amber-ink));
+  }
+
+  /* Focus visible (keyboard nav) */
+  :focus-visible {
+    @apply outline-none ring-2 ring-amber ring-offset-2 ring-offset-paper;
+  }
+}
+
+/* ============================================================
+   Reusable utility patterns
+   ============================================================ */
+@layer utilities {
+  .skeleton-shimmer {
+    background: linear-gradient(
+      90deg,
+      hsl(var(--paper-2)) 0%,
+      hsl(var(--hairline)) 50%,
+      hsl(var(--paper-2)) 100%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 1.4s ease-in-out infinite;
+  }
+}
+
+/* Print styles for invoices / quotes */
+@media print {
+  @page {
+    margin: 1cm;
+  }
+  body {
+    background: white;
+  }
+  .no-print {
+    display: none !important;
+  }
+}

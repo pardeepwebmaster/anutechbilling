@@ -178,25 +178,26 @@ async function handle(req: Request): Promise<NextResponse<CronResult | { error: 
       // ── Email path ───────────────────────────────────────────────
       if (decision.shouldSendEmail && decision.tone) {
         // 1. Ensure renewal quote exists (only matters at T-15 entry)
-        // Ensure renewal quote exists (idempotent — creates on first T-15 hit,
-        // returns existing one on subsequent days). Operator may also have
-        // pre-created via /api/subscriptions/[id]/generate-renewal-quote.
-        const quoteResult = (sub.renewal_quote_id || decision.targetState === "notice_sent")
-          ? await createOrGetRenewalQuote({
-              supabase,
-              subscriptionId:  sub.id,
-              tenantId:        sub.tenant_id,
-              customerId:      sub.customer_id,
-              customerName:    sub.customer_name,
-              plan:            sub.plan,
-              seats:           sub.seats,
-              mrr:             sub.mrr ?? 0,
-              renewalDate:     sub.renewal_date!,
-              graceDays:       tenant.grace_period_days ?? 0,
-              existingQuoteId: sub.renewal_quote_id,
-              notes:           `Auto-generated renewal quote for subscription ${sub.id}`,
-            })
-          : null;
+        // Ensure renewal quote exists for ANY cadence step where we're emailing.
+        // Helper is idempotent — returns the existing quote if one is linked.
+        // Originally restricted to T-15 ('notice_sent'); that meant freshly
+        // created subs or those whose renewal_date got edited could fire a
+        // 'FINAL NOTICE' email at T-0 with no quote attached. Now we always
+        // try to ensure a quote exists before sending.
+        const quoteResult = await createOrGetRenewalQuote({
+          supabase,
+          subscriptionId:  sub.id,
+          tenantId:        sub.tenant_id,
+          customerId:      sub.customer_id,
+          customerName:    sub.customer_name,
+          plan:            sub.plan,
+          seats:           sub.seats,
+          mrr:             sub.mrr ?? 0,
+          renewalDate:     sub.renewal_date!,
+          graceDays:       tenant.grace_period_days ?? 0,
+          existingQuoteId: sub.renewal_quote_id,
+          notes:           `Auto-generated renewal quote for subscription ${sub.id}`,
+        });
 
         const renewalQuoteId = quoteResult?.quoteId ?? null;
         const renewalQuote = quoteResult

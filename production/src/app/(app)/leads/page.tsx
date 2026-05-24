@@ -57,7 +57,7 @@ const LEAD_STAGES: { id: Lead["stage"]; label: string; dot: string }[] = [
   { id: "won",     label: "Won",          dot: "bg-emerald" },
 ];
 
-export default function LeadsPage() {
+function LeadsPageInner() {
   const router       = useRouter();
   const searchParams = useSearchParams();
   const focusLeadId  = searchParams.get("lead");
@@ -1159,5 +1159,15 @@ function Fact({ label, value, mono, big }: { label: string; value: string | null
         {value || "—"}
       </div>
     </div>
+  );
+}
+
+// LeadsPageInner uses useSearchParams() — Next.js requires that to live under
+// a Suspense boundary so static prerender can bail out gracefully.
+export default function LeadsPage() {
+  return (
+    <React.Suspense fallback={<div className="p-8 text-sm text-ink-3">Loading deals…</div>}>
+      <LeadsPageInner />
+    </React.Suspense>
   );
 }

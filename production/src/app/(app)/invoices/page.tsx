@@ -34,7 +34,7 @@ import { TabBar, type TabBarItem } from "@/components/ui/tabs";
 import { rupee, formatDate, daysBetween } from "@/lib/utils";
 import type { Invoice } from "@/lib/supabase/database.types";
 
-export default function InvoicesPage() {
+function InvoicesPageInner() {
   const router       = useRouter();
   const searchParams = useSearchParams();
   /** Deep-link target: `?open=INV-XXX` auto-opens that invoice's dialog (set by
@@ -716,5 +716,15 @@ function BucketTile({ label, count, amount, tone }: {
       <div className="font-serif text-xl mt-0.5 tabular-nums">{count}</div>
       <div className="text-[11px] tabular-nums opacity-80 mt-0.5">{rupee(amount)}</div>
     </div>
+  );
+}
+
+// InvoicesPageInner uses useSearchParams() — Next.js requires that to live
+// under a Suspense boundary so static prerender can bail out gracefully.
+export default function InvoicesPage() {
+  return (
+    <React.Suspense fallback={<div className="p-8 text-sm text-ink-3">Loading invoices…</div>}>
+      <InvoicesPageInner />
+    </React.Suspense>
   );
 }

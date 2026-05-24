@@ -657,6 +657,10 @@ export type Database = {
           subscription_created: boolean;
           invoice_paid:         boolean;
           has_existing_invoice: boolean;
+          /** Added in migration 0010. True if the quote is linked to a subscription's renewal_quote_id. */
+          is_renewal_quote:        boolean;
+          /** Added in migration 0010. True when this payment fully covered a renewal quote and the linked subscription was advanced 1 year. */
+          renewal_rolled_forward:  boolean;
         };
       };
     };

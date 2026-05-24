@@ -17,13 +17,15 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useSubscriptions } from "@/lib/queries/subscriptions";
 import { toast } from "sonner";
 import { GeminiCard } from "@/components/shared/gemini-card";
 import { EmptyState } from "@/components/shared/empty-state";
 import { KPI } from "@/components/shared/kpi";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Button, IconButton } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Icon } from "@/components/ui/icon";
@@ -163,7 +165,36 @@ function RenewalBucket({
 }: RenewalBucketProps) {
   const [open, setOpen] = React.useState(defaultOpen);
   const [sending, setSending] = React.useState<string | null>(null);
+  const [generating, setGenerating] = React.useState<string | null>(null);
   const qc = useQueryClient();
+  const router = useRouter();
+
+  async function handleGenerateQuote(sub: Subscription) {
+    setGenerating(sub.id);
+    try {
+      const res = await fetch(`/api/subscriptions/${sub.id}/generate-renewal-quote`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        toast.error(json.error ?? "Could not generate renewal quote");
+        return;
+      }
+      qc.invalidateQueries({ queryKey: ["subscriptions"] });
+      qc.invalidateQueries({ queryKey: ["quotes"] });
+      const msg = json.alreadyExisted
+        ? `Opening existing renewal quote for ${sub.customer_name}`
+        : `Renewal quote ${json.quoteId} created for ${sub.customer_name}`;
+      toast.success(msg, { duration: 3500 });
+      // Navigate so the operator can edit before sending
+      router.push(`/quotes/${json.quoteId}` as never);
+    } catch (err) {
+      toast.error(`Failed: ${(err as Error).message}`);
+    } finally {
+      setGenerating(null);
+    }
+  }
 
   async function handleSendNow(sub: Subscription) {
     setSending(sub.id);
@@ -379,27 +410,56 @@ function RenewalBucket({
 
                         {/* Action */}
                         <td className="px-4 py-3">
-                          <div className="flex items-center gap-1.5">
-                            <Button
-                              variant={kind === "rose" ? "primary" : "default"}
-                              size="sm"
-                              loading={sending === sub.id}
-                              disabled={
-                                sub.renewal_state === "suspended" ||
-                                sub.renewal_state === "renewed"
-                              }
-                              onClick={() => handleSendNow(sub)}
-                              title="Send the appropriate renewal email immediately (overrides daily cron)"
-                            >
-                              <Icon name="mail" size={12} />
-                              Send now
-                            </Button>
-                            <IconButton
-                              icon="more_h"
-                              size="sm"
-                              variant="ghost"
-                              aria-label="More actions"
-                            />
+                          <div className="flex flex-col items-start gap-1.5">
+                            <div className="flex items-center gap-1.5">
+                              {sub.renewal_quote_id ? (
+                                <Button
+                                  asChild
+                                  variant="default"
+                                  size="sm"
+                                  title="Open the existing renewal quote — edit seats/plan or send"
+                                >
+                                  <Link href={`/quotes/${sub.renewal_quote_id}` as never}>
+                                    <Icon name="file" size={12} />
+                                    Open quote
+                                  </Link>
+                                </Button>
+                              ) : (
+                                <Button
+                                  variant={kind === "rose" ? "primary" : "default"}
+                                  size="sm"
+                                  loading={generating === sub.id}
+                                  disabled={
+                                    sub.renewal_state === "suspended" ||
+                                    sub.renewal_state === "renewed"
+                                  }
+                                  onClick={() => handleGenerateQuote(sub)}
+                                  title="Create the renewal quote now (early, e.g. customer asked 60 days ahead) — same logic as the T-15 cron auto-create"
+                                >
+                                  <Icon name="plus" size={12} />
+                                  Generate quote
+                                </Button>
+                              )}
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                loading={sending === sub.id}
+                                disabled={
+                                  sub.renewal_state === "suspended" ||
+                                  sub.renewal_state === "renewed"
+                                }
+                                onClick={() => handleSendNow(sub)}
+                                title="Send the appropriate renewal email immediately (overrides daily cron)"
+                              >
+                                <Icon name="mail" size={12} />
+                                Send now
+                              </Button>
+                            </div>
+                            {sub.renewal_quote_id && (
+                              <p className="text-[11px] text-ink-3 font-mono">
+                                Quote: {sub.renewal_quote_id}
+                              </p>
+                            )}
                           </div>
                         </td>
                       </tr>

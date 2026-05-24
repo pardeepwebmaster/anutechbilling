@@ -134,16 +134,19 @@ export function RecordPaymentDialog({
 
       // Re-shape into the camelCase keys the onSuccess handler already consumes
       return {
-        newPaymentId:        r.payment_id,
-        totalReceived:       r.total_received,
-        expected:            r.expected,
-        outstanding:         r.outstanding,
-        isFirstPayment:      r.is_first_payment,
-        isFullyPaid:         r.is_fully_paid,
-        convertedNow:        r.converted_now,
-        subscriptionCreated: r.subscription_created,
-        invoicePaid:         r.invoice_paid,
-        hasExistingInvoice:  r.has_existing_invoice,
+        newPaymentId:           r.payment_id,
+        totalReceived:          r.total_received,
+        expected:               r.expected,
+        outstanding:            r.outstanding,
+        isFirstPayment:         r.is_first_payment,
+        isFullyPaid:            r.is_fully_paid,
+        convertedNow:           r.converted_now,
+        subscriptionCreated:    r.subscription_created,
+        invoicePaid:            r.invoice_paid,
+        hasExistingInvoice:     r.has_existing_invoice,
+        // Renewal roll-forward — added in migration 0010
+        isRenewalQuote:         r.is_renewal_quote ?? false,
+        renewalRolledForward:   r.renewal_rolled_forward ?? false,
       };
     },
     onSuccess: (res) => {
@@ -160,7 +163,14 @@ export function RecordPaymentDialog({
       qc.invalidateQueries({ queryKey: ["outstanding-receivables"] });
       qc.invalidateQueries({ queryKey: ["nav-badges"] });
 
-      if (res.convertedNow) {
+      if (res.renewalRolledForward) {
+        // Renewal quote fully paid — subscription rolled forward 1 year
+        toast.success("Renewal payment received · subscription rolled forward 1 year 🎉", { duration: 6000 });
+        setTimeout(() => toast.info("Reminder cadence reset · next cycle starts T-15 of new renewal date", { duration: 6000 }), 800);
+      } else if (res.isRenewalQuote && !res.isFullyPaid) {
+        // Partial payment against a renewal quote — sub NOT rolled forward yet
+        toast.success(`Partial renewal payment recorded · ₹${res.outstanding.toLocaleString("en-IN")} still due to renew`, { duration: 6000 });
+      } else if (res.convertedNow) {
         // First payment on prospect — service starts, customer created
         if (res.isFullyPaid) {
           toast.success("Paid in full · Customer + subscription activated 🎉", { duration: 5000 });

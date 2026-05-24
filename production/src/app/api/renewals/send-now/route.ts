@@ -27,6 +27,7 @@ import {
   type CadenceTone,
 } from "@/lib/renewals/cadence";
 import { renderTemplate } from "@/lib/renewals/templates";
+import { createOrGetRenewalQuote } from "@/lib/renewals/create-renewal-quote";
 import { sendEmail, isEmailConfigured } from "@/lib/email/send";
 import { renderQuotePDF } from "@/lib/pdf";
 import type { QuoteLineItem } from "@/lib/supabase/database.types";
@@ -135,68 +136,30 @@ export async function POST(req: Request) {
   }
   const step = decision.targetState === "pending" ? "notice_sent" : decision.targetState;
 
-  // ── Ensure renewal quote exists (mirror cron path) ──────────────
-  let renewalQuoteId = sub.renewal_quote_id;
-  let renewalQuote: { amount: number; subtotal?: number; line_items?: QuoteLineItem[]; discount_pct?: number; tax_rate?: number } | null = null;
-  let lineItems: QuoteLineItem[] = [];
-
-  if (!renewalQuoteId) {
-    const { data: nextNumber } = await supabase.rpc("next_document_number", {
-      p_doc_type:  "quote",
-      p_tenant_id: sub.tenant_id,
-    });
-    const newQuoteId = nextNumber as unknown as string;
-    if (newQuoteId) {
-      const annualAmount = (sub.mrr ?? 0) * 12;
-      lineItems = [{
-        id:        "renewal-1",
-        name:      sub.plan,
-        qty:       sub.seats,
-        rate:      Math.round(annualAmount / Math.max(1, sub.seats)),
-        cost:      Math.round((annualAmount * 0.83) / Math.max(1, sub.seats)),
-        commitment:"annual_yearly",
-      }];
-      const renewalAt = new Date(sub.renewal_date);
-      const validUntil = new Date(renewalAt.getTime() + (tenant.grace_period_days ?? 0) * 86400000);
-      await supabase.from("quotes").insert({
-        id:            newQuoteId,
-        tenant_id:     sub.tenant_id,
-        customer_id:   sub.customer_id,
-        customer_name: sub.customer_name,
-        plan:          sub.plan,
-        seats:         sub.seats,
-        amount:        annualAmount,
-        status:        "sent",
-        payment_status:"awaiting",
-        owner_id:      null,
-        created_date:  new Date().toISOString().slice(0, 10),
-        expires_date:  validUntil.toISOString().slice(0, 10),
-        line_items:    lineItems,
-        subtotal:      annualAmount,
-        total_cost:    Math.round(annualAmount * 0.83),
-        discount_pct:  0,
-        tax_rate:      18,
-        notes:         `Renewal quote for subscription ${sub.id}`,
-      });
-      renewalQuoteId = newQuoteId;
-      renewalQuote = { amount: annualAmount, line_items: lineItems };
-      await supabase
-        .from("subscriptions")
-        .update({ renewal_quote_id: newQuoteId })
-        .eq("id", sub.id);
-    }
-  }
-  if (renewalQuoteId && !renewalQuote) {
-    const { data: q } = await supabase
-      .from("quotes")
-      .select("id, amount, line_items, subtotal, discount_pct, tax_rate, expires_date, created_at")
-      .eq("id", renewalQuoteId)
-      .single();
-    if (q) {
-      renewalQuote = q as never;
-      lineItems = (q.line_items ?? []) as QuoteLineItem[];
-    }
-  }
+  // ── Ensure renewal quote exists (shared helper — idempotent) ─────
+  const quoteResult = await createOrGetRenewalQuote({
+    supabase,
+    subscriptionId:  sub.id,
+    tenantId:        sub.tenant_id,
+    customerId:      sub.customer_id,
+    customerName:    sub.customer_name,
+    plan:            sub.plan,
+    seats:           sub.seats,
+    mrr:             sub.mrr ?? 0,
+    renewalDate:     sub.renewal_date,
+    graceDays:       tenant.grace_period_days ?? 0,
+    existingQuoteId: sub.renewal_quote_id,
+  });
+  const renewalQuoteId = quoteResult?.quoteId ?? null;
+  const renewalQuote = quoteResult
+    ? {
+        amount:       quoteResult.amount,
+        subtotal:     quoteResult.subtotal,
+        discount_pct: quoteResult.discountPct,
+        tax_rate:     quoteResult.taxRate,
+      }
+    : null;
+  const lineItems: QuoteLineItem[] = quoteResult?.lineItems ?? [];
 
   // ── Recipient ───────────────────────────────────────────────────
   const recipient = customer?.contact_email;

@@ -34,6 +34,7 @@ import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/server";
 import { decideCadence } from "@/lib/renewals/cadence";
 import { renderTemplate } from "@/lib/renewals/templates";
+import { createOrGetRenewalQuote } from "@/lib/renewals/create-renewal-quote";
 import { sendEmail, isEmailConfigured } from "@/lib/email/send";
 import { renderQuotePDF } from "@/lib/pdf";
 import type { QuoteLineItem } from "@/lib/supabase/database.types";
@@ -152,72 +153,36 @@ async function handle(req: Request): Promise<NextResponse<CronResult | { error: 
       // ── Email path ───────────────────────────────────────────────
       if (decision.shouldSendEmail && decision.tone) {
         // 1. Ensure renewal quote exists (only matters at T-15 entry)
-        let renewalQuoteId = sub.renewal_quote_id;
-        let renewalQuote: any = null;
-        let lineItems: QuoteLineItem[] = [];
+        // Ensure renewal quote exists (idempotent — creates on first T-15 hit,
+        // returns existing one on subsequent days). Operator may also have
+        // pre-created via /api/subscriptions/[id]/generate-renewal-quote.
+        const quoteResult = (sub.renewal_quote_id || decision.targetState === "notice_sent")
+          ? await createOrGetRenewalQuote({
+              supabase,
+              subscriptionId:  sub.id,
+              tenantId:        sub.tenant_id,
+              customerId:      sub.customer_id,
+              customerName:    sub.customer_name,
+              plan:            sub.plan,
+              seats:           sub.seats,
+              mrr:             sub.mrr ?? 0,
+              renewalDate:     sub.renewal_date!,
+              graceDays:       tenant.grace_period_days ?? 0,
+              existingQuoteId: sub.renewal_quote_id,
+              notes:           `Auto-generated renewal quote for subscription ${sub.id}`,
+            })
+          : null;
 
-        if (!renewalQuoteId && decision.targetState === "notice_sent") {
-          // Auto-create the renewal quote — same line item set as the sub
-          // (one Workspace plan, seats = sub.seats, annual_yearly billing).
-          const { data: nextNumber } = await supabase.rpc(
-            "next_document_number",
-            { p_doc_type: "quote", p_tenant_id: sub.tenant_id },
-          );
-          const newQuoteId = nextNumber as unknown as string;
-          if (newQuoteId) {
-            const annualAmount = (sub.mrr ?? 0) * 12;
-            lineItems = [{
-              id:        "renewal-1",
-              name:      sub.plan,
-              qty:       sub.seats,
-              rate:      Math.round(annualAmount / Math.max(1, sub.seats)),
-              cost:      Math.round(annualAmount * 0.83 / Math.max(1, sub.seats)),
-              commitment:"annual_yearly",
-            }];
-            const renewalAt = new Date(sub.renewal_date!);
-            const validUntil = new Date(renewalAt.getTime() + (tenant.grace_period_days ?? 0) * 86400000);
-            await supabase.from("quotes").insert({
-              id:           newQuoteId,
-              tenant_id:    sub.tenant_id,
-              customer_id:  sub.customer_id,
-              customer_name: sub.customer_name,
-              plan:         sub.plan,
-              seats:        sub.seats,
-              amount:       annualAmount,
-              status:       "sent",
-              payment_status: "awaiting",
-              owner_id:     null,
-              created_date: new Date().toISOString().slice(0, 10),
-              expires_date: validUntil.toISOString().slice(0, 10),
-              line_items:   lineItems,
-              subtotal:     annualAmount,
-              total_cost:   Math.round(annualAmount * 0.83),
-              discount_pct: 0,
-              tax_rate:     18,
-              notes:        `Auto-generated renewal quote for subscription ${sub.id}`,
-            });
-            renewalQuoteId = newQuoteId;
-            renewalQuote = { id: newQuoteId, amount: annualAmount, line_items: lineItems };
-            // Link back to the subscription
-            await supabase
-              .from("subscriptions")
-              .update({ renewal_quote_id: newQuoteId })
-              .eq("id", sub.id);
-          }
-        }
-
-        // If we still don't have a quote, try to load the existing one
-        if (renewalQuoteId && !renewalQuote) {
-          const { data: q } = await supabase
-            .from("quotes")
-            .select("id, amount, line_items, subtotal, discount_pct, tax_rate, expires_date, created_at")
-            .eq("id", renewalQuoteId)
-            .single();
-          if (q) {
-            renewalQuote = q;
-            lineItems = (q.line_items ?? []) as QuoteLineItem[];
-          }
-        }
+        const renewalQuoteId = quoteResult?.quoteId ?? null;
+        const renewalQuote = quoteResult
+          ? {
+              amount:       quoteResult.amount,
+              subtotal:     quoteResult.subtotal,
+              discount_pct: quoteResult.discountPct,
+              tax_rate:     quoteResult.taxRate,
+            }
+          : null;
+        const lineItems: QuoteLineItem[] = quoteResult?.lineItems ?? [];
 
         // 2. Recipient — prefer customer.contact_email
         const recipient = customer?.contact_email;

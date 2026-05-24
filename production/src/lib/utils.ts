@@ -123,12 +123,25 @@ export function formatDate(
 }
 
 /**
- * Days between two dates (ignores time of day).
+ * Days between two dates, IST-aware and date-only (ignores time of day).
+ *
+ * Old impl used millisecond diff + Math.round which was off-by-one for the
+ * common case "is X due today?" when called near midnight or with a date
+ * string that parses to UTC midnight while `from` is wall-clock. Now we
+ * snap both endpoints to IST date boundaries and integer-floor before
+ * subtracting, matching the IST-aware day arithmetic used by the renewal
+ * cadence engine.
+ *
+ * @example daysBetween(new Date(), "2026-05-24") // 0 anywhere in IST today
  */
 export function daysBetween(from: Date | string, to: Date | string): number {
-  const a = new Date(from);
-  const b = new Date(to);
-  return Math.round((b.getTime() - a.getTime()) / 86_400_000);
+  const a = from instanceof Date ? from : new Date(from);
+  const b = to   instanceof Date ? to   : new Date(to);
+  const istOffsetMs = 5.5 * 60 * 60 * 1000;
+  const dayMs       = 24 * 60 * 60 * 1000;
+  const aIST = Math.floor((a.getTime() + istOffsetMs) / dayMs);
+  const bIST = Math.floor((b.getTime() + istOffsetMs) / dayMs);
+  return bIST - aIST;
 }
 
 /**

@@ -4,6 +4,7 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCustomers } from "@/lib/queries/customers";
 import { useSubscriptions } from "@/lib/queries/subscriptions";
@@ -186,9 +187,60 @@ export default function CustomersPage() {
         />
       )}
 
-      {/* Table */}
+      {/* Mobile card list — phones only */}
       {!isLoading && !error && filtered.length > 0 && (
-        <>
+        <ul className="md:hidden space-y-2 mb-3">
+          {filtered.map((c) => {
+            const sub = subsByCustomer.get(c.id);
+            return (
+              <li key={c.id}>
+                <Link
+                  href={`/customers/${c.id}` as never}
+                  className="block bg-paper border border-hairline rounded-lg p-3 active:bg-paper-2/50"
+                >
+                  <div className="flex items-start justify-between gap-3 mb-1.5">
+                    <div className="min-w-0 flex-1">
+                      <p className="font-medium text-ink truncate">{c.name}</p>
+                      {c.domain && (
+                        <p className="text-[11px] text-ink-3 font-mono truncate mt-0.5">{c.domain}</p>
+                      )}
+                    </div>
+                    <div className="text-right shrink-0">
+                      {sub ? (
+                        <>
+                          <p className="font-serif text-base tabular-nums text-ink">{rupee(sub.mrr)}</p>
+                          <p className="text-[10px] text-ink-3">/mo</p>
+                        </>
+                      ) : (
+                        <p className="text-xs text-ink-3">No sub</p>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between gap-2 mt-2 pt-2 border-t border-hairline/60 text-xs">
+                    <span className="text-ink-3 truncate">
+                      Since {formatDate(c.since)}
+                      {c.state && ` · ${c.state}`}
+                    </span>
+                    {c.health !== null && c.health !== undefined && (
+                      <Badge
+                        kind={c.health >= 80 ? "success" : c.health >= 60 ? "warning" : "danger"}
+                        size="sm"
+                        dot
+                      >
+                        {c.health}%
+                      </Badge>
+                    )}
+                  </div>
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+
+      {/* Desktop table */}
+      {!isLoading && !error && filtered.length > 0 && (
+        <div className="hidden md:block">
           <Card flush>
             <table className="w-full">
               <thead className="bg-paper-2 border-b border-hairline">
@@ -277,7 +329,7 @@ export default function CustomersPage() {
             <Icon name="info" size={11} />
             Click any row to open the Customer 360 view with full activity timeline, subscriptions, and contacts.
           </div>
-        </>
+        </div>
       )}
 
       {/* Search empty */}

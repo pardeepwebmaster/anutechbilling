@@ -29,6 +29,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Icon } from "@/components/ui/icon";
+import { FAB } from "@/components/ui/fab";
 import { rupee, formatDate, daysBetween } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 import type { Subscription } from "@/lib/supabase/database.types";
@@ -257,9 +258,100 @@ function RenewalBucket({
         </Button>
       </div>
 
-      {/* Table */}
+      {/* Mobile card list — phones only */}
+      {open && rows.length > 0 && (
+        <ul className="md:hidden p-3 space-y-2">
+          {rows.map(({ sub, daysUntil: days }) => {
+            const risk = renewalRisk(sub);
+            return (
+              <li
+                key={sub.id}
+                className="bg-paper border border-hairline rounded-lg p-3"
+              >
+                {/* Top row: name + amount */}
+                <div className="flex items-start justify-between gap-3 mb-2">
+                  <div className="min-w-0 flex-1">
+                    <p className="font-medium text-ink truncate">{sub.customer_name}</p>
+                    <p className="text-[11px] text-ink-3 truncate mt-0.5">
+                      {sub.plan} · {sub.seats} seats
+                    </p>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className="font-serif text-base tabular-nums text-ink">{rupee(sub.mrr)}</p>
+                    <p className="text-[10px] text-ink-3">/mo</p>
+                  </div>
+                </div>
+
+                {/* Mid row: renewal date + days-until + cadence */}
+                <div className="flex items-center flex-wrap gap-1.5 mb-2">
+                  <span className="text-xs text-ink-2">
+                    {sub.renewal_date ? formatDate(sub.renewal_date) : "—"}
+                  </span>
+                  {days < 0 ? (
+                    <Badge kind="danger" size="sm" dot>Expired {Math.abs(days)}d</Badge>
+                  ) : days <= 7 ? (
+                    <Badge kind="danger" size="sm" dot>{days}d</Badge>
+                  ) : days <= 30 ? (
+                    <Badge kind="warning" size="sm" dot>{days}d</Badge>
+                  ) : (
+                    <Badge kind="muted" size="sm">{days}d</Badge>
+                  )}
+                  <Badge kind={renewalStateTone(sub.renewal_state)} size="sm" dot>
+                    {renewalStateLabel(sub.renewal_state)}
+                  </Badge>
+                  {risk.level === "high" && (
+                    <Badge kind="danger" size="sm">HIGH RISK</Badge>
+                  )}
+                </div>
+
+                {/* Bottom row: actions */}
+                <div className="flex items-center gap-1.5 pt-2 border-t border-hairline/60">
+                  {sub.renewal_quote_id ? (
+                    <Button
+                      asChild
+                      variant="default"
+                      size="sm"
+                      className="flex-1"
+                    >
+                      <Link href={`/quotes/${sub.renewal_quote_id}` as never}>
+                        <Icon name="file" size={12} />
+                        Open quote
+                      </Link>
+                    </Button>
+                  ) : (
+                    <Button
+                      variant={kind === "rose" ? "primary" : "default"}
+                      size="sm"
+                      className="flex-1"
+                      loading={generating === sub.id}
+                      disabled={sub.renewal_state === "suspended" || sub.renewal_state === "renewed"}
+                      onClick={() => handleGenerateQuote(sub)}
+                    >
+                      <Icon name="plus" size={12} />
+                      Generate
+                    </Button>
+                  )}
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="flex-1"
+                    loading={sending === sub.id}
+                    disabled={sub.renewal_state === "suspended" || sub.renewal_state === "renewed"}
+                    onClick={() => handleSendNow(sub)}
+                  >
+                    <Icon name="mail" size={12} />
+                    Send now
+                  </Button>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+
+      {/* Desktop table */}
       {open && (
-        <>
+        <div className="hidden md:block">
           {rows.length === 0 ? (
             <div className="py-10 text-center text-sm text-ink-3">
               No subscriptions in this window.
@@ -469,7 +561,7 @@ function RenewalBucket({
               </table>
             </div>
           )}
-        </>
+        </div>
       )}
     </Card>
   );
@@ -567,7 +659,8 @@ export default function RenewalsPage() {
           </p>
         </div>
 
-        <div className="flex shrink-0 items-center gap-2">
+        {/* Header actions — hidden on mobile (replaced by FAB) to avoid overflow */}
+        <div className="hidden md:flex shrink-0 items-center gap-2">
           <Button
             variant="default"
             size="sm"
@@ -704,6 +797,13 @@ export default function RenewalsPage() {
           defaultOpen={false}
         />
       </div>
+
+      {/* Mobile FAB — Bulk reminder action (header buttons hidden on phone) */}
+      <FAB
+        icon="mail"
+        label="Bulk reminder"
+        onClick={() => toast.success("Bulk reminder sent to all customers renewing in 30 days")}
+      />
     </div>
   );
 }

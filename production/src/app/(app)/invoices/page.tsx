@@ -466,9 +466,56 @@ function InvoicesPageInner() {
         />
       )}
 
-      {/* Table */}
+      {/* Mobile card list — phones only */}
       {!isLoading && !error && rows.length > 0 && (
-        <Card flush>
+        <ul className="md:hidden space-y-2 mb-3">
+          {rows.map((inv) => (
+            <li key={inv.id}>
+              <Link
+                href={`/quotes/${inv.quote_id}` as never}
+                className="block bg-paper border border-hairline rounded-lg p-3 active:bg-paper-2/50"
+              >
+                <div className="flex items-start justify-between gap-3 mb-1.5">
+                  <div className="min-w-0 flex-1">
+                    <p className="font-mono text-xs font-semibold text-ink">{inv.id}</p>
+                    <p className="text-sm font-medium text-ink mt-0.5 truncate">{inv.customer_name}</p>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className="font-serif text-base tabular-nums text-ink">{rupee(inv.amount)}</p>
+                    {inv.net_payable && inv.net_payable !== inv.amount && (
+                      <p className="text-[10px] text-ink-3 tabular-nums">Net: {rupee(inv.net_payable)}</p>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center justify-between gap-2 mt-2 pt-2 border-t border-hairline/60 text-xs">
+                  <span className="text-ink-3">
+                    {inv.created_at ? formatDate(inv.created_at) : "—"}
+                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <Badge
+                      kind={
+                        inv.status === "paid"    ? "success" :
+                        inv.status === "overdue" ? "danger"  :
+                        inv.status === "pending" ? "warning" :
+                        inv.status === "void"    ? "muted"   :
+                                                   "muted"
+                      }
+                      size="sm"
+                      dot
+                    >
+                      {inv.status}
+                    </Badge>
+                  </div>
+                </div>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {/* Desktop table */}
+      {!isLoading && !error && rows.length > 0 && (
+        <Card flush className="hidden md:block">
           <table className="w-full">
             <thead className="bg-paper-2 border-b border-hairline">
               <tr>

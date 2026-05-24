@@ -44,6 +44,8 @@ import {
 import { rupee, formatDate } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 import type { Lead } from "@/lib/supabase/database.types";
+import { useBreakpoint } from "@/lib/hooks/useBreakpoint";
+import { FAB } from "@/components/ui/fab";
 
 // ============================================================
 // Stage config (matches prototype LEAD_STAGES)
@@ -147,10 +149,13 @@ function LeadsPageInner() {
   // The Kanban / List views consume this — points at whichever tab is active.
   const filtered = tab === "leads" ? rawLeads : qualifiedDeals;
 
-  // Leads tab always renders as a list (Kanban makes no sense — raw leads can
-  // only live in 'new' or 'contacted', so 4 of 6 columns would always be empty).
-  // Deals tab respects the user's saved preference.
-  const effectiveView = tab === "leads" ? "list" : view;
+  // Force list view on mobile (Kanban with 6 vertical stage columns is
+  // unusable on phones — each empty stage takes a screen-full).
+  // Leads tab always renders as a list (raw leads only live in 'new' /
+  // 'contacted', so 4 of 6 Kanban columns would always be empty).
+  // Deals tab respects the user's saved preference, EXCEPT on mobile.
+  const { isMobile } = useBreakpoint();
+  const effectiveView = isMobile ? "list" : (tab === "leads" ? "list" : view);
 
   // Stats are based on Deals (where value lives — raw leads have no value yet)
   const totalValue = qualifiedDeals.reduce((s, l) => s + (l.value ?? 0), 0);
@@ -201,8 +206,10 @@ function LeadsPageInner() {
               'contacted', making Kanban mostly empty columns. Leads tab always
               renders as a list (triage queue, not stage flow). */}
           <div className={cn(
-            "inline-flex rounded-md border border-hairline overflow-hidden",
-            tab === "leads" && "hidden",
+            // Hidden on mobile (Kanban makes no sense on phone, list is forced)
+            // Hidden on Leads tab (always list anyway)
+            "hidden md:inline-flex rounded-md border border-hairline overflow-hidden",
+            tab === "leads" && "md:hidden",
           )}>
             <button
               type="button"
@@ -532,6 +539,13 @@ function LeadsPageInner() {
           if (!o) setEditingLead(null);
         }}
         editingLead={editingLead}
+      />
+
+      {/* Mobile FAB — thumb-zone primary action, label switches with active tab */}
+      <FAB
+        icon="plus"
+        label={tab === "leads" ? "Add lead" : "Add deal"}
+        onClick={() => setAddOpen(true)}
       />
     </div>
   );
@@ -1062,7 +1076,67 @@ function LeadListView({
   );
 
   return (
-    <div className="border border-hairline rounded-md overflow-hidden bg-paper">
+    <>
+    {/* Mobile card list — phones only */}
+    <ul className="md:hidden space-y-2">
+      {sorted.map((lead) => {
+        const stale = daysSince(lead.updated_at) > 14 && lead.stage !== "won" && lead.stage !== "lost";
+        const stageMeta = LEAD_STAGES.find((s) => s.id === lead.stage);
+        return (
+          <li key={lead.id}>
+            <button
+              type="button"
+              onClick={() => onRowClick(lead)}
+              className="block w-full text-left bg-paper border border-hairline rounded-lg p-3 active:bg-paper-2/50"
+            >
+              <div className="flex items-start justify-between gap-3 mb-1">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5">
+                    {stale && (
+                      <span className="w-1.5 h-1.5 rounded-full bg-rose shrink-0" />
+                    )}
+                    <p className="font-medium text-ink truncate">{lead.company}</p>
+                  </div>
+                  {lead.contact_name && (
+                    <p className="text-xs text-ink-3 truncate mt-0.5">
+                      {lead.contact_name}
+                      {lead.contact_phone && <span className="ml-1.5">· {lead.contact_phone}</span>}
+                    </p>
+                  )}
+                </div>
+                <div className="text-right shrink-0">
+                  <p className="font-serif text-base tabular-nums text-ink">
+                    {lead.value ? rupee(lead.value, { compact: true }) : "—"}
+                  </p>
+                  {lead.seats && (
+                    <p className="text-[10px] text-ink-3 tabular-nums">{lead.seats} seats</p>
+                  )}
+                </div>
+              </div>
+              <div className="flex items-center justify-between gap-2 mt-2 pt-2 border-t border-hairline/60">
+                <span className="text-xs text-ink-3 truncate">
+                  {lead.plan ?? "No plan yet"}
+                </span>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {stageMeta && (
+                    <span className="inline-flex items-center gap-1 text-[10px] font-medium text-ink-2">
+                      <span className={cn("w-1.5 h-1.5 rounded-full", stageMeta.dot)} />
+                      {stageMeta.label}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </button>
+          </li>
+        );
+      })}
+      {sorted.length === 0 && (
+        <li className="py-8 text-center text-sm text-ink-3">No leads match.</li>
+      )}
+    </ul>
+
+    {/* Desktop / tablet table */}
+    <div className="hidden md:block border border-hairline rounded-md overflow-hidden bg-paper">
       <table className="w-full">
         <thead className="bg-paper-2 border-b border-hairline">
           <tr>
@@ -1140,6 +1214,7 @@ function LeadListView({
         Click any row to open the lead drawer · Red dot = stale (no activity 14+ days) · Click column headers to sort
       </div>
     </div>
+    </>
   );
 }
 

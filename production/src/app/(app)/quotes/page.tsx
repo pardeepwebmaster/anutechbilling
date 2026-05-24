@@ -198,7 +198,7 @@ export default function QuotesPage() {
 
       {/* KPIs */}
       {!isLoading && quotes && (
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
+        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 mb-6">
           <KPI label="Total quotes"    value={quotes.length} trend="this quarter" />
           <KPI label="Pipeline value"  value={rupee(totalValue, { compact: true })} trend={`${sentishCount} in motion`} trendKind="up" trendIcon="trending_up" />
           <KPI label="Out for review"  value={rupee(sentValue, { compact: true })} trend={`${sentishCount} sent/viewed`} />

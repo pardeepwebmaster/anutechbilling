@@ -271,7 +271,7 @@ export default function ReportsPage() {
       </div>
 
       {/* ── KPIs ── */}
-      <div className="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
+      <div className="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-6">
         <KPI
           label="MRR"
           value={totalMrr}

@@ -115,7 +115,7 @@ export default function SubscriptionsPage() {
 
       {/* KPIs */}
       {!isLoading && subs && (
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
+        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 mb-6">
           <KPI label="Total subs"        value={counts.all} trend={`${counts.active} active`} trendKind="up" />
           <KPI label="Active MRR"        value={rupee(activeMRR, { compact: true })} icon="rupee" />
           <KPI label="Active ARR"        value={rupee(activeARR, { compact: true })} trendKind="up" trendIcon="trending_up" />

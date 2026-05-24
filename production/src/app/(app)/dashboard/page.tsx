@@ -201,7 +201,7 @@ export default function DashboardPage() {
       </div>
 
       {/* KPI grid */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
+      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 mb-6">
         <KPI
           label="MRR"
           value={subscriptions ? rupee(activeMRR, { compact: true }) : "—"}

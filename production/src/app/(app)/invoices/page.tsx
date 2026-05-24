@@ -349,7 +349,7 @@ function InvoicesPageInner() {
 
       {/* KPIs */}
       {!isLoading && invoices && (
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 mb-6">
+        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3 mb-6">
           <KPI
             label="Outstanding"
             value={rupee(outstanding, { compact: true })}

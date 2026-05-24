@@ -590,7 +590,7 @@ export default function RenewalsPage() {
       </div>
 
       {/* ── KPIs ── */}
-      <div className="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
+      <div className="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-5">
         <KPI
           label="Urgent · ≤7 days"
           value={urgent.length}

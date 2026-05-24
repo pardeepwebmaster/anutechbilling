@@ -23,6 +23,8 @@ export interface CurrentUserInfo {
   tenantAddress: string | null;
   tenantState:   string | null;
   tenantStateCode: string | null;
+  /** Days of buffer between renewal_date and auto-suspend (0–30). */
+  tenantGracePeriodDays: number;
 }
 
 export function useCurrentUser() {
@@ -36,7 +38,7 @@ export function useCurrentUser() {
 
       const { data: me, error } = await supabase
         .from("users")
-        .select("id, tenant_id, full_name, initials, color, role, tenants(name, gstin, email, phone, address, state, state_code)")
+        .select("id, tenant_id, full_name, initials, color, role, tenants(name, gstin, email, phone, address, state, state_code, grace_period_days)")
         .eq("id", authData.user.id)
         .single();
 
@@ -59,6 +61,7 @@ export function useCurrentUser() {
         tenantAddress:   tenant?.address   ?? null,
         tenantState:     tenant?.state     ?? null,
         tenantStateCode: tenant?.state_code ?? null,
+        tenantGracePeriodDays: tenant?.grace_period_days ?? 0,
       };
     },
     staleTime: 5 * 60_000,  // 5 min — identity rarely changes

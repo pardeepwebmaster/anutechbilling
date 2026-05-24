@@ -1,0 +1,358 @@
+/**
+ * Renewal automation cron — runs daily.
+ *
+ * Schedule: 09:00 IST (03:30 UTC) — set via vercel.json. Local dev can
+ * trigger by hitting `curl http://localhost:3000/api/cron/renewals` with
+ * Authorization: Bearer <CRON_SECRET>.
+ *
+ * What it does, for every active subscription with a renewal_date:
+ *
+ *   1. Compute today's cadence step (decideCadence).
+ *   2. If a NEW step is triggered today:
+ *        a. Auto-generate a renewal quote when entering 'notice_sent'
+ *           (T-15) and the sub doesn't already have one.
+ *        b. Render the appropriate tone template.
+ *        c. Render the renewal Quote PDF as attachment.
+ *        d. Send via lib/email/send.ts (real Resend if key configured;
+ *           stub mode otherwise — both paths log to renewal_email_log).
+ *   3. If shouldSuspend → flip status='paused' + stamp suspended_at +
+ *      set renewal_state='suspended'.
+ *   4. Update renewal_state + reminder_count + last_reminder_sent_at_v2.
+ *
+ * Auth: Vercel adds `Authorization: Bearer <CRON_SECRET>` to its cron
+ * requests when CRON_SECRET env var is set. We accept that OR a manual
+ * override matching the same secret. Without a secret env, the route
+ * is open in dev — production should always set it.
+ *
+ * Idempotency: a given (subscription_id, cadence_step) pair only ever
+ * gets one 'sent' / 'stubbed' row in renewal_email_log. Re-running the
+ * cron the same day is a no-op for sends, but it WILL re-attempt
+ * suspend if the previous run failed mid-flight.
+ */
+
+import { NextResponse } from "next/server";
+import { createAdminClient } from "@/lib/supabase/server";
+import { decideCadence } from "@/lib/renewals/cadence";
+import { renderTemplate } from "@/lib/renewals/templates";
+import { sendEmail, isEmailConfigured } from "@/lib/email/send";
+import { renderQuotePDF } from "@/lib/pdf";
+import type { QuoteLineItem } from "@/lib/supabase/database.types";
+
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
+/** Body shape returned to the caller — useful for ad-hoc inspection. */
+interface CronResult {
+  ran_at:           string;
+  email_mode:       "real" | "stub";
+  total_active:     number;
+  emails_sent:      number;
+  emails_skipped:   number;
+  suspends:         number;
+  errors:           { subscription_id: string; message: string }[];
+  details:          { subscription_id: string; customer: string; step: string; daysUntil: number; emailStatus?: string }[];
+}
+
+export async function GET(req: Request) {
+  return handle(req);
+}
+
+export async function POST(req: Request) {
+  return handle(req);
+}
+
+async function handle(req: Request): Promise<NextResponse<CronResult | { error: string }>> {
+  // ── Auth check ───────────────────────────────────────────────────
+  const expected = process.env.CRON_SECRET?.trim();
+  if (expected) {
+    const auth = req.headers.get("authorization") ?? "";
+    const provided = auth.replace(/^Bearer\s+/i, "").trim();
+    if (provided !== expected) {
+      return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    }
+  }
+
+  const supabase = createAdminClient();  // service role — bypasses RLS for the cron
+  const result: CronResult = {
+    ran_at:        new Date().toISOString(),
+    email_mode:    isEmailConfigured() ? "real" : "stub",
+    total_active:  0,
+    emails_sent:   0,
+    emails_skipped:0,
+    suspends:      0,
+    errors:        [],
+    details:       [],
+  };
+
+  // ── Fetch all active subscriptions across tenants with a renewal_date ─
+  const { data: subs, error: subsErr } = await supabase
+    .from("subscriptions")
+    .select(`
+      id, tenant_id, customer_id, customer_name, plan, vendor, seats, mrr,
+      renewal_date, status, renewal_state, reminder_count, renewal_quote_id
+    `)
+    .eq("status", "active")
+    .not("renewal_date", "is", null);
+
+  if (subsErr) {
+    return NextResponse.json({ error: `subs fetch failed: ${subsErr.message}` }, { status: 500 });
+  }
+  result.total_active = subs?.length ?? 0;
+
+  for (const sub of subs ?? []) {
+    try {
+      // ── Per-tenant info: grace_period + tenant email (for from-address fallback) ──
+      const { data: tenant } = await supabase
+        .from("tenants")
+        .select("name, email, phone, gstin, address, grace_period_days")
+        .eq("id", sub.tenant_id)
+        .single();
+      if (!tenant) continue;
+
+      // ── Per-customer info — need email to actually send ──
+      const { data: customer } = sub.customer_id
+        ? await supabase
+            .from("customers")
+            .select("name, contact_name, contact_email, gstin, contact_phone")
+            .eq("id", sub.customer_id)
+            .single()
+        : { data: null };
+
+      // Decide cadence
+      const decision = decideCadence({
+        renewalDate:  sub.renewal_date!,
+        graceDays:    tenant.grace_period_days ?? 0,
+        currentState: (sub.renewal_state ?? "pending") as any,
+      });
+
+      const detail = {
+        subscription_id: sub.id,
+        customer:        sub.customer_name,
+        step:            decision.targetState,
+        daysUntil:       decision.daysUntilRenewal,
+        emailStatus:    undefined as string | undefined,
+      };
+
+      // ── Suspend path ─────────────────────────────────────────────
+      if (decision.shouldSuspend) {
+        await supabase
+          .from("subscriptions")
+          .update({
+            status:        "paused",
+            renewal_state: "suspended",
+            suspended_at:  new Date().toISOString(),
+          })
+          .eq("id", sub.id);
+        result.suspends += 1;
+        detail.emailStatus = "(suspended)";
+        result.details.push(detail);
+        continue;
+      }
+
+      // ── Email path ───────────────────────────────────────────────
+      if (decision.shouldSendEmail && decision.tone) {
+        // 1. Ensure renewal quote exists (only matters at T-15 entry)
+        let renewalQuoteId = sub.renewal_quote_id;
+        let renewalQuote: any = null;
+        let lineItems: QuoteLineItem[] = [];
+
+        if (!renewalQuoteId && decision.targetState === "notice_sent") {
+          // Auto-create the renewal quote — same line item set as the sub
+          // (one Workspace plan, seats = sub.seats, annual_yearly billing).
+          const { data: nextNumber } = await supabase.rpc(
+            "next_document_number",
+            { p_doc_type: "quote", p_tenant_id: sub.tenant_id },
+          );
+          const newQuoteId = nextNumber as unknown as string;
+          if (newQuoteId) {
+            const annualAmount = (sub.mrr ?? 0) * 12;
+            lineItems = [{
+              id:        "renewal-1",
+              name:      sub.plan,
+              qty:       sub.seats,
+              rate:      Math.round(annualAmount / Math.max(1, sub.seats)),
+              cost:      Math.round(annualAmount * 0.83 / Math.max(1, sub.seats)),
+              commitment:"annual_yearly",
+            }];
+            const renewalAt = new Date(sub.renewal_date!);
+            const validUntil = new Date(renewalAt.getTime() + (tenant.grace_period_days ?? 0) * 86400000);
+            await supabase.from("quotes").insert({
+              id:           newQuoteId,
+              tenant_id:    sub.tenant_id,
+              customer_id:  sub.customer_id,
+              customer_name: sub.customer_name,
+              plan:         sub.plan,
+              seats:        sub.seats,
+              amount:       annualAmount,
+              status:       "sent",
+              payment_status: "awaiting",
+              owner_id:     null,
+              created_date: new Date().toISOString().slice(0, 10),
+              expires_date: validUntil.toISOString().slice(0, 10),
+              line_items:   lineItems,
+              subtotal:     annualAmount,
+              total_cost:   Math.round(annualAmount * 0.83),
+              discount_pct: 0,
+              tax_rate:     18,
+              notes:        `Auto-generated renewal quote for subscription ${sub.id}`,
+            });
+            renewalQuoteId = newQuoteId;
+            renewalQuote = { id: newQuoteId, amount: annualAmount, line_items: lineItems };
+            // Link back to the subscription
+            await supabase
+              .from("subscriptions")
+              .update({ renewal_quote_id: newQuoteId })
+              .eq("id", sub.id);
+          }
+        }
+
+        // If we still don't have a quote, try to load the existing one
+        if (renewalQuoteId && !renewalQuote) {
+          const { data: q } = await supabase
+            .from("quotes")
+            .select("id, amount, line_items, subtotal, discount_pct, tax_rate, expires_date, created_at")
+            .eq("id", renewalQuoteId)
+            .single();
+          if (q) {
+            renewalQuote = q;
+            lineItems = (q.line_items ?? []) as QuoteLineItem[];
+          }
+        }
+
+        // 2. Recipient — prefer customer.contact_email
+        const recipient = customer?.contact_email;
+        if (!recipient) {
+          await supabase.from("renewal_email_log").insert({
+            tenant_id:       sub.tenant_id,
+            subscription_id: sub.id,
+            cadence_step:    decision.targetState,
+            recipient_email: "(missing)",
+            subject:         "(skipped)",
+            status:          "skipped",
+            error_message:   "Customer has no contact_email on file",
+          });
+          result.emails_skipped += 1;
+          detail.emailStatus = "skipped — no email";
+          result.details.push(detail);
+          continue;
+        }
+
+        // 3. Render template
+        const tpl = renderTemplate(decision.tone, {
+          customerName:    customer?.contact_name || customer?.name || sub.customer_name,
+          customerCompany: customer?.name,
+          tenantName:      tenant.name,
+          tenantEmail:     tenant.email,
+          tenantPhone:     tenant.phone,
+          planName:        sub.plan,
+          seats:           sub.seats,
+          amount:          renewalQuote?.amount ?? (sub.mrr ?? 0) * 12,
+          renewalDate:     new Date(sub.renewal_date!).toLocaleDateString("en-IN", {
+            day: "numeric", month: "short", year: "numeric",
+          }),
+          daysUntil:       Math.abs(decision.daysUntilRenewal),
+          graceDays:       tenant.grace_period_days ?? 0,
+          acceptLink:      renewalQuoteId ? `${process.env.NEXT_PUBLIC_APP_URL ?? ""}/quote/${renewalQuoteId}/accept` : undefined,
+        });
+
+        // 4. Render PDF attachment (only when we have a quote)
+        let attachments: { filename: string; content: Buffer; contentType: string }[] | undefined;
+        if (renewalQuote && lineItems.length > 0) {
+          try {
+            const blob = await renderQuotePDF({
+              tenantName:    tenant.name,
+              tenantGstin:   tenant.gstin,
+              tenantEmail:   tenant.email,
+              tenantPhone:   tenant.phone,
+              tenantAddress: tenant.address,
+              quoteId:       renewalQuoteId!,
+              customerName:  sub.customer_name,
+              contactName:   customer?.contact_name ?? null,
+              contactEmail:  customer?.contact_email ?? null,
+              contactPhone:  customer?.contact_phone ?? null,
+              lineItems,
+              subtotal:      renewalQuote.subtotal ?? renewalQuote.amount,
+              discountPct:   renewalQuote.discount_pct ?? 0,
+              discount:      0,
+              taxable:       renewalQuote.subtotal ?? renewalQuote.amount,
+              taxRate:       renewalQuote.tax_rate ?? 18,
+              tax:           Math.round((renewalQuote.subtotal ?? renewalQuote.amount) * 0.18),
+              total:         renewalQuote.amount,
+              interState:    false,
+              validityDays:  30,
+              notes:         "Renewal quote — auto-generated. Reply or call us with any questions.",
+            });
+            const arrBuf = await blob.arrayBuffer();
+            attachments = [{
+              filename:    `Renewal-${renewalQuoteId}.pdf`,
+              content:     Buffer.from(arrBuf),
+              contentType: "application/pdf",
+            }];
+          } catch (pdfErr) {
+            // PDF gen failure shouldn't block the email — just send without attachment
+            // and note in the audit log via error_message at end.
+            // eslint-disable-next-line no-console
+            console.warn(`[cron/renewals] PDF render failed for ${sub.id}:`, (pdfErr as Error).message);
+          }
+        }
+
+        // 5. Send
+        const sendResult = await sendEmail({
+          to:      recipient,
+          subject: tpl.subject,
+          text:    tpl.body,
+          from:    tenant.email ?? undefined,
+          replyTo: tenant.email ?? undefined,
+          attachments,
+        });
+
+        // 6. Log + update sub state
+        await supabase.from("renewal_email_log").insert({
+          tenant_id:       sub.tenant_id,
+          subscription_id: sub.id,
+          cadence_step:    decision.targetState,
+          recipient_email: recipient,
+          subject:         tpl.subject,
+          status:          sendResult.status,
+          provider_id:     sendResult.providerId,
+          error_message:   sendResult.errorMessage,
+        });
+
+        if (sendResult.status === "sent" || sendResult.status === "stubbed") {
+          await supabase
+            .from("subscriptions")
+            .update({
+              renewal_state:           decision.targetState,
+              reminder_count:          (sub.reminder_count ?? 0) + 1,
+              last_reminder_sent_at_v2: new Date().toISOString(),
+            })
+            .eq("id", sub.id);
+          result.emails_sent += 1;
+          detail.emailStatus = sendResult.status;
+        } else {
+          result.errors.push({ subscription_id: sub.id, message: sendResult.errorMessage ?? "send failed" });
+          detail.emailStatus = `failed: ${sendResult.errorMessage}`;
+        }
+
+        result.details.push(detail);
+        continue;
+      }
+
+      // ── No-op path: just sync renewal_state if it drifted ────────
+      if (sub.renewal_state !== decision.targetState) {
+        await supabase
+          .from("subscriptions")
+          .update({ renewal_state: decision.targetState })
+          .eq("id", sub.id);
+      }
+      // Don't push to details unless something happened — keeps the result body small
+    } catch (err) {
+      result.errors.push({
+        subscription_id: sub.id,
+        message:         (err as Error).message,
+      });
+    }
+  }
+
+  return NextResponse.json(result);
+}

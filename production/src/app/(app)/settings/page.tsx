@@ -86,6 +86,11 @@ const companySchema = z.object({
   email:      z.string().email("Invalid email").or(z.literal("")).optional(),
   phone:      z.string().trim().max(20).optional(),
   address:    z.string().trim().max(300).optional(),
+  grace_period_days: z.coerce
+    .number({ invalid_type_error: "Must be a number" })
+    .int("Whole days only")
+    .min(0, "Cannot be negative")
+    .max(30, "Max 30 days"),
 });
 type CompanyForm = z.infer<typeof companySchema>;
 
@@ -103,6 +108,7 @@ function CompanyTab() {
       email:      me?.tenantEmail      ?? "",
       phone:      me?.tenantPhone      ?? "",
       address:    me?.tenantAddress    ?? "",
+      grace_period_days: me?.tenantGracePeriodDays ?? 0,
     }),
     [me],
   );
@@ -130,6 +136,7 @@ function CompanyTab() {
       email:      values.email?.trim()      || me?.tenantEmail || "",  // keep existing if blanked — email is NOT NULL on tenants
       phone:      values.phone?.trim()      || null,
       address:    values.address?.trim()    || null,
+      grace_period_days: values.grace_period_days,
     };
     updateTenant.mutate(patch, { onSuccess: () => reset(values) });
   };
@@ -203,6 +210,21 @@ function CompanyTab() {
               </div>
               <Field label="Currency">
                 <Input defaultValue="INR (₹)" readOnly title="Multi-currency support coming later" />
+              </Field>
+              <Field label="Renewal grace period (days)">
+                <Input
+                  type="number"
+                  min={0}
+                  max={30}
+                  step={1}
+                  className="font-mono"
+                  placeholder="0"
+                  error={errors.grace_period_days?.message}
+                  {...register("grace_period_days", { valueAsNumber: true })}
+                />
+                <p className="mt-1 text-xs text-ink-3">
+                  Buffer between renewal date and auto-suspend. 0 means service suspends the day after renewal if unpaid; up to 30 days extra.
+                </p>
               </Field>
               <Field label="Address">
                 <textarea

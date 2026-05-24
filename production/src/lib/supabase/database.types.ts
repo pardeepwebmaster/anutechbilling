@@ -19,6 +19,7 @@ type TenantRow = {
   address: string | null;
   email: string;
   phone: string | null;
+  grace_period_days: number;
   created_at: string;
   updated_at: string;
 }
@@ -31,6 +32,7 @@ type TenantInsert = {
   address?: string | null;
   email: string;
   phone?: string | null;
+  grace_period_days?: number;
   created_at?: string;
   updated_at?: string;
 }
@@ -321,6 +323,18 @@ type InvoiceInsert = {
 }
 type InvoiceUpdate = Partial<InvoiceInsert>;
 
+export type RenewalState =
+  | "pending"
+  | "notice_sent"
+  | "reminder_1"
+  | "reminder_2"
+  | "reminder_3"
+  | "reminder_4"
+  | "final_sent"
+  | "grace_period"
+  | "renewed"
+  | "suspended";
+
 type SubscriptionRow = {
   id: string;
   tenant_id: string;
@@ -343,6 +357,16 @@ type SubscriptionRow = {
   written_off_at:   string | null;
   /** Last time operator sent a payment reminder */
   last_reminder_at: string | null;
+  /** Renewal cadence position. Updated by /api/cron/renewals daily. */
+  renewal_state:    RenewalState;
+  /** How many cadence emails have fired against this subscription. */
+  reminder_count:   number;
+  /** Most recent cadence email timestamp (v2 column from migration 0008). */
+  last_reminder_sent_at_v2: string | null;
+  /** Auto-generated renewal quote (created at T-15). */
+  renewal_quote_id: string | null;
+  /** When the auto-suspend trigger fired. NULL = never auto-suspended. */
+  suspended_at:     string | null;
   created_at: string;
   updated_at: string;
 }
@@ -365,6 +389,11 @@ type SubscriptionInsert = {
   write_off_reason?: string | null;
   written_off_at?:   string | null;
   last_reminder_at?: string | null;
+  renewal_state?:    RenewalState;
+  reminder_count?:   number;
+  last_reminder_sent_at_v2?: string | null;
+  renewal_quote_id?: string | null;
+  suspended_at?:     string | null;
 }
 type SubscriptionUpdate = Partial<SubscriptionInsert>;
 
@@ -454,6 +483,35 @@ type TaskInsert = {
 type TaskUpdate = Partial<TaskInsert>;
 
 // ============================================================
+// Renewal email log (migration 0008) — audit of every renewal cadence email
+// ============================================================
+type RenewalEmailLogRow = {
+  id:              string;
+  tenant_id:       string;
+  subscription_id: string;
+  cadence_step:    RenewalState;
+  recipient_email: string;
+  subject:         string | null;
+  status:          "sent" | "stubbed" | "failed" | "skipped";
+  provider_id:     string | null;
+  error_message:   string | null;
+  sent_at:         string;
+};
+type RenewalEmailLogInsert = {
+  id?:              string;
+  tenant_id:        string;
+  subscription_id:  string;
+  cadence_step:     RenewalState;
+  recipient_email:  string;
+  subject?:         string | null;
+  status:           "sent" | "stubbed" | "failed" | "skipped";
+  provider_id?:     string | null;
+  error_message?:   string | null;
+  sent_at?:         string;
+};
+type RenewalEmailLogUpdate = Partial<RenewalEmailLogInsert>;
+
+// ============================================================
 // Database type (the shape supabase-js expects)
 // ============================================================
 export type Database = {
@@ -467,8 +525,9 @@ export type Database = {
       quotes:        { Row: QuoteRow;        Insert: QuoteInsert;        Update: QuoteUpdate;        Relationships: [] };
       invoices:      { Row: InvoiceRow;      Insert: InvoiceInsert;      Update: InvoiceUpdate;      Relationships: [] };
       subscriptions: { Row: SubscriptionRow; Insert: SubscriptionInsert; Update: SubscriptionUpdate; Relationships: [] };
-      payments:      { Row: PaymentRow;      Insert: PaymentInsert;      Update: PaymentUpdate;      Relationships: [] };
-      tasks:         { Row: TaskRow;         Insert: TaskInsert;         Update: TaskUpdate;         Relationships: [] };
+      payments:           { Row: PaymentRow;           Insert: PaymentInsert;           Update: PaymentUpdate;           Relationships: [] };
+      tasks:              { Row: TaskRow;              Insert: TaskInsert;              Update: TaskUpdate;              Relationships: [] };
+      renewal_email_log:  { Row: RenewalEmailLogRow;   Insert: RenewalEmailLogInsert;   Update: RenewalEmailLogUpdate;   Relationships: [] };
     };
     Views: { [_ in never]: never };
     Functions: {

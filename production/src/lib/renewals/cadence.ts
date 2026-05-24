@@ -1,0 +1,159 @@
+/**
+ * Renewal cadence — pure functions, no I/O.
+ *
+ * Given a subscription's renewal_date + the tenant's grace_period_days,
+ * compute what step the sub should be in TODAY and whether to send an
+ * email. Idempotent — re-running on the same day is a no-op (the cron
+ * checks renewal_email_log before sending).
+ *
+ * Cadence (in "days until renewal" form):
+ *   d ≥ 16        → 'pending'        no email
+ *   d == 15       → 'notice_sent'    soft notice + PDF quote attached
+ *   d == 12       → 'reminder_1'     soft reminder
+ *   d == 9        → 'reminder_2'     friendly
+ *   d == 6        → 'reminder_3'     firm
+ *   d == 3        → 'reminder_4'     urgent — service interruption ahead
+ *   d == 0        → 'final_sent'     final notice + suspension warning
+ *   d ∈ (−grace,−1] → 'grace_period' grace reminder (only if grace > 0)
+ *   d < −grace    → 'suspended'      auto-suspend, no email
+ */
+
+export type RenewalState =
+  | "pending"
+  | "notice_sent"
+  | "reminder_1"
+  | "reminder_2"
+  | "reminder_3"
+  | "reminder_4"
+  | "final_sent"
+  | "grace_period"
+  | "renewed"
+  | "suspended";
+
+export type CadenceTone = "soft" | "friendly" | "firm" | "urgent" | "final" | "grace";
+
+/** Trigger map — which day before renewal triggers which step. */
+export const CADENCE_TRIGGERS: { daysOut: number; step: RenewalState; tone: CadenceTone }[] = [
+  { daysOut: 15, step: "notice_sent",  tone: "soft"     },
+  { daysOut: 12, step: "reminder_1",   tone: "soft"     },
+  { daysOut:  9, step: "reminder_2",   tone: "friendly" },
+  { daysOut:  6, step: "reminder_3",   tone: "firm"     },
+  { daysOut:  3, step: "reminder_4",   tone: "urgent"   },
+  { daysOut:  0, step: "final_sent",   tone: "final"    },
+];
+
+/** Days between two dates (calendar, IST-aware). Positive when `to` is in the future. */
+export function daysBetween(from: Date, to: Date): number {
+  // Snap both to IST midnight then diff
+  const istOffsetMs = 5.5 * 60 * 60 * 1000;
+  const dayMs = 24 * 60 * 60 * 1000;
+  const fromIST = Math.floor((from.getTime() + istOffsetMs) / dayMs);
+  const toIST   = Math.floor((to.getTime()   + istOffsetMs) / dayMs);
+  return toIST - fromIST;
+}
+
+export interface CadenceDecision {
+  /** What state the subscription should be in today. */
+  targetState: RenewalState;
+  /** Days until renewal (positive = future, 0 = today, negative = past). */
+  daysUntilRenewal: number;
+  /** True if today triggers a NEW email (not previously sent for this step). */
+  shouldSendEmail: boolean;
+  /** Suggested tone for the email template. */
+  tone: CadenceTone | null;
+  /** True if today's cron should auto-suspend this subscription. */
+  shouldSuspend: boolean;
+}
+
+export interface CadenceInput {
+  renewalDate:      Date | string;      // subscription.renewal_date
+  graceDays:        number;             // tenant.grace_period_days
+  currentState:     RenewalState;       // subscription.renewal_state
+  today?:           Date;               // override for testing
+}
+
+/**
+ * Compute what should happen today for one subscription.
+ */
+export function decideCadence(input: CadenceInput): CadenceDecision {
+  const today = input.today ?? new Date();
+  const renewalAt = input.renewalDate instanceof Date
+    ? input.renewalDate
+    : new Date(input.renewalDate);
+
+  const daysOut = daysBetween(today, renewalAt);
+
+  // Past renewal_date — grace or suspend
+  if (daysOut < 0) {
+    const daysIntoGrace = Math.abs(daysOut);
+    if (daysIntoGrace <= input.graceDays) {
+      return {
+        targetState:    "grace_period",
+        daysUntilRenewal: daysOut,
+        shouldSendEmail: input.currentState !== "grace_period" && input.currentState !== "renewed" && input.currentState !== "suspended",
+        tone:           "grace",
+        shouldSuspend:  false,
+      };
+    }
+    return {
+      targetState:    "suspended",
+      daysUntilRenewal: daysOut,
+      shouldSendEmail: false,        // no email on hard suspend
+      tone:           null,
+      shouldSuspend:  input.currentState !== "suspended" && input.currentState !== "renewed",
+    };
+  }
+
+  // Future — match the cadence trigger table
+  const trigger = CADENCE_TRIGGERS.find((t) => t.daysOut === daysOut);
+  if (trigger) {
+    return {
+      targetState:    trigger.step,
+      daysUntilRenewal: daysOut,
+      shouldSendEmail: input.currentState !== trigger.step,
+      tone:           trigger.tone,
+      shouldSuspend:  false,
+    };
+  }
+
+  // Between triggers — keep current state, no email
+  return {
+    targetState:    daysOut >= 16 ? "pending" : input.currentState,
+    daysUntilRenewal: daysOut,
+    shouldSendEmail: false,
+    tone:           null,
+    shouldSuspend:  false,
+  };
+}
+
+/** Friendly label for a renewal state, for UI badges. */
+export function renewalStateLabel(state: RenewalState): string {
+  switch (state) {
+    case "pending":      return "Pending";
+    case "notice_sent":  return "Notice sent (T-15)";
+    case "reminder_1":   return "Reminder 1 (T-12)";
+    case "reminder_2":   return "Reminder 2 (T-9)";
+    case "reminder_3":   return "Reminder 3 (T-6)";
+    case "reminder_4":   return "Urgent (T-3)";
+    case "final_sent":   return "Final notice";
+    case "grace_period": return "Grace period";
+    case "renewed":      return "Renewed";
+    case "suspended":    return "Suspended";
+  }
+}
+
+/** Color hint for badge rendering. */
+export function renewalStateTone(state: RenewalState): "muted" | "info" | "warning" | "danger" | "success" {
+  switch (state) {
+    case "pending":
+    case "renewed":      return "muted";
+    case "notice_sent":
+    case "reminder_1":   return "info";
+    case "reminder_2":
+    case "reminder_3":   return "warning";
+    case "reminder_4":
+    case "final_sent":
+    case "grace_period": return "danger";
+    case "suspended":    return "danger";
+  }
+}

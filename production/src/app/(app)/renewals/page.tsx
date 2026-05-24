@@ -30,6 +30,9 @@ import { Icon } from "@/components/ui/icon";
 import { rupee, formatDate, daysBetween } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 import type { Subscription } from "@/lib/supabase/database.types";
+import { renewalStateLabel, renewalStateTone } from "@/lib/renewals/cadence";
+import { useCurrentUser } from "@/lib/hooks/useCurrentUser";
+import { useQueryClient } from "@tanstack/react-query";
 
 // ─── Risk model ──────────────────────────────────────────────────────────────
 
@@ -146,6 +149,7 @@ interface RenewalBucketProps {
   title: string;
   subtitle: string;
   rows: Array<{ sub: Subscription; daysUntil: number }>;
+  graceDays: number;
   defaultOpen?: boolean;
 }
 
@@ -154,9 +158,35 @@ function RenewalBucket({
   title,
   subtitle,
   rows,
+  graceDays,
   defaultOpen = true,
 }: RenewalBucketProps) {
   const [open, setOpen] = React.useState(defaultOpen);
+  const [sending, setSending] = React.useState<string | null>(null);
+  const qc = useQueryClient();
+
+  async function handleSendNow(sub: Subscription) {
+    setSending(sub.id);
+    try {
+      const res = await fetch("/api/renewals/send-now", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ subscription_id: sub.id }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        toast.error(json.error ?? "Send failed");
+        return;
+      }
+      const mode = json.email_mode === "stub" ? " (stub mode — no real email)" : "";
+      toast.success(`${json.status === "sent" ? "Sent" : "Logged"} ${json.step} to ${sub.customer_name}${mode}`);
+      qc.invalidateQueries({ queryKey: ["subscriptions"] });
+    } catch (err) {
+      toast.error(`Send failed: ${(err as Error).message}`);
+    } finally {
+      setSending(null);
+    }
+  }
 
   const dotCls =
     kind === "rose"
@@ -227,6 +257,9 @@ function RenewalBucket({
                       MRR
                     </th>
                     <th className="px-4 py-2.5 text-left text-xs font-medium text-ink-3">
+                      Cadence
+                    </th>
+                    <th className="px-4 py-2.5 text-left text-xs font-medium text-ink-3">
                       Churn risk
                     </th>
                     <th className="px-4 py-2.5 text-left text-xs font-medium text-ink-3">
@@ -267,7 +300,7 @@ function RenewalBucket({
                           {sub.seats}
                         </td>
 
-                        {/* Renewal date + urgency badge */}
+                        {/* Renewal date + urgency badge + last reminder */}
                         <td className="px-4 py-3">
                           <p className="text-ink">
                             {sub.renewal_date ? formatDate(sub.renewal_date) : "—"}
@@ -291,11 +324,33 @@ function RenewalBucket({
                               </Badge>
                             )}
                           </div>
+                          {sub.last_reminder_sent_at_v2 && (
+                            <p className="mt-1 text-[11px] text-ink-3">
+                              Last reminder: {formatDate(sub.last_reminder_sent_at_v2)}
+                            </p>
+                          )}
                         </td>
 
                         {/* MRR */}
                         <td className="px-4 py-3 text-right tabular-nums font-medium text-ink">
                           {rupee(sub.mrr)}
+                        </td>
+
+                        {/* Cadence (renewal_state from automation) */}
+                        <td className="px-4 py-3">
+                          <Badge kind={renewalStateTone(sub.renewal_state)} dot>
+                            {renewalStateLabel(sub.renewal_state)}
+                          </Badge>
+                          {sub.reminder_count > 0 && (
+                            <p className="mt-1 text-[11px] text-ink-3 tabular-nums">
+                              {sub.reminder_count} email{sub.reminder_count === 1 ? "" : "s"} sent
+                            </p>
+                          )}
+                          {days < 0 && sub.renewal_state !== "suspended" && (
+                            <p className="mt-1 text-[11px] font-medium text-rose-600">
+                              Suspends in {Math.max(0, graceDays - Math.abs(days))}d
+                            </p>
+                          )}
                         </td>
 
                         {/* Churn risk */}
@@ -325,42 +380,20 @@ function RenewalBucket({
                         {/* Action */}
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-1.5">
-                            {risk.level === "high" ? (
-                              <Button
-                                variant="danger"
-                                size="sm"
-                                onClick={() =>
-                                  toast.info(
-                                    `Urgent call to ${sub.customer_name} — high churn risk`,
-                                  )
-                                }
-                              >
-                                <Icon name="phone" size={12} />
-                                Save
-                              </Button>
-                            ) : kind === "rose" ? (
-                              <Button
-                                variant="primary"
-                                size="sm"
-                                onClick={() =>
-                                  toast.success(`Calling ${sub.customer_name}…`)
-                                }
-                              >
-                                <Icon name="phone" size={12} />
-                                Call
-                              </Button>
-                            ) : (
-                              <Button
-                                variant="default"
-                                size="sm"
-                                onClick={() =>
-                                  toast.success(`Email queued to ${sub.customer_name}`)
-                                }
-                              >
-                                <Icon name="mail" size={12} />
-                                Email
-                              </Button>
-                            )}
+                            <Button
+                              variant={kind === "rose" ? "primary" : "default"}
+                              size="sm"
+                              loading={sending === sub.id}
+                              disabled={
+                                sub.renewal_state === "suspended" ||
+                                sub.renewal_state === "renewed"
+                              }
+                              onClick={() => handleSendNow(sub)}
+                              title="Send the appropriate renewal email immediately (overrides daily cron)"
+                            >
+                              <Icon name="mail" size={12} />
+                              Send now
+                            </Button>
                             <IconButton
                               icon="more_h"
                               size="sm"
@@ -386,6 +419,8 @@ function RenewalBucket({
 
 export default function RenewalsPage() {
   const { data: subs, isLoading, error } = useSubscriptions();
+  const { data: me } = useCurrentUser();
+  const graceDays = me?.tenantGracePeriodDays ?? 0;
   const today = new Date();
 
   if (isLoading) {
@@ -589,6 +624,7 @@ export default function RenewalsPage() {
           title="Urgent · Next 7 days"
           subtitle="Call within 24 hours — every day of delay risks revenue"
           rows={urgent}
+          graceDays={graceDays}
           defaultOpen
         />
         <RenewalBucket
@@ -596,6 +632,7 @@ export default function RenewalsPage() {
           title="Upcoming · Next 30 days"
           subtitle="Send personalised email + one follow-up call"
           rows={upcoming}
+          graceDays={graceDays}
           defaultOpen
         />
         <RenewalBucket
@@ -603,6 +640,7 @@ export default function RenewalsPage() {
           title="Future · 31–90 days"
           subtitle="Drip campaign + value-prop content"
           rows={future}
+          graceDays={graceDays}
           defaultOpen={false}
         />
       </div>

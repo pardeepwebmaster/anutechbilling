@@ -25,8 +25,10 @@ import { Button, IconButton } from "@/components/ui/button";
 import { KPI } from "@/components/shared/kpi";
 import { Icon } from "@/components/ui/icon";
 import { Skeleton } from "@/components/ui/skeleton";
-import { rupee } from "@/lib/utils";
+import { rupee, daysBetween, formatDate } from "@/lib/utils";
 import { cn } from "@/lib/utils";
+import { renewalStateLabel, renewalStateTone } from "@/lib/renewals/cadence";
+import { Badge } from "@/components/ui/badge";
 
 // ============================================================
 // Lead stage config (matches prototype LEAD_STAGES)
@@ -78,6 +80,19 @@ export default function DashboardPage() {
   const activeSubs    = (subscriptions ?? []).filter((s) => s.status === "active");
   const activeMRR     = activeSubs.reduce((s, x) => s + (x.mrr ?? 0), 0);
 
+  // Renewal pipeline — what's coming due in the next 30 days. Drives both
+  // the "Today's Focus" urgent-renewal row and the "Renewals coming up"
+  // side panel. Past renewal_date subs in grace count as urgent too.
+  const today = new Date();
+  const enrichedRenewals = activeSubs
+    .filter((s) => s.renewal_date !== null)
+    .map((s) => ({ sub: s, daysUntil: daysBetween(today, s.renewal_date!) }))
+    .filter((r) => r.daysUntil <= 30)
+    .sort((a, b) => a.daysUntil - b.daysUntil);
+
+  const urgentRenewals  = enrichedRenewals.filter((r) => r.daysUntil <= 7);
+  const renewalsRevAtRisk = enrichedRenewals.reduce((sum, r) => sum + (r.sub.mrr ?? 0) * 12, 0);
+
   // Tasks summary for "Today's Focus"
   const overdueTaskCount = tasksOverdue?.length ?? 0;
   const todayTaskCount   = tasksToday?.length   ?? 0;
@@ -97,6 +112,12 @@ export default function DashboardPage() {
       title: `${todayTaskCount} task${todayTaskCount === 1 ? "" : "s"} due today`,
       note: "Follow-ups, calls, emails on your queue.",
       action: "Open", cta: "/tasks",
+    },
+    urgentRenewals.length > 0 && {
+      icon: "refresh", tone: "rose",
+      title: `${urgentRenewals.length} renewal${urgentRenewals.length === 1 ? "" : "s"} in next 7 days`,
+      note: `${rupee(urgentRenewals.reduce((s, r) => s + (r.sub.mrr ?? 0) * 12, 0), { compact: true })} ARR · call or send the quote`,
+      action: "Open", cta: "/renewals",
     },
     activeLeads.length > 0 && {
       icon: "target", tone: "indigo",
@@ -222,12 +243,16 @@ export default function DashboardPage() {
           icon="file"
         />
         <KPI
-          label="Health"
-          value="100"
-          unit="%"
-          trend="Setup complete"
-          trendKind="up"
-          trendIcon="check_circle"
+          label="Renewals · 30d"
+          value={enrichedRenewals.length}
+          trend={
+            enrichedRenewals.length === 0
+              ? "Quiet ahead"
+              : `${rupee(renewalsRevAtRisk, { compact: true })} ARR at risk`
+          }
+          trendKind={urgentRenewals.length > 0 ? "down" : "neutral"}
+          trendIcon={urgentRenewals.length > 0 ? "alert" : "calendar"}
+          icon="refresh"
         />
       </div>
 
@@ -348,6 +373,80 @@ export default function DashboardPage() {
                 <div className="text-center text-sm text-ink-3 py-2">No closed deals yet</div>
               )}
             </div>
+          </Card>
+
+          {/* Renewals coming up — top 5 in next 30 days */}
+          <Card
+            title="Renewals coming up"
+            sub={
+              enrichedRenewals.length === 0
+                ? "No subscriptions renewing in 30 days"
+                : `${enrichedRenewals.length} sub${enrichedRenewals.length === 1 ? "" : "s"} · ${rupee(renewalsRevAtRisk, { compact: true })} ARR`
+            }
+            actions={
+              enrichedRenewals.length > 0 ? (
+                <Button asChild size="sm" variant="ghost" iconRight="arrow_right">
+                  <Link href={"/renewals" as any}>View all</Link>
+                </Button>
+              ) : undefined
+            }
+          >
+            {enrichedRenewals.length === 0 ? (
+              <div className="py-3 text-center text-xs text-ink-3">
+                Once you have active subscriptions, those nearing renewal will surface here.
+              </div>
+            ) : (
+              <div className="space-y-2.5">
+                {enrichedRenewals.slice(0, 5).map(({ sub, daysUntil }) => (
+                  <div
+                    key={sub.id}
+                    className="grid grid-cols-[auto_1fr_auto] items-center gap-3"
+                  >
+                    <div
+                      className={cn(
+                        "w-8 h-8 rounded-md border border-hairline grid place-items-center",
+                        daysUntil <= 7 ? "text-rose" : daysUntil <= 14 ? "text-amber-ink" : "text-ink-3",
+                      )}
+                    >
+                      <Icon name="refresh" size={14} />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium truncate">{sub.customer_name}</div>
+                      <div className="flex items-center gap-2 text-[11px] text-ink-3 mt-0.5">
+                        <span>{sub.renewal_date ? formatDate(sub.renewal_date) : "—"}</span>
+                        <span>·</span>
+                        <span className="font-mono">{sub.seats} seats · {rupee(sub.mrr)}/mo</span>
+                      </div>
+                      {sub.renewal_state !== "pending" && (
+                        <div className="mt-1">
+                          <Badge kind={renewalStateTone(sub.renewal_state)} dot>
+                            {renewalStateLabel(sub.renewal_state)}
+                          </Badge>
+                        </div>
+                      )}
+                    </div>
+                    <div className={cn(
+                      "text-right text-xs font-medium tabular-nums",
+                      daysUntil <= 0 ? "text-rose" :
+                      daysUntil <= 7 ? "text-rose" :
+                      daysUntil <= 14 ? "text-amber-ink" :
+                      "text-ink-3",
+                    )}>
+                      {daysUntil < 0
+                        ? `${Math.abs(daysUntil)}d grace`
+                        : daysUntil === 0
+                          ? "today"
+                          : `${daysUntil}d`}
+                    </div>
+                  </div>
+                ))}
+                {enrichedRenewals.length > 5 && (
+                  <p className="text-[11px] text-ink-3 pt-2 border-t border-hairline">
+                    + {enrichedRenewals.length - 5} more renewing soon
+                  </p>
+                )}
+              </div>
+            )}
           </Card>
 
           {/* Coming Up */}

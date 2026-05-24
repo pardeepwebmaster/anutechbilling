@@ -21,7 +21,28 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Icon } from "@/components/ui/icon";
+import { TabBar, type TabBarItem } from "@/components/ui/tabs";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useBreakpoint } from "@/lib/hooks/useBreakpoint";
+import { APP_NAV } from "@/lib/nav";
+import { cn } from "@/lib/utils";
+
+// Pages the operator can preview in the phone-frame iframe.
+// Flattened from APP_NAV — every page they navigate to in the sidebar
+// is previewable. /mobile itself is excluded to avoid infinite frames.
+const PREVIEWABLE_PAGES = APP_NAV.flatMap((s) => s.items)
+  .filter((i) => i.href !== "/mobile");
+
+const TABS: TabBarItem[] = [
+  { id: "install", label: "How to install" },
+  { id: "preview", label: "Mobile preview" },
+];
 
 // BeforeInstallPromptEvent isn't in stock TS lib yet — type it ourselves.
 interface BeforeInstallPromptEvent extends Event {
@@ -50,6 +71,9 @@ function isStandalone(): boolean {
 
 export default function MobilePwaPage() {
   const { isMobile } = useBreakpoint();
+  const [tab, setTab] = React.useState<string>("install");
+  const [previewPath, setPreviewPath] = React.useState<string>("/dashboard");
+  const [previewKey, setPreviewKey] = React.useState(0); // bump to force reload
   const [device, setDevice] = React.useState<DeviceClass>("desktop");
   const [installed, setInstalled] = React.useState(false);
   const [installPrompt, setInstallPrompt] = React.useState<BeforeInstallPromptEvent | null>(null);
@@ -83,13 +107,20 @@ export default function MobilePwaPage() {
   return (
     <div className="p-4 md:p-6 lg:p-8 max-w-[900px] mx-auto">
       {/* Header */}
-      <div className="mb-6">
+      <div className="mb-4">
         <p className="text-xs uppercase tracking-widest text-ink-3 font-semibold mb-1">System</p>
-        <h1 className="font-serif text-3xl md:text-4xl text-ink leading-tight">Install as App</h1>
+        <h1 className="font-serif text-3xl md:text-4xl text-ink leading-tight">Mobile (PWA)</h1>
         <p className="text-sm text-ink-3 mt-1">
-          Add ResellerOS to your phone&apos;s home screen for one-tap access — no app store, no download. Works on iPhone, Android, and laptops.
+          Install as an app or preview how ResellerOS looks on a phone — without picking yours up.
         </p>
       </div>
+
+      {/* Tab switcher */}
+      <div className="mb-6">
+        <TabBar items={TABS} value={tab} onChange={setTab} />
+      </div>
+
+      {tab === "install" && <>
 
       {/* Already installed banner */}
       {installed && (
@@ -231,6 +262,104 @@ export default function MobilePwaPage() {
           />
         </div>
       </Card>
+      </>}
+
+      {tab === "preview" && (
+        <div className="space-y-4">
+          {/* Page picker + reload control */}
+          <Card>
+            <div className="flex items-center gap-3 flex-wrap">
+              <div className="flex-1 min-w-[240px]">
+                <p className="text-xs uppercase tracking-wider text-ink-3 font-semibold mb-1.5">
+                  Preview page
+                </p>
+                <Select value={previewPath} onValueChange={setPreviewPath}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {PREVIEWABLE_PAGES.map((p) => (
+                      <SelectItem key={p.id} value={p.href}>
+                        {p.label} <span className="font-mono text-ink-3">· {p.href}</span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex items-end gap-2 pb-px">
+                <Button
+                  variant="default"
+                  size="sm"
+                  icon="refresh"
+                  onClick={() => setPreviewKey((k) => k + 1)}
+                  title="Reload the preview"
+                >
+                  Reload
+                </Button>
+                <Button
+                  asChild
+                  variant="ghost"
+                  size="sm"
+                  iconRight="external"
+                  title="Open in a real new tab"
+                >
+                  <a href={previewPath} target="_blank" rel="noreferrer">Open</a>
+                </Button>
+              </div>
+            </div>
+            <p className="mt-3 text-[11px] text-ink-3">
+              Renders the live app inside an iPhone-sized frame (375×812). Same code, same auth — what you tap inside the frame is real.
+            </p>
+          </Card>
+
+          {/* Phone frame */}
+          <div className="flex justify-center">
+            <PhoneFrame>
+              <iframe
+                key={previewKey}
+                src={previewPath}
+                title={`Mobile preview of ${previewPath}`}
+                className="block w-full h-full border-0 bg-paper"
+                // Allow same-origin so the iframe shares auth cookies — operator
+                // sees the real app, not a redirect-to-login screen.
+                sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox"
+              />
+            </PhoneFrame>
+          </div>
+
+          <p className="text-center text-xs text-ink-3">
+            Tip: shrink your browser window or hit <kbd className="px-1 py-0.5 rounded border border-hairline font-mono text-[10px]">F12</kbd> → Device Toolbar for an even more realistic test.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Phone frame mockup ──────────────────────────────────────────────────────
+// A simple iPhone-styled wrapper around the iframe so the preview feels
+// like looking at a real device, not just a narrow column. Notch + rounded
+// bezel + speaker grille — all CSS, no images.
+
+function PhoneFrame({ children }: { children: React.ReactNode }) {
+  return (
+    <div
+      className={cn(
+        "relative bg-ink rounded-[42px] shadow-2xl",
+        // External device border (titanium look)
+        "p-3 ring-1 ring-ink/20",
+      )}
+      style={{ width: 393, height: 852 }} // iPhone 14 Pro outer
+    >
+      {/* Inner screen — content slot */}
+      <div className="relative overflow-hidden rounded-[30px] bg-paper" style={{ width: 369, height: 828 }}>
+        {/* Dynamic Island */}
+        <div className="absolute left-1/2 top-2 -translate-x-1/2 z-10 h-7 w-24 rounded-full bg-ink pointer-events-none" />
+        {/* The iframe fills the screen area */}
+        <div className="absolute inset-0">
+          {children}
+        </div>
+      </div>
     </div>
   );
 }

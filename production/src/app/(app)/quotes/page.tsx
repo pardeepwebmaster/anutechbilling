@@ -29,6 +29,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Icon } from "@/components/ui/icon";
+import { FAB } from "@/components/ui/fab";
 import { rupee, formatDate, daysBetween } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 import type { Quote } from "@/lib/supabase/database.types";
@@ -302,9 +303,67 @@ export default function QuotesPage() {
         </div>
       )}
 
-      {/* Table */}
+      {/* Mobile card list — phones only */}
       {!isLoading && !error && filtered.length > 0 && (
-        <>
+        <ul className="md:hidden space-y-2 mb-3">
+          {filtered.map((q) => {
+            const meta = STATUS_META[q.status];
+            const dl = q.expires_date ? daysBetween(new Date(), q.expires_date) : null;
+            return (
+              <li key={q.id}>
+                <Link
+                  href={`/quotes/${q.id}` as never}
+                  className="block bg-paper border border-hairline rounded-lg p-3 active:bg-paper-2/50"
+                >
+                  {/* Top row: ID + amount */}
+                  <div className="flex items-start justify-between gap-3 mb-1.5">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="font-mono text-xs font-semibold text-ink">{q.id}</span>
+                        {q.is_renewal && (
+                          <Badge kind="info" className="font-sans text-[10px]">Renewal</Badge>
+                        )}
+                      </div>
+                      <p className="text-sm font-medium text-ink mt-0.5 truncate">
+                        {q.customer_name}
+                      </p>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <p className="font-serif text-base tabular-nums text-ink">
+                        {q.amount ? rupee(q.amount) : "—"}
+                      </p>
+                      <p className="text-[10px] text-ink-3 tabular-nums">
+                        {q.seats ?? "—"} seats
+                      </p>
+                    </div>
+                  </div>
+                  {/* Bottom row: plan + status badges */}
+                  <div className="flex items-center justify-between gap-2 mt-2 pt-2 border-t border-hairline/60">
+                    <span className="text-xs text-ink-3 truncate">
+                      {q.plan ?? "—"}
+                    </span>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {dl !== null && dl >= 0 && dl <= 7 && q.status === "sent" && (
+                        <Badge kind="warning" size="sm">
+                          {dl}d
+                        </Badge>
+                      )}
+                      <Badge kind={meta.kind} size="sm" dot>{meta.label}</Badge>
+                    </div>
+                  </div>
+                </Link>
+              </li>
+            );
+          })}
+          <li className="pt-2 text-center text-[11px] text-ink-3">
+            Showing {filtered.length} of {counts.all ?? 0} · Total {rupee(filtered.reduce((s, q) => s + (q.amount ?? 0), 0), { compact: true })}
+          </li>
+        </ul>
+      )}
+
+      {/* Desktop / tablet table */}
+      {!isLoading && !error && filtered.length > 0 && (
+        <div className="hidden md:block">
           <Card flush>
             <table className="w-full">
               <thead className="bg-paper-2 border-b border-hairline">
@@ -537,7 +596,7 @@ export default function QuotesPage() {
           </div>
           {/* Spacer that pushes everything else up when the page is short */}
           <div className="mt-auto" aria-hidden />
-        </>
+        </div>
       )}
 
       {/* Quick preview dialog (driven by the row's eye/file icon button) */}
@@ -581,6 +640,9 @@ export default function QuotesPage() {
           />
         );
       })()}
+
+      {/* Mobile FAB — primary action in the thumb zone */}
+      <FAB icon="plus" label="New quote" href="/quotes/new" />
     </div>
   );
 }

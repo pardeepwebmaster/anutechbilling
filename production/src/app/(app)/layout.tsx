@@ -10,6 +10,7 @@
 import * as React from "react";
 import { Sidebar, MobileSidebar } from "@/components/layout/Sidebar";
 import { TopBar } from "@/components/layout/topbar";
+import { MobileBottomNav } from "@/components/layout/MobileBottomNav";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [mobileNavOpen, setMobileNavOpen] = React.useState(false);
@@ -19,14 +20,18 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       {/* Desktop sidebar (sticky 240px) */}
       <Sidebar />
 
-      {/* Mobile sidebar (slide-in) */}
+      {/* Mobile sidebar (slide-in drawer — opened from TopBar hamburger AND MobileBottomNav "More") */}
       <MobileSidebar open={mobileNavOpen} onOpenChange={setMobileNavOpen} />
 
       {/* Main column */}
       <div className="flex-1 flex flex-col min-w-0">
         <TopBar onMobileMenuClick={() => setMobileNavOpen(true)} />
-        <main className="flex-1 min-w-0">{children}</main>
+        {/* pb-16 on mobile so content doesn't hide behind the bottom tab bar */}
+        <main className="flex-1 min-w-0 pb-16 md:pb-0">{children}</main>
       </div>
+
+      {/* Sticky mobile bottom tab bar (phone only) */}
+      <MobileBottomNav onMoreClick={() => setMobileNavOpen(true)} />
     </div>
   );
 }

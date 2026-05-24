@@ -465,8 +465,83 @@ Detailed plan in repo wiki or `../prototype/` docs.
 
 ---
 
-## 20. Updates
+## 20. Responsive design — device-aware layouts (CRITICAL)
 
-This file is updated whenever a new convention is established. Last updated: 2026-05-20.
+ResellerOS must work great on **phone, tablet, and laptop/desktop**. Indian
+SME owners check sales pipeline from phone in meetings, sales reps work
+mostly on mobile, accountants on laptops. A "kinda works on mobile" desktop-
+first design is unacceptable.
+
+### Breakpoints (must match `tailwind.config.ts`)
+
+| Token | Width | Class prefix | Device class |
+|---|---|---|---|
+| (default) | 0–639px | (none) | **Mobile** (phones) |
+| sm | 640–767px | `sm:` | Large phones / phablets |
+| md | 768–1023px | `md:` | **Tablet floor** |
+| lg | 1024–1279px | `lg:` | Small laptop |
+| xl | 1280–1535px | `xl:` | **Desktop floor** |
+| 2xl | 1536px+ | `2xl:` | Wide desktop |
+
+### Per-device design rules
+
+**Mobile (< 768px) — phone-first**
+- Sidebar collapses to drawer (hamburger in TopBar; MobileBottomNav for 5 key sections)
+- Tables MUST convert to **card lists** (each row = stackable card with summary + tap to open)
+- Dialogs become **bottom sheets** (slide up from viewport bottom — happens automatically via the responsive `<DialogContent>` styles)
+- Primary action goes in a **FAB** (`<FAB>` component, fixed bottom-right in thumb zone)
+- All touch targets ≥ 44px (Apple HIG / Material guideline)
+- KPI grids: 2-col stacked
+- Page padding: `p-4`
+
+**Tablet (768–1023px) — hybrid**
+- Sidebar visible (240px)
+- Tables stay as tables (denser cells OK)
+- Dialogs stay as centered modals
+- KPI grids: 3-col
+- Page padding: `md:p-6`
+
+**Laptop+ (1024px+) — power user**
+- Full sidebar + multi-col KPI grid (5-6 cols at xl)
+- Hover states, keyboard shortcuts
+- Wide data tables
+- Page padding: `lg:p-8`
+
+### Foundation components (in `/components/ui/`)
+
+| Component | Purpose |
+|---|---|
+| `<FAB>` | Floating action button, mobile-only by default. Pill with icon + label. |
+| `<DialogContent>` | Now responsive — bottom sheet on mobile, centered modal on desktop |
+| `<MobileBottomNav>` | Fixed bottom tab bar, mobile-only (rendered by `(app)/layout.tsx`) |
+
+### Foundation hook
+
+`useBreakpoint()` (in `lib/hooks/useBreakpoint.ts`) — SSR-safe. Returns
+`{ isMobile, isTablet, isDesktop, width }`. Use it when you need JS branching
+(e.g., render a `<table>` vs `<CardList>`). For CSS-only switches, prefer
+`hidden md:block` / `md:hidden` Tailwind classes.
+
+### When porting a desktop page to mobile
+
+1. **KPI grid** — ensure `grid-cols-2 md:grid-cols-3 xl:grid-cols-N`. Don't jump from md to lg for 5+ col layouts (squish zone).
+2. **Tables** — wrap the `<Card><table></Card>` block in `<div className="hidden md:block">` and add a parallel `<ul className="md:hidden">…cards…</ul>` above it.
+3. **Primary header CTA** — keep the desktop header button, ALSO add `<FAB>` at bottom of page so it's mobile-reachable.
+4. **Detail / form pages** — single column on mobile, two-col on lg+. Use `grid-cols-1 lg:grid-cols-2` for split layouts.
+5. **Page max-width** — use `max-w-[1800px] mx-auto` for listing pages, `max-w-[1240px]` for detail/form pages. Never `max-w-screen-xl` (too narrow at 1920px).
+
+### Anti-patterns to avoid
+
+- ❌ Hiding important columns with `hidden md:table-cell` — operator still loses data on mobile
+- ❌ Tiny text (`text-xs`) on mobile interactive elements — readability suffers
+- ❌ Sticky elements without `pb-[env(safe-area-inset-bottom)]` — broken on iPhone notch / Android gesture bar
+- ❌ Tables without a mobile alternative — they horizontal-scroll, which is universally hated
+- ❌ Dialogs without responsive sizing — `max-w-lg` modal looks ridiculous on a 375px phone
+
+---
+
+## 21. Updates
+
+This file is updated whenever a new convention is established. Last updated: 2026-05-24.
 
 Any time you (Claude) make a non-obvious decision in this codebase, propose adding a rule to this file.

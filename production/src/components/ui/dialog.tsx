@@ -57,17 +57,35 @@ const DialogContent = React.forwardRef<
     <DialogPrimitive.Content
       ref={ref}
       className={cn(
-        "fixed left-1/2 top-1/2 z-50 grid w-full max-w-lg -translate-x-1/2 -translate-y-1/2",
-        "gap-4 border border-hairline bg-paper p-6 shadow-lg rounded-lg",
+        // ── Mobile (default): bottom sheet — slides up from viewport bottom,
+        //    full-width, top-rounded only. Touch zone is the entire screen.
+        //    Max height capped so long content scrolls inside the sheet.
+        "fixed inset-x-0 bottom-0 z-50 grid w-full",
+        "max-h-[90vh] overflow-y-auto",
+        "gap-4 border-t border-hairline bg-paper p-5 pb-6 shadow-2xl",
+        "rounded-t-2xl",
+        // Safe-area for iPhone notch / Android gesture bar
+        "pb-[max(1.5rem,env(safe-area-inset-bottom))]",
+        // Mobile open/close: slide up from bottom
         "data-[state=open]:animate-in data-[state=closed]:animate-out",
         "data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
-        "data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
-        "data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%]",
-        "data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%]",
+        "data-[state=closed]:slide-out-to-bottom data-[state=open]:slide-in-from-bottom",
+
+        // ── Desktop (md+): centered modal — original behaviour.
+        "md:fixed md:left-1/2 md:top-1/2 md:inset-x-auto md:bottom-auto",
+        "md:max-w-lg md:max-h-[85vh] md:-translate-x-1/2 md:-translate-y-1/2",
+        "md:rounded-lg md:border md:p-6",
+        "md:data-[state=closed]:zoom-out-95 md:data-[state=open]:zoom-in-95",
+        "md:data-[state=closed]:slide-out-to-left-1/2 md:data-[state=closed]:slide-out-to-top-[48%]",
+        "md:data-[state=open]:slide-in-from-left-1/2 md:data-[state=open]:slide-in-from-top-[48%]",
+        // Reset mobile-only slides on desktop
+        "md:data-[state=closed]:slide-out-to-bottom-0 md:data-[state=open]:slide-in-from-bottom-0",
         className
       )}
       {...props}
     >
+      {/* Drag handle (mobile only — visual affordance that the sheet is dismissible) */}
+      <div className="md:hidden mx-auto -mt-1 mb-2 h-1.5 w-12 rounded-full bg-hairline" aria-hidden />
       {children}
       {!hideClose && (
         <DialogPrimitive.Close

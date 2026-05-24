@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { DM_Serif_Display, Plus_Jakarta_Sans, JetBrains_Mono } from "next/font/google";
 
 import "@/app/globals.css";
@@ -46,6 +46,26 @@ export const metadata: Metadata = {
     locale: "en_IN",
     siteName: "ResellerOS",
   },
+  // PWA / install-as-app
+  applicationName: "ResellerOS",
+  appleWebApp: {
+    capable: true,
+    title:   "ResellerOS",
+    // iOS uses 'default', 'black', or 'black-translucent' for the status bar
+    // 'default' keeps the warm cream paper feel after install.
+    statusBarStyle: "default",
+  },
+  formatDetection: {
+    telephone: false,  // don't auto-format Indian phone numbers as tappable nav
+  },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#C2410C", // brand amber — used by Android Chrome toolbar tint + iOS splash
+  width:      "device-width",
+  initialScale: 1,
+  // Prevent iOS Safari from zooming when focusing inputs (annoying on phone)
+  maximumScale: 5,
 };
 
 export default function RootLayout({

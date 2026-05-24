@@ -540,8 +540,32 @@ first design is unacceptable.
 
 ---
 
-## 21. Updates
+## 21. Pre-launch readiness
+
+A comprehensive launch readiness audit lives at **`LAUNCH_READINESS.md`**
+in the repo root. It documents:
+
+- Feature inventory (✅ built / 🟡 partial / 🔴 missing)
+- Third-party services + API keys needed (P0 → P2 by criticality)
+- Critical blockers before any production usage
+- Recommended launch sequence (day 0 → month 3+)
+- Skill gaps Pardeep needs to fill
+- Cost estimate (~₹600 one-time + ₹0-200/mo to dogfood-ready)
+
+**Before deploying to any production-grade host** (Firebase / Vercel / Railway), revisit that doc. It is intentionally honest about what's not built — including Razorpay (P0 for paying customers), GST e-Invoice IRP (P0 for B2B customers above ₹5cr turnover), and customer portal (P1 for self-service).
+
+---
+
+## 22. Updates
 
 This file is updated whenever a new convention is established. Last updated: 2026-05-24.
+
+**Major additions since 2026-05-20:**
+- Full renewal automation (Phase 1-4 + lifecycle pieces A/B/C) — schema, cadence engine, daily cron, email seam, auto-suspend with grace, record_payment roll-forward, on-demand "Generate quote" flow
+- Quote send-via-email — server-rendered PDF + audit log + bottom-sheet dialog
+- PWA support — manifest + dynamic icons (no static assets) + iOS apple-icon + install page at `/mobile` + Mobile preview iframe
+- §20 — Complete responsive design (11 listing pages, 4 reusable primitives: `useBreakpoint`, `FAB`, `MobileBottomNav`, responsive `DialogContent`)
+- §21 — Pre-launch readiness doc (`LAUNCH_READINESS.md`)
+- 7 production bugs caught + fixed during pre-launch testing (cron idempotency, terminal-state protection, missing quote on edge dates, day-precise daysBetween, KPI grid squish, listing-page max-width, sparse-data empty area)
 
 Any time you (Claude) make a non-obvious decision in this codebase, propose adding a rule to this file.

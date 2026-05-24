@@ -150,6 +150,31 @@ async function handle(req: Request): Promise<NextResponse<CronResult | { error: 
         continue;
       }
 
+      // ── Daily idempotency: did we already attempt this (sub,step) today? ──
+      // Without this, a broken Resend key burns one API call per sub per day,
+      // and re-runs (manual triggers, retries) duplicate-attempt every step.
+      if (decision.shouldSendEmail) {
+        const { count: attemptsToday } = await supabase
+          .from("renewal_email_log")
+          .select("id", { count: "exact", head: true })
+          .eq("subscription_id", sub.id)
+          .eq("cadence_step", decision.targetState)
+          .gte("sent_at", new Date(new Date().setHours(0, 0, 0, 0)).toISOString());
+        if ((attemptsToday ?? 0) > 0) {
+          detail.emailStatus = "(already attempted today)";
+          result.emails_skipped += 1;
+          // Still sync renewal_state so UI reflects current cadence position
+          if (sub.renewal_state !== decision.targetState) {
+            await supabase
+              .from("subscriptions")
+              .update({ renewal_state: decision.targetState })
+              .eq("id", sub.id);
+          }
+          result.details.push(detail);
+          continue;
+        }
+      }
+
       // ── Email path ───────────────────────────────────────────────
       if (decision.shouldSendEmail && decision.tone) {
         // 1. Ensure renewal quote exists (only matters at T-15 entry)
@@ -303,8 +328,18 @@ async function handle(req: Request): Promise<NextResponse<CronResult | { error: 
         continue;
       }
 
-      // ── No-op path: just sync renewal_state if it drifted ────────
-      if (sub.renewal_state !== decision.targetState) {
+      // ── No-op path: sync renewal_state if it drifted ─────────────
+      // Guard against REGRESSING from terminal states:
+      //   - 'renewed': sub was just paid for this cycle. decideCadence
+      //     would return 'pending' for far-future renewal_dates, which
+      //     would wipe the "just renewed" signal until next T-15.
+      //   - 'suspended': sub was auto-suspended. Don't quietly revive it.
+      // Both states must be cleared explicitly (operator action or new
+      // renewal payment via record_payment).
+      const isTerminalState =
+        sub.renewal_state === "renewed" ||
+        sub.renewal_state === "suspended";
+      if (!isTerminalState && sub.renewal_state !== decision.targetState) {
         await supabase
           .from("subscriptions")
           .update({ renewal_state: decision.targetState })

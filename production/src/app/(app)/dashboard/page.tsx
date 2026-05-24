@@ -18,6 +18,7 @@ import { useLeads } from "@/lib/queries/leads";
 import { useCustomers } from "@/lib/queries/customers";
 import { useQuotes } from "@/lib/queries/quotes";
 import { useSubscriptions } from "@/lib/queries/subscriptions";
+import { useTasks } from "@/lib/queries/tasks";
 import { useCurrentUser } from "@/lib/hooks/useCurrentUser";
 import { Card } from "@/components/ui/card";
 import { Button, IconButton } from "@/components/ui/button";
@@ -47,6 +48,8 @@ export default function DashboardPage() {
   const { data: customers }     = useCustomers();
   const { data: quotes }        = useQuotes();
   const { data: subscriptions } = useSubscriptions();
+  const { data: tasksToday }    = useTasks("today");
+  const { data: tasksOverdue }  = useTasks("overdue");
   const { data: currentUser }   = useCurrentUser();
 
   // Time-aware greeting + date
@@ -75,8 +78,26 @@ export default function DashboardPage() {
   const activeSubs    = (subscriptions ?? []).filter((s) => s.status === "active");
   const activeMRR     = activeSubs.reduce((s, x) => s + (x.mrr ?? 0), 0);
 
+  // Tasks summary for "Today's Focus"
+  const overdueTaskCount = tasksOverdue?.length ?? 0;
+  const todayTaskCount   = tasksToday?.length   ?? 0;
+
   // Today's focus — built from real data
+  // Order matters: overdue tasks scream first, then today's tasks, then
+  // pipeline-level signals.
   const focus = [
+    overdueTaskCount > 0 && {
+      icon: "alert", tone: "rose",
+      title: `${overdueTaskCount} overdue task${overdueTaskCount === 1 ? "" : "s"}`,
+      note: "Clear these first — every snooze pushes the deal further.",
+      action: "Open", cta: "/tasks",
+    },
+    todayTaskCount > 0 && {
+      icon: "clock", tone: "amber",
+      title: `${todayTaskCount} task${todayTaskCount === 1 ? "" : "s"} due today`,
+      note: "Follow-ups, calls, emails on your queue.",
+      action: "Open", cta: "/tasks",
+    },
     activeLeads.length > 0 && {
       icon: "target", tone: "indigo",
       title: `${activeLeads.length} active leads in pipeline`,

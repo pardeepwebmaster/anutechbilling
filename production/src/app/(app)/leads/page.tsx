@@ -21,7 +21,9 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import { useLeads, useUpdateLeadStage, useDeleteLead } from "@/lib/queries/leads";
 import { useQuotesByLead } from "@/lib/queries/quotes";
+import { useTasksForLead, useCompleteTask, useSnoozeTask, useDeleteTask } from "@/lib/queries/tasks";
 import { useCurrentUser } from "@/lib/hooks/useCurrentUser";
+import { AddTaskDialog } from "@/components/features/tasks/add-task-dialog";
 import { LeadCard } from "@/components/features/leads/lead-card";
 import { AddLeadForm } from "@/components/features/leads/add-lead-form";
 import { GeminiCard } from "@/components/shared/gemini-card";
@@ -555,8 +557,17 @@ function LeadDetailSheet({
   // History: every quote that's been sent to this lead
   const { data: quotesForLead = [] } = useQuotesByLead(lead?.id);
 
+  // Follow-up tasks linked to this lead — drives the "Follow-ups" drawer section
+  const { data: tasksForLead = [] } = useTasksForLead(lead?.id);
+  const completeTask = useCompleteTask();
+  const snoozeTask   = useSnoozeTask();
+  const deleteTask   = useDeleteTask();
+  const [addTaskOpen, setAddTaskOpen] = React.useState(false);
+
   if (!lead) return null;
   const hasQuotes = quotesForLead.length > 0;
+  const openTasks = tasksForLead.filter((t) => t.status === "pending" || t.status === "snoozed");
+  const doneTasks = tasksForLead.filter((t) => t.status === "done");
 
   const handleDelete = () => {
     const confirmed = window.confirm(
@@ -712,6 +723,108 @@ function LeadDetailSheet({
             </div>
           )}
 
+          {/* ── Follow-ups ──────────────────────────────────────────────
+              Sales rep talks to the lead → captures next-action with date.
+              List is split: open (pending/snoozed) shown prominently, done
+              tucked away as a collapsed audit trail. Overdue rows tinted
+              rose so they pull the eye. */}
+          <div>
+            <div className="mb-2 flex items-center justify-between">
+              <div className="text-xs uppercase tracking-wider text-ink-3 font-semibold inline-flex items-center gap-2">
+                <Icon name="clock" size={12} />
+                Follow-ups
+                {openTasks.length > 0 && (
+                  <span className="text-[10px] tabular-nums bg-amber-soft text-amber-ink px-1.5 py-0.5 rounded-full">
+                    {openTasks.length} open
+                  </span>
+                )}
+              </div>
+              <Button size="sm" variant="ghost" icon="plus" onClick={() => setAddTaskOpen(true)}>
+                Add
+              </Button>
+            </div>
+
+            {openTasks.length === 0 && doneTasks.length === 0 ? (
+              <p className="text-[12px] text-ink-3 italic">
+                No follow-ups scheduled. Click <b>+ Add</b> to set a reminder.
+              </p>
+            ) : (
+              <div className="space-y-1.5">
+                {openTasks.map((t) => {
+                  const due = new Date(t.due_at);
+                  const isOverdue = due.getTime() < Date.now();
+                  return (
+                    <div
+                      key={t.id}
+                      className={cn(
+                        "rounded-md border px-3 py-2 text-sm flex items-start gap-2",
+                        isOverdue
+                          ? "border-rose/40 bg-rose-soft/40"
+                          : "border-hairline bg-paper-2/30",
+                      )}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => completeTask.mutate(t.id)}
+                        className="mt-0.5 w-4 h-4 rounded-full border border-hairline-strong hover:bg-emerald hover:border-emerald transition-colors shrink-0"
+                        title="Mark done"
+                        aria-label="Mark done"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium text-ink leading-tight">{t.title}</p>
+                        <p className={cn(
+                          "text-[11px] mt-0.5 tabular-nums",
+                          isOverdue ? "text-rose font-medium" : "text-ink-3",
+                        )}>
+                          {isOverdue ? "Overdue · " : ""}
+                          {due.toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
+                          {t.snooze_count > 0 && ` · snoozed ${t.snooze_count}×`}
+                        </p>
+                        {t.notes && (
+                          <p className="text-[11px] text-ink-3 mt-1 line-clamp-2">{t.notes}</p>
+                        )}
+                      </div>
+                      <div className="flex gap-0.5 shrink-0">
+                        <IconButton
+                          icon="clock"
+                          size="sm"
+                          variant="ghost"
+                          aria-label="Snooze 1 day"
+                          title="Snooze 1 day"
+                          onClick={() => snoozeTask.mutate({ id: t.id })}
+                        />
+                        <IconButton
+                          icon="trash"
+                          size="sm"
+                          variant="ghost"
+                          aria-label="Delete task"
+                          title="Delete task"
+                          onClick={() => deleteTask.mutate(t.id)}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+                {doneTasks.length > 0 && (
+                  <details className="text-[11px] text-ink-3 mt-2">
+                    <summary className="cursor-pointer select-none hover:text-ink">
+                      {doneTasks.length} completed
+                    </summary>
+                    <ul className="mt-1.5 space-y-1 pl-3">
+                      {doneTasks.map((t) => (
+                        <li key={t.id} className="line-through opacity-70">
+                          {t.title} ·{" "}
+                          {t.completed_at &&
+                            new Date(t.completed_at).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
+                )}
+              </div>
+            )}
+          </div>
+
           {/* Quick stage change
               For a raw lead (no plan picked yet), only "new" / "contact" are
               logically valid — demo/trial/quote/won all require a plan to
@@ -862,6 +975,15 @@ function LeadDetailSheet({
           </div>
         </SheetFooter>
       </SheetContent>
+
+      {/* Add Follow-up dialog — mounted as a sibling of the Sheet so its
+          own modal stacking doesn't fight the drawer. */}
+      <AddTaskDialog
+        open={addTaskOpen}
+        onOpenChange={setAddTaskOpen}
+        linkLabel={lead.company}
+        linkTo={{ lead_id: lead.id }}
+      />
     </Sheet>
   );
 }

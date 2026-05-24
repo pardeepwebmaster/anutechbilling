@@ -17,6 +17,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { CommandPalette, useCommandPalette } from "./command-palette";
 import { NotificationPanel } from "./notification-panel";
 import { getCrumb } from "@/lib/nav";
+import { useTaskCountDueOrOverdue } from "@/lib/queries/tasks";
 
 interface TopBarProps {
   /** Open the mobile sidebar */
@@ -32,8 +33,11 @@ export function TopBar({ onMobileMenuClick, crumb: crumbOverride }: TopBarProps)
   const cmdk = useCommandPalette();
   const [notifOpen, setNotifOpen] = React.useState(false);
 
-  // Unread count is sample data for now — will pull from Supabase later
-  const unreadCount = 4;
+  // Bell badge = open tasks due by end of today (today + overdue). When push
+  // notifications + WhatsApp reminders arrive in Phase 2 they'll feed the
+  // same number (any unread notification becomes a virtual task surface).
+  const { data: taskCount } = useTaskCountDueOrOverdue();
+  const unreadCount = taskCount ?? 0;
 
   // Mount-only flag to avoid theme hydration mismatch
   const [mounted, setMounted] = React.useState(false);

@@ -11,6 +11,7 @@ import { createClient } from "@/lib/supabase/client";
 
 interface NavBadges {
   leads?:        string;
+  tasks?:        string;
   renewals?:     string;
   invoices?:     string;
   payments?:     string;
@@ -22,13 +23,30 @@ async function fetchNavBadges(): Promise<NavBadges> {
   const supabase = createClient();
   const badges: NavBadges = {};
 
+  // End-of-today in IST as UTC ISO — used for "due today or overdue" count.
+  // (Replicated from lib/queries/tasks.ts todayBoundariesIST so this hook
+  // doesn't depend on the queries module.)
+  const now = new Date();
+  const istNow = new Date(now.getTime() + (5.5 * 60 * 60 * 1000));
+  const istMid = new Date(Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth(), istNow.getUTCDate()));
+  const startUTC = new Date(istMid.getTime() - (5.5 * 60 * 60 * 1000));
+  const endOfTodayISO = new Date(startUTC.getTime() + 24 * 60 * 60 * 1000).toISOString();
+
   // Run all counts in parallel
-  const [leadsRes, renewalsRes, invoicesRes, paymentsRes] = await Promise.all([
+  const [leadsRes, tasksRes, renewalsRes, invoicesRes, paymentsRes] = await Promise.all([
     // Active leads (not won/lost)
     supabase
       .from("leads")
       .select("id", { count: "exact", head: true })
       .not("stage", "in", '("won","lost")'),
+
+    // Pending tasks due by end of today (overdue + today combined — the
+    // ones the rep needs to clear before EOD)
+    supabase
+      .from("tasks")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "pending")
+      .lt("due_at", endOfTodayISO),
 
     // Renewals due in next 30 days
     supabase
@@ -51,11 +69,13 @@ async function fetchNavBadges(): Promise<NavBadges> {
   ]);
 
   const leadsCount    = leadsRes.count    ?? 0;
+  const tasksCount    = tasksRes.count    ?? 0;
   const renewalsCount = renewalsRes.count ?? 0;
   const invoicesCount = invoicesRes.count ?? 0;
   const paymentsCount = paymentsRes.count ?? 0;
 
   if (leadsCount    > 0) badges.leads    = String(leadsCount);
+  if (tasksCount    > 0) badges.tasks    = String(tasksCount);
   if (renewalsCount > 0) badges.renewals = String(renewalsCount);
   if (invoicesCount > 0) badges.invoices = String(invoicesCount);
   if (paymentsCount > 0) badges.payments = String(paymentsCount);

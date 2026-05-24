@@ -409,6 +409,51 @@ type PaymentInsert = {
 type PaymentUpdate = Partial<PaymentInsert>;
 
 // ============================================================
+// Tasks — follow-up to-dos for sales reps (per migration 0007)
+// ============================================================
+export type TaskStatus = "pending" | "done" | "snoozed" | "cancelled";
+export type TaskKind   = "call" | "email" | "meeting" | "followup" | "custom";
+
+type TaskRow = {
+  id:                       string;
+  tenant_id:                string;
+  owner_id:                 string | null;
+  title:                    string;
+  notes:                    string | null;
+  kind:                     TaskKind;
+  due_at:                   string;
+  reminder_minutes_before:  number;
+  status:                   TaskStatus;
+  lead_id:                  string | null;
+  quote_id:                 string | null;
+  customer_id:              string | null;
+  subscription_id:          string | null;
+  created_at:               string;
+  completed_at:             string | null;
+  completed_by:             string | null;
+  snooze_count:             number;
+};
+type TaskInsert = {
+  id?:                       string;
+  tenant_id:                 string;
+  owner_id?:                 string | null;
+  title:                     string;
+  notes?:                    string | null;
+  kind?:                     TaskKind;
+  due_at:                    string;
+  reminder_minutes_before?:  number;
+  status?:                   TaskStatus;
+  lead_id?:                  string | null;
+  quote_id?:                 string | null;
+  customer_id?:              string | null;
+  subscription_id?:          string | null;
+  completed_at?:             string | null;
+  completed_by?:             string | null;
+  snooze_count?:             number;
+};
+type TaskUpdate = Partial<TaskInsert>;
+
+// ============================================================
 // Database type (the shape supabase-js expects)
 // ============================================================
 export type Database = {
@@ -423,6 +468,7 @@ export type Database = {
       invoices:      { Row: InvoiceRow;      Insert: InvoiceInsert;      Update: InvoiceUpdate;      Relationships: [] };
       subscriptions: { Row: SubscriptionRow; Insert: SubscriptionInsert; Update: SubscriptionUpdate; Relationships: [] };
       payments:      { Row: PaymentRow;      Insert: PaymentInsert;      Update: PaymentUpdate;      Relationships: [] };
+      tasks:         { Row: TaskRow;         Insert: TaskInsert;         Update: TaskUpdate;         Relationships: [] };
     };
     Views: { [_ in never]: never };
     Functions: {
@@ -531,6 +577,8 @@ export type Database = {
       invoice_status: "draft" | "pending" | "paid" | "overdue" | "void";
       sub_status: "active" | "paused" | "expired" | "cancelled";
       payment_status: "none" | "awaiting" | "partial" | "received" | "invoiced";
+      task_status: TaskStatus;
+      task_kind:   TaskKind;
     };
     CompositeTypes: { [_ in never]: never };
   };
@@ -548,3 +596,4 @@ export type Quote        = QuoteRow;
 export type Invoice      = InvoiceRow;
 export type Subscription = SubscriptionRow;
 export type Payment      = PaymentRow;
+export type Task         = TaskRow;

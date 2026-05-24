@@ -32,6 +32,7 @@ export const APP_NAV: NavSection[] = [
     items: [
       { id: "dashboard",  href: "/dashboard",  label: "Dashboard",     icon: "home" },
       { id: "leads",      href: "/leads",      label: "Deal Pipeline", icon: "target" },
+      { id: "tasks",      href: "/tasks",      label: "Tasks",         icon: "clock" },
       { id: "customers",  href: "/customers",  label: "Customers",     icon: "users" },
       { id: "contacts",   href: "/contacts",   label: "Contacts",      icon: "user" },
       { id: "items",      href: "/items",      label: "Items Catalog", icon: "package" },
@@ -98,6 +99,7 @@ export const SCREEN_TITLES: Record<string, string[]> = {
   "/dashboard":       ["Workspace", "Dashboard"],
   "/lead-gen":        ["Workspace", "Lead Sources"],
   "/leads":           ["Workspace", "Deal Pipeline"],
+  "/tasks":           ["Workspace", "Tasks"],
   "/customers":       ["Workspace", "Customers"],
   "/contacts":        ["Workspace", "Contacts"],
   "/items":           ["Workspace", "Items Catalog"],

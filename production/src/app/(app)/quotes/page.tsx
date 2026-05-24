@@ -180,7 +180,7 @@ export default function QuotesPage() {
     : 0;
 
   return (
-    <div className="p-4 md:p-6 lg:p-8 max-w-[1800px] mx-auto">
+    <div className="p-4 md:p-6 lg:p-8 max-w-[1800px] mx-auto flex flex-col min-h-[calc(100vh-56px)]">
       {/* Header */}
       <div className="flex items-end justify-between gap-3 flex-wrap mb-6">
         <div>
@@ -506,13 +506,37 @@ export default function QuotesPage() {
                 })}
               </tbody>
             </table>
+            {/* Table footer: closes the empty space visually + summary */}
+            <div className="flex items-center justify-between gap-3 flex-wrap border-t border-hairline px-4 py-3 bg-paper-2/30 text-xs text-ink-3">
+              <div className="flex items-center gap-2">
+                <Icon name="check_circle" size={12} className="text-emerald" />
+                <span>End of list · Showing {filtered.length} of {counts.all ?? 0} quotes</span>
+              </div>
+              <div className="flex items-center gap-3">
+                <span>
+                  Pipeline value:{" "}
+                  <b className="text-ink tabular-nums">
+                    {rupee(filtered.reduce((s, q) => s + (q.amount ?? 0), 0), { compact: true })}
+                  </b>
+                </span>
+                <span className="hidden sm:inline">·</span>
+                <span className="hidden sm:inline">
+                  Renewals:{" "}
+                  <b className="text-ink tabular-nums">
+                    {filtered.filter((q) => q.is_renewal).length}
+                  </b>
+                </span>
+              </div>
+            </div>
           </Card>
 
-          {/* Help text */}
+          {/* Help text — pushed to bottom via mt-auto when content is short */}
           <div className="flex items-center gap-1.5 text-xs text-ink-3 mt-3">
             <Icon name="info" size={11} />
             Click any row to open the quote. Hit the file icon for a quick PDF preview.
           </div>
+          {/* Spacer that pushes everything else up when the page is short */}
+          <div className="mt-auto" aria-hidden />
         </>
       )}
 

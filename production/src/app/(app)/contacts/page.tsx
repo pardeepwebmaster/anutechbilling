@@ -229,9 +229,55 @@ export default function ContactsPage() {
         />
       )}
 
-      {/* Table */}
+      {/* Mobile card list — phones only */}
       {!isLoading && !error && filtered.length > 0 && (
-        <Card flush>
+        <ul className="md:hidden space-y-2 mb-3">
+          {filtered.map((c) => (
+            <li key={c.id} className="bg-paper border border-hairline rounded-lg p-3">
+              <div className="flex items-start gap-3">
+                <Avatar
+                  initials={c.name ? initials(c.name) : "?"}
+                  color={c.source === "customer" ? "emerald" : "amber"}
+                  size="sm"
+                />
+                <div className="min-w-0 flex-1">
+                  <p className="font-medium text-ink truncate">
+                    {c.name ?? <span className="italic text-ink-3">No name</span>}
+                  </p>
+                  {c.company && <p className="text-xs text-ink-3 truncate mt-0.5">{c.company}</p>}
+                  {c.email && (
+                    <a
+                      href={`mailto:${c.email}`}
+                      onClick={(e) => e.stopPropagation()}
+                      className="block font-mono text-[11px] text-amber-ink truncate mt-1"
+                    >
+                      {c.email}
+                    </a>
+                  )}
+                  {c.phone && (
+                    <a
+                      href={`tel:${c.phone}`}
+                      onClick={(e) => e.stopPropagation()}
+                      className="block font-mono text-[11px] text-amber-ink truncate"
+                    >
+                      {c.phone}
+                    </a>
+                  )}
+                </div>
+                <div className="shrink-0">
+                  <Badge kind={c.source === "customer" ? "success" : "warning"} size="sm" dot>
+                    {c.source === "customer" ? "Customer" : "Lead"}
+                  </Badge>
+                </div>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {/* Desktop table */}
+      {!isLoading && !error && filtered.length > 0 && (
+        <Card flush className="hidden md:block">
           <table className="w-full">
             <thead className="bg-paper-2 border-b border-hairline">
               <tr>

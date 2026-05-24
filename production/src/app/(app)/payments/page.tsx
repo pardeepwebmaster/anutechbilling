@@ -361,9 +361,53 @@ export default function PaymentsPage() {
         />
       )}
 
-      {/* Table */}
+      {/* Mobile card list — phones only */}
       {!isLoading && !error && filtered.length > 0 && (
-        <Card flush>
+        <ul className="md:hidden space-y-2 mb-3">
+          {filtered.map((p) => {
+            const ctx = quoteById.get(p.quote_id);
+            const customer = ctx?.customerId ? customerById.get(ctx.customerId) : undefined;
+            return (
+              <li key={p.id}>
+                <Link
+                  href={`/quotes/${p.quote_id}` as never}
+                  className="block bg-paper border border-hairline rounded-lg p-3 active:bg-paper-2/50"
+                >
+                  <div className="flex items-start justify-between gap-3 mb-1.5">
+                    <div className="min-w-0 flex-1">
+                      <p className="font-medium text-ink truncate">
+                        {customer?.name ?? ctx?.customerName ?? "—"}
+                      </p>
+                      <p className="font-mono text-[11px] text-ink-3 mt-0.5">{p.quote_id}</p>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <p className="font-serif text-base tabular-nums text-ink">{rupee(p.amount)}</p>
+                      <p className="text-[10px] text-ink-3">{p.method}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between gap-2 mt-2 pt-2 border-t border-hairline/60 text-xs">
+                    <span className="text-ink-3 truncate">
+                      {p.received_at ? formatDate(p.received_at) : "—"}
+                      {p.receipt_voucher_no && <> · <span className="font-mono">{p.receipt_voucher_no}</span></>}
+                    </span>
+                    <Badge
+                      kind={p.status === "received" ? "success" : "danger"}
+                      size="sm"
+                      dot
+                    >
+                      {p.status}
+                    </Badge>
+                  </div>
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+
+      {/* Desktop table */}
+      {!isLoading && !error && filtered.length > 0 && (
+        <Card flush className="hidden md:block">
           <table className="w-full">
             <thead className="bg-paper-2 border-b border-hairline">
               <tr>

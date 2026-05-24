@@ -222,9 +222,56 @@ export default function SubscriptionsPage() {
         />
       )}
 
-      {/* Table */}
+      {/* Mobile card list — phones only */}
       {!isLoading && !error && filtered.length > 0 && (
-        <Card flush>
+        <ul className="md:hidden space-y-2 mb-3">
+          {filtered.map((s) => {
+            const dl = daysUntil(s.renewal_date);
+            return (
+              <li key={s.id} className="bg-paper border border-hairline rounded-lg p-3">
+                <div className="flex items-start justify-between gap-3 mb-1.5">
+                  <div className="min-w-0 flex-1">
+                    <p className="font-medium text-ink truncate">{s.customer_name}</p>
+                    {s.domain && <p className="font-mono text-[11px] text-ink-3 truncate mt-0.5">{s.domain}</p>}
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className="font-serif text-base tabular-nums text-ink">{rupee(s.mrr)}</p>
+                    <p className="text-[10px] text-ink-3">/mo · {s.seats} seats</p>
+                  </div>
+                </div>
+                <p className="text-xs text-ink-2 mb-2 truncate">{s.plan}</p>
+                <div className="flex items-center justify-between gap-2 mt-2 pt-2 border-t border-hairline/60 text-xs">
+                  <div className="flex items-center gap-1.5">
+                    <Badge
+                      kind={
+                        s.status === "active"    ? "success" :
+                        s.status === "paused"    ? "warning" :
+                        s.status === "cancelled" ? "danger"  : "muted"
+                      }
+                      size="sm"
+                      dot
+                    >
+                      {s.status}
+                    </Badge>
+                    {dl !== null && dl >= 0 && dl <= 30 && (
+                      <Badge kind={dl <= 7 ? "danger" : "warning"} size="sm">
+                        {dl}d
+                      </Badge>
+                    )}
+                  </div>
+                  <span className="text-ink-3 tabular-nums">
+                    {s.renewal_date ? formatDate(s.renewal_date) : "—"}
+                  </span>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+
+      {/* Desktop table */}
+      {!isLoading && !error && filtered.length > 0 && (
+        <Card flush className="hidden md:block">
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead className="bg-paper-2 border-b border-hairline">

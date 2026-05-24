@@ -202,9 +202,47 @@ export default function ItemsPage() {
         />
       )}
 
-      {/* Items table */}
+      {/* Mobile card list — phones only */}
       {!isLoading && !error && filtered.length > 0 && (
-        <Card flush>
+        <ul className="md:hidden space-y-2 mb-3">
+          {filtered.map((it) => (
+            <li key={it.id}>
+              <button
+                type="button"
+                onClick={() => { setEditing(it); setAddOpen(true); }}
+                className={cn(
+                  "block w-full text-left bg-paper border border-hairline rounded-lg p-3 active:bg-paper-2/50",
+                  !it.is_active && "opacity-60"
+                )}
+              >
+                <div className="flex items-start justify-between gap-3 mb-1.5">
+                  <div className="min-w-0 flex-1">
+                    <p className="font-medium text-ink truncate">{it.name}</p>
+                    <p className="font-mono text-[11px] text-ink-3 mt-0.5">{it.id}</p>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className="font-serif text-base tabular-nums text-ink">{rupee(it.msrp)}</p>
+                    <p className="text-[10px] text-ink-3">{it.margin_pct}% margin</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1.5 flex-wrap mt-2 pt-2 border-t border-hairline/60">
+                  <Badge kind={it.kind === "main" ? "warning" : "info"} size="sm" dot>
+                    {it.kind === "main" ? "Main" : "Add-on"}
+                  </Badge>
+                  <Badge kind={it.vendor === "google" ? "info" : it.vendor === "microsoft" ? "info" : "success"} size="sm">
+                    {it.vendor}
+                  </Badge>
+                  {!it.is_active && <Badge kind="muted" size="sm">Inactive</Badge>}
+                </div>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {/* Desktop table */}
+      {!isLoading && !error && filtered.length > 0 && (
+        <Card flush className="hidden md:block">
           <table className="w-full">
             <thead className="bg-paper-2 border-b border-hairline">
               <tr>

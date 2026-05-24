@@ -723,7 +723,50 @@ export default function OnlineOrdersPage() {
             compact
           />
         ) : (
-          <div className="overflow-x-auto">
+          <>
+          {/* Mobile card list — phones only */}
+          <ul className="md:hidden space-y-2 p-3">
+            {filtered.map((o) => {
+              const s = STATUS_META[o.status];
+              return (
+                <li key={o.id}>
+                  <button
+                    type="button"
+                    onClick={() => setOpenId(o.id)}
+                    className="block w-full text-left bg-paper border border-hairline rounded-lg p-3 active:bg-paper-2/50"
+                  >
+                    <div className="flex items-start justify-between gap-3 mb-1.5">
+                      <div className="min-w-0 flex-1">
+                        <p className="font-mono text-xs font-semibold text-ink">{o.id}</p>
+                        <p className="text-sm font-medium text-ink mt-0.5 truncate">{o.company}</p>
+                        <p className="font-mono text-[11px] text-ink-3 truncate">{o.domain}</p>
+                      </div>
+                      <div className="text-right shrink-0">
+                        {o.total ? (
+                          <>
+                            <p className="font-serif text-base tabular-nums text-ink">{rupee(o.total)}</p>
+                            <p className="text-[10px] text-ink-3">{o.seats} seats</p>
+                          </>
+                        ) : (
+                          <Badge kind="warning" size="sm">Trial</Badge>
+                        )}
+                      </div>
+                    </div>
+                    <p className="text-xs text-ink-2 truncate mb-2">{o.tier}</p>
+                    <div className="flex items-center justify-between gap-2 mt-2 pt-2 border-t border-hairline/60">
+                      <Badge kind={s.kind} size="sm" dot>{s.label}</Badge>
+                      <span className="text-[11px] text-ink-3 truncate max-w-[60%] text-right">
+                        {o.nextAction}
+                      </span>
+                    </div>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+
+          {/* Desktop table */}
+          <div className="hidden md:block overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-hairline bg-muted/30">
@@ -835,6 +878,7 @@ export default function OnlineOrdersPage() {
               </tbody>
             </table>
           </div>
+          </>
         )}
       </Card>
 

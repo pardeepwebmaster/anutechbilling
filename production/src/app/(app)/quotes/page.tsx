@@ -334,7 +334,16 @@ export default function QuotesPage() {
                       onClick={() => router.push(`/quotes/${q.id}` as any)}
                       className="border-b border-hairline last:border-0 hover:bg-paper-2/40 cursor-pointer transition-colors"
                     >
-                      <td className="p-3 font-mono text-xs font-semibold text-ink">{q.id}</td>
+                      <td className="p-3 font-mono text-xs font-semibold text-ink">
+                        <div className="flex items-center gap-1.5">
+                          <span>{q.id}</span>
+                          {q.is_renewal && (
+                            <Badge kind="info" className="font-sans text-[10px]">
+                              Renewal
+                            </Badge>
+                          )}
+                        </div>
+                      </td>
                       <td className="p-3">
                         <div className="font-medium text-ink">{q.customer_name}</div>
                         {q.lead_id && (

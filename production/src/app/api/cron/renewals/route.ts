@@ -272,6 +272,7 @@ async function handle(req: Request): Promise<NextResponse<CronResult | { error: 
               interState:    false,
               validityDays:  30,
               notes:         "Renewal quote — auto-generated. Reply or call us with any questions.",
+              isRenewal:     true,
             });
             const arrBuf = await blob.arrayBuffer();
             attachments = [{

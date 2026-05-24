@@ -123,6 +123,7 @@ export async function createOrGetRenewalQuote(
     total_cost:     Math.round(annualAmount * 0.83),
     discount_pct:   0,
     tax_rate:       18,
+    is_renewal:     true,  // ← Drives the "Renewal" badge in /quotes list + detail + PDF
     notes:          input.notes
       ?? `Renewal quote for subscription ${input.subscriptionId}`,
   });

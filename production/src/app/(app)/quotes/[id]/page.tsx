@@ -198,7 +198,9 @@ export default function QuoteDetailPage() {
         <div className="flex items-start gap-3 min-w-0">
           <IconButton icon="arrow_left" aria-label="Back" onClick={() => router.push("/quotes" as any)} />
           <div className="min-w-0">
-            <p className="text-xs uppercase tracking-wider text-ink-3 font-semibold mb-1">Revenue · Quote</p>
+            <p className="text-xs uppercase tracking-wider text-ink-3 font-semibold mb-1">
+              Revenue · {quote.is_renewal ? "Renewal Quote" : "Quote"}
+            </p>
             <h1 className="font-serif text-3xl md:text-4xl leading-tight">
               {quote.id}
             </h1>
@@ -206,6 +208,12 @@ export default function QuoteDetailPage() {
               <span>For <b className="text-ink">{quote.customer_name}</b></span>
               <span>·</span>
               <Badge kind={status.kind} dot>{status.label}</Badge>
+              {quote.is_renewal && (
+                <>
+                  <span>·</span>
+                  <Badge kind="info">Renewal</Badge>
+                </>
+              )}
               {quote.payment_status !== "none" && (
                 <>
                   <span>·</span>

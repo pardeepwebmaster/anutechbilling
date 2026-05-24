@@ -67,7 +67,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     .select(`
       id, tenant_id, customer_id, customer_name, plan, seats, amount,
       status, payment_status, line_items, subtotal, discount_pct, tax_rate,
-      created_date, expires_date, notes
+      created_date, expires_date, notes, is_renewal
     `)
     .eq("id", params.id)
     .single();
@@ -167,6 +167,7 @@ ${tenant.name}${tenant.phone ? `\n${tenant.phone}` : ""}${tenant.email ? `\n${te
       interState:    false,        // shared CGST+SGST default; future: derive from tenant.state_code vs customer state
       validityDays:  30,
       notes:         quote.notes ?? undefined,
+      isRenewal:     quote.is_renewal,
     });
     const arrBuf = await blob.arrayBuffer();
     attachments = [{

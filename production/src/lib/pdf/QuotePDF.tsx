@@ -78,6 +78,9 @@ export interface QuotePDFProps {
   total:         number;
   interState:    boolean;
   notes?:        string;
+  /** When true, renders "Renewal Quotation" label + visible "RENEWAL" stamp.
+   *  Set by lib/renewals/create-renewal-quote.ts on the source quote. */
+  isRenewal?:    boolean;
 }
 
 // ─── Styles ───────────────────────────────────────────────────────────────
@@ -158,6 +161,21 @@ const s = StyleSheet.create({
     fontSize:  9,
     color:     COLORS.ink3,
     marginTop: 2,
+  },
+  renewalStamp: {
+    marginTop:       8,
+    paddingVertical: 3,
+    paddingHorizontal: 8,
+    backgroundColor: "#FDF6E0",
+    color:           "#7C5A00",
+    fontSize:        9,
+    fontFamily:      "Helvetica-Bold",
+    letterSpacing:   2,
+    textAlign:       "center",
+    alignSelf:       "flex-start",
+    borderWidth:     0.5,
+    borderColor:     "#C9A95C",
+    borderStyle:     "solid",
   },
 
   // 2-column block
@@ -322,7 +340,7 @@ export function QuotePDF(props: QuotePDFProps) {
     quoteId, customerName, contactName, contactEmail, contactPhone,
     createdDate, expiresDate, validityDays,
     lineItems, subtotal, discountPct, discount, taxable, taxRate, tax, total,
-    interState, notes,
+    interState, notes, isRenewal,
   } = props;
 
   const brandInitial = (tenantName?.trim()?.[0] ?? "?").toUpperCase();
@@ -369,10 +387,13 @@ export function QuotePDF(props: QuotePDFProps) {
             </View>
           </View>
           <View style={s.quoteMetaBlock}>
-            <Text style={s.quoteLabel}>Quotation</Text>
+            <Text style={s.quoteLabel}>{isRenewal ? "Renewal Quotation" : "Quotation"}</Text>
             <Text style={s.quoteId}>{quoteId}</Text>
             <Text style={s.quoteDate}>Dated: {formatDate(created)}</Text>
             <Text style={s.quoteDate}>Valid until: {formatDate(expires)}</Text>
+            {isRenewal && (
+              <Text style={s.renewalStamp}>RENEWAL</Text>
+            )}
           </View>
         </View>
 

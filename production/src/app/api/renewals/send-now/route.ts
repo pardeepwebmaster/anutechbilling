@@ -223,6 +223,7 @@ export async function POST(req: Request) {
         interState:    false,
         validityDays:  30,
         notes:         "Renewal quote. Reply or call us with any questions.",
+        isRenewal:     true,
       });
       const arrBuf = await blob.arrayBuffer();
       attachments = [{

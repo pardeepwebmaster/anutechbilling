@@ -234,6 +234,8 @@ type QuoteRow = {
   payment_received_at: string | null;
   payment_notes: string | null;
   invoice_id: string | null;
+  /** True when issued for the renewal of an existing subscription. Migration 0011. */
+  is_renewal: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -264,6 +266,7 @@ type QuoteInsert = {
   payment_received_at?: string | null;
   payment_notes?: string | null;
   invoice_id?: string | null;
+  is_renewal?: boolean;
 }
 type QuoteUpdate = Partial<QuoteInsert>;
 

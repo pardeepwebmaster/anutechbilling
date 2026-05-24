@@ -559,7 +559,7 @@ export default function OnlineOrdersPage() {
   ];
 
   return (
-    <div className="mx-auto max-w-screen-xl px-8 pb-20 pt-7">
+    <div className="mx-auto max-w-[1800px] px-8 pb-20 pt-7">
       {/* ── Page header ── */}
       <div className="mb-6 flex items-start justify-between gap-4">
         <div>

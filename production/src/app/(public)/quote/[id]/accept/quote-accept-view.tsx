@@ -256,7 +256,9 @@ export function QuoteAcceptView({
               <div className="border-t-2 border-ink pt-2 mt-2">
                 <div className="flex justify-between items-baseline">
                   <span className="text-[11px] uppercase tracking-widest font-semibold">
-                    {perInvoice ? `Per invoice (${billingN}/yr)` : "Total"}
+                    {/* Annual upfront (single yearly invoice) → emphasize "payable now"
+                        so customer knows full amount needs to clear in one go. */}
+                    {perInvoice ? `Per invoice (${billingN}/yr)` : (billingN === 1 ? "Total payable now" : "Total")}
                   </span>
                   <span className="font-serif text-2xl tabular-nums">
                     {perInvoice
@@ -268,6 +270,11 @@ export function QuoteAcceptView({
                   <div className="flex justify-between items-baseline mt-1.5 text-ink-3">
                     <span className="text-[11px]">Annual contract value</span>
                     <span className="text-sm tabular-nums">{rupee(total)}/yr</span>
+                  </div>
+                )}
+                {!perInvoice && billingN === 1 && (
+                  <div className="mt-1.5 text-[11px] text-emerald font-medium">
+                    ✓ One-time payment · covers full 12 months of service
                   </div>
                 )}
               </div>

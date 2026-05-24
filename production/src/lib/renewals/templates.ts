@@ -51,9 +51,11 @@ export function renderTemplate(tone: CadenceTone, ctx: RenewalTemplateContext): 
 
 Quick heads-up — your ${ctx.planName} subscription (${ctx.seats} seats) renews on ${ctx.renewalDate}. That's about ${ctx.daysUntil} days away.
 
-We've prepared a renewal quote for ${rupee(ctx.amount)}. Please find the PDF attached for your records.
+Renewal amount (1 year, single payment): ${rupee(ctx.amount)}
 
-${ctx.acceptLink ? `You can review and accept the renewal online: ${ctx.acceptLink}\n\n` : ""}There's no action needed right now — this is just a friendly notice so nothing catches you off-guard. Reply to this email if you want to discuss plan changes, additional seats, or any other adjustments before renewal.
+We've prepared a renewal quote, attached as PDF for your records.
+
+${ctx.acceptLink ? `Review and accept online: ${ctx.acceptLink}\n\n` : ""}There's no action needed right now — this is just a friendly notice so nothing catches you off-guard. Reply to this email if you want to discuss plan changes, additional seats, or any other adjustments before renewal.
 
 Thanks for being with us.
 

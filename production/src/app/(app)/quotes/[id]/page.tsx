@@ -22,6 +22,7 @@ import { MarginPill, computeMargin } from "@/components/features/margin-pill";
 import { RecordPaymentDialog } from "@/components/features/quotes/record-payment-dialog";
 import { QuotePreviewDialog } from "@/components/features/quotes/quote-preview-dialog";
 import { ReceiptVoucherDialog } from "@/components/features/quotes/receipt-voucher-dialog";
+import { SendQuoteDialog } from "@/components/features/quotes/send-quote-dialog";
 import { usePaymentsByQuote, totalReceived as sumReceived } from "@/lib/queries/payments";
 import { useCustomer } from "@/lib/queries/customers";
 import { useCurrentUser } from "@/lib/hooks/useCurrentUser";
@@ -64,6 +65,7 @@ export default function QuoteDetailPage() {
   const [previewOpen, setPreviewOpen] = React.useState(false);
   const [downloadingPdf, setDownloadingPdf] = React.useState(false);
   const [receiptPayment, setReceiptPayment] = React.useState<Payment | null>(null);
+  const [sendOpen, setSendOpen] = React.useState(false);
 
   const totalReceivedSoFar = sumReceived(paymentHistory ?? []);
 
@@ -287,18 +289,8 @@ export default function QuoteDetailPage() {
           </Button>
           <Button
             icon="mail"
-            onClick={() => {
-              const customerUrl = `${window.location.origin}/quote/${quote.id}/accept`;
-              const subject = `Your quote ${quote.id}`;
-              const signoff = me?.tenantName ?? "your team";
-              const body    =
-                `Hi,\n\nPlease review your quotation ${quote.id} at the link below.\n` +
-                `Total: ₹${total.toLocaleString("en-IN")} · Valid till ${quote.expires_date ?? "—"}\n\n` +
-                `${customerUrl}\n\n` +
-                `You can review, print, or accept the quote directly on that page.\n\n` +
-                `Reach out if you have any questions.\n\n— ${signoff}`;
-              window.location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-            }}
+            onClick={() => setSendOpen(true)}
+            title="Send quote PDF via email — uses configured email provider (or stub mode in dev)"
           >
             {quote.status === "sent" ? "Resend via email" : "Send via email"}
           </Button>
@@ -654,6 +646,16 @@ export default function QuoteDetailPage() {
         }
         notes={quote.notes ?? ""}
         isProspect={!!quote.lead_id}
+      />
+
+      {/* Send-via-email dialog — replaces legacy mailto: handler */}
+      <SendQuoteDialog
+        open={sendOpen}
+        onOpenChange={setSendOpen}
+        quoteId={quote.id}
+        customerName={quote.customer_name}
+        defaultRecipient={customer?.contact_email ?? null}
+        alreadySent={quote.status === "sent" || quote.status === "viewed"}
       />
     </div>
   );

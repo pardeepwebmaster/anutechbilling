@@ -512,6 +512,37 @@ type RenewalEmailLogInsert = {
 type RenewalEmailLogUpdate = Partial<RenewalEmailLogInsert>;
 
 // ============================================================
+// Quote send log (migration 0009) — audit of every quote email sent
+// ============================================================
+type QuoteSendLogRow = {
+  id:              string;
+  tenant_id:       string;
+  quote_id:        string;
+  recipient_email: string;
+  cc_emails:       string[] | null;
+  subject:         string | null;
+  status:          "sent" | "stubbed" | "failed";
+  provider_id:     string | null;
+  error_message:   string | null;
+  sent_by:         string | null;
+  sent_at:         string;
+};
+type QuoteSendLogInsert = {
+  id?:              string;
+  tenant_id:        string;
+  quote_id:         string;
+  recipient_email:  string;
+  cc_emails?:       string[] | null;
+  subject?:         string | null;
+  status:           "sent" | "stubbed" | "failed";
+  provider_id?:     string | null;
+  error_message?:   string | null;
+  sent_by?:         string | null;
+  sent_at?:         string;
+};
+type QuoteSendLogUpdate = Partial<QuoteSendLogInsert>;
+
+// ============================================================
 // Database type (the shape supabase-js expects)
 // ============================================================
 export type Database = {
@@ -528,6 +559,7 @@ export type Database = {
       payments:           { Row: PaymentRow;           Insert: PaymentInsert;           Update: PaymentUpdate;           Relationships: [] };
       tasks:              { Row: TaskRow;              Insert: TaskInsert;              Update: TaskUpdate;              Relationships: [] };
       renewal_email_log:  { Row: RenewalEmailLogRow;   Insert: RenewalEmailLogInsert;   Update: RenewalEmailLogUpdate;   Relationships: [] };
+      quote_send_log:     { Row: QuoteSendLogRow;      Insert: QuoteSendLogInsert;      Update: QuoteSendLogUpdate;      Relationships: [] };
     };
     Views: { [_ in never]: never };
     Functions: {

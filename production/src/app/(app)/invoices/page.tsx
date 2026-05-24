@@ -59,11 +59,20 @@ export default function InvoicesPage() {
     return () => clearTimeout(t);
   }, [openInvoiceId, invoices, router]);
 
-  // Counts
+  // Counts — split pending into bare-pending vs partial (advances applied).
+  // "Partial" is derived (not a DB enum value): status='pending' AND
+  // adjusted_advances non-empty. Useful for "how many invoices have SOME
+  // money in, balance still owed" — a different operational signal from
+  // "absolutely nothing received yet".
   const counts = React.useMemo(() => {
-    const map: Record<string, number> = { all: invoices?.length ?? 0 };
+    const map: Record<string, number> = { all: invoices?.length ?? 0, partial: 0, pending_bare: 0 };
     for (const inv of invoices ?? []) {
       map[inv.status] = (map[inv.status] ?? 0) + 1;
+      const hasAdv = Array.isArray(inv.adjusted_advances) && inv.adjusted_advances.length > 0;
+      if (inv.status === "pending") {
+        if (hasAdv) map.partial += 1;
+        else        map.pending_bare += 1;
+      }
     }
     return map;
   }, [invoices]);
@@ -71,13 +80,21 @@ export default function InvoicesPage() {
   const tabs: TabBarItem[] = [
     { id: "all",     label: "All",     count: counts.all ?? 0 },
     { id: "paid",    label: "Paid",    count: counts.paid ?? 0, dot: "emerald" },
-    { id: "pending", label: "Pending", count: counts.pending ?? 0, dot: "amber" },
+    { id: "partial", label: "Partial", count: counts.partial ?? 0, dot: "amber" },
+    { id: "pending", label: "Pending", count: counts.pending_bare ?? 0, dot: "amber" },
     { id: "overdue", label: "Overdue", count: counts.overdue ?? 0, dot: "rose" },
     { id: "draft",   label: "Draft",   count: counts.draft ?? 0 },
   ];
 
-  // Filter
-  const rows = (invoices ?? []).filter((i) => tab === "all" || i.status === tab);
+  // Filter — Partial and Pending both derive from status='pending', split by
+  // whether any advances were applied to the invoice.
+  const rows = (invoices ?? []).filter((i) => {
+    if (tab === "all") return true;
+    const hasAdv = Array.isArray(i.adjusted_advances) && i.adjusted_advances.length > 0;
+    if (tab === "partial") return i.status === "pending" && hasAdv;
+    if (tab === "pending") return i.status === "pending" && !hasAdv;
+    return i.status === tab;
+  });
 
   // KPIs
   const outstanding = (invoices ?? [])
@@ -553,11 +570,29 @@ function InvoiceRow({
         </div>
       </td>
       <td className="p-3">
-        {inv.status === "paid"    && <Badge kind="success" dot>Paid</Badge>}
-        {inv.status === "pending" && <Badge kind="warning" dot>Pending</Badge>}
-        {inv.status === "overdue" && <Badge kind="danger"  dot>Overdue {inv.overdue_days}d</Badge>}
-        {inv.status === "draft"   && <Badge kind="muted">Draft</Badge>}
-        {inv.status === "void"    && <Badge kind="muted">Void</Badge>}
+        {(() => {
+          // "Partial" is a derived display state, not a separate DB enum value.
+          // An invoice with status='pending' but adjusted_advances applied has
+          // already collected some money (the advance receipts), so showing
+          // bare "Pending" misleads the user into thinking nothing's been
+          // received. Same for status='overdue' with advances applied —
+          // "Overdue · Partial" reflects reality.
+          const hasAdvancesApplied = Array.isArray(inv.adjusted_advances) && inv.adjusted_advances.length > 0;
+          if (inv.status === "paid")    return <Badge kind="success" dot>Paid</Badge>;
+          if (inv.status === "pending") {
+            return hasAdvancesApplied
+              ? <Badge kind="warning" dot>Partial</Badge>
+              : <Badge kind="warning" dot>Pending</Badge>;
+          }
+          if (inv.status === "overdue") {
+            return hasAdvancesApplied
+              ? <Badge kind="danger"  dot>Overdue · Partial · {inv.overdue_days}d</Badge>
+              : <Badge kind="danger"  dot>Overdue {inv.overdue_days}d</Badge>;
+          }
+          if (inv.status === "draft")   return <Badge kind="muted">Draft</Badge>;
+          if (inv.status === "void")    return <Badge kind="muted">Void</Badge>;
+          return null;
+        })()}
       </td>
       <td className="p-3">
         <div className="flex gap-1">

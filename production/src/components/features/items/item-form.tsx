@@ -7,6 +7,7 @@ import * as React from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import { useQuery } from "@tanstack/react-query";
 
 import {
   Dialog,
@@ -26,11 +27,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Icon } from "@/components/ui/icon";
 import { useCreateItem, useUpdateItem } from "@/lib/queries/items";
 import { rupee } from "@/lib/utils";
 import { cn } from "@/lib/utils";
-import type { Item, ItemPrices, ItemPriceTier } from "@/lib/supabase/database.types";
+import { createClient } from "@/lib/supabase/client";
+import type { Item, ItemPrices, ItemPriceTier, TenantWithParent } from "@/lib/supabase/database.types";
 
 const VENDORS = [
   { value: "google",    label: "Google" },
@@ -89,6 +92,25 @@ export function ItemForm({ open, onOpenChange, item }: ItemFormProps) {
     },
   );
 
+  // Partner pricing (Slice 1 — migration 0041). Distributor tenants can mark
+  // a SKU visible to sub-reseller children + set the wholesale ₹/seat/mo
+  // those children pay. Section only renders when the caller's tenant is a
+  // distributor (read from get_my_tenant_with_parent RPC).
+  const [isPartnerVisible, setIsPartnerVisible] = React.useState(item?.is_partner_visible ?? false);
+  const [partnerPrice,     setPartnerPrice]     = React.useState<number>(item?.partner_price ?? 0);
+
+  const { data: hierarchy } = useQuery({
+    queryKey: ["tenant", "hierarchy", "form"],
+    queryFn: async (): Promise<TenantWithParent | null> => {
+      const supabase = createClient();
+      const { data } = await supabase.rpc("get_my_tenant_with_parent");
+      const row = Array.isArray(data) ? data[0] : data;
+      return (row as TenantWithParent | undefined) ?? null;
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+  const isDistributor = hierarchy?.tier === "distributor";
+
   const setTier = (tier: ItemPriceTier, field: "msrp" | "wholesale", value: number) => {
     setPrices((p) => ({
       ...p,
@@ -117,6 +139,8 @@ export function ItemForm({ open, onOpenChange, item }: ItemFormProps) {
         monthly: { ...blankTier },
         annual:  { ...blankTier },
       });
+      setIsPartnerVisible(false);
+      setPartnerPrice(0);
     } else if (item) {
       reset({ id: item.id, name: item.name, vendor: item.vendor, kind: item.kind, hsn: item.hsn ?? "998313" });
       setVendor(item.vendor);
@@ -129,6 +153,8 @@ export function ItemForm({ open, onOpenChange, item }: ItemFormProps) {
               annual: { msrp: item.msrp, wholesale: item.wholesale },
             },
       );
+      setIsPartnerVisible(item.is_partner_visible ?? false);
+      setPartnerPrice(item.partner_price ?? 0);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, item, reset]);
@@ -150,14 +176,30 @@ export function ItemForm({ open, onOpenChange, item }: ItemFormProps) {
       return;
     }
 
+    // Distributor sanity: if marked partner-visible, must have a partner price
+    if (isDistributor && isPartnerVisible && partnerPrice <= 0) {
+      alert("Partner price required when SKU is marked visible to sub-resellers");
+      return;
+    }
+
     // Auto-set legacy msrp/wholesale from the headline tier so downstream code keeps working
     const headline = cleanPrices.annual ?? cleanPrices.monthly ?? blankTier;
+
+    // Partner fields only apply for distributor tenants. For other tenants we
+    // leave them untouched (so sub-reseller catalogs don't get accidentally
+    // toggled to partner-visible).
+    const partnerPatch = isDistributor
+      ? {
+          is_partner_visible: isPartnerVisible,
+          partner_price:      isPartnerVisible ? partnerPrice : null,
+        }
+      : {};
 
     try {
       if (isEdit) {
         await updateItem.mutateAsync({
           id: item!.id,
-          patch: { ...data, msrp: headline.msrp, wholesale: headline.wholesale, prices: cleanPrices },
+          patch: { ...data, msrp: headline.msrp, wholesale: headline.wholesale, prices: cleanPrices, ...partnerPatch },
         });
       } else {
         await createItem.mutateAsync({
@@ -169,6 +211,7 @@ export function ItemForm({ open, onOpenChange, item }: ItemFormProps) {
           msrp: headline.msrp,
           wholesale: headline.wholesale,
           prices: cleanPrices,
+          ...partnerPatch,
         });
       }
       onOpenChange(false);
@@ -179,7 +222,7 @@ export function ItemForm({ open, onOpenChange, item }: ItemFormProps) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl">
+      <DialogContent className="md:!max-w-4xl">
         <DialogHeader>
           <DialogTitle>{isEdit ? `Edit item · ${item!.name}` : "Add catalog item"}</DialogTitle>
           <DialogDescription>
@@ -268,7 +311,7 @@ export function ItemForm({ open, onOpenChange, item }: ItemFormProps) {
             </div>
 
             {/* Header row */}
-            <div className="grid grid-cols-[minmax(220px,1fr)_150px_150px_90px] gap-3 px-4 py-2 bg-paper border-b border-hairline text-[10px] uppercase tracking-wider text-ink-3 font-semibold">
+            <div className="grid grid-cols-[minmax(220px,1fr)_170px_170px_100px] gap-3 px-4 py-2 bg-paper border-b border-hairline text-[10px] uppercase tracking-wider text-ink-3 font-semibold">
               <div>Commitment</div>
               <div className="text-right">Customer ₹</div>
               <div className="text-right">Cost ₹</div>
@@ -299,7 +342,7 @@ export function ItemForm({ open, onOpenChange, item }: ItemFormProps) {
                 <div
                   key={`${row.tier}-${row.unit}-${idx}`}
                   className={cn(
-                    "grid grid-cols-[minmax(220px,1fr)_150px_150px_90px] gap-3 items-center px-4 py-2.5 border-b border-hairline last:border-0",
+                    "grid grid-cols-[minmax(220px,1fr)_170px_170px_100px] gap-3 items-center px-4 py-2.5 border-b border-hairline last:border-0",
                     row.badge && "bg-amber-soft/30",
                   )}
                 >
@@ -350,6 +393,53 @@ export function ItemForm({ open, onOpenChange, item }: ItemFormProps) {
               );
             })}
           </div>
+
+          {/* ─── Partner pricing (distributor only) ─── */}
+          {isDistributor && (
+            <div className="rounded-lg border border-hairline overflow-hidden">
+              <div className="px-3 py-2 bg-paper-2 border-b border-hairline flex items-center justify-between">
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold text-ink inline-flex items-center gap-2 flex-wrap">
+                    Partner pricing
+                    <Badge kind="warning" size="sm">Distributor only</Badge>
+                  </div>
+                  <div className="text-[11px] text-ink-3">
+                    Sub-reseller children dekhenge ye SKU + price apne "From your distributor" tab me.
+                  </div>
+                </div>
+                <Icon name="link" size={13} className="text-ink-3 flex-shrink-0" />
+              </div>
+              <div className="px-4 py-3 space-y-3">
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={isPartnerVisible}
+                    onChange={(e) => setIsPartnerVisible(e.target.checked)}
+                    className="h-4 w-4 rounded border-hairline text-amber focus:ring-amber"
+                  />
+                  <span className="text-sm text-ink">Make visible to my sub-resellers</span>
+                </label>
+                <div className={cn("transition-opacity", !isPartnerVisible && "opacity-40 pointer-events-none")}>
+                  <FormField label="Partner wholesale price *" htmlFor="partner_price">
+                    <Input
+                      id="partner_price"
+                      type="number"
+                      min={0}
+                      prefix="₹"
+                      suffix="/seat/mo"
+                      placeholder="0"
+                      value={partnerPrice || ""}
+                      onChange={(e) => setPartnerPrice(Math.max(0, parseInt(e.target.value) || 0))}
+                      className="text-right tabular-nums max-w-xs"
+                    />
+                    <div className="mt-1 text-[10px] text-ink-3">
+                      Ye rate sub-reseller ka wholesale cost banega. Annual yearly bill ke liye × 12 hoga ({rupee(partnerPrice * 12)}/seat/yr).
+                    </div>
+                  </FormField>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Headline summary */}
           {headlineTier.msrp > 0 && (

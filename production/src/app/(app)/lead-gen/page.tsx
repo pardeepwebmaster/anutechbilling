@@ -12,6 +12,7 @@
 
 import * as React from "react";
 import Link from "next/link";
+import type { Route } from "next";
 import { useLeads } from "@/lib/queries/leads";
 import { AddLeadForm } from "@/components/features/leads/add-lead-form";
 import { toast } from "sonner";
@@ -650,7 +651,7 @@ export default function LeadGenPage() {
             <p className="text-xs text-ink-3">Last 7 days · sorted by recency</p>
           </div>
           <Button variant="default" size="sm" asChild>
-            <Link href="/leads">
+            <Link href={"/leads" as Route}>
               <Icon name="arrow_right" size={13} />
               Open Pipeline
             </Link>

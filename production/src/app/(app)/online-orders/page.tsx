@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/sheet";
 import { rupee } from "@/lib/utils";
 import { cn } from "@/lib/utils";
+import { createClient } from "@/lib/supabase/client";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -514,15 +515,185 @@ function DrawerRow({
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
+// ─── DB → UI mapping ─────────────────────────────────────────────────────────
+// Map a row from public.leads (where source LIKE 'buy-workspace%') into the
+// Order shape the UI expects. Many UI fields (Razorpay ID, invoice no, granular
+// progress) aren't populated yet — set to sensible defaults so the row still
+// renders. Once payments + provisioning land, we backfill from quotes/payments.
+
+interface LeadRow {
+  id:            string;
+  company:       string;
+  contact_name:  string | null;
+  contact_email: string | null;
+  contact_phone: string | null;
+  plan:          string | null;
+  seats:         number | null;
+  value:         number | null;
+  stage:         string;
+  source:        string | null;
+  notes:         string | null;
+  created_at:    string;
+}
+
+/** Derive a friendly tier name from the lead.plan label. */
+function tierFromPlan(plan: string | null): string {
+  if (!plan) return "Custom";
+  if (/starter/i.test(plan))    return "Business Starter";
+  if (/standard/i.test(plan))   return "Business Standard";
+  if (/plus/i.test(plan))       return "Business Plus";
+  if (/enterprise/i.test(plan)) return "Enterprise";
+  return plan;
+}
+
+/** Pull the trial domain out of the lead.notes (we wrote it there in the API). */
+function domainFromNotes(notes: string | null, email: string | null): string {
+  if (notes) {
+    const m = notes.match(/Domain:\s*([\w.-]+)/i);
+    if (m) return m[1];
+  }
+  if (email) {
+    const at = email.indexOf("@");
+    if (at > 0) return email.slice(at + 1);
+  }
+  return "—";
+}
+
+/** Status badge derived from lead stage + source. */
+function statusFromLead(l: LeadRow): OrderStatus {
+  const isTrial = (l.source ?? "").includes("trial") || l.stage === "trial";
+  if (isTrial) {
+    // Day count for trial: rough age in days since creation
+    const ageDays = Math.floor(
+      (Date.now() - new Date(l.created_at).getTime()) / 86_400_000,
+    );
+    if (ageDays >= 14) return "trial-expired";
+    if (ageDays >= 11) return "trial-converting";
+    return "trial-active";
+  }
+  if (l.stage === "lost")  return "issue";
+  if (l.stage === "won")   return "active";
+  if (l.stage === "quote") return "dns-pending";
+  return "provisioning";
+}
+
+/** Day number within trial (1-14), or null for paid orders. */
+function trialDay(l: LeadRow): number | null {
+  const isTrial = (l.source ?? "").includes("trial") || l.stage === "trial";
+  if (!isTrial) return null;
+  const age = Math.floor((Date.now() - new Date(l.created_at).getTime()) / 86_400_000);
+  return Math.max(1, Math.min(14, age + 1));
+}
+
+/** Convert ISO timestamp → "20 May · 09:42 AM" for display. */
+function formatCreatedAt(iso: string): string {
+  const d = new Date(iso);
+  const day = d.toLocaleDateString("en-IN", { day: "2-digit", month: "short" });
+  const time = d.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: true });
+  return `${day} · ${time}`;
+}
+
+/** Reasonable "next action" string based on stage + age. */
+function nextActionFromLead(l: LeadRow): string {
+  const isTrial = (l.source ?? "").includes("trial") || l.stage === "trial";
+  if (isTrial) {
+    const day = trialDay(l) ?? 1;
+    if (day >= 12) return `Day ${day} · time to send convert quote`;
+    if (day >= 7)  return `Day ${day} · scheduled health-check`;
+    return `Day ${day} · onboarding in progress`;
+  }
+  switch (l.stage) {
+    case "new":      return "New lead · qualify and call within 30 min";
+    case "contact":  return "Contacted · waiting for response";
+    case "quote":    return "Quote sent · awaiting acceptance";
+    case "won":      return "Paid · provisioning in progress";
+    case "lost":     return "Lost — review reason in notes";
+    default:         return "Review lead";
+  }
+}
+
+function leadToOrder(l: LeadRow): Order {
+  const isTrial = (l.source ?? "").includes("trial") || l.stage === "trial";
+  const tier    = tierFromPlan(l.plan);
+  const seats   = l.seats ?? 0;
+  const lineTotal = isTrial ? null : (l.value ?? null);
+  const gst       = lineTotal ? Math.round(lineTotal * 0.18) : null;
+  const total     = lineTotal && gst ? lineTotal + gst : null;
+  const day       = trialDay(l);
+
+  return {
+    id:          "ORD-" + l.id.replace(/^L-/, ""),
+    type:        isTrial ? "trial" : "paid",
+    createdAt:   formatCreatedAt(l.created_at),
+    company:     l.company || "—",
+    domain:      domainFromNotes(l.notes, l.contact_email),
+    gstin:       null,
+    contact:     {
+      name:  l.contact_name  ?? "—",
+      email: l.contact_email ?? "—",
+      phone: l.contact_phone ?? "—",
+    },
+    tier,
+    seats,
+    billing:     "annual",
+    monthlyRate: lineTotal && seats ? Math.round(lineTotal / seats / 12) : 0,
+    lineTotal,
+    gst,
+    total,
+    trialDay:    day,
+    trialEndsOn: isTrial
+      ? new Date(new Date(l.created_at).getTime() + 14 * 86_400_000)
+          .toLocaleDateString("en-IN", { day: "2-digit", month: "short" })
+      : null,
+    razorpayId:  null,    // future: from payments table
+    invoiceNo:   null,    // future: from invoices table
+    status:      statusFromLead(l),
+    source:      l.source ?? "buy-workspace",
+    progress:    isTrial
+      ? { trial: "done", onboarding: "active", checkin: "pending", convert: "pending" }
+      : { payment: "pending", invoice: "pending", tenant: "pending", users: "pending", dns: "pending", welcome: "pending" },
+    amAssigned:  "Pardeep A",
+    nextAction:  nextActionFromLead(l),
+  };
+}
+
 export default function OnlineOrdersPage() {
   const [tab, setTab]       = React.useState("all");
   const [search, setSearch] = React.useState("");
   const [openId, setOpenId] = React.useState<string | null>(null);
+  const [orders, setOrders] = React.useState<Order[]>(ONLINE_ORDERS);
 
-  const openOrder = ONLINE_ORDERS.find((o) => o.id === openId) ?? null;
+  // Fetch real leads with source from the buy page (paid enquiries + trials).
+  // RLS scopes by tenant automatically; no need to pass tenant_id here.
+  React.useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const supabase = createClient();
+      const { data, error } = await supabase
+        .from("leads")
+        .select("id, company, contact_name, contact_email, contact_phone, plan, seats, value, stage, source, notes, created_at")
+        .ilike("source", "buy-workspace%")
+        .order("created_at", { ascending: false })
+        .limit(100);
+
+      if (cancelled) return;
+      if (error) {
+        console.error("[online-orders] fetch failed:", error);
+        return;
+      }
+      const real = (data ?? []).map((r) => leadToOrder(r as LeadRow));
+      // Merge real data first, then keep demo orders below for layout/testing
+      // until the catalog has enough real orders. (Set to just `real` once
+      // you want to drop the seed demo entirely.)
+      setOrders(real.length > 0 ? [...real, ...ONLINE_ORDERS] : ONLINE_ORDERS);
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const openOrder = orders.find((o) => o.id === openId) ?? null;
 
   // Filtered list
-  const filtered = ONLINE_ORDERS.filter((o) => {
+  const filtered = orders.filter((o) => {
     if (tab === "paid"   && o.type !== "paid")    return false;
     if (tab === "trial"  && o.type !== "trial")   return false;
     if (tab === "issues" && o.status !== "issue") return false;
@@ -539,22 +710,24 @@ export default function OnlineOrdersPage() {
     return true;
   });
 
-  // KPI stats
-  const today      = ONLINE_ORDERS.filter((o) => o.createdAt.includes("20 May")).length;
-  const provis     = ONLINE_ORDERS.filter((o) => o.status === "provisioning").length;
-  const issues     = ONLINE_ORDERS.filter((o) => o.status === "issue").length;
-  const trialEx    = ONLINE_ORDERS.filter(
+  // KPI stats — all derived from the live `orders` state (real DB rows
+  // merged with the seed demo data at top of the file).
+  const todayStr   = new Date().toLocaleDateString("en-IN", { day: "2-digit", month: "short" });
+  const today      = orders.filter((o) => o.createdAt.includes(todayStr)).length;
+  const provis     = orders.filter((o) => o.status === "provisioning").length;
+  const issues     = orders.filter((o) => o.status === "issue").length;
+  const trialEx    = orders.filter(
     (o) => o.type === "trial" && (o.trialDay ?? 0) >= 11 && o.status === "trial-active",
   ).length;
-  const revenueMtd = ONLINE_ORDERS.filter((o) => o.type === "paid").reduce(
+  const revenueMtd = orders.filter((o) => o.type === "paid").reduce(
     (s, o) => s + (o.total ?? 0),
     0,
   );
 
   const tabItems: TabBarItem[] = [
-    { id: "all",    label: `All · ${ONLINE_ORDERS.length}` },
-    { id: "paid",   label: `Paid · ${ONLINE_ORDERS.filter((o) => o.type === "paid").length}` },
-    { id: "trial",  label: `Trials · ${ONLINE_ORDERS.filter((o) => o.type === "trial").length}` },
+    { id: "all",    label: `All · ${orders.length}` },
+    { id: "paid",   label: `Paid · ${orders.filter((o) => o.type === "paid").length}` },
+    { id: "trial",  label: `Trials · ${orders.filter((o) => o.type === "trial").length}` },
     { id: "issues", label: `Issues · ${issues}` },
   ];
 

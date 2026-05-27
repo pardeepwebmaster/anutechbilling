@@ -138,19 +138,34 @@ export function QuoteBuilder() {
 
     const seatsNum = leadSeats ? parseInt(leadSeats, 10) : 0;
 
-    // 1. Find the matching catalog item — tries exact match first, then substring match.
-    //    e.g. lead plan "Starter" → finds "Google Workspace Starter" (substring)
-    const target = leadPlan?.trim().toLowerCase();
+    // 1. Find the matching catalog item — tries exact / substring / tier-keyword.
+    //    Normalize hyphens to spaces because lead plans coming from the buy
+    //    page are stored as slugs like "google-workspace-standard" while
+    //    catalog item names use spaces ("Google Workspace Standard").
+    const normalize = (s: string) => s.trim().toLowerCase().replace(/[-_]+/g, " ").replace(/\s+/g, " ");
+    const target = leadPlan ? normalize(leadPlan) : "";
+
     let catalogItem = target
-      ? catalog.find((c) => c.name.trim().toLowerCase() === target)
+      ? catalog.find((c) => normalize(c.name) === target)
       : undefined;
 
     if (!catalogItem && target) {
-      // Substring match: catalog name contains the lead's plan keyword (or vice versa)
+      // Substring match: normalized catalog name contains the lead's plan keyword (or vice versa)
       catalogItem = catalog.find((c) => {
-        const n = c.name.trim().toLowerCase();
+        const n = normalize(c.name);
         return n.includes(target) || target.includes(n);
       });
+    }
+
+    if (!catalogItem && target) {
+      // Last-resort: pluck out a tier keyword ("starter" / "standard" / "plus" /
+      // "enterprise") from the lead plan and find a catalog item containing it.
+      // Handles slugs like "google-workspace-standard" cleanly.
+      const TIER_KEYWORDS = ["enterprise", "plus", "standard", "starter"];
+      const tierWord = TIER_KEYWORDS.find((k) => target.includes(k));
+      if (tierWord) {
+        catalogItem = catalog.find((c) => normalize(c.name).includes(tierWord));
+      }
     }
 
     let rate = 0;
@@ -253,14 +268,19 @@ export function QuoteBuilder() {
   const customer = customers?.find((c) => c.id === customerId);
   const interState = customer ? customer.state_code !== "27" && customer.state_code !== null : false;
 
-  // Live totals — always computed in ANNUAL ₹ for consistent math
-  const subtotal = lineItems.reduce((s, it) => s + it.qty * it.rate, 0);
-  const totalCost = lineItems.reduce((s, it) => s + it.qty * it.cost, 0);
-  const discount = Math.round(subtotal * (discountPct / 100));
-  const taxable = subtotal - discount;
-  const tax = Math.round(taxable * (taxRate / 100));
-  const total = taxable + tax;
-  const margin = computeMargin(totalCost, taxable);
+  // Per-line gross before any discount (list price × qty)
+  const grossSubtotal     = lineItems.reduce((s, it) => s + it.qty * it.rate, 0);
+  // Per-line discount sum (each line's discount_pct applied to its gross)
+  const lineDiscountTotal = lineItems.reduce((s, it) => s + Math.round(it.qty * it.rate * ((it.discount_pct ?? 0) / 100)), 0);
+  // Subtotal = gross minus per-line discounts (this is what quote-level discount applies on)
+  const subtotal          = grossSubtotal - lineDiscountTotal;
+  const totalCost         = lineItems.reduce((s, it) => s + it.qty * it.cost, 0);
+  // Quote-level discount on top of per-line discounts
+  const discount          = Math.round(subtotal * (discountPct / 100));
+  const taxable           = subtotal - discount;
+  const tax               = Math.round(taxable * (taxRate / 100));
+  const total             = taxable + tax;
+  const margin            = computeMargin(totalCost, taxable);
 
   // Billing-cycle display: if EVERY line item shares the same billing term, show
   // totals in that per-invoice unit (with the annual amount as a small hint).
@@ -299,6 +319,14 @@ export function QuoteBuilder() {
   const updateCost = (id: string, cost: number) => {
     setLineItems((s) => s.map((l) => (l.id === id ? { ...l, cost: Math.max(0, cost) } : l)));
   };
+  /** Per-line reseller discount (0–50%). Comes out of margin, not from Google wholesale. */
+  const updateDiscount = (id: string, pct: number) => {
+    const clamped = Math.max(0, Math.min(50, pct));
+    setLineItems((s) => s.map((l) => (l.id === id ? { ...l, discount_pct: clamped || undefined } : l)));
+  };
+  const updateDiscountReason = (id: string, reason: string) => {
+    setLineItems((s) => s.map((l) => (l.id === id ? { ...l, discount_reason: reason.trim() || undefined } : l)));
+  };
   const updateCommitment = (id: string, commitment: LineCommitment) => {
     setLineItems((s) =>
       s.map((l) => {
@@ -330,7 +358,10 @@ export function QuoteBuilder() {
   };
 
   // Submit
-  const handleSubmit = async (status: "draft" | "sent") => {
+  // afterAction lets the caller request a follow-up on the detail page
+  // (open the email or WhatsApp dialog as soon as we land). The detail
+  // page reads `?send=whatsapp` / `?send=email` from the URL.
+  const handleSubmit = async (status: "draft" | "sent", afterAction?: "email" | "whatsapp") => {
     // In lead mode, customer is NOT required (lead = potential customer).
     // A real customer record gets created only after payment.
     if (!isLeadMode && !customerId) {
@@ -405,7 +436,8 @@ export function QuoteBuilder() {
         }
       }
 
-      router.push(`/quotes/${quote.id}` as any);
+      const suffix = afterAction ? `?send=${afterAction}` : "";
+      router.push(`/quotes/${quote.id}${suffix}` as any);
     } catch {
       // toast in hook
     }
@@ -741,7 +773,10 @@ export function QuoteBuilder() {
             </thead>
             <tbody>
               {lineItems.map((line) => {
-                const lineMargin = computeMargin(line.cost * line.qty, line.rate * line.qty);
+                // Per-line discount → effective net rate (used for actual margin)
+                const lineDiscountPct = line.discount_pct ?? 0;
+                const netRate         = line.rate * (1 - lineDiscountPct / 100);
+                const lineMargin      = computeMargin(line.cost * line.qty, netRate * line.qty);
 
                 // Display unit depends on commitment + billing term.
                 // Storage is always ₹/seat/YEAR — divide by invoicesPerYear for display.
@@ -752,6 +787,9 @@ export function QuoteBuilder() {
                 const displayRate = Math.round(line.rate / billingN);
                 const displayCost = Math.round(line.cost / billingN);
                 const isPerInvoice = billingN > 1; // anything other than yearly invoice
+                const lineGross   = line.qty * line.rate;
+                const lineDiscount = Math.round(lineGross * (lineDiscountPct / 100));
+                const lineNet     = lineGross - lineDiscount;
 
                 // When user edits, convert back to annual for storage
                 const handleRateChange = (raw: number) => updateRate(line.id, raw * billingN);
@@ -794,6 +832,35 @@ export function QuoteBuilder() {
                           className="w-16 px-1 py-0.5 text-[11px] text-right tabular-nums border border-hairline rounded bg-paper focus:outline-none focus:ring-1 focus:ring-amber focus:border-amber"
                         />
                         <span>/seat{unitLabel} · Margin {lineMargin.marginPct}%</span>
+                      </div>
+                      {/* Per-line reseller discount (B2B special pricing) — comes out of MY margin */}
+                      <div className="mt-1.5 flex items-center gap-1.5 flex-wrap text-[11px]">
+                        <span className="text-ink-3 font-medium">Disc</span>
+                        <input
+                          type="number"
+                          min={0}
+                          max={50}
+                          step={1}
+                          value={lineDiscountPct || ""}
+                          placeholder="0"
+                          onChange={(e) => updateDiscount(line.id, parseInt(e.target.value) || 0)}
+                          className="w-12 px-1 py-0.5 text-[11px] text-right tabular-nums border border-hairline rounded bg-paper focus:outline-none focus:ring-1 focus:ring-amber focus:border-amber"
+                        />
+                        <span className="text-ink-3">%</span>
+                        {lineDiscountPct > 0 && (
+                          <>
+                            <input
+                              type="text"
+                              value={line.discount_reason ?? ""}
+                              placeholder="Reason (e.g., Loyalty)"
+                              onChange={(e) => updateDiscountReason(line.id, e.target.value)}
+                              className="flex-1 min-w-[100px] px-1.5 py-0.5 text-[11px] border border-hairline rounded bg-paper focus:outline-none focus:ring-1 focus:ring-amber focus:border-amber"
+                            />
+                            <span className="text-emerald font-medium tabular-nums">
+                              −{rupee(lineDiscount)}
+                            </span>
+                          </>
+                        )}
                       </div>
                       {/* Commitment + billing-term selectors */}
                       <div className="mt-1.5 flex items-center gap-2 flex-wrap">
@@ -854,12 +921,22 @@ export function QuoteBuilder() {
                           {/* Per-invoice amount = what customer pays each billing cycle */}
                           <div>{rupee(line.qty * displayRate)}{unitLabel}</div>
                           <div className="text-[10px] text-ink-3 font-normal">
-                            = {rupee(line.qty * line.rate)}/yr
+                            = {rupee(lineNet)}/yr
+                            {lineDiscountPct > 0 && (
+                              <span className="text-ink-3"> (was {rupee(lineGross)})</span>
+                            )}
                           </div>
                         </>
                       ) : (
                         // Yearly bill — single annual invoice
-                        <div>{rupee(line.qty * line.rate)}</div>
+                        <div>
+                          {rupee(lineNet)}
+                          {lineDiscountPct > 0 && (
+                            <div className="text-[10px] text-ink-3 font-normal line-through">
+                              {rupee(lineGross)}
+                            </div>
+                          )}
+                        </div>
                       )}
                     </td>
                     <td className="p-2 text-right">
@@ -894,12 +971,22 @@ export function QuoteBuilder() {
 
             {/* Totals (right) */}
             <div className="bg-paper-2 rounded-lg p-4 space-y-2.5 self-start">
-              <TotalRow label={totalsLabel} value={fmtTotal(subtotal)} />
+              {/* Show gross + line-level discount aggregate when any line has discount */}
+              {lineDiscountTotal > 0 && (
+                <>
+                  <TotalRow label="Gross (list price)" value={fmtTotal(grossSubtotal)} />
+                  <div className="flex items-center justify-between text-sm text-emerald">
+                    <span>Line discounts</span>
+                    <span className="tabular-nums">−{fmtTotal(lineDiscountTotal)}</span>
+                  </div>
+                </>
+              )}
+              <TotalRow label={lineDiscountTotal > 0 ? `Subtotal (after line disc)` : totalsLabel} value={fmtTotal(subtotal)} />
 
-              {/* Inline discount editor */}
+              {/* Inline discount editor — quote-level (on top of per-line) */}
               <div className="flex items-center justify-between text-sm">
                 <div className="flex items-center gap-2 text-ink-3">
-                  <span>Discount</span>
+                  <span>Quote discount</span>
                   <input
                     type="number"
                     min={0}
@@ -976,14 +1063,33 @@ export function QuoteBuilder() {
         )}
       </Card>
 
-      {/* Bottom action row */}
+      {/* Bottom action row — all 3 send-shaped buttons save the quote first
+          (status='sent') and then signal the detail page to open the right
+          dialog via a ?send= query param. "Duplicate" stays placeholder
+          until we wire a real duplicate flow. */}
       {lineItems.length > 0 && (
         <div className="flex justify-end gap-2 flex-wrap">
-          <Button variant="ghost" icon="copy">Duplicate</Button>
-          <Button icon="mail">Send via email</Button>
+          <Button
+            variant="ghost"
+            icon="copy"
+            onClick={() => toast.info("Duplicate is coming soon — for now use Quotes → New")}
+          >
+            Duplicate
+          </Button>
+          <Button
+            icon="mail"
+            onClick={() => handleSubmit("sent", "email")}
+            loading={createQuote.isPending}
+            disabled={!isLeadMode && !customerId}
+          >
+            Send via email
+          </Button>
           <Button
             icon="whatsapp"
             className="!text-[#25D366] !border-[#25D366] hover:!bg-[#25D366]/5"
+            onClick={() => handleSubmit("sent", "whatsapp")}
+            loading={createQuote.isPending}
+            disabled={!isLeadMode && !customerId}
           >
             Send via WhatsApp
           </Button>

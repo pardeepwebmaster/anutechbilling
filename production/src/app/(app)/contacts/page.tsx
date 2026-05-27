@@ -9,6 +9,8 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
 import { useAllContacts } from "@/lib/queries/contacts";
+import ImportContactsDialog from "@/components/features/contacts/import-contacts-dialog";
+import { useQueryClient } from "@tanstack/react-query";
 import { GeminiCard } from "@/components/shared/gemini-card";
 import { EmptyState } from "@/components/shared/empty-state";
 import { KPI } from "@/components/shared/kpi";
@@ -24,17 +26,42 @@ import { formatDate, initials } from "@/lib/utils";
 
 const SOURCE_TABS: TabBarItem[] = [
   { id: "all",      label: "All" },
-  { id: "lead",     label: "From Leads",     dot: "amber" },
+  { id: "lead",     label: "From Leads",     dot: "amber"   },
   { id: "customer", label: "From Customers", dot: "emerald" },
+  { id: "imported", label: "Imported",       dot: "indigo"  },
 ];
 
 export default function ContactsPage() {
   const router = useRouter();
+  const qc = useQueryClient();
   const { data: contacts, isLoading, error, refetch } = useAllContacts();
 
   const [tab, setTab]       = React.useState("all");
   const [search, setSearch] = React.useState("");
   const [selected, setSelected] = React.useState<Set<string>>(new Set());
+  const [importOpen, setImportOpen] = React.useState(false);
+
+  // Promote a single imported contact to lead
+  async function promoteOne(contactId: string) {
+    try {
+      const res = await fetch(`/api/contacts/${contactId}/promote`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        toast.error(json.error ?? "Could not promote");
+        return;
+      }
+      toast.success(`Promoted → lead ${json.leadId}`);
+      qc.invalidateQueries({ queryKey: ["contacts", "all"] });
+      qc.invalidateQueries({ queryKey: ["leads"] });
+      router.push(`/leads?lead=${json.leadId}` as never);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Network error");
+    }
+  }
 
   // Filter
   const filtered = (contacts ?? []).filter((c) => {
@@ -116,11 +143,13 @@ export default function ContactsPage() {
           <Button icon="download" onClick={() => toast.info("Export coming soon")}>
             Export CSV
           </Button>
-          <Button icon="upload" onClick={() => toast.info("Import coming soon")}>
-            Import CSV
+          <Button variant="primary" icon="upload" onClick={() => setImportOpen(true)}>
+            Import from Google
           </Button>
         </div>
       </div>
+
+      <ImportContactsDialog open={importOpen} onOpenChange={setImportOpen} />
 
       {/* KPIs */}
       {!isLoading && contacts && (
@@ -265,8 +294,12 @@ export default function ContactsPage() {
                   )}
                 </div>
                 <div className="shrink-0">
-                  <Badge kind={c.source === "customer" ? "success" : "warning"} size="sm" dot>
-                    {c.source === "customer" ? "Customer" : "Lead"}
+                  <Badge
+                    kind={c.source === "customer" ? "success" : c.source === "imported" ? "info" : "warning"}
+                    size="sm"
+                    dot
+                  >
+                    {c.source === "customer" ? "Customer" : c.source === "imported" ? "Imported" : "Lead"}
                   </Badge>
                 </div>
               </div>
@@ -342,25 +375,40 @@ export default function ContactsPage() {
                     </td>
                     <td className="p-3 text-xs font-mono text-ink-2">{c.phone ?? "—"}</td>
                     <td className="p-3">
-                      <Badge kind={c.source === "customer" ? "success" : "warning"} dot>
-                        {c.source === "customer" ? "Customer" : "Lead"}
+                      <Badge
+                        kind={c.source === "customer" ? "success" : c.source === "imported" ? "info" : "warning"}
+                        dot
+                      >
+                        {c.source === "customer" ? "Customer" : c.source === "imported" ? "Imported" : "Lead"}
                       </Badge>
                     </td>
                     <td className="p-3 text-xs text-ink-3">{formatDate(c.createdAt)}</td>
                     <td className="p-3 text-right" onClick={(e) => e.stopPropagation()}>
-                      <IconButton
-                        icon="arrow_right"
-                        size="sm"
-                        variant="ghost"
-                        aria-label="Open record"
-                        onClick={() => {
-                          const path =
-                            c.source === "lead"
-                              ? `/leads?lead=${c.refId}`
-                              : `/customers/${c.refId}`;
-                          router.push(path as any);
-                        }}
-                      />
+                      {c.source === "imported" ? (
+                        <Button
+                          size="sm"
+                          variant="primary"
+                          icon="arrow_right"
+                          onClick={(e) => { e.stopPropagation(); promoteOne(c.refId); }}
+                          title="Convert this contact into a lead at stage='new'"
+                        >
+                          Promote
+                        </Button>
+                      ) : (
+                        <IconButton
+                          icon="arrow_right"
+                          size="sm"
+                          variant="ghost"
+                          aria-label="Open record"
+                          onClick={() => {
+                            const path =
+                              c.source === "lead"
+                                ? `/leads?lead=${c.refId}`
+                                : `/customers/${c.refId}`;
+                            router.push(path as never);
+                          }}
+                        />
+                      )}
                     </td>
                   </tr>
                 );

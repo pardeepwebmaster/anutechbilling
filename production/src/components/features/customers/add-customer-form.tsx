@@ -1,5 +1,15 @@
 /**
  * AddCustomerForm — modal dialog to create a new customer.
+ *
+ * Flow we want Pardeep to use:
+ *   1. Type / paste the customer's GSTIN
+ *   2. Click "Verify with GSTN" — Sandbox API returns the live business info
+ *   3. Click "Fill form from GST" — legal name, address, state, PIN auto-fill
+ *   4. Add contact details, save
+ *
+ * Why this matters: a wrong customer GSTIN means the invoice is invalid
+ * — customer can't claim ITC, then a chargeback / complaint comes back to
+ * Pardeep. Verifying up front prevents that.
  */
 "use client";
 
@@ -18,38 +28,33 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { FormField } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Icon } from "@/components/ui/icon";
 import { Button } from "@/components/ui/button";
 import { useCreateCustomer } from "@/lib/queries/customers";
-import { isValidGstin } from "@/lib/utils";
+import {
+  isValidGstin,
+  validateGstin,
+  gstStateFromGstin,
+  GST_STATE_BY_CODE,
+} from "@/lib/utils";
+import GstinVerifyCard from "@/components/features/gstin/gstin-verify-card";
+import type { GstinVerification } from "@/lib/supabase/database.types";
 
-const STATES = [
-  { value: "27", label: "Maharashtra (27)" },
-  { value: "29", label: "Karnataka (29)" },
-  { value: "33", label: "Tamil Nadu (33)" },
-  { value: "07", label: "Delhi (07)" },
-  { value: "24", label: "Gujarat (24)" },
-  { value: "06", label: "Haryana (06)" },
-  { value: "09", label: "Uttar Pradesh (09)" },
-  { value: "19", label: "West Bengal (19)" },
-  { value: "36", label: "Telangana (36)" },
-  { value: "32", label: "Kerala (32)" },
-] as const;
-
+// Schema — GSTIN optional but checksum-validated when present. State code
+// stays in the schema (it's needed for GST math) but the visible input
+// field is dropped; we auto-derive from GSTIN, same pattern as Settings.
 const schema = z.object({
   name:          z.string().min(2, "Company name is required"),
   domain:        z.string().optional(),
-  gstin:         z.string().optional().refine(
-    (v) => !v || isValidGstin(v),
-    "Invalid GSTIN format"
-  ),
-  state_code:    z.string(),
+  gstin:         z.string().trim().optional().superRefine((v, ctx) => {
+    if (!v) return;
+    const r = validateGstin(v);
+    if (!r.ok) ctx.addIssue({ code: z.ZodIssueCode.custom, message: r.message });
+  }),
+  state:         z.string().optional(),
+  state_code:    z.string().regex(/^\d{0,2}$/).optional(),
+  address:       z.string().optional(),
+  pin_code:      z.string().regex(/^\d{0,6}$/, "6-digit PIN (or blank)").optional(),
   contact_name:  z.string().optional(),
   contact_title: z.string().optional(),
   contact_email: z.string().email("Invalid email").optional().or(z.literal("")),
@@ -65,38 +70,57 @@ interface AddCustomerFormProps {
 
 export function AddCustomerForm({ open, onOpenChange }: AddCustomerFormProps) {
   const createCustomer = useCreateCustomer();
-  const [stateCode, setStateCode] = React.useState("27");
+  // Hold the live verification result so we can persist it with the
+  // create call (no extra round-trip).
+  const [verification, setVerification] = React.useState<GstinVerification | null>(null);
 
   const {
     register,
     handleSubmit,
     reset,
+    watch,
+    setValue,
     formState: { errors, isSubmitting },
   } = useForm<FormData>({
     resolver: zodResolver(schema),
-    defaultValues: { state_code: "27" },
+    defaultValues: {},
   });
 
+  // Wipe form + verification on dialog close so reopening starts clean.
   React.useEffect(() => {
     if (!open) {
       reset();
-      setStateCode("27");
+      setVerification(null);
     }
   }, [open, reset]);
 
+  // Auto-derive state + state_code from GSTIN on every keystroke. Same
+  // logic as Settings — first 2 digits of GSTIN = state code.
+  const watchedGstin = watch("gstin");
+  React.useEffect(() => {
+    const { code, name } = gstStateFromGstin(watchedGstin ?? "");
+    if (code) setValue("state_code", code, { shouldDirty: true });
+    if (name) setValue("state",      name, { shouldDirty: true });
+  }, [watchedGstin, setValue]);
+
   const onSubmit = async (data: FormData) => {
-    const stateLabel = STATES.find((s) => s.value === data.state_code)?.label;
     try {
       await createCustomer.mutateAsync({
-        name: data.name,
-        domain: data.domain || null,
-        gstin: data.gstin || null,
-        state: stateLabel ?? null,
-        state_code: data.state_code,
-        contact_name: data.contact_name || null,
-        contact_title: data.contact_title || null,
-        contact_email: data.contact_email || null,
-        contact_phone: data.contact_phone || null,
+        name:          data.name.trim(),
+        domain:        data.domain?.trim()        || null,
+        gstin:         data.gstin?.trim()         || null,
+        state:         data.state?.trim()         || null,
+        state_code:    data.state_code?.trim()    || null,
+        address:       data.address?.trim()       || null,
+        pin_code:      data.pin_code?.trim()      || null,
+        contact_name:  data.contact_name?.trim()  || null,
+        contact_title: data.contact_title?.trim() || null,
+        contact_email: data.contact_email?.trim() || null,
+        contact_phone: data.contact_phone?.trim() || null,
+        // If they verified during this session, ride the result along
+        // so the new customer is "verified" on creation.
+        gstin_verification: verification,
+        gstin_verified_at:  verification ? new Date().toISOString() : null,
       });
       onOpenChange(false);
     } catch {
@@ -106,20 +130,71 @@ export function AddCustomerForm({ open, onOpenChange }: AddCustomerFormProps) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-xl">
+      <DialogContent className="max-w-2xl">
         <DialogHeader>
           <DialogTitle>Add a customer</DialogTitle>
           <DialogDescription>
-            Create a customer record. GSTIN is optional but enables auto e-invoice.
+            Type the GSTIN first — we'll verify with GSTN and auto-fill the rest.
           </DialogDescription>
         </DialogHeader>
 
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-          {/* Company name */}
+          {/* GSTIN — leads the form. Verify card lives directly under it. */}
+          <FormField label="GSTIN (recommended)" htmlFor="gstin">
+            <Input
+              id="gstin"
+              placeholder="07ABDCA0298H1ZP"
+              className="font-mono uppercase"
+              error={errors.gstin?.message}
+              {...register("gstin")}
+            />
+            {(() => {
+              const v = (watchedGstin ?? "").trim();
+              if (v.length < 15) return (
+                <p className="mt-1 text-[10px] text-ink-3">
+                  State + code auto-fill from the first 2 digits. Then click Verify with GSTN to confirm + auto-fill.
+                </p>
+              );
+              if (isValidGstin(v)) return (
+                <p className="mt-1 text-[10px] text-emerald inline-flex items-center gap-1">
+                  <Icon name="check_circle" size={11} /> Format + checksum match. Click Verify to confirm.
+                </p>
+              );
+              const r = validateGstin(v);
+              return (
+                <p className="mt-1 text-[10px] text-rose inline-flex items-center gap-1">
+                  <Icon name="alert" size={11} /> {r.ok ? "" : r.message}
+                </p>
+              );
+            })()}
+            <GstinVerifyCard
+              gstin={watchedGstin ?? ""}
+              cached={verification}
+              cachedAt={null}
+              noPersist  /* don't save yet — customer doesn't exist; ride payload along on submit */
+              onVerified={(v) => setVerification(v)}
+              onFillForm={(v) => {
+                if (v.legal_name)                  setValue("name",       v.legal_name,                  { shouldDirty: true, shouldValidate: true });
+                if (v.address)                     setValue("address",    v.address,                     { shouldDirty: true, shouldValidate: true });
+                if (v.principal_address?.pin_code) setValue("pin_code",   v.principal_address.pin_code,  { shouldDirty: true, shouldValidate: true });
+                if (v.state_code) {
+                  setValue("state_code", v.state_code,                                            { shouldDirty: true, shouldValidate: true });
+                  const name = GST_STATE_BY_CODE[v.state_code];
+                  if (name) setValue("state",      name,                                          { shouldDirty: true, shouldValidate: true });
+                }
+              }}
+            />
+          </FormField>
+
+          {/* Hidden — derived from GSTIN. Kept in form data so GST math
+              and invoice PDFs have the canonical 2-digit code on save. */}
+          <input type="hidden" {...register("state_code")} />
+
+          {/* Company name — auto-filled by Fill from GST, manually
+              editable too. */}
           <FormField label="Company name" required htmlFor="name">
             <Input
               id="name"
-              autoFocus
               placeholder="Acme Corp Pvt Ltd"
               error={errors.name?.message}
               {...register("name")}
@@ -127,44 +202,41 @@ export function AddCustomerForm({ open, onOpenChange }: AddCustomerFormProps) {
           </FormField>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <FormField label="Domain" htmlFor="domain">
+            <FormField label="Registered state" htmlFor="state">
               <Input
-                id="domain"
-                placeholder="acmecorp.com"
-                {...register("domain")}
+                id="state"
+                placeholder="Auto-filled from GSTIN"
+                {...register("state")}
               />
             </FormField>
-            <FormField label="GSTIN" htmlFor="gstin">
+            <FormField label="PIN code" htmlFor="pin_code">
               <Input
-                id="gstin"
-                placeholder="27AABCE9876D1Z3"
-                className="font-mono uppercase"
-                error={errors.gstin?.message}
-                {...register("gstin")}
+                id="pin_code"
+                className="font-mono"
+                placeholder="400051"
+                maxLength={6}
+                error={errors.pin_code?.message}
+                {...register("pin_code")}
               />
             </FormField>
           </div>
 
-          <FormField label="State" required htmlFor="state_code">
-            <Select
-              value={stateCode}
-              onValueChange={(v) => {
-                setStateCode(v);
-                (register("state_code") as any).onChange({ target: { value: v, name: "state_code" } });
-              }}
-            >
-              <SelectTrigger id="state_code">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {STATES.map((s) => (
-                  <SelectItem key={s.value} value={s.value}>
-                    {s.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <input type="hidden" {...register("state_code")} value={stateCode} />
+          <FormField label="Billing address" htmlFor="address">
+            <textarea
+              id="address"
+              rows={2}
+              placeholder="Auto-filled from GSTIN — appears on every GST invoice"
+              className="w-full rounded-md border border-hairline bg-paper px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-amber resize-none"
+              {...register("address")}
+            />
+          </FormField>
+
+          <FormField label="Domain (optional)" htmlFor="domain">
+            <Input
+              id="domain"
+              placeholder="acmecorp.com"
+              {...register("domain")}
+            />
           </FormField>
 
           <div className="h-px bg-hairline" />

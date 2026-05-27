@@ -1,7 +1,6 @@
 "use client";
 
 import * as React from "react";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -29,7 +28,6 @@ const schema = z.object({
 type FormData = z.infer<typeof schema>;
 
 export default function SignupPage() {
-  const router = useRouter();
   const [showPassword, setShowPassword] = React.useState(false);
   const {
     register,
@@ -70,13 +68,14 @@ export default function SignupPage() {
 
     if (signInError) {
       toast.success("Account created! Please sign in.");
-      router.push("/login");
+      window.location.href = "/login";
       return;
     }
 
     toast.success("Welcome to ResellerOS! 🎉");
-    router.push("/dashboard");
-    router.refresh();
+    // Hard navigation — guarantees fresh auth cookies reach the next request
+    // (see comment in login/page.tsx for the Firebase Hosting proxy reason).
+    window.location.href = "/dashboard";
   }
 
   return (

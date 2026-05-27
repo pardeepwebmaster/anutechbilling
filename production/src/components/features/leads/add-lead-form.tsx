@@ -16,9 +16,13 @@
 "use client";
 
 import * as React from "react";
+import { useRouter } from "next/navigation";
+import type { Route } from "next";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import { useQuery } from "@tanstack/react-query";
+import { toast } from "sonner";
 
 import {
   Dialog,
@@ -38,8 +42,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
+import { Icon } from "@/components/ui/icon";
 import { useCreateLead, useUpdateLead } from "@/lib/queries/leads";
-import type { Lead } from "@/lib/supabase/database.types";
+import { useCurrentUser } from "@/lib/hooks/useCurrentUser";
+import { createClient } from "@/lib/supabase/client";
+import { isValidGstin, validateGstin } from "@/lib/utils";
+import { cn } from "@/lib/utils";
+import type { Lead, LeadPriority } from "@/lib/supabase/database.types";
 
 const STAGES = [
   { value: "new",     label: "New" },
@@ -50,6 +59,15 @@ const STAGES = [
   { value: "won",     label: "Won" },
   { value: "lost",    label: "Lost" },
 ] as const;
+
+// Stages that REQUIRE a plan to be selected — they only make sense once
+// the lead has been qualified into a deal. A raw lead with stage "Quote
+// Sent" is inconsistent (quote of what?), so we gate these in the UI.
+//
+// Raw-lead stages (no plan needed): new, contact, lost (qualification-track)
+// Deal-track stages (plan required): demo, trial, quote, won
+const PLAN_ONLY_STAGES = ["demo", "trial", "quote", "won"] as const;
+const RAW_LEAD_STAGE_VALUES = ["new", "contact", "lost"] as const;
 
 const SOURCES = [
   { value: "manual",            label: "Added manually" },
@@ -97,16 +115,40 @@ const PLAN_PRICE_PER_SEAT_PM: Record<string, number> = {
 //   • Empty  → the lead lives in the Lead Inbox awaiting qualification.
 // This matches the conceptual split: raw inquiries (Inbox) vs qualified
 // opportunities (Pipeline). Same DB table, different filter cuts.
+const PRIORITY_OPTIONS: { value: LeadPriority; label: string; dot: string }[] = [
+  { value: "low",    label: "Low",    dot: "bg-slate"   },
+  { value: "medium", label: "Medium", dot: "bg-amber"   },
+  { value: "high",   label: "High",   dot: "bg-rose"    },
+];
+
+// Helper: build an optional integer field that treats empty string / null /
+// NaN as undefined. Raw leads leave seats / value blank; without this
+// preprocess, Zod's `coerce.number()` turns "" into NaN and fails validation
+// even though the field is .optional().
+const optionalIntField = (max: number) =>
+  z.preprocess(
+    (v) => {
+      if (v === "" || v === null || v === undefined) return undefined;
+      if (typeof v === "number" && Number.isNaN(v)) return undefined;
+      return v;
+    },
+    z.coerce.number().int().min(0).max(max).optional(),
+  );
+
 const schema = z.object({
   company:       z.string().min(2, "Company name is required"),
   contact_name:  z.string().optional(),
   contact_email: z.string().email("Invalid email").optional().or(z.literal("")),
   contact_phone: z.string().optional(),
+  gstin:         z.string().optional().or(z.literal("")),
   plan:          z.string().optional().or(z.literal("")),
-  seats:         z.coerce.number().int().min(0).max(10000).optional(),
-  value:         z.coerce.number().int().min(0).max(100_000_000).optional(),
+  seats:         optionalIntField(10000),
+  value:         optionalIntField(100_000_000),
   stage:         z.enum(["new", "contact", "demo", "trial", "quote", "won", "lost"]),
   source:        z.string(),
+  priority:      z.enum(["low", "medium", "high"]),
+  follow_up_date: z.string().optional().or(z.literal("")),
+  owner_id:      z.string().optional().or(z.literal("")),
   notes:         z.string().optional(),
 });
 
@@ -120,15 +162,49 @@ interface AddLeadFormProps {
 }
 
 export function AddLeadForm({ open, onOpenChange, editingLead }: AddLeadFormProps) {
+  const router    = useRouter();
   const createLead = useCreateLead();
   const updateLead = useUpdateLead();
   const isEditing  = !!editingLead;
+  const { data: me } = useCurrentUser();
+
+  // Active users in the current tenant — drives the Owner dropdown so sales
+  // teams can hand off / claim leads. RLS scopes to caller's tenant.
+  const { data: tenantUsers } = useQuery({
+    enabled: open,
+    queryKey: ["tenant", "active-users", me?.tenantId],
+    queryFn: async () => {
+      const supabase = createClient();
+      const { data, error } = await supabase
+        .from("users")
+        .select("id, full_name, email, role")
+        .eq("is_active", true)
+        .order("full_name");
+      if (error) throw error;
+      return data ?? [];
+    },
+    staleTime: 5 * 60 * 1000,
+  });
 
   const [stage, setStage] = React.useState<FormData["stage"]>(
     (editingLead?.stage as FormData["stage"]) ?? "new",
   );
-  const [source, setSource] = React.useState<string>(editingLead?.source ?? "manual");
-  const [plan, setPlan]     = React.useState<string>(editingLead?.plan ?? "");
+  const [source, setSource]     = React.useState<string>(editingLead?.source ?? "manual");
+  const [plan, setPlan]         = React.useState<string>(editingLead?.plan ?? "");
+  const [priority, setPriority] = React.useState<LeadPriority>((editingLead?.priority as LeadPriority) ?? "medium");
+  const [ownerId, setOwnerId]   = React.useState<string>(editingLead?.owner_id ?? "");
+
+  // Contacts Picker API support detection. Currently Android Chrome / Edge
+  // mobile only; iOS Safari + Firefox + desktop all fall back to manual.
+  // Spec: https://w3c.github.io/contact-picker/
+  const [contactsApiAvailable, setContactsApiAvailable] = React.useState(false);
+  React.useEffect(() => {
+    if (typeof window === "undefined") return;
+    setContactsApiAvailable(
+      // @ts-expect-error — Contacts Picker not in lib.dom.d.ts yet
+      Boolean(navigator.contacts && typeof navigator.contacts.select === "function" && window.ContactsManager),
+    );
+  }, []);
 
   const {
     register,
@@ -136,31 +212,72 @@ export function AddLeadForm({ open, onOpenChange, editingLead }: AddLeadFormProp
     reset,
     setValue,
     watch,
+    getValues,
     formState: { errors, isSubmitting },
   } = useForm<FormData>({
     resolver: zodResolver(schema),
     defaultValues: editingLead
       ? {
-          company:       editingLead.company,
-          contact_name:  editingLead.contact_name  ?? "",
-          contact_email: editingLead.contact_email ?? "",
-          contact_phone: editingLead.contact_phone ?? "",
-          plan:          editingLead.plan          ?? "",
-          seats:         editingLead.seats         ?? 1,
-          value:         editingLead.value         ?? 0,
-          stage:        (editingLead.stage  as FormData["stage"]) ?? "new",
-          source:        editingLead.source        ?? "manual",
-          notes:         editingLead.notes         ?? "",
+          company:        editingLead.company,
+          contact_name:   editingLead.contact_name  ?? "",
+          contact_email:  editingLead.contact_email ?? "",
+          contact_phone:  editingLead.contact_phone ?? "",
+          gstin:          editingLead.gstin         ?? "",
+          plan:           editingLead.plan          ?? "",
+          // Display null seats/value as blank (not 1/0) so raw leads being
+          // edited don't suddenly look like real deals with phantom numbers.
+          seats:          editingLead.seats         ?? undefined,
+          value:          editingLead.value         ?? undefined,
+          stage:         (editingLead.stage  as FormData["stage"]) ?? "new",
+          source:         editingLead.source        ?? "manual",
+          priority:      (editingLead.priority as LeadPriority) ?? "medium",
+          follow_up_date: editingLead.follow_up_date ?? "",
+          owner_id:       editingLead.owner_id      ?? "",
+          notes:          editingLead.notes         ?? "",
         }
       : {
-          stage: "new",
-          source: "manual",
-          seats: 10,
-          value: 100000,
+          stage:    "new",
+          source:   "manual",
+          priority: "medium",
+          // Seats/value intentionally left blank for raw leads. They get
+          // pre-filled with sensible defaults (10 seats + auto-calc) only
+          // when the user picks a plan — see the useEffect below.
         },
   });
 
   const watchedSeats = watch("seats");
+
+  /**
+   * Open the native Contacts Picker (Android Chrome / Edge Mobile only).
+   * User selects ONE contact → we autofill name + phone + email into the
+   * form. On iOS Safari / unsupported browsers the button is hidden by
+   * the contactsApiAvailable gate, so this never runs.
+   */
+  const pickContact = React.useCallback(async () => {
+    try {
+      const props = ["name", "tel", "email"] as const;
+      // @ts-expect-error — Contacts Picker not in lib.dom.d.ts yet
+      const contacts = await navigator.contacts.select(props, { multiple: false }) as Array<{
+        name?:  string[];
+        tel?:   string[];
+        email?: string[];
+      }>;
+      if (!contacts || contacts.length === 0) return;  // user cancelled
+
+      const c     = contacts[0];
+      const name  = c.name?.[0]  ?? "";
+      const phone = c.tel?.[0]   ?? "";
+      const email = c.email?.[0] ?? "";
+
+      if (name)  setValue("contact_name",  name,  { shouldDirty: true });
+      if (phone) setValue("contact_phone", phone, { shouldDirty: true });
+      if (email) setValue("contact_email", email, { shouldDirty: true });
+    } catch (err) {
+      // User denied permission, or browser bailed. Silent — button is still
+      // there as a no-op so they fall back to manual entry.
+      console.warn("[contacts-picker] failed:", err);
+    }
+  }, [setValue]);
 
   // Auto-calculate annual deal value when plan or seats change.
   // Formula: pricePerSeatPerMonth × seats × 12
@@ -172,6 +289,52 @@ export function AddLeadForm({ open, onOpenChange, editingLead }: AddLeadFormProp
     setValue("value", annualValue, { shouldValidate: true });
   }, [plan, watchedSeats, setValue]);
 
+  // Stage options gate by plan: raw lead (no plan) → qualification-track only;
+  // qualified lead (plan picked) → full 7-stage pipeline.
+  const availableStages = React.useMemo(() => {
+    if (!plan) {
+      return STAGES.filter((s) =>
+        (RAW_LEAD_STAGE_VALUES as readonly string[]).includes(s.value),
+      );
+    }
+    return STAGES;
+  }, [plan]);
+
+  // If the plan gets cleared while a plan-only stage is selected, snap the
+  // stage back to "new". Without this, a user can pick Quote Sent → clear the
+  // plan → save an inconsistent lead (stage=quote, plan=null).
+  React.useEffect(() => {
+    if (!plan && (PLAN_ONLY_STAGES as readonly string[]).includes(stage)) {
+      setStage("new");
+      setValue("stage", "new", { shouldDirty: true });
+    }
+  }, [plan, stage, setValue]);
+
+  // Seats / value gate on plan, same conceptual pattern as stage gating:
+  //   • Plan empty (raw lead) → keep seats / value blank. Sales rep is just
+  //     capturing "met someone at expo" — no commercial detail yet. Leaving
+  //     these blank prevents the leads table from showing phantom "10 seats
+  //     · ₹1,00,000" on every raw inbox row.
+  //   • Plan picked (qualified deal) → pre-fill 10 seats. The existing
+  //     auto-calc effect below then computes the annual value from the
+  //     catalog price × 12. User can override either.
+  // Editing existing leads is unaffected — the reset() block above carries
+  // whatever values the lead was saved with.
+  React.useEffect(() => {
+    if (editingLead) return;
+    if (plan) {
+      const currentSeats = getValues("seats");
+      if (!currentSeats || Number.isNaN(currentSeats) || currentSeats < 1) {
+        setValue("seats", 10, { shouldDirty: true });
+      }
+    } else {
+      // Plan went back to empty — clear seats / value so the raw lead
+      // doesn't carry phantom numbers from a previous plan selection.
+      setValue("seats", undefined as unknown as number, { shouldDirty: true });
+      setValue("value", undefined as unknown as number, { shouldDirty: true });
+    }
+  }, [plan, editingLead, getValues, setValue]);
+
   // Reset form when modal closes OR when editingLead changes (re-fills defaults).
   React.useEffect(() => {
     if (!open) {
@@ -179,26 +342,39 @@ export function AddLeadForm({ open, onOpenChange, editingLead }: AddLeadFormProp
       setStage("new");
       setSource("manual");
       setPlan("");
+      setPriority("medium");
+      // For a fresh "Add lead" the owner defaults to the currently logged-in
+      // user — sales reps own their own intake by default. They can re-assign.
+      setOwnerId(me?.userId ?? "");
       return;
     }
     if (editingLead) {
       reset({
-        company:       editingLead.company,
-        contact_name:  editingLead.contact_name  ?? "",
-        contact_email: editingLead.contact_email ?? "",
-        contact_phone: editingLead.contact_phone ?? "",
-        plan:          editingLead.plan          ?? "",
-        seats:         editingLead.seats         ?? 1,
-        value:         editingLead.value         ?? 0,
-        stage:        (editingLead.stage  as FormData["stage"]) ?? "new",
-        source:        editingLead.source        ?? "manual",
-        notes:         editingLead.notes         ?? "",
+        company:        editingLead.company,
+        contact_name:   editingLead.contact_name  ?? "",
+        contact_email:  editingLead.contact_email ?? "",
+        contact_phone:  editingLead.contact_phone ?? "",
+        gstin:          editingLead.gstin         ?? "",
+        plan:           editingLead.plan          ?? "",
+        seats:          editingLead.seats         ?? undefined,
+        value:          editingLead.value         ?? undefined,
+        stage:         (editingLead.stage  as FormData["stage"]) ?? "new",
+        source:         editingLead.source        ?? "manual",
+        priority:      (editingLead.priority as LeadPriority) ?? "medium",
+        follow_up_date: editingLead.follow_up_date ?? "",
+        owner_id:       editingLead.owner_id      ?? "",
+        notes:          editingLead.notes         ?? "",
       });
       setStage((editingLead.stage as FormData["stage"]) ?? "new");
       setSource(editingLead.source ?? "manual");
       setPlan(editingLead.plan ?? "");
+      setPriority((editingLead.priority as LeadPriority) ?? "medium");
+      setOwnerId(editingLead.owner_id ?? "");
+    } else {
+      // New-lead default: owner = current user.
+      setOwnerId(me?.userId ?? "");
     }
-  }, [open, editingLead, reset]);
+  }, [open, editingLead, reset, me?.userId]);
 
   const onSubmit = async (data: FormData) => {
     try {
@@ -209,39 +385,57 @@ export function AddLeadForm({ open, onOpenChange, editingLead }: AddLeadFormProp
       const seatsVal = (data.seats !== undefined && data.seats !== null && !Number.isNaN(data.seats) && data.seats > 0) ? data.seats : null;
       const valueVal = (data.value !== undefined && data.value !== null && !Number.isNaN(data.value) && data.value > 0) ? data.value : null;
 
+      const sharedPatch = {
+        company:        data.company,
+        contact_name:   data.contact_name  || null,
+        contact_email:  data.contact_email || null,
+        contact_phone:  data.contact_phone || null,
+        gstin:          data.gstin?.trim().toUpperCase() || null,
+        plan:           planVal,
+        seats:          seatsVal,
+        value:          valueVal,
+        stage:          data.stage,
+        source:         data.source,
+        priority:       data.priority,
+        follow_up_date: data.follow_up_date || null,
+        owner_id:       data.owner_id       || null,
+        notes:          data.notes          || null,
+      };
+
       if (isEditing && editingLead) {
         // ─── Update existing lead ───
-        await updateLead.mutateAsync({
-          id: editingLead.id,
-          patch: {
-            company:       data.company,
-            contact_name:  data.contact_name  || null,
-            contact_email: data.contact_email || null,
-            contact_phone: data.contact_phone || null,
-            plan:          planVal,
-            seats:         seatsVal,
-            value:         valueVal,
-            stage:         data.stage,
-            source:        data.source,
-            notes:         data.notes || null,
-          },
-        });
+        await updateLead.mutateAsync({ id: editingLead.id, patch: sharedPatch });
       } else {
         // ─── Create new lead ───
         const id = "L-" + Date.now().toString(36).toUpperCase();
-        await createLead.mutateAsync({
-          id,
-          company:       data.company,
-          contact_name:  data.contact_name  || null,
-          contact_email: data.contact_email || null,
-          contact_phone: data.contact_phone || null,
-          plan:          planVal,
-          seats:         seatsVal,
-          value:         valueVal,
-          stage:         data.stage,
-          source:        data.source,
-          notes:         data.notes || null,
-        });
+        await createLead.mutateAsync({ id, ...sharedPatch });
+
+        // ─── Contextual toast (replaces the hook's generic "Lead created") ───
+        // The split between Leads (raw) and Deals (qualified) confused users:
+        // they'd save a lead with a plan picked, then can't find it on /leads.
+        // Solution: tell them WHICH page their lead landed on + 1-tap nav.
+        toast.dismiss();
+        const wasQualified = Boolean(planVal && (seatsVal || valueVal));
+        const companyName  = data.company;
+        if (wasQualified) {
+          toast.success(`${companyName} saved as Deal`, {
+            description: "Plan + value set — visible in Deal Pipeline",
+            duration: 6000,
+            action: {
+              label: "View deals",
+              onClick: () => router.push("/deals" as Route),
+            },
+          });
+        } else {
+          toast.success(`${companyName} added to your inbox`, {
+            description: "Pick a plan + seats anytime to qualify it as a deal",
+            duration: 6000,
+            action: {
+              label: "View leads",
+              onClick: () => router.push("/leads" as Route),
+            },
+          });
+        }
       }
       onOpenChange(false);
     } catch {
@@ -251,17 +445,22 @@ export function AddLeadForm({ open, onOpenChange, editingLead }: AddLeadFormProp
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-xl">
-        <DialogHeader>
-          <DialogTitle>{isEditing ? "Edit lead" : "Add a new lead"}</DialogTitle>
-          <DialogDescription>
+      {/* On mobile the dialog renders as a bottom sheet (full-width). We add
+          overflow-x-hidden + min-w-0 here because nested grid/flex children
+          with intrinsic widths (inputs, buttons with long labels, the
+          "Pick from contacts" banner) were horizontally overflowing on
+          narrow phones (≤ 380px). */}
+      <DialogContent className="md:!max-w-2xl overflow-x-hidden">
+        <DialogHeader className="min-w-0">
+          <DialogTitle className="break-words">{isEditing ? "Edit lead" : "Add a new lead"}</DialogTitle>
+          <DialogDescription className="break-words">
             {isEditing
               ? `Update details for ${editingLead?.company}.`
               : "Track a potential deal. You can update stage anytime via drag-drop."}
           </DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4 min-w-0 w-full">
           {/* Company name */}
           <FormField label="Company name" required htmlFor="company">
             <Input
@@ -272,6 +471,30 @@ export function AddLeadForm({ open, onOpenChange, editingLead }: AddLeadFormProp
               {...register("company")}
             />
           </FormField>
+
+          {/* Pick from phone contacts — Android PWA only.
+              Tap → native contact picker opens → name/phone/email auto-fill.
+              Hidden on iOS Safari + desktop (Contacts Picker API not supported).
+              Mobile layout: text on top, button full-width below (more thumb-friendly).
+              Desktop: text left, button right. */}
+          {contactsApiAvailable && (
+            <div className="rounded-md bg-indigo-50 border border-indigo/20 px-3 py-2.5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-3 min-w-0">
+              <p className="text-xs text-indigo-ink inline-flex items-start gap-2 min-w-0 leading-snug">
+                <Icon name="mobile" size={13} className="flex-shrink-0 mt-0.5" />
+                <span>Phone par hain? Apne contacts se direct add karo.</span>
+              </p>
+              <Button
+                type="button"
+                variant="default"
+                size="sm"
+                icon="user"
+                onClick={pickContact}
+                className="sm:shrink-0 w-full sm:w-auto justify-center"
+              >
+                Pick from contacts
+              </Button>
+            </div>
+          )}
 
           {/* Contact info — 3 fields in grid */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -299,6 +522,37 @@ export function AddLeadForm({ open, onOpenChange, editingLead }: AddLeadFormProp
               />
             </FormField>
           </div>
+
+          {/* GSTIN — optional. When set, the existing Sandbox.co.in verifier
+              auto-fills legal name + registered address on conversion. */}
+          <FormField label="GSTIN" htmlFor="gstin">
+            <Input
+              id="gstin"
+              className="font-mono uppercase"
+              placeholder="27AABCE1234D1Z9"
+              error={errors.gstin?.message}
+              {...register("gstin")}
+            />
+            {(() => {
+              const v = (watch("gstin") ?? "").trim();
+              if (v.length === 0) return (
+                <p className="mt-1 text-[10px] text-ink-3">Optional. Helps auto-fill legal name + address on conversion.</p>
+              );
+              if (v.length < 15) return (
+                <p className="mt-1 text-[10px] text-ink-3">{15 - v.length} more characters needed (GSTIN is 15 chars).</p>
+              );
+              if (isValidGstin(v)) return (
+                <p className="mt-1 text-[10px] text-emerald inline-flex items-center gap-1">
+                  <Icon name="check_circle" size={11} /> Format + checksum match.
+                </p>
+              );
+              return (
+                <p className="mt-1 text-[10px] text-rose inline-flex items-center gap-1">
+                  <Icon name="alert" size={11} /> {validateGstin(v).ok ? "" : (validateGstin(v) as { message: string }).message}
+                </p>
+              );
+            })()}
+          </FormField>
 
           {/* Plan — optional. If empty → lead lands in Inbox (raw, awaiting
               qualification). If picked → lead enters Pipeline as a deal. */}
@@ -367,8 +621,8 @@ export function AddLeadForm({ open, onOpenChange, editingLead }: AddLeadFormProp
             </FormField>
           </div>
 
-          {/* Stage + Source */}
-          <div className="grid grid-cols-2 gap-3">
+          {/* Stage + Source + Priority — 3 status fields together */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <FormField label="Stage" required htmlFor="stage">
               <Select
                 value={stage}
@@ -381,7 +635,7 @@ export function AddLeadForm({ open, onOpenChange, editingLead }: AddLeadFormProp
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {STAGES.map((s) => (
+                  {availableStages.map((s) => (
                     <SelectItem key={s.value} value={s.value}>
                       {s.label}
                     </SelectItem>
@@ -389,6 +643,11 @@ export function AddLeadForm({ open, onOpenChange, editingLead }: AddLeadFormProp
                 </SelectContent>
               </Select>
               <input type="hidden" {...register("stage")} value={stage} />
+              {!plan && (
+                <p className="mt-1 text-[10px] text-ink-3 leading-snug">
+                  Pick a plan to unlock Demo / Trial / Quote / Won.
+                </p>
+              )}
             </FormField>
             <FormField label="Source" htmlFor="source">
               <Select
@@ -411,13 +670,79 @@ export function AddLeadForm({ open, onOpenChange, editingLead }: AddLeadFormProp
               </Select>
               <input type="hidden" {...register("source")} value={source} />
             </FormField>
+            <FormField label="Priority" htmlFor="priority">
+              <Select
+                value={priority}
+                onValueChange={(v) => {
+                  setPriority(v as LeadPriority);
+                  (register("priority") as any).onChange({ target: { value: v, name: "priority" } });
+                }}
+              >
+                <SelectTrigger id="priority">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {PRIORITY_OPTIONS.map((p) => (
+                    <SelectItem key={p.value} value={p.value}>
+                      <span className="inline-flex items-center gap-2">
+                        <span className={cn("inline-block w-2 h-2 rounded-full", p.dot)} />
+                        {p.label}
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <input type="hidden" {...register("priority")} value={priority} />
+            </FormField>
           </div>
 
-          {/* Notes */}
-          <FormField label="Notes (optional)" htmlFor="notes">
-            <Input
+          {/* Follow-up date + Owner — sales workflow row */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <FormField label="Next follow-up" htmlFor="follow_up_date">
+              <Input
+                id="follow_up_date"
+                type="date"
+                min={new Date().toISOString().slice(0, 10)}
+                {...register("follow_up_date")}
+              />
+              <p className="mt-1 text-[10px] text-ink-3">
+                Drives your daily worklist · reminder ping the morning of.
+              </p>
+            </FormField>
+            <FormField label="Owner" htmlFor="owner_id">
+              <Select
+                value={ownerId || "__unassigned"}
+                onValueChange={(v) => {
+                  const nextId = v === "__unassigned" ? "" : v;
+                  setOwnerId(nextId);
+                  (register("owner_id") as any).onChange({ target: { value: nextId, name: "owner_id" } });
+                }}
+              >
+                <SelectTrigger id="owner_id">
+                  <SelectValue placeholder="Unassigned" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__unassigned">Unassigned</SelectItem>
+                  {(tenantUsers ?? []).map((u) => (
+                    <SelectItem key={u.id} value={u.id}>
+                      {u.full_name || u.email}
+                      {u.id === me?.userId ? " (you)" : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <input type="hidden" {...register("owner_id")} value={ownerId} />
+            </FormField>
+          </div>
+
+          {/* Notes — multi-line textarea so sales reps can capture call
+              transcripts, decision-maker context, budget cycles, etc. */}
+          <FormField label="Notes" htmlFor="notes">
+            <textarea
               id="notes"
-              placeholder="Decision maker, timeline, budget…"
+              rows={4}
+              placeholder="Decision maker, timeline, budget, objections, next-step plan…"
+              className="w-full rounded-md border border-hairline bg-paper px-3 py-2 text-sm text-ink placeholder:text-ink-3 focus:outline-none focus:ring-2 focus:ring-amber resize-y"
               {...register("notes")}
             />
           </FormField>

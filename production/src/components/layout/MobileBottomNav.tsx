@@ -11,14 +11,16 @@
  *   - fixed bottom-0 inset-x-0 (full-width bar at viewport bottom)
  *   - safe-area-padding-bottom for iPhone notch / Android gesture bar
  *   - bg-paper with top border
- *   - 5 equal-width slots
+ *   - 3–5 equal-width slots (depending on role + permissions)
  *
- * Tab choice (5 most-used):
- *   1. Dashboard  — morning glance
- *   2. Deals      — sales team's primary surface
- *   3. Quotes     — what's in flight
- *   4. Tasks      — today's follow-ups
- *   5. More       — opens the existing MobileSidebar drawer for everything else
+ * Role-aware tab set (since 2026-05-27):
+ *   • Owner / Manager  →  Home · Leads · Deals · Tasks · More   (5 tabs)
+ *   • Sales (+deals)   →  Leads · Deals · Tasks · More           (4 tabs)
+ *   • Sales (no deals) →  Leads · Tasks · More                   (3 tabs)
+ *
+ * Sales doesn't see Home (dashboard isn't accessible to them per RLS +
+ * middleware) or Quotes (sales role hidden from Revenue section in
+ * APP_NAV). Showing tabs that route to redirects was confusing.
  *
  * Active state matches current pathname start (so /quotes/Q-2026-27-0001
  * still highlights the Quotes tab).
@@ -29,6 +31,7 @@ import * as React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Icon } from "@/components/ui/icon";
+import { useCurrentUser } from "@/lib/hooks/useCurrentUser";
 import { cn } from "@/lib/utils";
 
 interface BottomNavItem {
@@ -40,13 +43,12 @@ interface BottomNavItem {
   action?: "menu";
 }
 
-const MOBILE_BOTTOM_TABS: BottomNavItem[] = [
-  { id: "dashboard", href: "/dashboard", label: "Home",   icon: "home"   },
-  { id: "leads",     href: "/leads",     label: "Deals",  icon: "target" },
-  { id: "quotes",    href: "/quotes",    label: "Quotes", icon: "file"   },
-  { id: "tasks",     href: "/tasks",     label: "Tasks",  icon: "clock"  },
-  { id: "more",      href: "#",          label: "More",   icon: "more_h", action: "menu" },
-];
+// Tab templates. We pick a subset of these based on role + permissions.
+const TAB_HOME:   BottomNavItem = { id: "home",   href: "/dashboard", label: "Home",   icon: "home"   };
+const TAB_LEADS:  BottomNavItem = { id: "leads",  href: "/leads",     label: "Leads",  icon: "inbox"  };
+const TAB_DEALS:  BottomNavItem = { id: "deals",  href: "/deals",     label: "Deals",  icon: "target" };
+const TAB_TASKS:  BottomNavItem = { id: "tasks",  href: "/tasks",     label: "Tasks",  icon: "clock"  };
+const TAB_MORE:   BottomNavItem = { id: "more",   href: "#",          label: "More",   icon: "more_h", action: "menu" };
 
 interface Props {
   /** Called when the "More" tab is tapped — opens the MobileSidebar drawer. */
@@ -55,6 +57,33 @@ interface Props {
 
 export function MobileBottomNav({ onMoreClick }: Props) {
   const pathname = usePathname();
+  const { data: me } = useCurrentUser();
+
+  // Compute role-appropriate tabs. We start blank + push to keep the
+  // intent explicit (vs filter on a master array). Sales explicitly
+  // excludes Home (dashboard route is locked down) — showing it would
+  // open the sidebar drawer redirect dance and confuse the rep.
+  const tabs: BottomNavItem[] = [];
+  if (me?.role === "sales") {
+    tabs.push(TAB_LEADS);
+    if (me.canViewDeals) tabs.push(TAB_DEALS);
+    tabs.push(TAB_TASKS);
+    tabs.push(TAB_MORE);
+  } else {
+    // owner / manager (default for unknown / loading state too — safest
+    // surface while useCurrentUser settles).
+    tabs.push(TAB_HOME);
+    tabs.push(TAB_LEADS);
+    tabs.push(TAB_DEALS);
+    tabs.push(TAB_TASKS);
+    tabs.push(TAB_MORE);
+  }
+
+  // grid-cols-N — Tailwind needs an explicit class per N so JIT picks it up.
+  const gridClass =
+    tabs.length === 5 ? "grid-cols-5" :
+    tabs.length === 4 ? "grid-cols-4" :
+    "grid-cols-3";
 
   return (
     <nav
@@ -70,11 +99,14 @@ export function MobileBottomNav({ onMoreClick }: Props) {
       )}
       aria-label="Primary navigation"
     >
-      <ul className="grid grid-cols-5">
-        {MOBILE_BOTTOM_TABS.map((item) => {
+      <ul className={cn("grid", gridClass)}>
+        {tabs.map((item) => {
+          // For /leads vs /deals — both share the same root URL prefix
+          // dynamics, so prefix-match would highlight Deals when on /leads.
+          // Use strict equality OR strict-prefix-plus-slash to avoid that.
           const active = item.action === "menu"
             ? false
-            : pathname.startsWith(item.href);
+            : pathname === item.href || pathname.startsWith(`${item.href}/`);
 
           const inner = (
             <span

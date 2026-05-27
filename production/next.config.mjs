@@ -2,6 +2,9 @@
 const nextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
+  // standalone output produces a self-contained server bundle that Cloud Run
+  // can run with a tiny Node image — no node_modules at runtime.
+  output: "standalone",
   experimental: {
     typedRoutes: true,
   },

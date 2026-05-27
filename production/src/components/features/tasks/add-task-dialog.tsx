@@ -112,8 +112,9 @@ export interface AddTaskDialogProps {
 export function AddTaskDialog({ open, onOpenChange, linkLabel, linkTo }: AddTaskDialogProps) {
   const createTask = useCreateTask();
 
-  // Default due: in 1 hour
-  const defaultDue = React.useMemo(() => toLocalInputValue(computeQuickDue(60)), [open]);
+  // Default due: in 1 hour. Computed once per mount — defaultValues is read
+  // by useForm on first call, so recomputing on `open` toggle has no effect.
+  const defaultDue = React.useMemo(() => toLocalInputValue(computeQuickDue(60)), []);
 
   const {
     register, handleSubmit, reset, setValue, watch,

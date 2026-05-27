@@ -15,13 +15,22 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
+import type { Route } from "next";
 import { Command } from "cmdk";
 
 import { Dialog, DialogContent, DialogPortal, DialogOverlay } from "@/components/ui/dialog";
 import { Icon } from "@/components/ui/icon";
 import { APP_NAV } from "@/lib/nav";
-import { cn } from "@/lib/utils";
+import { rupee, cn } from "@/lib/utils";
 import { toast } from "sonner";
+// Real-data queries — Linear/Notion-style universal search. Each hook is
+// already cached by TanStack Query so opening the palette is instant once
+// the user has visited the corresponding page at least once. First-time
+// open shows a brief loading flicker per group (acceptable trade-off).
+import { useLeads } from "@/lib/queries/leads";
+import { useCustomers } from "@/lib/queries/customers";
+import { useQuotes } from "@/lib/queries/quotes";
+import { useAllContacts } from "@/lib/queries/contacts";
 
 // ============================================================
 // Hook to manage open state + register ⌘K shortcut
@@ -43,33 +52,10 @@ export function useCommandPalette() {
   return { isOpen, setOpen, open: () => setOpen(true), close: () => setOpen(false) };
 }
 
-// ============================================================
-// Stub data — replace with Supabase queries later
-// ============================================================
-const SAMPLE_CUSTOMERS = [
-  { id: "acme",   name: "Acme Corp Pvt Ltd",   meta: "acmecorp.com · 25 seats" },
-  { id: "cosmo",  name: "Cosmo Tech",          meta: "cosmotech.in · 12 seats" },
-  { id: "delta",  name: "Delta Pvt Ltd",       meta: "deltapl.com · 50 seats" },
-  { id: "echo",   name: "Echo Pharma",         meta: "echopharma.in · 80 seats" },
-  { id: "beta",   name: "Beta Industries",     meta: "betaind.in · 15 seats" },
-];
-
-const SAMPLE_LEADS = [
-  { id: "L17", company: "Acme Corp Pvt Ltd",  meta: "Plus upgrade · ₹4.9L · Quote sent" },
-  { id: "L18", company: "Zephyr Networks",    meta: "Plus + Voice · ₹3.8L · Quote sent" },
-  { id: "L14", company: "Whitestone Pharma",  meta: "Plus · ₹4.6L · Trial active" },
-];
-
-const SAMPLE_QUOTES = [
-  { id: "Q-2026-0042", customer: "Acme Corp",      meta: "₹4.9L · Sent" },
-  { id: "Q-2026-0041", customer: "Beta Industries", meta: "₹1.3L · Accepted" },
-  { id: "Q-2026-0040", customer: "Anvil Heavy",     meta: "₹8.2L · Accepted" },
-];
-
-const SAMPLE_INVOICES = [
-  { id: "INV-2026-0089", customer: "Acme Corp",       meta: "₹4.9L · Pending" },
-  { id: "INV-2026-0085", customer: "Echo Pharma",     meta: "₹2.2L · Overdue 14d" },
-];
+// Cap per-group results to keep the palette scannable. Most users find
+// their target in the first 5; we show 10 to be safe. cmdk's filter then
+// narrows further as they type.
+const MAX_PER_GROUP = 10;
 
 // ============================================================
 // CommandPalette
@@ -83,9 +69,17 @@ export function CommandPalette({
 }) {
   const router = useRouter();
 
+  // Pull real tenant-scoped data. RLS ensures we only see this tenant's
+  // rows. Queries are cached by TanStack Query — opening the palette
+  // multiple times is instant after first load.
+  const { data: leads }     = useLeads();
+  const { data: customers } = useCustomers();
+  const { data: quotes }    = useQuotes({ status: "all" });
+  const { data: contacts }  = useAllContacts();
+
   const go = (href: string) => {
     onOpenChange(false);
-    router.push(href as any);
+    router.push(href as Route);
   };
 
   const runAction = (msg: string) => {
@@ -181,57 +175,79 @@ export function CommandPalette({
                 )}
               </Command.Group>
 
-              {/* Customers */}
-              <Command.Group heading="Customers">
-                {SAMPLE_CUSTOMERS.map((c) => (
-                  <PaletteItem
-                    key={c.id}
-                    icon="users"
-                    label={c.name}
-                    meta={c.meta}
-                    onSelect={() => go(`/customers/${c.id}`)}
-                  />
-                ))}
-              </Command.Group>
+              {/* Customers — real, tenant-scoped */}
+              {customers && customers.length > 0 && (
+                <Command.Group heading={`Customers · ${customers.length}`}>
+                  {customers.slice(0, MAX_PER_GROUP).map((c) => {
+                    const meta = [c.contact_name, c.contact_email, c.domain].filter(Boolean).join(" · ");
+                    return (
+                      <PaletteItem
+                        key={c.id}
+                        icon="users"
+                        label={c.name}
+                        meta={meta || c.id}
+                        onSelect={() => go(`/customers/${c.id}`)}
+                      />
+                    );
+                  })}
+                </Command.Group>
+              )}
 
-              {/* Leads */}
-              <Command.Group heading="Leads">
-                {SAMPLE_LEADS.map((l) => (
-                  <PaletteItem
-                    key={l.id}
-                    icon="target"
-                    label={l.company}
-                    meta={l.meta}
-                    onSelect={() => go("/leads")}
-                  />
-                ))}
-              </Command.Group>
+              {/* Leads — real, tenant-scoped. Deep-links to /leads?lead=<id>
+                  which pops the detail drawer (existing pattern). */}
+              {leads && leads.length > 0 && (
+                <Command.Group heading={`Leads · ${leads.length}`}>
+                  {leads.slice(0, MAX_PER_GROUP).map((l) => {
+                    const stage = l.stage ? `${l.stage}` : "";
+                    const value = l.value ? rupee(l.value, { compact: true }) : "";
+                    const plan = l.plan ?? "No plan";
+                    const meta = [plan, value, stage].filter(Boolean).join(" · ");
+                    return (
+                      <PaletteItem
+                        key={l.id}
+                        icon="target"
+                        label={l.company}
+                        meta={meta}
+                        onSelect={() => go(`/leads?lead=${l.id}`)}
+                      />
+                    );
+                  })}
+                </Command.Group>
+              )}
 
-              {/* Quotes */}
-              <Command.Group heading="Quotes">
-                {SAMPLE_QUOTES.map((q) => (
-                  <PaletteItem
-                    key={q.id}
-                    icon="file"
-                    label={`${q.id} — ${q.customer}`}
-                    meta={q.meta}
-                    onSelect={() => go(`/quotes/${q.id}`)}
-                  />
-                ))}
-              </Command.Group>
+              {/* Contacts — unified across leads/customers/imported */}
+              {contacts && contacts.length > 0 && (
+                <Command.Group heading={`Contacts · ${contacts.length}`}>
+                  {contacts.slice(0, MAX_PER_GROUP).map((c) => (
+                    <PaletteItem
+                      key={c.id}
+                      icon="user"
+                      label={c.name || c.email || c.phone || "(unnamed)"}
+                      meta={[c.company, c.email, c.phone].filter(Boolean).join(" · ")}
+                      onSelect={() => go("/contacts")}
+                    />
+                  ))}
+                </Command.Group>
+              )}
 
-              {/* Invoices */}
-              <Command.Group heading="Invoices">
-                {SAMPLE_INVOICES.map((i) => (
-                  <PaletteItem
-                    key={i.id}
-                    icon="receipt"
-                    label={`${i.id} — ${i.customer}`}
-                    meta={i.meta}
-                    onSelect={() => go("/invoices")}
-                  />
-                ))}
-              </Command.Group>
+              {/* Quotes — real tenant-scoped quotes with status + ₹ */}
+              {quotes && quotes.length > 0 && (
+                <Command.Group heading={`Quotes · ${quotes.length}`}>
+                  {quotes.slice(0, MAX_PER_GROUP).map((q) => {
+                    const total = q.amount != null ? rupee(q.amount, { compact: true }) : "";
+                    const meta = [q.customer_name, total, q.status].filter(Boolean).join(" · ");
+                    return (
+                      <PaletteItem
+                        key={q.id}
+                        icon="file"
+                        label={q.id}
+                        meta={meta}
+                        onSelect={() => go(`/quotes/${q.id}`)}
+                      />
+                    );
+                  })}
+                </Command.Group>
+              )}
             </Command.List>
 
             {/* Footer hint */}

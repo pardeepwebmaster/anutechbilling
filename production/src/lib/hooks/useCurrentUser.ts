@@ -6,6 +6,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
+import type { GstinVerification } from "@/lib/supabase/database.types";
 
 export interface CurrentUserInfo {
   userId:        string;
@@ -14,6 +15,8 @@ export interface CurrentUserInfo {
   initials:      string | null;
   color:         string | null;
   role:          string | null;
+  /** Migration 0045 — sales-role extension flag. Owner/manager ignore this. */
+  canViewDeals:  boolean;
   tenantId:      string;
   tenantName:    string;
   /** Tenant billing identity — used by Receipt Voucher / Invoice PDFs */
@@ -21,10 +24,19 @@ export interface CurrentUserInfo {
   tenantEmail:   string | null;
   tenantPhone:   string | null;
   tenantAddress: string | null;
+  tenantPinCode: string | null;
   tenantState:   string | null;
   tenantStateCode: string | null;
+  /** Owner / signing person on the GST invoice */
+  tenantContactName: string | null;
   /** Days of buffer between renewal_date and auto-suspend (0–30). */
   tenantGracePeriodDays: number;
+  /** When Setup Wizard's final step ran. NULL = wizard never completed. */
+  tenantSetupCompletedAt: string | null;
+  /** When the GSTIN was last verified against GSTN via 3rd-party API. */
+  tenantGstinVerifiedAt: string | null;
+  /** Cached verification payload (legal name, status, registration type, …). */
+  tenantGstinVerification: GstinVerification | null;
 }
 
 export function useCurrentUser() {
@@ -38,7 +50,7 @@ export function useCurrentUser() {
 
       const { data: me, error } = await supabase
         .from("users")
-        .select("id, tenant_id, full_name, initials, color, role, tenants(name, gstin, email, phone, address, state, state_code, grace_period_days)")
+        .select("id, tenant_id, full_name, initials, color, role, can_view_deals, tenants(name, gstin, email, phone, address, pin_code, contact_name, state, state_code, grace_period_days, setup_completed_at, gstin_verified_at, gstin_verification)")
         .eq("id", authData.user.id)
         .single();
 
@@ -53,15 +65,21 @@ export function useCurrentUser() {
         initials:        me.initials,
         color:           me.color,
         role:            me.role,
+        canViewDeals:    Boolean(me.can_view_deals),
         tenantId:        me.tenant_id,
         tenantName:      tenant?.name ?? "Workspace",
         tenantGstin:     tenant?.gstin     ?? null,
         tenantEmail:     tenant?.email     ?? null,
         tenantPhone:     tenant?.phone     ?? null,
         tenantAddress:   tenant?.address   ?? null,
+        tenantPinCode:   tenant?.pin_code  ?? null,
         tenantState:     tenant?.state     ?? null,
         tenantStateCode: tenant?.state_code ?? null,
+        tenantContactName: tenant?.contact_name ?? null,
         tenantGracePeriodDays: tenant?.grace_period_days ?? 0,
+        tenantSetupCompletedAt: tenant?.setup_completed_at ?? null,
+        tenantGstinVerifiedAt:  tenant?.gstin_verified_at  ?? null,
+        tenantGstinVerification: (tenant?.gstin_verification as GstinVerification | null) ?? null,
       };
     },
     staleTime: 5 * 60_000,  // 5 min — identity rarely changes

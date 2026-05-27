@@ -6,8 +6,19 @@
  * <Avatar src="/users/rajesh.jpg" alt="Rajesh K" fallback="RK" />
  * <Avatar initials="RB" status="online" size="lg" />
  */
+import Image from "next/image";
 import { cva, type VariantProps } from "class-variance-authority";
 import { cn, initials as makeInitials } from "@/lib/utils";
+
+// Pixel sizes mirroring the Tailwind size variants. Used to give next/image
+// concrete width/height props (it needs them when not using `fill`).
+const sizePx: Record<NonNullable<AvatarProps["size"]>, number> = {
+  xs: 20,
+  sm: 28,
+  md: 36,
+  lg: 48,
+  xl: 64,
+};
 
 const avatarVariants = cva(
   "inline-flex items-center justify-center rounded-full font-semibold flex-shrink-0 select-none",
@@ -67,9 +78,11 @@ export function Avatar({
   return (
     <div className={cn("relative inline-block", className)}>
       {src ? (
-        <img
+        <Image
           src={src}
           alt={alt ?? `Avatar of ${name ?? displayInitials}`}
+          width={sizePx[size ?? "md"]}
+          height={sizePx[size ?? "md"]}
           className={cn(avatarVariants({ size }), "object-cover")}
         />
       ) : (

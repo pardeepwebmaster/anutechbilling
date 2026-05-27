@@ -1,0 +1,150 @@
+/**
+ * createExtensionQuote — issue a "top-up" quote that adds N more years
+ * to an existing active subscription's term.
+ *
+ * Same machinery as a renewal quote (`is_renewal = true`, linked via
+ * `subscriptions.renewal_quote_id`) so the record_payment roll-forward
+ * branch fires automatically. The difference is `extension_months`:
+ *
+ *   - Renewal (cron-generated): extension_months = 12, fires when the
+ *     current term is ending. Sub renewal_date += 12 months.
+ *   - Extension (operator-triggered): extension_months = 12 / 24 / 36 etc.
+ *     Sub renewal_date += that many months.
+ *
+ * Why not refund-and-rebuy?
+ *   • GST invoices are immutable (CGST §31) — can't modify the original.
+ *   • Refund + new invoice = credit note paperwork + ITC reconciliation.
+ *   • Two clean GST invoices = customer gets two valid ITC entries.
+ *
+ * Idempotency:
+ *   If the subscription already has a renewal_quote_id (e.g., cron just
+ *   created a renewal), this function refuses with `code: "already_open"`.
+ *   Operator must finalize/cancel the existing quote before issuing an
+ *   extension to avoid two open quotes on the same subscription.
+ *
+ * Server-only — uses service-role client.
+ */
+
+import type { SupabaseClient } from "@supabase/supabase-js";
+import type { Database, QuoteLineItem } from "@/lib/supabase/database.types";
+
+type SupabaseAdmin = SupabaseClient<Database>;
+
+export interface CreateExtensionQuoteInput {
+  supabase:        SupabaseAdmin;
+  subscriptionId:  string;
+  tenantId:        string;
+  customerId:      string | null;
+  customerName:    string;
+  plan:            string;
+  seats:           number;
+  mrr:             number;
+  /** Current subscription.renewal_date — quote expiry uses this + grace */
+  renewalDate:     string;
+  graceDays:       number;
+  /** How many years the customer wants to add (1, 2, 3, …). */
+  years:           number;
+  /** Optional override note for the quote */
+  notes?:          string;
+}
+
+export interface CreateExtensionQuoteResult {
+  ok:       true;
+  quoteId:  string;
+  amount:   number;
+  years:    number;
+}
+
+export interface CreateExtensionQuoteError {
+  ok:       false;
+  code:     "already_open" | "no_doc_number" | "insert_failed" | "invalid_years";
+  message:  string;
+}
+
+export async function createExtensionQuote(
+  input: CreateExtensionQuoteInput,
+): Promise<CreateExtensionQuoteResult | CreateExtensionQuoteError> {
+  if (!Number.isFinite(input.years) || input.years < 1 || input.years > 5) {
+    return { ok: false, code: "invalid_years", message: "Years must be between 1 and 5" };
+  }
+
+  const months = Math.round(input.years * 12);
+
+  // Idempotency guard — refuse if subscription already has an open quote
+  const { data: sub } = await input.supabase
+    .from("subscriptions")
+    .select("renewal_quote_id")
+    .eq("id", input.subscriptionId)
+    .maybeSingle();
+  if (sub?.renewal_quote_id) {
+    return {
+      ok: false,
+      code: "already_open",
+      message: `Subscription already has an open renewal/extension quote (${sub.renewal_quote_id}). Finalize or delete it first.`,
+    };
+  }
+
+  // Allocate quote number
+  const { data: nextNumber, error: numErr } = await input.supabase.rpc("next_document_number", {
+    p_doc_type:  "quote",
+    p_tenant_id: input.tenantId,
+  });
+  if (numErr || !nextNumber) {
+    return { ok: false, code: "no_doc_number", message: numErr?.message ?? "Could not allocate quote number" };
+  }
+  const newQuoteId = nextNumber as unknown as string;
+
+  // Build line item — annual rate × N years
+  const annualAmount = Math.max(0, Math.round((input.mrr ?? 0) * 12 * input.years));
+  const perSeatRate  = Math.round(annualAmount / Math.max(1, input.seats));
+  const perSeatCost  = Math.round((annualAmount * 0.83) / Math.max(1, input.seats));
+  const yearLabel    = input.years === 1 ? "1-year extension" : `${input.years}-year extension`;
+
+  const lineItems: QuoteLineItem[] = [{
+    id:         "extension-1",
+    name:       `${input.plan} · ${yearLabel}`,
+    qty:        input.seats,
+    rate:       perSeatRate,
+    cost:       perSeatCost,
+    commitment: "annual_yearly",
+  }];
+
+  const renewalAt   = new Date(input.renewalDate);
+  const validUntil  = new Date(renewalAt.getTime() + (input.graceDays ?? 7) * 86400000);
+
+  const { error: insertErr } = await input.supabase.from("quotes").insert({
+    id:               newQuoteId,
+    tenant_id:        input.tenantId,
+    customer_id:      input.customerId,
+    customer_name:    input.customerName,
+    plan:             input.plan,
+    seats:            input.seats,
+    amount:           annualAmount,
+    status:           "sent",
+    payment_status:   "awaiting",
+    owner_id:         null,
+    created_date:     new Date().toISOString().slice(0, 10),
+    expires_date:     validUntil.toISOString().slice(0, 10),
+    line_items:       lineItems,
+    subtotal:         annualAmount,
+    total_cost:       Math.round(annualAmount * 0.83),
+    discount_pct:     0,
+    tax_rate:         18,
+    is_renewal:       true,    // drives record_payment roll-forward
+    is_extension:     true,    // display flag — UI shows "Extension" not "Renewal"
+    extension_months: months,
+    notes:            input.notes
+      ?? `${yearLabel} for subscription ${input.subscriptionId}. On payment the renewal date advances by ${months} months.`,
+  });
+  if (insertErr) {
+    return { ok: false, code: "insert_failed", message: insertErr.message };
+  }
+
+  // Link back so record_payment finds it
+  await input.supabase
+    .from("subscriptions")
+    .update({ renewal_quote_id: newQuoteId })
+    .eq("id", input.subscriptionId);
+
+  return { ok: true, quoteId: newQuoteId, amount: annualAmount, years: input.years };
+}

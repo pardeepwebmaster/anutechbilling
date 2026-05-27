@@ -18,6 +18,8 @@ export const size = {
   height: 180,
 };
 export const contentType = "image/png";
+// Skip static prerender — same @vercel/og Invalid URL issue as icon.tsx.
+export const dynamic = "force-dynamic";
 
 export default function AppleIcon() {
   return new ImageResponse(

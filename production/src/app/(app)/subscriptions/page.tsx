@@ -4,7 +4,12 @@
 "use client";
 
 import * as React from "react";
-import { useSubscriptions } from "@/lib/queries/subscriptions";
+import { useRouter } from "next/navigation";
+import { useSubscriptions, useSetSubscriptionDomain } from "@/lib/queries/subscriptions";
+import { useActiveTrials } from "@/lib/queries/trials";
+import ExtendSubscriptionDialog from "@/components/features/subscriptions/extend-subscription-dialog";
+import AddSeatsDialog            from "@/components/features/subscriptions/add-seats-dialog";
+import Link from "next/link";
 import { toast } from "sonner";
 import { GeminiCard } from "@/components/shared/gemini-card";
 import { EmptyState } from "@/components/shared/empty-state";
@@ -28,21 +33,26 @@ function estimateMargin(s: Subscription) {
 }
 
 export default function SubscriptionsPage() {
+  const router = useRouter();
   const { data: subs, isLoading, error, refetch } = useSubscriptions();
+  const { data: trials } = useActiveTrials();
   const [tab, setTab] = React.useState("all");
   const [vendor, setVendor] = React.useState("all");
   const [search, setSearch] = React.useState("");
+  const [extendSub,   setExtendSub]   = React.useState<Subscription | null>(null);
+  const [addSeatsSub, setAddSeatsSub] = React.useState<Subscription | null>(null);
 
   const today = new Date();
   const daysUntil = (renewal: string | null) =>
     renewal ? daysBetween(today, renewal) : null;
 
-  // Filter
+  // Filter — paid subs only (trials handled separately below)
   const filtered = (subs ?? []).filter((s) => {
     const dl = daysUntil(s.renewal_date);
     if (tab === "active" && s.status !== "active") return false;
     if (tab === "expiring" && (dl === null || dl < 0 || dl > 30)) return false;
     if (tab === "expired" && s.status !== "expired") return false;
+    if (tab === "trials") return false;  // trials handled in separate table below
     if (vendor !== "all" && s.vendor !== vendor) return false;
     if (search.trim()) {
       const q = search.toLowerCase();
@@ -50,6 +60,29 @@ export default function SubscriptionsPage() {
         !s.customer_name.toLowerCase().includes(q) &&
         !(s.domain?.toLowerCase().includes(q) ?? false) &&
         !s.plan.toLowerCase().includes(q)
+      ) {
+        return false;
+      }
+    }
+    return true;
+  });
+
+  // Trial-specific filter (for the Trials tab)
+  const filteredTrials = (trials ?? []).filter((t) => {
+    if (vendor !== "all") {
+      // Derive vendor from plan label (trials don't have explicit vendor column)
+      const pl = (t.plan ?? "").toLowerCase();
+      const v  = pl.includes("google") ? "google"
+              : pl.includes("microsoft") || pl.includes("m365") || pl.includes("365") ? "microsoft"
+              : pl.includes("zoho") ? "zoho" : "other";
+      if (v !== vendor) return false;
+    }
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      if (
+        !t.company.toLowerCase().includes(q) &&
+        !(t.domain?.toLowerCase().includes(q) ?? false) &&
+        !(t.plan?.toLowerCase().includes(q) ?? false)
       ) {
         return false;
       }
@@ -66,11 +99,13 @@ export default function SubscriptionsPage() {
       return dl !== null && dl >= 0 && dl <= 30;
     }).length,
     expired: (subs ?? []).filter((s) => s.status === "expired").length,
+    trials: trials?.length ?? 0,
   };
 
   const tabs: TabBarItem[] = [
     { id: "all",      label: "All",          count: counts.all },
     { id: "active",   label: "Active",       count: counts.active, dot: "emerald" },
+    { id: "trials",   label: "Trials",       count: counts.trials, dot: "amber" },
     { id: "expiring", label: "Expiring 30d", count: counts.expiring, dot: "amber" },
     { id: "expired",  label: "Expired",      count: counts.expired, dot: "rose" },
   ];
@@ -121,8 +156,70 @@ export default function SubscriptionsPage() {
           <KPI label="Active ARR"        value={rupee(activeARR, { compact: true })} trendKind="up" trendIcon="trending_up" />
           <KPI label="Your Margin (ARR)" value={rupee(annualMargin, { compact: true })} trend={`Avg ${avgMarginPct}%`} trendKind="up" icon="rupee" />
           <KPI label="Total seats"       value={totalSeats} trend={`${usedSeats} used`} />
-          <KPI label="At risk"           value={atRiskCount} trend={rupee(atRiskMRR, { compact: true }) + " MRR"} trendKind="down" trendIcon="alert" />
+          <KPI
+            label="Trials in progress"
+            value={trials?.length ?? 0}
+            trend={trials && trials.length > 0
+              ? `${trials.reduce((s, t) => s + (t.seats ?? 0), 0)} seats deployed`
+              : "no live trials"}
+            trendKind={trials && trials.length > 0 ? "up" : undefined}
+            icon="clock"
+          />
         </div>
+      )}
+
+      {/* Trials in progress — virtual subs (deployed in Google CSP, not billed yet) */}
+      {!isLoading && trials && trials.length > 0 && tab !== "trials" && (
+        <Card
+          title="Trials in progress"
+          sub={`${trials.length} trial${trials.length === 1 ? "" : "s"} active · seats provisioned, billing pending`}
+          className="mb-4"
+        >
+          <ul className="divide-y divide-hairline -my-1">
+            {trials.map((t) => {
+              const dr = t.days_remaining ?? 0;
+              return (
+                <li key={t.id} className="py-2">
+                  <Link
+                    href={`/leads?lead=${t.id}` as never}
+                    className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-3 hover:bg-paper-2/40 -mx-2 px-2 py-1.5 rounded transition-colors"
+                  >
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-ink truncate">{t.company}</p>
+                      <p className="text-[11px] text-ink-3 truncate flex items-center gap-2">
+                        {t.domain && <span className="font-mono">{t.domain}</span>}
+                        <span>·</span>
+                        <span>{t.plan?.replace(/^google-workspace-/, "Google Workspace ").replace(/-/g, " ")}</span>
+                        <span>·</span>
+                        <span className="tabular-nums">{t.seats ?? 0} seats</span>
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold">Trial ends</p>
+                      <p className="text-xs tabular-nums text-ink-2">
+                        {t.trial_expires_at ? formatDate(t.trial_expires_at) : "—"}
+                      </p>
+                    </div>
+                    <Badge
+                      kind={dr <= 1 ? "danger" : dr <= 3 ? "warning" : dr <= 7 ? "info" : "muted"}
+                      size="sm"
+                      dot
+                    >
+                      {dr === 0 ? "today" : dr === 1 ? "1d" : `${dr}d left`}
+                    </Badge>
+                    <Button size="sm" variant="primary" icon="check_circle">
+                      Convert
+                    </Button>
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+          <p className="text-[11px] text-ink-3 mt-3 pt-3 border-t border-hairline flex items-center gap-1.5">
+            <Icon name="info" size={11} />
+            Trials are NOT counted in MRR/ARR. Click a row to open the lead and send a paid quote.
+          </p>
+        </Card>
       )}
 
       {/* AI suggestion */}
@@ -232,7 +329,7 @@ export default function SubscriptionsPage() {
                 <div className="flex items-start justify-between gap-3 mb-1.5">
                   <div className="min-w-0 flex-1">
                     <p className="font-medium text-ink truncate">{s.customer_name}</p>
-                    {s.domain && <p className="font-mono text-[11px] text-ink-3 truncate mt-0.5">{s.domain}</p>}
+                    <DomainCell sub={s} compact />
                   </div>
                   <div className="text-right shrink-0">
                     <p className="font-serif text-base tabular-nums text-ink">{rupee(s.mrr)}</p>
@@ -297,7 +394,7 @@ export default function SubscriptionsPage() {
                     <tr key={s.id} className="border-b border-hairline last:border-0 hover:bg-paper-2/40">
                       <td className="p-3">
                         <div className="font-medium text-sm text-ink">{s.customer_name}</div>
-                        {s.domain && <div className="text-[11px] text-ink-3 font-mono">{s.domain}</div>}
+                        <DomainCell sub={s} />
                       </td>
                       <td className="p-3 text-sm text-ink-2">{s.plan}</td>
                       <td className="p-3">
@@ -350,10 +447,14 @@ export default function SubscriptionsPage() {
                         ) : isUrgent ? (
                           <div className="flex gap-1">
                             <Button size="sm" variant="primary" icon="phone">Renew</Button>
-                            <IconButton icon="plus" aria-label="Add seats" size="sm" title="Add seats (pro-rata)" />
+                            <IconButton icon="plus"  aria-label="Add seats"  size="sm" title="Add seats (pro-rata)"    onClick={() => setAddSeatsSub(s)} />
+                            <IconButton icon="clock" aria-label="Extend term" size="sm" title="Extend by 1/2/3 years" onClick={() => setExtendSub(s)} />
                           </div>
                         ) : (
-                          <Button size="sm" icon="plus">Seats</Button>
+                          <div className="flex gap-1">
+                            <Button     size="sm" icon="plus"  onClick={() => setAddSeatsSub(s)}>Seats</Button>
+                            <IconButton icon="clock" aria-label="Extend term" size="sm" title="Extend by 1/2/3 years" onClick={() => setExtendSub(s)} />
+                          </div>
                         )}
                       </td>
                     </tr>
@@ -365,8 +466,99 @@ export default function SubscriptionsPage() {
         </Card>
       )}
 
+      {/* Trials tab — same column layout, virtual-sub rows */}
+      {!isLoading && !error && tab === "trials" && filteredTrials.length > 0 && (
+        <Card flush className="hidden md:block">
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-paper-2 border-b border-hairline">
+                <tr>
+                  <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Customer · Domain</th>
+                  <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Plan</th>
+                  <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Vendor</th>
+                  <th className="text-right p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Seats</th>
+                  <th className="text-right p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">MRR</th>
+                  <th className="text-right p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Margin</th>
+                  <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Started</th>
+                  <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Trial ends</th>
+                  <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Status</th>
+                  <th className="w-24"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredTrials.map((t) => {
+                  const dr = t.days_remaining ?? 0;
+                  const planLabel = (t.plan ?? "")
+                    .replace(/^google-workspace-/, "Google Workspace ")
+                    .replace(/-/g, " ")
+                    .replace(/\b\w/g, (c) => c.toUpperCase());
+                  const pl = (t.plan ?? "").toLowerCase();
+                  const v  = pl.includes("google") ? "google"
+                          : pl.includes("microsoft") || pl.includes("m365") || pl.includes("365") ? "microsoft"
+                          : pl.includes("zoho") ? "zoho" : "other";
+                  return (
+                    <tr
+                      key={t.id}
+                      onClick={() => router.push(`/leads?lead=${t.id}` as never)}
+                      className="border-b border-hairline last:border-0 hover:bg-paper-2/40 cursor-pointer"
+                    >
+                      <td className="p-3">
+                        <div className="font-medium text-sm text-ink">{t.company}</div>
+                        {t.domain && <div className="text-[11px] text-ink-3 font-mono">{t.domain}</div>}
+                      </td>
+                      <td className="p-3 text-sm text-ink-2">{planLabel}</td>
+                      <td className="p-3">
+                        <Badge kind={v === "zoho" ? "success" : "info"}>{v}</Badge>
+                      </td>
+                      <td className="p-3 text-right tabular-nums text-sm">{t.seats ?? 0}</td>
+                      <td className="p-3 text-right tabular-nums text-sm text-ink-3">—</td>
+                      <td className="p-3 text-right tabular-nums text-xs text-ink-3">—</td>
+                      <td className="p-3 text-sm text-ink-2">
+                        {t.trial_started_at ? formatDate(t.trial_started_at) : "—"}
+                      </td>
+                      <td className="p-3 text-sm">
+                        <div>{t.trial_expires_at ? formatDate(t.trial_expires_at) : "—"}</div>
+                        <div className="mt-0.5">
+                          <Badge
+                            kind={dr <= 1 ? "danger" : dr <= 3 ? "warning" : dr <= 7 ? "info" : "muted"}
+                            size="sm"
+                            dot
+                          >
+                            {dr === 0 ? "today" : dr === 1 ? "1d" : `${dr}d left`}
+                          </Badge>
+                        </div>
+                      </td>
+                      <td className="p-3">
+                        <Badge kind="warning" dot>Trial</Badge>
+                      </td>
+                      <td className="p-3">
+                        <Button size="sm" variant="primary" icon="check_circle" onClick={(e) => { e.stopPropagation(); router.push(`/leads?lead=${t.id}` as never); }}>
+                          Convert
+                        </Button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
+
+      {/* Trials tab — empty state */}
+      {!isLoading && !error && tab === "trials" && filteredTrials.length === 0 && (
+        <div className="mt-6">
+          <EmptyState
+            icon="clock"
+            title="No active trials"
+            body="Trials start at /buy/workspace or via the Start Trial button on the Deal Pipeline page."
+            compact
+          />
+        </div>
+      )}
+
       {/* Filtered empty */}
-      {!isLoading && !error && subs && subs.length > 0 && filtered.length === 0 && (
+      {!isLoading && !error && tab !== "trials" && subs && subs.length > 0 && filtered.length === 0 && (
         <div className="mt-6">
           <EmptyState
             icon="search"
@@ -376,6 +568,24 @@ export default function SubscriptionsPage() {
             compact
           />
         </div>
+      )}
+
+      {/* Extend dialog */}
+      {extendSub && (
+        <ExtendSubscriptionDialog
+          sub={extendSub}
+          open={!!extendSub}
+          onOpenChange={(v) => { if (!v) setExtendSub(null); }}
+        />
+      )}
+
+      {/* Add seats dialog */}
+      {addSeatsSub && (
+        <AddSeatsDialog
+          sub={addSeatsSub}
+          open={!!addSeatsSub}
+          onOpenChange={(v) => { if (!v) setAddSeatsSub(null); }}
+        />
       )}
 
       {/* Bottom cards */}
@@ -418,6 +628,95 @@ export default function SubscriptionsPage() {
           </Card>
         </div>
       )}
+    </div>
+  );
+}
+
+// ============================================================
+// Domain cell — read-only when populated, inline editor when missing.
+// Subs created before migration 0018 (or via manual paths that skip the
+// lead/quote flow) can lack a domain — operator can fix it without leaving
+// the list.
+// ============================================================
+function DomainCell({ sub, compact = false }: { sub: Subscription; compact?: boolean }) {
+  const [editing, setEditing] = React.useState(false);
+  const [value, setValue]     = React.useState("");
+  const mut                   = useSetSubscriptionDomain();
+
+  if (sub.domain && !editing) {
+    return (
+      <button
+        type="button"
+        onClick={() => { setValue(sub.domain ?? ""); setEditing(true); }}
+        className={cn(
+          "font-mono text-[11px] text-ink-3 hover:text-ink truncate text-left transition-colors",
+          compact && "mt-0.5",
+        )}
+        title="Click to edit domain"
+      >
+        {sub.domain}
+      </button>
+    );
+  }
+
+  if (!editing) {
+    return (
+      <button
+        type="button"
+        onClick={() => { setValue(""); setEditing(true); }}
+        className={cn(
+          "inline-flex items-center gap-1 text-[11px] text-amber-ink hover:underline",
+          compact && "mt-0.5",
+        )}
+      >
+        <Icon name="plus" size={11} />
+        Add domain
+      </button>
+    );
+  }
+
+  const submit = () => {
+    const v = value.trim();
+    if (!v) {
+      toast.error("Domain can't be blank");
+      return;
+    }
+    mut.mutate(
+      { id: sub.id, domain: v },
+      {
+        onSuccess: () => { toast.success("Domain saved"); setEditing(false); },
+        onError:   (e) => { toast.error(e instanceof Error ? e.message : "Could not save"); },
+      },
+    );
+  };
+
+  return (
+    <div className={cn("flex items-center gap-1", compact && "mt-1")}>
+      <Input
+        autoFocus
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        placeholder="acme.in"
+        className="h-7 text-[11px] font-mono py-0"
+        onKeyDown={(e) => {
+          if (e.key === "Enter") submit();
+          if (e.key === "Escape") setEditing(false);
+        }}
+      />
+      <IconButton
+        icon="check"
+        size="sm"
+        aria-label="Save domain"
+        onClick={submit}
+        disabled={mut.isPending}
+      />
+      <IconButton
+        icon="x"
+        size="sm"
+        aria-label="Cancel"
+        onClick={() => setEditing(false)}
+        disabled={mut.isPending}
+      />
     </div>
   );
 }

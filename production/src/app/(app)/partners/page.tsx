@@ -1,0 +1,206 @@
+/**
+ * /partners — Distributor's sub-reseller dashboard.
+ *
+ * Visible to distributor tenants (tier='distributor'). Shows aggregated,
+ * privacy-preserving metrics for each child tenant: MRR, active seats,
+ * renewals due, monthly revenue. End-customer details are NOT exposed.
+ *
+ * Backed by get_partner_metrics() SECURITY DEFINER RPC (migration 0044).
+ *
+ * Slice 3 of parent-child reseller system.
+ */
+"use client";
+
+import * as React from "react";
+import Link from "next/link";
+import { useQuery } from "@tanstack/react-query";
+
+import { createClient } from "@/lib/supabase/client";
+import { rupee, formatDate } from "@/lib/utils";
+import { Card } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Icon } from "@/components/ui/icon";
+import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/shared/empty-state";
+import { KPI } from "@/components/shared/kpi";
+import type { PartnerMetricsRow, TenantWithParent } from "@/lib/supabase/database.types";
+
+export default function PartnersPage() {
+  // First check if caller is a distributor — otherwise show explainer
+  const { data: hierarchy, isLoading: hierLoading } = useQuery({
+    queryKey: ["tenant", "hierarchy", "partners-page"],
+    queryFn: async (): Promise<TenantWithParent | null> => {
+      const supabase = createClient();
+      const { data } = await supabase.rpc("get_my_tenant_with_parent");
+      const row = Array.isArray(data) ? data[0] : data;
+      return (row as TenantWithParent | undefined) ?? null;
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const isDistributor = hierarchy?.tier === "distributor";
+
+  const { data: metrics, isLoading: metricsLoading, error, refetch } = useQuery({
+    enabled: isDistributor,
+    queryKey: ["partner-metrics"],
+    queryFn: async (): Promise<PartnerMetricsRow[]> => {
+      const supabase = createClient();
+      const { data, error } = await supabase.rpc("get_partner_metrics");
+      if (error) throw error;
+      return (data ?? []) as PartnerMetricsRow[];
+    },
+  });
+
+  // Aggregate KPIs across all children
+  const totals = React.useMemo(() => {
+    if (!metrics) return null;
+    return metrics.reduce(
+      (acc, m) => ({
+        partners:        acc.partners + 1,
+        seats:           acc.seats + m.total_seats_sold,
+        mrr:             acc.mrr + m.mrr,
+        invoiced_month:  acc.invoiced_month + m.invoiced_this_month,
+        renewals_30d:    acc.renewals_30d + m.renewals_due_30d,
+        renewal_value:   acc.renewal_value + m.renewal_revenue_30d,
+      }),
+      { partners: 0, seats: 0, mrr: 0, invoiced_month: 0, renewals_30d: 0, renewal_value: 0 },
+    );
+  }, [metrics]);
+
+  return (
+    <div className="p-4 md:p-6 lg:p-8 max-w-[1800px] mx-auto space-y-6">
+      {/* Header */}
+      <div>
+        <p className="text-xs uppercase tracking-wider text-ink-3 font-semibold mb-1">System</p>
+        <h1 className="font-serif text-3xl md:text-4xl leading-tight">Partners</h1>
+        <p className="text-sm text-ink-3 mt-1">
+          Your sub-reseller channel · aggregated metrics, no end-customer leak
+        </p>
+      </div>
+
+      {/* Non-distributor: explainer */}
+      {!hierLoading && !isDistributor && (
+        <EmptyState
+          icon="link"
+          title="Partners is a distributor feature"
+          body="Ye page tab dikhata hai jab tumhare tenant ka tier 'distributor' ho — i.e. tumhare paas sub-reseller children hain. Settings → Company → Reseller tier me jaake tier set kar sakte ho (currently DB-only setting)."
+        />
+      )}
+
+      {/* Distributor path */}
+      {isDistributor && (
+        <>
+          {/* Aggregate KPIs */}
+          {totals && totals.partners > 0 && (
+            <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
+              <KPI label="Partners"          value={totals.partners}            trend="active sub-resellers" />
+              <KPI label="Seats sold"        value={totals.seats}                trend="total across channel" />
+              <KPI label="Channel MRR"       value={rupee(totals.mrr)}           trend="recurring monthly" />
+              <KPI label="Invoiced (MTD)"    value={rupee(totals.invoiced_month)} trend="this month" />
+              <KPI label="Renewals (30d)"    value={totals.renewals_30d}         trend="across channel" />
+              <KPI label="Renewal value"     value={rupee(totals.renewal_value)} trend="projected annual" />
+            </div>
+          )}
+
+          {/* Per-partner cards */}
+          {metricsLoading && (
+            <div className="space-y-3">
+              {[1, 2, 3].map((i) => <Skeleton key={i} className="h-32 w-full" />)}
+            </div>
+          )}
+
+          {error && (
+            <EmptyState
+              icon="alert"
+              title="Could not load partner metrics"
+              body={error.message}
+              action={<Button icon="refresh" onClick={() => refetch()}>Try again</Button>}
+            />
+          )}
+
+          {!metricsLoading && metrics && metrics.length === 0 && (
+            <EmptyState
+              icon="users"
+              title="No sub-resellers linked yet"
+              body="Jab koi naya tenant tumhe distributor ke roop me link karega (Settings → Reseller tier me parent set karke), wo yahan dikhayega. Ek customer record me linked_tenant_id set karke invoice auto-mirror bhi shuru ho jata hai."
+            />
+          )}
+
+          {!metricsLoading && metrics && metrics.length > 0 && (
+            <div className="space-y-3">
+              {metrics.map((m) => (
+                <Card key={m.tenant_id} className="p-5">
+                  <div className="flex items-start justify-between gap-3 mb-3 flex-wrap">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap mb-1">
+                        <h3 className="font-serif text-xl text-ink leading-tight">{m.tenant_name}</h3>
+                        <Badge kind="info" size="sm">Channel partner</Badge>
+                      </div>
+                      {m.tenant_gstin && (
+                        <p className="text-[11px] text-ink-3 font-mono">{m.tenant_gstin}</p>
+                      )}
+                    </div>
+                    {m.last_invoice_date && (
+                      <p className="text-[11px] text-ink-3 inline-flex items-center gap-1.5 shrink-0">
+                        <Icon name="clock" size={11} />
+                        Last invoice: {formatDate(m.last_invoice_date)}
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 text-sm">
+                    <Metric label="Active subs"      value={m.active_subscriptions} />
+                    <Metric label="Seats sold"        value={m.total_seats_sold} />
+                    <Metric label="MRR"               value={rupee(m.mrr)} tone={m.mrr > 0 ? "ink" : "muted"} />
+                    <Metric label="Invoiced (MTD)"    value={rupee(m.invoiced_this_month)} tone={m.invoiced_this_month > 0 ? "ink" : "muted"} />
+                    <Metric
+                      label="Renewals (30d)"
+                      value={m.renewals_due_30d}
+                      tone={m.renewals_due_30d > 0 ? "amber-ink" : "muted"}
+                    />
+                    <Metric
+                      label="Renewal value"
+                      value={rupee(m.renewal_revenue_30d)}
+                      tone={m.renewal_revenue_30d > 0 ? "amber-ink" : "muted"}
+                    />
+                  </div>
+
+                  {/* Quick links — back to your own catalog scope, not into the partner's data */}
+                  <div className="mt-3 pt-3 border-t border-hairline flex items-center gap-2 text-[11px] text-ink-3">
+                    <Icon name="info" size={11} />
+                    <span>
+                      Privacy: aggregated only. Partner ka individual customer/lead data tumhe nahi dikhega
+                      (RLS-isolated). Invoice issue karke partner ki vendor bill auto-mirror ho jati hai.
+                    </span>
+                    <Link
+                      href="/customers"
+                      className="ml-auto text-amber font-medium hover:underline whitespace-nowrap"
+                    >
+                      Manage as customer →
+                    </Link>
+                  </div>
+                </Card>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+function Metric({ label, value, tone = "ink" }: { label: string; value: string | number; tone?: "ink" | "muted" | "amber-ink" }) {
+  return (
+    <div>
+      <p className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold mb-0.5">{label}</p>
+      <p className={
+        tone === "muted"      ? "font-mono tabular-nums text-ink-3" :
+        tone === "amber-ink"  ? "font-mono tabular-nums text-amber-ink font-medium" :
+                                "font-mono tabular-nums text-ink font-medium"
+      }>
+        {value}
+      </p>
+    </div>
+  );
+}

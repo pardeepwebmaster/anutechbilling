@@ -2,11 +2,15 @@
  * Setup Wizard — matches prototype screen "setup-wizard".
  *
  * 5-step first-run wizard:
- *   1. Company details (legal name, GSTIN, state, address)
+ *   1. Company details (legal name, GSTIN, state, address)  → SAVES to tenants
  *   2. Connect Razorpay
  *   3. Google CSP API
  *   4. Import customers (CSV / sample / fresh)
- *   5. All set — celebration + next steps
+ *   5. All set — celebration + next steps  → stamps setup_completed_at
+ *
+ * Step 1 pre-fills from `useCurrentUser` so re-running the wizard never wipes
+ * what was already saved in Settings → Company. The actual persistence is
+ * via `useUpdateTenant` (same hook Settings uses) — single source of truth.
  */
 "use client";
 
@@ -18,6 +22,10 @@ import { Card } from "@/components/ui/card";
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { useCurrentUser } from "@/lib/hooks/useCurrentUser";
+import { useUpdateTenant } from "@/lib/queries/tenant";
+import { GST_STATE_BY_CODE, gstStateFromGstin, isValidGstin, validateGstin } from "@/lib/utils";
+import GstinVerifyCard from "@/components/features/gstin/gstin-verify-card";
 
 // ─── Step config ──────────────────────────────────────────────────────────────
 
@@ -75,12 +83,16 @@ function StepCompany({
   data: WizardData;
   update: (k: keyof WizardData, v: string | boolean) => void;
 }) {
+  // Pull cached verification from the tenant — re-running the wizard
+  // shouldn't lose the green checkmark someone earned earlier.
+  const { data: me } = useCurrentUser();
   return (
     <div className="space-y-4">
       <div>
         <h2 className="font-serif text-2xl text-ink">Your business details</h2>
         <p className="mt-1 text-sm text-ink-3">
-          These appear on every GST invoice you generate. You can edit later in Settings.
+          These appear on every GST invoice you generate. Saved to your tenant —
+          you can edit anytime in <span className="font-medium text-ink-2">Settings → Company</span>.
         </p>
       </div>
 
@@ -88,7 +100,7 @@ function StepCompany({
         <Field label="Legal company name" className="col-span-2">
           <Input
             placeholder="Excel Technologies Pvt Ltd"
-            defaultValue={data.companyName}
+            value={data.companyName}
             onChange={(e) => update("companyName", e.target.value)}
           />
         </Field>
@@ -96,34 +108,83 @@ function StepCompany({
           <Input
             className="font-mono"
             placeholder="27AABCE9876D1Z3"
-            defaultValue={data.gstin}
-            onChange={(e) => update("gstin", e.target.value)}
+            value={data.gstin}
+            onChange={(e) => {
+              const v = e.target.value.toUpperCase();
+              update("gstin", v);
+              // First 2 digits of a GSTIN encode the state per GSTN master list.
+              // Auto-fill the State dropdown when those digits match a known code.
+              const { code, name } = gstStateFromGstin(v);
+              if (code && name) update("state", `${name} (${code})`);
+            }}
+          />
+          {/* Live feedback — same logic as Settings → Company. Suppress
+              until the visitor has typed all 15 chars to avoid noise. */}
+          {(() => {
+            const v = data.gstin.trim();
+            if (v.length < 15) return (
+              <p className="mt-1 text-[10px] text-ink-3">
+                State auto-fills from the first 2 digits of your GSTIN.
+              </p>
+            );
+            if (isValidGstin(v)) return (
+              <p className="mt-1 text-[10px] text-emerald inline-flex items-center gap-1">
+                <Icon name="check_circle" size={11} /> Format + checksum match. Click Verify to confirm with GSTN.
+              </p>
+            );
+            const r = validateGstin(v);
+            return (
+              <p className="mt-1 text-[10px] text-rose inline-flex items-center gap-1">
+                <Icon name="alert" size={11} /> {r.ok ? "" : r.message}
+              </p>
+            );
+          })()}
+          {/* Verify with GSTN portal — does not block the Continue button
+              when not pressed; this is informational.
+              Fill form copies legal_name / address / pin / state into
+              the wizard's local state, so Continue saves the GST-sourced
+              values to tenants in one go. */}
+          <GstinVerifyCard
+            gstin={data.gstin}
+            cached={me?.tenantGstinVerification ?? null}
+            cachedAt={me?.tenantGstinVerifiedAt}
+            onFillForm={(v) => {
+              if (v.legal_name)                  update("companyName", v.legal_name);
+              if (v.address)                     update("address",     v.address);
+              if (v.principal_address?.pin_code) update("pinCode",     v.principal_address.pin_code);
+              if (v.state_code) {
+                const name = GST_STATE_BY_CODE[v.state_code];
+                if (name) update("state", `${name} (${v.state_code})`);
+              }
+            }}
           />
         </Field>
         <Field label="State">
           <select
             className="w-full rounded-md border border-hairline bg-paper px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-amber"
-            defaultValue={data.state}
+            value={data.state}
             onChange={(e) => update("state", e.target.value)}
           >
-            <option>Delhi (07)</option>
-            <option>Maharashtra (27)</option>
-            <option>Karnataka (29)</option>
-            <option>Tamil Nadu (33)</option>
-            <option>Gujarat (24)</option>
+            {Object.entries(GST_STATE_BY_CODE)
+              .sort(([, a], [, b]) => a.localeCompare(b))
+              .map(([code, name]) => (
+                <option key={code} value={`${name} (${code})`}>
+                  {name} ({code})
+                </option>
+              ))}
           </select>
         </Field>
         <Field label="Registered address" className="col-span-2">
           <Input
             placeholder="Office address"
-            defaultValue={data.address}
+            value={data.address}
             onChange={(e) => update("address", e.target.value)}
           />
         </Field>
         <Field label="Owner / Contact name">
           <Input
             placeholder="Your name"
-            defaultValue={data.contactName}
+            value={data.contactName}
             onChange={(e) => update("contactName", e.target.value)}
           />
         </Field>
@@ -132,7 +193,7 @@ function StepCompany({
             type="email"
             placeholder="owner@yourcompany.in"
             className="font-mono"
-            defaultValue={data.contactEmail}
+            value={data.contactEmail}
             onChange={(e) => update("contactEmail", e.target.value)}
           />
         </Field>
@@ -140,7 +201,7 @@ function StepCompany({
           <Input
             className="font-mono"
             placeholder="400001"
-            defaultValue={data.pinCode}
+            value={data.pinCode}
             onChange={(e) => update("pinCode", e.target.value)}
           />
         </Field>
@@ -565,16 +626,37 @@ function StepDone() {
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
+/** Compose "Maharashtra (27)" display string. Wizard stores the dropdown
+ *  choice as one string; we split it on save. Falls back to looking up the
+ *  code by name in the full GST_STATE_BY_CODE map when not provided. */
+function stateLabelFromParts(name: string | null, code: string | null): string {
+  if (!name) return "Maharashtra (27)"; // default
+  const c =
+    code ??
+    Object.entries(GST_STATE_BY_CODE).find(([, n]) => n === name)?.[0] ??
+    "";
+  return c ? `${name} (${c})` : name;
+}
+
+function parseStateLabel(label: string): { name: string; code: string } {
+  const m = /^(.+?)\s*\((\d{1,2})\)\s*$/.exec(label.trim());
+  if (m) return { name: m[1], code: m[2] };
+  return { name: label.trim(), code: "" };
+}
+
 export default function SetupPage() {
+  const { data: me, isLoading: meLoading } = useCurrentUser();
+  const updateTenant = useUpdateTenant();
+
   const [step, setStep] = React.useState(0);
   const [data, setData] = React.useState<WizardData>({
-    companyName:       "Excel Technologies Pvt Ltd",
-    gstin:             "27AABCE9876D1Z3",
+    companyName:       "",
+    gstin:             "",
     state:             "Maharashtra (27)",
-    address:           "Plot 14, BKC, Mumbai 400051",
-    pinCode:           "400051",
-    contactName:       "Pardeep A",
-    contactEmail:      "pardeep@exceltechnologies.in",
+    address:           "",
+    pinCode:           "",
+    contactName:       "",
+    contactEmail:      "",
     razorpayKey:       "",
     razorpayConnected: false,
     cspId:             "",
@@ -582,10 +664,71 @@ export default function SetupPage() {
     importMode:        "csv",
   });
 
+  // Pre-fill from existing tenant data as soon as useCurrentUser resolves.
+  // Re-running the wizard never blows away saved data this way.
+  React.useEffect(() => {
+    if (!me) return;
+    setData((d) => ({
+      ...d,
+      companyName:  me.tenantName       || d.companyName,
+      gstin:        me.tenantGstin      || d.gstin,
+      state:        stateLabelFromParts(me.tenantState, me.tenantStateCode) || d.state,
+      address:      me.tenantAddress    || d.address,
+      pinCode:      me.tenantPinCode    || d.pinCode,
+      contactName:  me.tenantContactName || me.fullName || d.contactName,
+      contactEmail: me.tenantEmail      || me.authEmail || d.contactEmail,
+    }));
+  }, [me]);
+
   const update = (k: keyof WizardData, v: string | boolean) =>
     setData((d) => ({ ...d, [k]: v }));
 
-  const next = () => setStep((s) => Math.min(STEPS.length - 1, s + 1));
+  // Save Step 1 (Company) to the tenants table before advancing past it.
+  // Other steps (Razorpay / CSP / Import) are still UI walkthroughs;
+  // their actual integrations land in Settings → Integrations later.
+  const saveCompanyAndAdvance = async () => {
+    // Block on bad GSTIN — empty is fine (optional), wrong checksum is not.
+    if (data.gstin.trim() && !isValidGstin(data.gstin.trim())) {
+      toast.error("GSTIN is invalid — fix the checksum or leave the field blank");
+      return;
+    }
+    const { name: stateName, code: stateCode } = parseStateLabel(data.state);
+    try {
+      await updateTenant.mutateAsync({
+        name:         data.companyName.trim() || me?.tenantName || "Workspace",
+        gstin:        data.gstin.trim()        || null,
+        state:        stateName                || null,
+        state_code:   stateCode                || null,
+        address:      data.address.trim()      || null,
+        pin_code:     data.pinCode.trim()      || null,
+        contact_name: data.contactName.trim()  || null,
+        email:        data.contactEmail.trim() || me?.tenantEmail || "",
+      });
+      setStep((s) => Math.min(STEPS.length - 1, s + 1));
+    } catch (e) {
+      toast.error(`Could not save: ${(e as Error).message}`);
+    }
+  };
+
+  // On final Continue (Step 3 → Step 4) stamp setup_completed_at so the
+  // sidebar can hide the Wizard or mark it "Done".
+  const finishSetup = async () => {
+    try {
+      await updateTenant.mutateAsync({
+        setup_completed_at: new Date().toISOString(),
+      });
+      setStep((s) => Math.min(STEPS.length - 1, s + 1));
+    } catch {
+      // Non-fatal — let visitor see the "All set" screen even if stamping failed
+      setStep((s) => Math.min(STEPS.length - 1, s + 1));
+    }
+  };
+
+  const next = () => {
+    if (step === 0) { void saveCompanyAndAdvance(); return; }
+    if (step === 3) { void finishSetup();           return; }
+    setStep((s) => Math.min(STEPS.length - 1, s + 1));
+  };
   const back = () => setStep((s) => Math.max(0, s - 1));
   const skip = () => setStep((s) => Math.min(STEPS.length - 1, s + 1));
 
@@ -609,10 +752,14 @@ export default function SetupPage() {
             </div>
           </div>
           <h1 className="font-serif text-3xl text-ink">
-            Welcome, {data.contactName.split(" ")[0]}.
+            {meLoading
+              ? "Loading…"
+              : `Welcome, ${(data.contactName || me?.fullName || "there").split(" ")[0]}.`}
           </h1>
           <p className="mt-2 text-sm text-ink-3">
-            Let's get your reseller business operational in 5 quick steps.
+            {me?.tenantSetupCompletedAt
+              ? "Setup already complete. You can re-run any step to update settings."
+              : "Let's get your reseller business operational in 5 quick steps."}
           </p>
         </div>
 
@@ -706,8 +853,15 @@ export default function SetupPage() {
                   Skip for now
                 </Button>
               )}
-              <Button variant="primary" onClick={next}>
-                {step === 3 ? "Finish setup" : "Continue"}
+              <Button
+                variant="primary"
+                onClick={next}
+                loading={step === 0 && updateTenant.isPending}
+                disabled={step === 0 && updateTenant.isPending}
+              >
+                {step === 0 && updateTenant.isPending
+                  ? "Saving…"
+                  : step === 3 ? "Finish setup" : "Continue"}
                 <Icon name="arrow_right" size={14} />
               </Button>
             </div>

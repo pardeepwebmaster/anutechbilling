@@ -5,7 +5,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 
@@ -23,6 +23,7 @@ import { RecordPaymentDialog } from "@/components/features/quotes/record-payment
 import { QuotePreviewDialog } from "@/components/features/quotes/quote-preview-dialog";
 import { ReceiptVoucherDialog } from "@/components/features/quotes/receipt-voucher-dialog";
 import { SendQuoteDialog } from "@/components/features/quotes/send-quote-dialog";
+import SendWhatsAppDialog from "@/components/features/whatsapp/send-whatsapp-dialog";
 import { usePaymentsByQuote, totalReceived as sumReceived } from "@/lib/queries/payments";
 import { useCustomer } from "@/lib/queries/customers";
 import { useCurrentUser } from "@/lib/hooks/useCurrentUser";
@@ -65,7 +66,28 @@ export default function QuoteDetailPage() {
   const [previewOpen, setPreviewOpen] = React.useState(false);
   const [downloadingPdf, setDownloadingPdf] = React.useState(false);
   const [receiptPayment, setReceiptPayment] = React.useState<Payment | null>(null);
-  const [sendOpen, setSendOpen] = React.useState(false);
+  const [sendOpen,    setSendOpen]    = React.useState(false);
+  const [whatsOpen,   setWhatsOpen]   = React.useState(false);
+
+  // Auto-open a send dialog when the builder redirected here with ?send=
+  // (?send=whatsapp or ?send=email). Use a ref to only fire once per
+  // navigation so closing the dialog doesn't immediately re-open it.
+  const searchParams = useSearchParams();
+  const sendIntent   = searchParams.get("send");
+  const sendIntentHandled = React.useRef(false);
+  React.useEffect(() => {
+    if (sendIntentHandled.current) return;
+    if (!quote)                     return;            // wait for data
+    if (sendIntent === "whatsapp" && customer?.contact_phone) {
+      setWhatsOpen(true);
+      sendIntentHandled.current = true;
+      router.replace(`/quotes/${quote.id}` as never);   // clean the URL
+    } else if (sendIntent === "email") {
+      setSendOpen(true);
+      sendIntentHandled.current = true;
+      router.replace(`/quotes/${quote.id}` as never);
+    }
+  }, [sendIntent, quote, customer?.contact_phone, router]);
 
   const totalReceivedSoFar = sumReceived(paymentHistory ?? []);
 
@@ -91,17 +113,31 @@ export default function QuoteDetailPage() {
     onError: (e) => toast.error((e as Error).message),
   });
 
+  /**
+   * Mark accepted (without payment) — calls accept_quote RPC which:
+   *   - Sets quote.status = 'accepted'
+   *   - Converts lead → customer (so the customer record exists immediately,
+   *     even before payment lands)
+   *   - Marks lead.stage = 'won'
+   * Subscription is still created later via record_payment when money arrives.
+   */
   const markAccepted = useMutation({
     mutationFn: async () => {
-      const supabase = createClient();
-      // Trigger will auto-set payment_status to 'awaiting'
-      const { error } = await supabase.from("quotes").update({ status: "accepted" }).eq("id", params.id);
-      if (error) throw error;
+      const res  = await fetch(`/api/quotes/${params.id}/mark-accepted`, { method: "POST" });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? "Could not mark as accepted");
+      return json as { customerId: string; convertedNow: boolean };
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ["quotes"] });
       qc.invalidateQueries({ queryKey: ["quotes", params.id] });
-      toast.success("Quote accepted · awaiting payment");
+      qc.invalidateQueries({ queryKey: ["customers"] });
+      qc.invalidateQueries({ queryKey: ["leads"] });
+      toast.success(
+        data.convertedNow
+          ? "Quote accepted · customer record created · awaiting payment"
+          : "Quote accepted · awaiting payment",
+      );
     },
     onError: (e) => toast.error((e as Error).message),
   });
@@ -199,7 +235,7 @@ export default function QuoteDetailPage() {
           <IconButton icon="arrow_left" aria-label="Back" onClick={() => router.push("/quotes" as any)} />
           <div className="min-w-0">
             <p className="text-xs uppercase tracking-wider text-ink-3 font-semibold mb-1">
-              Revenue · {quote.is_renewal ? "Renewal Quote" : "Quote"}
+              Revenue · {quote.is_extension ? "Extension Quote" : quote.is_renewal ? "Renewal Quote" : "Quote"}
             </p>
             <h1 className="font-serif text-3xl md:text-4xl leading-tight">
               {quote.id}
@@ -208,7 +244,12 @@ export default function QuoteDetailPage() {
               <span>For <b className="text-ink">{quote.customer_name}</b></span>
               <span>·</span>
               <Badge kind={status.kind} dot>{status.label}</Badge>
-              {quote.is_renewal && (
+              {quote.is_extension ? (
+                <>
+                  <span>·</span>
+                  <Badge kind="warning">Extension · {Math.round((quote.extension_months ?? 12) / 12)} yr</Badge>
+                </>
+              ) : quote.is_renewal && (
                 <>
                   <span>·</span>
                   <Badge kind="info">Renewal</Badge>
@@ -302,6 +343,19 @@ export default function QuoteDetailPage() {
           >
             {quote.status === "sent" ? "Resend via email" : "Send via email"}
           </Button>
+          {/* WhatsApp send — always shown. Phone is pre-filled when we have
+              a customer record with contact_phone; otherwise the dialog
+              opens with an empty "To" field for the visitor to type into.
+              Label flips to "Resend" when quote is already sent. */}
+          <Button
+            icon="whatsapp"
+            onClick={() => setWhatsOpen(true)}
+            title="Send the quote link over WhatsApp — needs Meta Cloud API configured in Settings"
+          >
+            {quote.status === "sent" || quote.status === "viewed"
+              ? "Resend via WhatsApp"
+              : "Send via WhatsApp"}
+          </Button>
         </div>
       </div>
 
@@ -327,14 +381,19 @@ export default function QuoteDetailPage() {
               {daysLeft !== null && daysLeft > 0 && (
                 <>Expires in <b>{daysLeft} days</b> · </>
               )}
-              Once the customer confirms, mark as accepted to start the payment workflow.
+              Customer accepted? Mark accepted to convert the lead into a customer.
+              {" "}
+              <span className="text-ink-2">Payment can land later — record it when received.</span>
             </div>
             <div className="flex gap-2">
               <Button variant="ghost" loading={markRejected.isPending} onClick={() => markRejected.mutate()}>
                 Mark rejected
               </Button>
               <Button variant="primary" icon="check_circle" loading={markAccepted.isPending} onClick={() => markAccepted.mutate()}>
-                Mark accepted
+                Mark accepted (no payment yet)
+              </Button>
+              <Button variant="primary" icon="rupee" onClick={() => setPaymentOpen(true)}>
+                Record payment now
               </Button>
             </div>
           </div>
@@ -622,6 +681,7 @@ export default function QuoteDetailPage() {
         alreadyReceived={totalReceivedSoFar}
         isProspect={!!quote.lead_id && !quote.customer_id}
         invoiceId={quote.invoice_id}
+        customerId={quote.customer_id}
       />
 
       {/* Customer-facing quote preview */}
@@ -665,6 +725,69 @@ export default function QuoteDetailPage() {
         defaultRecipient={customer?.contact_email ?? null}
         alreadySent={quote.status === "sent" || quote.status === "viewed"}
       />
+
+      {/* Send-via-WhatsApp dialog — pre-fills the customer's contact phone
+          (or leaves blank for lead-mode quotes — user can type it in)
+          and a templated opening line with the quote ID + accept link.
+          attachQuoteId enables a PDF-attach checkbox in the dialog so the
+          customer receives the actual quote PDF in WhatsApp, not just a
+          link. */}
+      {whatsOpen && (
+        <SendWhatsAppDialog
+          open={whatsOpen}
+          onOpenChange={setWhatsOpen}
+          defaultTo={customer?.contact_phone ?? ""}
+          defaultText={
+            `Hi ${quote.customer_name},\n\n` +
+            `Your quote ${quote.id} for ${rupee(quote.amount)} is attached. ` +
+            `You can also review and accept it online:\n` +
+            `${typeof window !== "undefined" ? window.location.origin : ""}/quote/${quote.id}/accept\n\n` +
+            `— ${me?.tenantName ?? "Excel Technologies"}`
+          }
+          title={`Send quote ${quote.id} via WhatsApp`}
+          attachQuoteId={quote.id}
+          attachQuoteLabel={`Quote-${quote.id}.pdf`}
+          // Preview the PDF in a new tab — uses the SAME renderer as
+          // Download PDF + the server-side WhatsApp send path, so what
+          // Pardeep reviews is exactly what the customer will receive.
+          onPreviewAttachment={async () => {
+            const { previewQuotePDF } = await import("@/lib/pdf");
+            await previewQuotePDF({
+              tenantName:    me?.tenantName    ?? "Workspace",
+              tenantGstin:   me?.tenantGstin,
+              tenantEmail:   me?.tenantEmail,
+              tenantPhone:   me?.tenantPhone,
+              tenantAddress: me?.tenantAddress,
+              quoteId:       quote.id,
+              customerName:  quote.customer_name,
+              contactName:   customer?.contact_name ?? null,
+              contactEmail:  customer?.contact_email ?? null,
+              contactPhone:  customer?.contact_phone ?? null,
+              createdDate:   quote.created_at,
+              expiresDate:   quote.expires_date,
+              validityDays:  quote.expires_date
+                ? Math.max(1, daysBetween(new Date(quote.created_at), quote.expires_date))
+                : 30,
+              lineItems:     items,
+              subtotal:      quote.subtotal,
+              discountPct:   quote.discount_pct,
+              discount,
+              taxable,
+              taxRate:       quote.tax_rate,
+              tax,
+              total,
+              interState,
+              notes:         quote.notes ?? "",
+              isRenewal:     quote.is_renewal,
+            });
+          }}
+          related={{
+            quoteId:    quote.id,
+            customerId: quote.customer_id ?? undefined,
+            leadId:     quote.lead_id ?? undefined,
+          }}
+        />
+      )}
     </div>
   );
 }

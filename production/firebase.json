@@ -1,3 +1,25 @@
 {
-  "$schema": "https://raw.githubusercontent.com/firebase/firebase-tools/master/schema/firebase-config.json"
+  "$schema": "https://raw.githubusercontent.com/firebase/firebase-tools/master/schema/firebase-config.json",
+  "hosting": {
+    "site": "resellersos",
+    "public": ".firebase-public",
+    "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
+    "rewrites": [
+      {
+        "source": "**",
+        "run": {
+          "serviceId": "resellersos",
+          "region": "asia-south1"
+        }
+      }
+    ],
+    "headers": [
+      {
+        "source": "/_next/static/**",
+        "headers": [
+          { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }
+        ]
+      }
+    ]
+  }
 }

@@ -10,6 +10,44 @@ export type Json = string | number | boolean | null | { [key: string]: Json | un
 // ============================================================
 // Standalone row interfaces (avoid circular references)
 // ============================================================
+/**
+ * Cached GSTIN verification payload (provider-normalised).
+ * Whatever the upstream API (Sandbox.co.in / ClearTax / NIC) returns, the
+ * /api/gstin/verify route maps it onto this shape before persisting.
+ */
+export type GstinVerification = {
+  status:            "Active" | "Cancelled" | "Suspended" | "Provisional" | "Inactive" | string;
+  legal_name:        string | null;
+  trade_name:        string | null;
+  constitution:      string | null;            // Proprietorship / Pvt Ltd / Partnership / ...
+  registration_type: string | null;            // Regular / Composition / SEZ / Casual / ...
+  valid_from:        string | null;            // ISO date
+  valid_upto:        string | null;            // ISO date (typically null for non-Casual)
+  last_return_filed: string | null;            // ISO date or null
+  jurisdiction:      string | null;
+  state_code:        string | null;
+  /** Principal place of business — structured form, ready to push into
+   *  the Company form. Composed flat line is in `address` for one-shot
+   *  textarea fills. */
+  principal_address: {
+    building:   string | null;
+    street:     string | null;
+    locality:   string | null;
+    city:       string | null;
+    district:   string | null;
+    state:      string | null;
+    pin_code:   string | null;
+  } | null;
+  address:           string | null;            // flat one-liner of principal_address
+  source:            "sandbox" | "cleartax" | "nic" | "mock";
+  raw?:              unknown;                  // original provider payload, for debugging
+};
+
+// Reseller hierarchy tier (migration 0040)
+//   distributor → can have child tenants buying wholesale from it
+//   reseller    → independent tenant OR child of a distributor (parent_tenant_id set)
+export type TenantTier = "distributor" | "reseller";
+
 type TenantRow = {
   id: string;
   name: string;
@@ -17,9 +55,16 @@ type TenantRow = {
   state: string | null;
   state_code: string | null;
   address: string | null;
+  pin_code: string | null;
+  contact_name: string | null;
   email: string;
   phone: string | null;
   grace_period_days: number;
+  setup_completed_at: string | null;
+  gstin_verified_at: string | null;
+  gstin_verification: GstinVerification | null;
+  parent_tenant_id: string | null;
+  tier: TenantTier;
   created_at: string;
   updated_at: string;
 }
@@ -30,13 +75,118 @@ type TenantInsert = {
   state?: string | null;
   state_code?: string | null;
   address?: string | null;
+  pin_code?: string | null;
+  contact_name?: string | null;
   email: string;
   phone?: string | null;
   grace_period_days?: number;
+  setup_completed_at?: string | null;
+  gstin_verified_at?: string | null;
+  gstin_verification?: GstinVerification | null;
+  parent_tenant_id?: string | null;
+  tier?: TenantTier;
   created_at?: string;
   updated_at?: string;
 }
 type TenantUpdate = Partial<TenantInsert>;
+
+// View exposed by migration 0040 — `tenants` joined with its parent's
+// display-only fields. Backing view is `public.v_tenant_with_parent`.
+export type TenantWithParent = {
+  id: string;
+  name: string;
+  tier: TenantTier;
+  parent_tenant_id: string | null;
+  parent_name: string | null;
+  parent_tier: TenantTier | null;
+  parent_gstin: string | null;
+};
+
+// ============================================================
+// tenant_secrets — owner-only credential storage (migration 0035)
+// ============================================================
+export type WhatsAppProvider = "meta" | "gupshup" | "twilio";
+
+export type TenantSecretsRow = {
+  tenant_id:           string;
+  sandbox_api_key:     string | null;
+  sandbox_api_secret:  string | null;
+  sandbox_api_base:    string | null;
+  // WhatsApp — migration 0037
+  whatsapp_provider:            WhatsAppProvider | null;
+  whatsapp_phone_number_id:     string | null;
+  whatsapp_access_token:        string | null;
+  whatsapp_business_account_id: string | null;
+  whatsapp_app_secret:          string | null;
+  whatsapp_verify_token:        string | null;
+  // Razorpay — migration 0039
+  razorpay_mode:           "test" | "live" | null;
+  razorpay_key_id:         string | null;
+  razorpay_key_secret:     string | null;
+  razorpay_webhook_secret: string | null;
+  created_at:          string;
+  updated_at:          string;
+};
+type TenantSecretsInsert = {
+  tenant_id:           string;
+  sandbox_api_key?:    string | null;
+  sandbox_api_secret?: string | null;
+  sandbox_api_base?:   string | null;
+  whatsapp_provider?:            WhatsAppProvider | null;
+  whatsapp_phone_number_id?:     string | null;
+  whatsapp_access_token?:        string | null;
+  whatsapp_business_account_id?: string | null;
+  whatsapp_app_secret?:          string | null;
+  whatsapp_verify_token?:        string | null;
+  razorpay_mode?:           "test" | "live" | null;
+  razorpay_key_id?:         string | null;
+  razorpay_key_secret?:     string | null;
+  razorpay_webhook_secret?: string | null;
+  created_at?:         string;
+  updated_at?:         string;
+};
+type TenantSecretsUpdate = Partial<Omit<TenantSecretsInsert, "tenant_id">>;
+
+// ============================================================
+// whatsapp_messages — conversation history (migration 0038)
+// ============================================================
+export type WhatsAppDirection = "inbound" | "outbound";
+export type WhatsAppMessageType =
+  | "text" | "template" | "image" | "document" | "video" | "audio"
+  | "location" | "reaction" | "sticker" | "button" | "interactive" | "unsupported";
+export type WhatsAppMessageStatus =
+  | "pending" | "sent" | "delivered" | "read" | "failed" | "received";
+
+export type WhatsAppMessageRow = {
+  id:                  string;
+  tenant_id:           string;
+  wamid:               string | null;
+  contact_phone:       string;
+  direction:           WhatsAppDirection;
+  type:                WhatsAppMessageType;
+  text_body:           string | null;
+  template_name:       string | null;
+  template_lang:       string | null;
+  template_params:     unknown;
+  media_id:            string | null;
+  media_mime:          string | null;
+  media_filename:      string | null;
+  status:              WhatsAppMessageStatus;
+  error_code:          string | null;
+  error_message:       string | null;
+  related_lead_id:     string | null;
+  related_quote_id:    string | null;
+  related_customer_id: string | null;
+  meta_timestamp:      string | null;
+  created_at:          string;
+};
+type WhatsAppMessageInsert = Partial<WhatsAppMessageRow> & {
+  tenant_id:     string;
+  contact_phone: string;
+  direction:     WhatsAppDirection;
+  type:          WhatsAppMessageType;
+};
+type WhatsAppMessageUpdate = Partial<Omit<WhatsAppMessageInsert, "id" | "tenant_id">>;
 
 type UserRow = {
   id: string;
@@ -48,6 +198,8 @@ type UserRow = {
   color: string | null;
   avatar_url: string | null;
   is_active: boolean;
+  /** Migration 0045 — sales-role extension: when true, user also sees /deals. */
+  can_view_deals: boolean;
   created_at: string;
 }
 type UserInsert = {
@@ -60,6 +212,7 @@ type UserInsert = {
   color?: string | null;
   avatar_url?: string | null;
   is_active?: boolean;
+  can_view_deals?: boolean;
   created_at?: string;
 }
 type UserUpdate = Partial<UserInsert>;
@@ -80,6 +233,19 @@ type CustomerRow = {
   account_manager_id: string | null;
   since: string;
   notes: string | null;
+  // Added in migration 0014 — TDS profile for B2B customers who deduct TDS
+  tan: string | null;                          // Tax Account Number (different from GSTIN)
+  tds_default_section: string | null;          // '194J' (services) / '194C' (contracts) / etc.
+  tds_default_rate_pct: number | null;         // 10.00 / 2.00 / 0.10
+  // Added in migration 0036 — billing address + cached GSTIN verification
+  address: string | null;
+  pin_code: string | null;
+  gstin_verified_at: string | null;
+  gstin_verification: GstinVerification | null;
+  // Added in migration 0043 — distributor-side flag: this customer is also
+  // a tenant in ResellerOS (a sub-reseller child). When set, invoices
+  // issued to this customer auto-mirror into the linked tenant's vendor_bills.
+  linked_tenant_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -99,6 +265,14 @@ type CustomerInsert = {
   account_manager_id?: string | null;
   since?: string;
   notes?: string | null;
+  tan?: string | null;
+  tds_default_section?: string | null;
+  tds_default_rate_pct?: number | null;
+  address?: string | null;
+  pin_code?: string | null;
+  gstin_verified_at?: string | null;
+  gstin_verification?: GstinVerification | null;
+  linked_tenant_id?: string | null;
 }
 type CustomerUpdate = Partial<CustomerInsert>;
 
@@ -129,6 +303,13 @@ type ItemRow = {
   prices: ItemPrices;
   margin_pct: number;
   is_active: boolean;
+  // Partner Catalog (migration 0041) ───────────────────────────────────────
+  /** Distributor marks this row visible to sub-reseller children. */
+  is_partner_visible: boolean;
+  /** ₹/seat/MONTH the distributor charges children. Nullable when not partner-visible. */
+  partner_price: number | null;
+  /** On a child's row: the parent item id this row was synced from. */
+  synced_from_partner_id: string | null;
   created_at: string;
 }
 type ItemInsert = {
@@ -142,8 +323,44 @@ type ItemInsert = {
   wholesale: number;
   prices?: ItemPrices;
   is_active?: boolean;
+  is_partner_visible?: boolean;
+  partner_price?: number | null;
+  synced_from_partner_id?: string | null;
 }
 type ItemUpdate = Partial<ItemInsert>;
+
+/** Row returned by get_partner_metrics() RPC (migration 0044). */
+export type PartnerMetricsRow = {
+  tenant_id:            string;
+  tenant_name:          string;
+  tenant_gstin:         string | null;
+  active_subscriptions: number;
+  total_seats_sold:     number;
+  mrr:                  number;
+  invoiced_this_month:  number;
+  paid_this_month:      number;
+  renewals_due_30d:     number;
+  renewal_revenue_30d:  number;
+  last_invoice_date:    string | null;
+};
+
+/** Row returned by get_partner_catalog() RPC (migration 0041). */
+export type PartnerCatalogRow = {
+  id: string;
+  tenant_id: string;
+  name: string;
+  vendor: "google" | "microsoft" | "zoho" | "other";
+  kind: "main" | "addon";
+  hsn: string | null;
+  msrp: number;
+  partner_price: number | null;
+  prices: ItemPrices;
+  is_active: boolean;
+  /** True when the calling child tenant already has a row with synced_from_partner_id = this row's id. */
+  already_synced: boolean;
+};
+
+export type LeadPriority = "low" | "medium" | "high";
 
 type LeadRow = {
   id: string;
@@ -158,7 +375,21 @@ type LeadRow = {
   stage: "new" | "contact" | "demo" | "trial" | "quote" | "won" | "lost";
   owner_id: string | null;
   source: string | null;
+  /** Migration 0018 — structured domain captured at lead intake (trial / buy page) */
+  domain: string | null;
   notes: string | null;
+  /** Migration 0026 — trial lifecycle tracking */
+  trial_started_at:   string | null;
+  trial_expires_at:   string | null;
+  trial_converted_at: string | null;
+  trial_expired_at:   string | null;
+  // Migration 0046 — sales workflow fields
+  /** Next planned contact (call/email/meeting). Drives the daily "who do I call today" worklist. */
+  follow_up_date: string | null;     // YYYY-MM-DD
+  /** Triage signal: 'low' / 'medium' / 'high'. Default 'medium'. */
+  priority: LeadPriority;
+  /** B2B GSTIN captured at lead time (auto-fills legal name + address on conversion). */
+  gstin: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -175,7 +406,15 @@ type LeadInsert = {
   stage?: "new" | "contact" | "demo" | "trial" | "quote" | "won" | "lost";
   owner_id?: string | null;
   source?: string | null;
+  domain?: string | null;
   notes?: string | null;
+  trial_started_at?:   string | null;
+  trial_expires_at?:   string | null;
+  trial_converted_at?: string | null;
+  trial_expired_at?:   string | null;
+  follow_up_date?:     string | null;
+  priority?:           LeadPriority;
+  gstin?:              string | null;
 }
 type LeadUpdate = Partial<LeadInsert>;
 
@@ -202,9 +441,13 @@ export type QuoteLineItem = {
   name: string;
   description?: string;
   qty: number;
-  rate: number;          // ₹ per seat — annual amount regardless of billing frequency
+  rate: number;          // ₹ per seat — annual amount regardless of billing frequency (LIST price before discount)
   cost: number;          // ₹ per seat — annual wholesale (for margin calc)
   commitment?: LineCommitment;  // billing/commitment tier (default "annual_yearly")
+  /** Reseller-given discount on THIS line (0–50%). Comes out of reseller margin, NOT Google wholesale. */
+  discount_pct?: number;
+  /** Optional reason shown on quote PDF + accept page (e.g., "Loyalty discount", "Volume offer"). */
+  discount_reason?: string;
 };
 
 type QuoteRow = {
@@ -236,6 +479,12 @@ type QuoteRow = {
   invoice_id: string | null;
   /** True when issued for the renewal of an existing subscription. Migration 0011. */
   is_renewal: boolean;
+  /** Migration 0018 — structured domain copied from lead at quote create, propagates to subscription. */
+  domain: string | null;
+  /** Migration 0020 — how many months to advance subscription.renewal_date when this (renewal) quote is paid. Default 12. Used by record_payment. */
+  extension_months: number;
+  /** Migration 0021 — display-only flag set by the operator "Extend subscription" flow. */
+  is_extension: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -267,6 +516,9 @@ type QuoteInsert = {
   payment_notes?: string | null;
   invoice_id?: string | null;
   is_renewal?: boolean;
+  domain?: string | null;
+  extension_months?: number;
+  is_extension?: boolean;
 }
 type QuoteUpdate = Partial<QuoteInsert>;
 
@@ -370,6 +622,8 @@ type SubscriptionRow = {
   renewal_quote_id: string | null;
   /** When the auto-suspend trigger fired. NULL = never auto-suspended. */
   suspended_at:     string | null;
+  /** Customer-controlled (migration 0017). When false, no renewal quote auto-generated. */
+  auto_renew:       boolean;
   created_at: string;
   updated_at: string;
 }
@@ -397,6 +651,7 @@ type SubscriptionInsert = {
   last_reminder_sent_at_v2?: string | null;
   renewal_quote_id?: string | null;
   suspended_at?:     string | null;
+  auto_renew?:       boolean;
 }
 type SubscriptionUpdate = Partial<SubscriptionInsert>;
 
@@ -546,6 +801,538 @@ type QuoteSendLogInsert = {
 type QuoteSendLogUpdate = Partial<QuoteSendLogInsert>;
 
 // ============================================================
+// Accounting — vendor_bills + expenses (migration 0013)
+// ============================================================
+export type VendorBillLine = {
+  id?:    string;
+  name:   string;
+  qty?:   number;
+  rate?:  number;
+  amount: number;
+};
+export type VendorBillRow = {
+  id:               string;
+  tenant_id:        string;
+  vendor_name:      string;
+  vendor_gstin:     string | null;
+  bill_no:          string | null;
+  bill_date:        string;                  // YYYY-MM-DD
+  due_date:         string | null;
+  category:         string;                  // 'COGS-Workspace' | 'COGS-M365' | 'COGS-Zoho' | 'COGS-Other'
+  line_items:       VendorBillLine[];
+  subtotal:         number;
+  cgst:             number;
+  sgst:             number;
+  igst:             number;
+  total:            number;
+  status:           string;                  // 'unpaid' | 'paid' | 'partial'
+  paid_amount:      number;
+  notes:            string | null;
+  attachment_url:   string | null;
+  /** Migration 0043 — on a child tenant's auto-imported bill, the parent's invoice id. */
+  source_tenant_invoice_id: string | null;
+  created_at:       string;
+  updated_at:       string;
+};
+type VendorBillInsert = {
+  id:               string;
+  tenant_id:        string;
+  vendor_name:      string;
+  vendor_gstin?:    string | null;
+  bill_no?:         string | null;
+  bill_date:        string;
+  due_date?:        string | null;
+  category?:        string;
+  line_items?:      VendorBillLine[];
+  subtotal?:        number;
+  cgst?:            number;
+  sgst?:            number;
+  igst?:            number;
+  total:            number;
+  status?:          string;
+  paid_amount?:     number;
+  notes?:           string | null;
+  attachment_url?:  string | null;
+  source_tenant_invoice_id?: string | null;
+};
+type VendorBillUpdate = Partial<VendorBillInsert>;
+
+export type ExpenseRow = {
+  id:               string;
+  tenant_id:        string;
+  category:         string;                  // 'Hosting' | 'Software' | 'Salaries' | 'Office' | 'Marketing' | 'Travel' | 'Professional' | 'Bank' | 'Other'
+  vendor_name:      string | null;
+  expense_date:     string;                  // YYYY-MM-DD
+  amount:           number;
+  gst_paid:         number;
+  payment_method:   string | null;           // 'bank_transfer' | 'upi' | 'cash' | 'card' | 'cheque'
+  description:      string | null;
+  attachment_url:   string | null;
+  created_at:       string;
+  updated_at:       string;
+};
+type ExpenseInsert = {
+  id:               string;
+  tenant_id:        string;
+  category:         string;
+  vendor_name?:     string | null;
+  expense_date:     string;
+  amount:           number;
+  gst_paid?:        number;
+  payment_method?:  string | null;
+  description?:     string | null;
+  attachment_url?:  string | null;
+};
+type ExpenseUpdate = Partial<ExpenseInsert>;
+
+// ============================================================
+// TDS Receivable (migration 0014)
+// ============================================================
+export type TdsStatus =
+  | "pending_cert"
+  | "cert_received"
+  | "verified_26as"
+  | "claimed"
+  | "disputed"
+  | "written_off";
+
+export type TdsReceivableRow = {
+  id:                     string;
+  tenant_id:              string;
+  invoice_id:             string | null;
+  payment_id:             string | null;
+  customer_id:            string | null;
+  customer_name:          string;
+  customer_tan:           string | null;
+  section:                string;     // '194J' / '194C' / etc.
+  rate_pct:               number;     // 10.00
+  gross_amount:           number;     // pre-GST taxable
+  tds_amount:             number;
+  net_paid:               number;
+  fiscal_year:            string;     // 'FY2526'
+  payment_received_date:  string;     // YYYY-MM-DD
+  status:                 TdsStatus;
+  form_16a_url:           string | null;
+  form_16a_received_date: string | null;
+  appears_in_26as:        boolean;
+  appears_in_26as_date:   string | null;
+  claimed_in_itr:         boolean;
+  claimed_in_itr_date:    string | null;
+  notes:                  string | null;
+  created_at:             string;
+  updated_at:             string;
+};
+type TdsReceivableInsert = {
+  id:                     string;
+  tenant_id:              string;
+  invoice_id?:            string | null;
+  payment_id?:            string | null;
+  customer_id?:           string | null;
+  customer_name:          string;
+  customer_tan?:          string | null;
+  section:                string;
+  rate_pct:               number;
+  gross_amount:           number;
+  tds_amount:             number;
+  net_paid:               number;
+  fiscal_year:            string;
+  payment_received_date:  string;
+  status?:                TdsStatus;
+  form_16a_url?:          string | null;
+  form_16a_received_date?: string | null;
+  appears_in_26as?:       boolean;
+  appears_in_26as_date?:  string | null;
+  claimed_in_itr?:        boolean;
+  claimed_in_itr_date?:   string | null;
+  notes?:                 string | null;
+};
+type TdsReceivableUpdate = Partial<TdsReceivableInsert>;
+
+// ============================================================
+// Customer Portal Auth (migration 0016)
+// ============================================================
+export type CustomerUserRow = {
+  id:            string;
+  tenant_id:     string;
+  customer_id:   string;
+  auth_user_id:  string;
+  email:         string;
+  role:          string;          // 'admin' | 'finance' | 'viewer'
+  last_login_at: string | null;
+  created_at:    string;
+};
+type CustomerUserInsert = {
+  id?:            string;
+  tenant_id:     string;
+  customer_id:   string;
+  auth_user_id:  string;
+  email:         string;
+  role?:         string;
+  last_login_at?: string | null;
+};
+type CustomerUserUpdate = Partial<CustomerUserInsert>;
+
+// ============================================================
+// Support tickets (migration 0017)
+// ============================================================
+export type SupportTicketStatus =
+  | "open"
+  | "in_progress"
+  | "awaiting_customer"
+  | "resolved"
+  | "closed";
+
+export type SupportTicketCategory =
+  | "billing"
+  | "tech"
+  | "plan_change"
+  | "feature"
+  | "other";
+
+export type SupportTicketPriority = "low" | "normal" | "high" | "urgent";
+
+export type SupportTicketRow = {
+  id:               string;
+  tenant_id:        string;
+  customer_id:      string | null;
+  customer_name:    string;
+  raised_by_email:  string;
+  raised_by_user:   string | null;
+  category:         SupportTicketCategory;
+  priority:         SupportTicketPriority;
+  subject:          string;
+  body:             string;
+  status:           SupportTicketStatus;
+  resolved_at:      string | null;
+  resolved_by:      string | null;
+  resolution_note:  string | null;
+  created_at:       string;
+  updated_at:       string;
+};
+type SupportTicketInsert = {
+  id:               string;
+  tenant_id:        string;
+  customer_id?:     string | null;
+  customer_name:    string;
+  raised_by_email:  string;
+  raised_by_user?:  string | null;
+  category:         SupportTicketCategory;
+  priority?:        SupportTicketPriority;
+  subject:          string;
+  body:             string;
+  status?:          SupportTicketStatus;
+  resolved_at?:     string | null;
+  resolved_by?:     string | null;
+  resolution_note?: string | null;
+};
+type SupportTicketUpdate = Partial<SupportTicketInsert>;
+
+// ============================================================
+// Purchase Orders — procurement / buy-side (migration 0022)
+// ============================================================
+export type PurchaseOrderStatus =
+  | "draft"          // auto-created when sub spawns; not yet placed
+  | "placed"         // ordered from vendor (Google CSP, MS Partner, Zoho)
+  | "provisioned"    // licenses live on customer's domain
+  | "closed"         // billed by vendor, fully reconciled
+  | "cancelled";
+
+export type PurchaseOrderRow = {
+  id:               string;            // PO-2526-0001
+  tenant_id:        string;
+  subscription_id:  string | null;     // FK to subscriptions
+  customer_id:      string | null;
+  customer_name:    string;
+  domain:           string | null;     // e.g. acme.in
+  vendor:           "google" | "microsoft" | "zoho" | "other";
+  vendor_order_id:  string | null;     // Google CSP order ID etc.
+  plan:             string;
+  seats:            number;
+  term_months:      number;            // 12 / 24 / 36
+  unit_cost_pm:     number;            // ₹/seat/month wholesale
+  total_cost:       number;            // unit_cost_pm × seats × term_months
+  status:           PurchaseOrderStatus;
+  placed_at:        string | null;
+  provisioned_at:   string | null;
+  closed_at:        string | null;
+  notes:            string | null;
+  created_by:       string | null;
+  created_at:       string;
+  updated_at:       string;
+};
+type PurchaseOrderInsert = {
+  id:               string;
+  tenant_id:        string;
+  subscription_id?: string | null;
+  customer_id?:     string | null;
+  customer_name:    string;
+  domain?:          string | null;
+  vendor:           "google" | "microsoft" | "zoho" | "other";
+  vendor_order_id?: string | null;
+  plan:             string;
+  seats:            number;
+  term_months?:     number;
+  unit_cost_pm?:    number;
+  total_cost?:      number;
+  status?:          PurchaseOrderStatus;
+  placed_at?:       string | null;
+  provisioned_at?:  string | null;
+  closed_at?:       string | null;
+  notes?:           string | null;
+  created_by?:      string | null;
+};
+type PurchaseOrderUpdate = Partial<Omit<PurchaseOrderInsert, "id" | "tenant_id">>;
+
+// ============================================================
+// PO ↔ Vendor Bill allocations (migration 0024)
+// ============================================================
+export type PoBillAllocationRow = {
+  id:                  string;
+  tenant_id:           string;
+  purchase_order_id:   string;
+  vendor_bill_id:      string;
+  allocated_amount:    number;
+  notes:               string | null;
+  created_by:          string | null;
+  created_at:          string;
+};
+type PoBillAllocationInsert = {
+  id?:                 string;
+  tenant_id:           string;
+  purchase_order_id:   string;
+  vendor_bill_id:      string;
+  allocated_amount:    number;
+  notes?:              string | null;
+  created_by?:         string | null;
+};
+type PoBillAllocationUpdate = Partial<Omit<PoBillAllocationInsert, "id" | "tenant_id">>;
+
+// ============================================================
+// Campaigns — bulk email broadcasts to leads (migration 0028)
+// ============================================================
+export type CampaignStatus = "draft" | "sending" | "sent" | "failed" | "cancelled";
+
+export type CampaignRow = {
+  id:                 string;
+  tenant_id:          string;
+  name:               string;
+  subject:            string;
+  body:               string;
+  /** Migration 0029 — optional HTML body. When present, email uses HTML; text body is fallback. */
+  body_html:          string | null;
+  audience_filter:    { stages?: string[]; sources?: string[]; search?: string };
+  offer_code:         string | null;
+  offer_discount_pct: number | null;
+  offer_expires_at:   string | null;
+  recipients_count:   number;
+  sent_count:         number;
+  failed_count:       number;
+  status:             CampaignStatus;
+  sent_at:            string | null;
+  created_by:         string | null;
+  created_at:         string;
+  updated_at:         string;
+};
+type CampaignInsert = {
+  id:                 string;
+  tenant_id:          string;
+  name:               string;
+  subject:            string;
+  body:               string;
+  body_html?:         string | null;
+  audience_filter?:   { stages?: string[]; sources?: string[]; search?: string };
+  offer_code?:        string | null;
+  offer_discount_pct?: number | null;
+  offer_expires_at?:  string | null;
+  recipients_count?:  number;
+  sent_count?:        number;
+  failed_count?:      number;
+  status?:            CampaignStatus;
+  sent_at?:           string | null;
+  created_by?:        string | null;
+};
+type CampaignUpdate = Partial<Omit<CampaignInsert, "id" | "tenant_id">>;
+
+export type CampaignSendStatus = "pending" | "sent" | "failed" | "skipped" | "stubbed";
+
+export type CampaignSendRow = {
+  id:                 string;
+  tenant_id:          string;
+  campaign_id:        string;
+  lead_id:            string | null;
+  recipient_email:    string;
+  recipient_name:     string | null;
+  status:             CampaignSendStatus;
+  provider_id:        string | null;
+  error_message:      string | null;
+  sent_at:            string | null;
+  created_at:         string;
+};
+type CampaignSendInsert = Omit<CampaignSendRow, "id" | "created_at"> & { id?: string };
+type CampaignSendUpdate = Partial<Omit<CampaignSendInsert, "tenant_id" | "campaign_id">>;
+
+// ── campaign_templates (migration 0029) ─────────────────────────
+export type CampaignTemplateCategory =
+  | "newsletter" | "offer" | "winback" | "onboarding" | "custom";
+
+export type CampaignTemplateRow = {
+  id:           string;
+  tenant_id:    string | null;          // null = system template (visible to all tenants)
+  name:         string;
+  category:     CampaignTemplateCategory;
+  subject:      string;
+  body_html:    string;
+  body_text:    string | null;
+  description:  string | null;
+  is_system:    boolean;
+  created_by:   string | null;
+  created_at:   string;
+  updated_at:   string;
+};
+type CampaignTemplateInsert = Omit<CampaignTemplateRow, "id" | "created_at" | "updated_at"> & { id?: string };
+type CampaignTemplateUpdate = Partial<Omit<CampaignTemplateInsert, "tenant_id" | "is_system">>;
+
+// ============================================================
+// Contacts — standalone directory (migration 0030)
+// ============================================================
+export type ContactSource     = "manual" | "google_csv" | "google_api" | "outlook" | "linkedin" | "event" | "other";
+export type ContactStatus     = "pending" | "engaged" | "promoted" | "archived";
+
+export type ContactRow = {
+  id:                  string;
+  tenant_id:           string;
+  full_name:           string;
+  email:               string | null;
+  phone:               string | null;
+  company:             string | null;
+  title:               string | null;
+  source:              ContactSource;
+  external_id:         string | null;
+  status:              ContactStatus;
+  promoted_to_lead_id: string | null;
+  promoted_at:         string | null;
+  notes:               string | null;
+  tags:                string[];
+  imported_by:         string | null;
+  created_at:          string;
+  updated_at:          string;
+};
+type ContactInsert = {
+  id:                  string;
+  tenant_id:           string;
+  full_name:           string;
+  email?:              string | null;
+  phone?:              string | null;
+  company?:            string | null;
+  title?:              string | null;
+  source?:             ContactSource;
+  external_id?:        string | null;
+  status?:             ContactStatus;
+  promoted_to_lead_id?: string | null;
+  promoted_at?:        string | null;
+  notes?:              string | null;
+  tags?:               string[];
+  imported_by?:        string | null;
+};
+type ContactUpdate = Partial<Omit<ContactInsert, "id" | "tenant_id">>;
+
+// ============================================================
+// Coupons — public buy-page promo codes (migration 0031)
+// ============================================================
+export type CouponDiscountType = "percent" | "flat";
+
+export type CouponRow = {
+  code:              string;
+  tenant_id:         string;
+  description:       string | null;
+  discount_type:     CouponDiscountType;
+  discount_value:    number;
+  applies_to_tier:   string | null;
+  applies_to_vendor: string | null;
+  min_seats:         number;
+  max_seats:         number | null;
+  max_redemptions:   number | null;
+  redemption_count:  number;
+  valid_from:        string;
+  valid_until:       string | null;
+  is_active:         boolean;
+  created_by:        string | null;
+  created_at:        string;
+  updated_at:        string;
+};
+type CouponInsert = {
+  code:              string;
+  tenant_id:         string;
+  description?:      string | null;
+  discount_type?:    CouponDiscountType;
+  discount_value:    number;
+  applies_to_tier?:  string | null;
+  applies_to_vendor?: string | null;
+  min_seats?:        number;
+  max_seats?:        number | null;
+  max_redemptions?:  number | null;
+  redemption_count?: number;
+  valid_from?:       string;
+  valid_until?:      string | null;
+  is_active?:        boolean;
+  created_by?:       string | null;
+};
+type CouponUpdate = Partial<Omit<CouponInsert, "code" | "tenant_id">>;
+
+export type CouponRedemptionRow = {
+  id:            string;
+  coupon_code:   string;
+  tenant_id:     string;
+  quote_id:      string | null;
+  lead_id:       string | null;
+  contact_email: string | null;
+  contact_name:  string | null;
+  tier_id:       string | null;
+  seats:         number | null;
+  amount_saved:  number;
+  redeemed_at:   string;
+};
+type CouponRedemptionInsert = Omit<CouponRedemptionRow, "id" | "redeemed_at"> & { id?: string };
+type CouponRedemptionUpdate = Partial<Omit<CouponRedemptionInsert, "coupon_code" | "tenant_id">>;
+
+// ============================================================
+// Site Promos — public buy-page automatic sales (migration 0032)
+// Pardeep enables one; the buy page auto-discounts and shows a
+// big banner — no code required. Stacks below Google promo, above
+// any visitor-entered coupon code.
+// ============================================================
+export type SitePromoBannerStyle = "amber" | "rose" | "emerald" | "indigo" | "ink";
+
+export type SitePromoRow = {
+  id:                string;
+  tenant_id:         string;
+  headline:          string;
+  subheadline:       string | null;
+  badge_text:        string | null;
+  discount_type:     CouponDiscountType;
+  discount_value:    number;
+  applies_to_tier:   string | null;
+  applies_to_vendor: string | null;
+  min_seats:         number;
+  max_seats:         number | null;
+  banner_style:      SitePromoBannerStyle;
+  valid_from:        string;
+  valid_until:       string | null;
+  is_active:         boolean;
+  created_by:        string | null;
+  created_at:        string;
+  updated_at:        string;
+};
+type SitePromoInsert = Partial<SitePromoRow> & {
+  id:             string;
+  tenant_id:      string;
+  headline:       string;
+  discount_type:  CouponDiscountType;
+  discount_value: number;
+};
+type SitePromoUpdate = Partial<Omit<SitePromoInsert, "id" | "tenant_id">>;
+
+// ============================================================
 // Database type (the shape supabase-js expects)
 // ============================================================
 export type Database = {
@@ -563,9 +1350,72 @@ export type Database = {
       tasks:              { Row: TaskRow;              Insert: TaskInsert;              Update: TaskUpdate;              Relationships: [] };
       renewal_email_log:  { Row: RenewalEmailLogRow;   Insert: RenewalEmailLogInsert;   Update: RenewalEmailLogUpdate;   Relationships: [] };
       quote_send_log:     { Row: QuoteSendLogRow;      Insert: QuoteSendLogInsert;      Update: QuoteSendLogUpdate;      Relationships: [] };
+      vendor_bills:       { Row: VendorBillRow;        Insert: VendorBillInsert;        Update: VendorBillUpdate;        Relationships: [] };
+      expenses:           { Row: ExpenseRow;           Insert: ExpenseInsert;           Update: ExpenseUpdate;           Relationships: [] };
+      tds_receivable:     { Row: TdsReceivableRow;     Insert: TdsReceivableInsert;     Update: TdsReceivableUpdate;     Relationships: [] };
+      customer_users:     { Row: CustomerUserRow;      Insert: CustomerUserInsert;      Update: CustomerUserUpdate;      Relationships: [] };
+      support_tickets:    { Row: SupportTicketRow;     Insert: SupportTicketInsert;     Update: SupportTicketUpdate;     Relationships: [] };
+      purchase_orders:    { Row: PurchaseOrderRow;     Insert: PurchaseOrderInsert;     Update: PurchaseOrderUpdate;     Relationships: [] };
+      po_bill_allocations:{ Row: PoBillAllocationRow;  Insert: PoBillAllocationInsert;  Update: PoBillAllocationUpdate;  Relationships: [] };
+      campaigns:          { Row: CampaignRow;          Insert: CampaignInsert;          Update: CampaignUpdate;          Relationships: [] };
+      campaign_sends:     { Row: CampaignSendRow;      Insert: CampaignSendInsert;      Update: CampaignSendUpdate;      Relationships: [] };
+      campaign_templates: { Row: CampaignTemplateRow;  Insert: CampaignTemplateInsert;  Update: CampaignTemplateUpdate;  Relationships: [] };
+      contacts:           { Row: ContactRow;           Insert: ContactInsert;           Update: ContactUpdate;           Relationships: [] };
+      coupons:            { Row: CouponRow;            Insert: CouponInsert;            Update: CouponUpdate;            Relationships: [] };
+      coupon_redemptions: { Row: CouponRedemptionRow;  Insert: CouponRedemptionInsert;  Update: CouponRedemptionUpdate;  Relationships: [] };
+      site_promos:        { Row: SitePromoRow;         Insert: SitePromoInsert;         Update: SitePromoUpdate;         Relationships: [] };
+      tenant_secrets:     { Row: TenantSecretsRow;     Insert: TenantSecretsInsert;     Update: TenantSecretsUpdate;     Relationships: [] };
+      whatsapp_messages:  { Row: WhatsAppMessageRow;   Insert: WhatsAppMessageInsert;   Update: WhatsAppMessageUpdate;   Relationships: [] };
     };
-    Views: { [_ in never]: never };
+    Views: {
+      // Added in migration 0040 — tenant joined with its parent's display fields.
+      // Read-only by definition; Insert/Update fall back to `never`.
+      v_tenant_with_parent: { Row: TenantWithParent; Relationships: [] };
+    };
     Functions: {
+      /**
+       * Returns the caller's tenant joined with its parent's display fields.
+       * SECURITY DEFINER — bypasses RLS for the parent JOIN, but the WHERE
+       * clause confines results to the caller's own tenant. Added in 0040.
+       */
+      get_my_tenant_with_parent: {
+        Args: Record<string, never>;
+        Returns: TenantWithParent[];
+      };
+      /**
+       * Returns parent tenant's partner-visible items for the caller's tenant.
+       * SECURITY DEFINER — cross-tenant read confined to caller's declared distributor.
+       * See migration 0041.
+       */
+      get_partner_catalog: {
+        Args: Record<string, never>;
+        Returns: PartnerCatalogRow[];
+      };
+      /**
+       * Aggregated per-child metrics for the distributor's /partners
+       * dashboard (migration 0044). Privacy-preserving — no end-customer
+       * data leaks across tenants, only roll-up totals.
+       */
+      get_partner_metrics: {
+        Args: Record<string, never>;
+        Returns: PartnerMetricsRow[];
+      };
+      /**
+       * Atomically clones a parent's partner item into the child's items table
+       * — or links/refreshes an existing row. Resolution priority:
+       *   1. p_link_existing_id → link that row, update wholesale (0042)
+       *   2. existing synced_from_partner_id match → refresh idempotently
+       *   3. neither → clone a new row
+       * Returns the resulting item id.
+       */
+      sync_partner_item: {
+        Args: {
+          p_partner_item_id:   string;
+          p_my_msrp?:          number | null;
+          p_link_existing_id?: string | null;
+        };
+        Returns: string;
+      };
       /**
        * Returns the Indian fiscal year label (e.g. 'FY2627') for a given date.
        * FY runs Apr 1 – Mar 31; date defaults to current_date.
@@ -590,7 +1440,9 @@ export type Database = {
             | "refund_voucher"
             | "credit_note"
             | "debit_note"
-            | "quote";
+            | "quote"
+            | "purchase_order"
+            | "campaign";
           p_tenant_id?: string;
         };
         Returns: string;
@@ -639,6 +1491,86 @@ export type Database = {
        *     p_notes:     'Half payment',
        *   });
        */
+      /**
+       * Marks a quote as accepted and converts its linked lead into a customer
+       * WITHOUT recording payment. Used when the customer has verbally accepted
+       * but their payment will arrive later. Subscription is NOT created here;
+       * record_payment will spawn it when the money actually lands.
+       */
+      accept_quote: {
+        Args: { p_quote_id: string };
+        Returns: {
+          quote_id:       string;
+          customer_id:    string;
+          converted_now:  boolean;
+          quote_status:   string;
+          awaits_payment: boolean;
+        };
+      };
+      /**
+       * Atomically validates AND redeems a coupon code in a single transaction.
+       * Used by /api/public/coupons/validate (with dry-run flag) and the
+       * checkout route (live redemption). Returns either a discount payload
+       * or a refusal reason ('expired', 'maxed_out', 'wrong_tier', etc.).
+       */
+      redeem_coupon: {
+        Args: {
+          p_code:         string;
+          p_tenant_id:    string;
+          p_tier_id:      string;
+          p_seats:        number;
+          p_gross_amount: number;
+          p_quote_id?:    string;
+          p_lead_id?:     string;
+          p_email?:       string;
+          p_name?:        string;
+        };
+        Returns: {
+          ok:             boolean;
+          discount?:      number;
+          discount_type?: CouponDiscountType;
+          discount_value?: number;
+          code?:          string;
+          reason?:        string;
+          required_tier?: string;
+          min_seats?:     number;
+          max_seats?:     number;
+        };
+      };
+      /**
+       * Returns at-most-one active site promo for the given tenant. Tier +
+       * seats narrow the eligibility check. Null row when no promo is active.
+       * Public-safe — no auth.uid() dependency.
+       */
+      get_active_site_promo: {
+        Args: {
+          p_tenant_id: string;
+          p_tier_id?:  string | null;
+          p_seats?:    number | null;
+        };
+        Returns: SitePromoRow | null;
+      };
+      /**
+       * Atomic create — generates an SP-XXXXXX id and inserts the row in
+       * a single round-trip. Returns the new promo id.
+       */
+      create_site_promo: {
+        Args: {
+          p_tenant_id:       string;
+          p_headline:        string;
+          p_subheadline:     string | null;
+          p_badge_text:      string | null;
+          p_discount_type:   CouponDiscountType;
+          p_discount_value:  number;
+          p_applies_to_tier: string | null;
+          p_min_seats:       number;
+          p_max_seats:       number | null;
+          p_banner_style:    SitePromoBannerStyle;
+          p_valid_until:     string | null;
+          p_created_by:      string | null;
+        };
+        Returns: string;
+      };
       record_payment: {
         Args: {
           p_quote_id:  string;

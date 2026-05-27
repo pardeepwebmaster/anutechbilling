@@ -1,0 +1,62 @@
+# .gcloudignore — controls what gcloud uploads to Cloud Build.
+# Without this file gcloud falls back to .gitignore semantics, which can
+# accidentally skip untracked files even if they're not in .gitignore.
+# Explicit list = no surprises.
+
+# Git internals
+.git
+.gitignore
+.gitattributes
+
+# Local env (server runtime gets secrets via --set-secrets, not in image)
+.env
+.env.local
+.env.*.local
+
+# Dependencies (re-installed inside builder stage)
+node_modules
+.pnp
+.pnp.js
+
+# Next.js build output (rebuilt inside the image)
+.next
+out
+dist
+
+# Firebase artifacts — we deploy direct to Cloud Run
+.firebase
+.firebase-public
+.firebaserc
+firebase.json
+apphosting.yaml
+
+# Testing
+e2e
+coverage
+playwright-report
+test-results
+playwright.config.ts
+vitest.config.ts
+
+# IDE / editor
+.vscode
+.idea
+*.swp
+*.swo
+.DS_Store
+
+# Logs
+*.log
+npm-debug.log*
+
+# Docs (not needed at runtime)
+README.md
+*.md
+docs
+
+# OS junk
+Thumbs.db
+ehthumbs.db
+
+# Vercel leftovers
+.vercel

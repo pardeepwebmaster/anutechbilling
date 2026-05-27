@@ -85,6 +85,42 @@ function PaymentLabel({ ps, paid }: { ps: Quote["payment_status"] | null; paid: 
   );
 }
 
+/**
+ * Standalone Badge variant of payment status — used in the STATUS column
+ * to give the payment state the same visual weight as the quote state.
+ * Renders nothing for 'none' (no payment workflow started yet).
+ */
+function PaymentBadge({
+  ps, paid, total,
+}: {
+  ps:    Quote["payment_status"] | null;
+  paid:  number | null;
+  total: number | null;
+}) {
+  if (!ps || ps === "none") return null;
+
+  // Compute remaining for partial payments — helps Pardeep see "how much still due"
+  const remaining = total && paid ? Math.max(0, total - paid) : 0;
+
+  const map: Record<Exclude<Quote["payment_status"], "none">, { kind: "success" | "warning" | "info" | "danger"; label: string }> = {
+    awaiting: { kind: "danger",  label: "Awaiting payment" },
+    partial:  {
+      kind: "warning",
+      label: paid && total
+        ? `Partial · ₹${remaining.toLocaleString("en-IN")} due`
+        : "Partial",
+    },
+    received: { kind: "success", label: paid ? `Paid · ${rupee(paid)}` : "Paid in full" },
+    invoiced: { kind: "info",    label: "Invoiced" },
+  };
+  const m = map[ps];
+  if (!m) return null;
+
+  return (
+    <Badge kind={m.kind} size="sm" dot>{m.label}</Badge>
+  );
+}
+
 export default function QuotesPage() {
   const router = useRouter();
   const { data: quotes, isLoading, error, refetch } = useQuotes();
@@ -320,7 +356,11 @@ export default function QuotesPage() {
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-1.5 flex-wrap">
                         <span className="font-mono text-xs font-semibold text-ink">{q.id}</span>
-                        {q.is_renewal && (
+                        {q.is_extension ? (
+                          <Badge kind="warning" className="font-sans text-[10px]">
+                            Extension · {Math.round((q.extension_months ?? 12) / 12)}yr
+                          </Badge>
+                        ) : q.is_renewal && (
                           <Badge kind="info" className="font-sans text-[10px]">Renewal</Badge>
                         )}
                       </div>
@@ -365,6 +405,7 @@ export default function QuotesPage() {
       {!isLoading && !error && filtered.length > 0 && (
         <div className="hidden md:block">
           <Card flush>
+            <div className="overflow-x-auto">
             <table className="w-full">
               <thead className="bg-paper-2 border-b border-hairline">
                 <tr>
@@ -396,7 +437,11 @@ export default function QuotesPage() {
                       <td className="p-3 font-mono text-xs font-semibold text-ink">
                         <div className="flex items-center gap-1.5">
                           <span>{q.id}</span>
-                          {q.is_renewal && (
+                          {q.is_extension ? (
+                            <Badge kind="warning" className="font-sans text-[10px]">
+                              Extension · {Math.round((q.extension_months ?? 12) / 12)}yr
+                            </Badge>
+                          ) : q.is_renewal && (
                             <Badge kind="info" className="font-sans text-[10px]">
                               Renewal
                             </Badge>
@@ -437,7 +482,10 @@ export default function QuotesPage() {
                         )}
                       </td>
                       <td className="p-3">
-                        <Badge kind={meta.kind} dot>{meta.label}</Badge>
+                        <div className="flex flex-col items-start gap-1">
+                          <Badge kind={meta.kind} dot>{meta.label}</Badge>
+                          <PaymentBadge ps={q.payment_status} paid={q.payment_amount} total={q.amount} />
+                        </div>
                       </td>
                       <td className="p-3 text-sm text-ink-2">{formatDate(q.created_date)}</td>
                       <td className="p-3 text-sm">
@@ -565,6 +613,7 @@ export default function QuotesPage() {
                 })}
               </tbody>
             </table>
+            </div>
             {/* Table footer: closes the empty space visually + summary */}
             <div className="flex items-center justify-between gap-3 flex-wrap border-t border-hairline px-4 py-3 bg-paper-2/30 text-xs text-ink-3">
               <div className="flex items-center gap-2">
@@ -582,9 +631,20 @@ export default function QuotesPage() {
                 <span className="hidden sm:inline">
                   Renewals:{" "}
                   <b className="text-ink tabular-nums">
-                    {filtered.filter((q) => q.is_renewal).length}
+                    {filtered.filter((q) => q.is_renewal && !q.is_extension).length}
                   </b>
                 </span>
+                {filtered.some((q) => q.is_extension) && (
+                  <>
+                    <span className="hidden sm:inline">·</span>
+                    <span className="hidden sm:inline">
+                      Extensions:{" "}
+                      <b className="text-ink tabular-nums">
+                        {filtered.filter((q) => q.is_extension).length}
+                      </b>
+                    </span>
+                  </>
+                )}
               </div>
             </div>
           </Card>

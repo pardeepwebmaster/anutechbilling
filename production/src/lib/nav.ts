@@ -7,6 +7,8 @@
  * 3. Create the page at src/app/(app)/[id]/page.tsx
  */
 
+export type UserRole = "owner" | "manager" | "sales";
+
 export interface NavItem {
   id: string;
   /** URL path (relative, starts with /) */
@@ -16,30 +18,90 @@ export interface NavItem {
   icon: string;
   /** Optional badge text (e.g., count of pending items) */
   badge?: string;
+  /**
+   * Roles that can see this nav item. Omit = visible to everyone (default).
+   * Use to lock down sales-only or owner-only entries. Filtered in Sidebar.tsx.
+   */
+  roles?: UserRole[];
 }
 
 export interface NavSection {
   section: string;
   items: NavItem[];
+  /** Roles that can see this section. Omit = visible to everyone. */
+  roles?: UserRole[];
 }
+
+/**
+ * Filter nav sections + items by the caller's role + optional permission
+ * flags (currently just `canViewDeals` for sales). Sections whose every
+ * item is filtered out are dropped. Used by Sidebar to render a
+ * role-appropriate menu.
+ */
+export interface NavFilterOpts {
+  /** Sales-role extension: when true, the /deals entry stays visible. */
+  canViewDeals?: boolean;
+}
+export function filterNavForRole(
+  nav: NavSection[],
+  role: UserRole | undefined,
+  opts: NavFilterOpts = {},
+): NavSection[] {
+  if (!role) return nav;
+  return nav
+    .filter((s) => !s.roles || s.roles.includes(role))
+    .map((s) => ({
+      ...s,
+      items: s.items.filter((i) => {
+        // Sales-role specific: /deals hidden unless can_view_deals = true.
+        if (role === "sales" && i.id === "deals" && !opts.canViewDeals) return false;
+        return !i.roles || i.roles.includes(role);
+      }),
+    }))
+    .filter((s) => s.items.length > 0);
+}
+
+/**
+ * The set of routes a given role + permission set is allowed to visit.
+ * Anything outside this set is redirected to ROLE_HOME[role] by middleware.
+ */
+export function allowedRoutesForRole(role: UserRole, opts: NavFilterOpts = {}): string[] {
+  return filterNavForRole(APP_NAV, role, opts).flatMap((s) => s.items.map((i) => i.href));
+}
+
+/** Where each role lands by default (after login + on disallowed-route redirect). */
+export const ROLE_HOME: Record<UserRole, string> = {
+  owner:   "/dashboard",
+  manager: "/dashboard",
+  sales:   "/leads",
+};
 
 // ============================================================
 // Internal app nav (the main sidebar for resellers)
 // ============================================================
+// Role conventions (applied to APP_NAV entries below):
+//   • Items without an explicit `roles` list → visible to owner + manager.
+//   • Sales-only users see ONLY the items explicitly tagged with "sales".
+//   • Lead Pipeline + Tasks include "sales" because that's the day-to-day
+//     surface for lead-only sellers (per Darshan's role at Excel Tech).
 export const APP_NAV: NavSection[] = [
   {
     section: "Workspace",
     items: [
-      { id: "dashboard",  href: "/dashboard",  label: "Dashboard",     icon: "home" },
-      { id: "leads",      href: "/leads",      label: "Deal Pipeline", icon: "target" },
-      { id: "tasks",      href: "/tasks",      label: "Tasks",         icon: "clock" },
-      { id: "customers",  href: "/customers",  label: "Customers",     icon: "users" },
-      { id: "contacts",   href: "/contacts",   label: "Contacts",      icon: "user" },
-      { id: "items",      href: "/items",      label: "Items Catalog", icon: "package" },
+      { id: "dashboard",  href: "/dashboard",  label: "Dashboard",     icon: "home",    roles: ["owner", "manager"] },
+      // Lead inbox — raw inquiries. Sales always sees this; deals page is a
+      // separate entry below (gated by can_view_deals for sales).
+      { id: "leads",      href: "/leads",      label: "Leads",         icon: "inbox",   roles: ["owner", "manager", "sales"] },
+      { id: "deals",      href: "/deals",      label: "Deal Pipeline", icon: "target",  roles: ["owner", "manager", "sales"] },
+      { id: "tasks",      href: "/tasks",      label: "Tasks",         icon: "clock",   roles: ["owner", "manager", "sales"] },
+      { id: "customers",  href: "/customers",  label: "Customers",     icon: "users",   roles: ["owner", "manager"] },
+      { id: "contacts",   href: "/contacts",   label: "Contacts",      icon: "user",    roles: ["owner", "manager"] },
+      { id: "items",      href: "/items",      label: "Items Catalog", icon: "package", roles: ["owner", "manager"] },
     ],
   },
   {
     section: "Revenue",
+    roles: ["owner", "manager"],
     items: [
       { id: "online-orders", href: "/online-orders", label: "Online Orders", icon: "cart" },
       { id: "quotes",        href: "/quotes",        label: "Quotes",        icon: "file" },
@@ -50,20 +112,50 @@ export const APP_NAV: NavSection[] = [
     ],
   },
   {
+    section: "Procurement",
+    roles: ["owner", "manager"],
+    items: [
+      { id: "purchase-orders", href: "/purchase-orders", label: "Purchase Orders", icon: "cart" },
+    ],
+  },
+  {
+    section: "Accounting",
+    roles: ["owner", "manager"],
+    items: [
+      { id: "saas-metrics",  href: "/accounting/saas-metrics",  label: "SaaS Metrics",       icon: "sparkles" },
+      { id: "bills",         href: "/accounting/bills",         label: "Vendor Bills",       icon: "receipt" },
+      { id: "expenses",      href: "/accounting/expenses",      label: "Expenses",           icon: "rupee" },
+      { id: "pnl",           href: "/accounting/pnl",           label: "P&L Report",         icon: "trending_up" },
+      { id: "profitability", href: "/accounting/profitability", label: "Customer Margin",    icon: "users" },
+      { id: "aging",         href: "/accounting/aging",         label: "Customer Aging",     icon: "clock" },
+      { id: "tds-receivable", href: "/accounting/tds-receivable", label: "TDS Receivable",   icon: "rupee" },
+      { id: "gst-summary",   href: "/accounting/gst",           label: "GST Reports",        icon: "file" },
+    ],
+  },
+  {
     section: "Engage",
+    roles: ["owner", "manager"],
     items: [
       { id: "whatsapp",    href: "/whatsapp",    label: "WhatsApp Inbox", icon: "whatsapp" },
       { id: "automations", href: "/automations", label: "Automations",    icon: "zap" },
-      { id: "campaigns",   href: "/campaigns",   label: "Campaigns",      icon: "send" },
-      { id: "reports",     href: "/reports",     label: "Reports",        icon: "chart" },
+      { id: "campaigns",     href: "/campaigns",     label: "Campaigns",     icon: "send" },
+      { id: "online-promos", href: "/online-promos", label: "Online Promos", icon: "zap" },
+      { id: "coupons",       href: "/coupons",       label: "Coupons",       icon: "rupee" },
+      { id: "reports",       href: "/reports",       label: "Reports",       icon: "chart" },
       { id: "support",     href: "/support",     label: "Support",        icon: "ticket" },
     ],
   },
   {
     section: "System",
+    roles: ["owner", "manager"],
     items: [
       { id: "setup",    href: "/setup",    label: "Setup Wizard",    icon: "rocket" },
-      { id: "settings", href: "/settings", label: "Settings & Team", icon: "settings" },
+      { id: "settings", href: "/settings", label: "Settings",        icon: "settings" },
+      { id: "team",     href: "/team",     label: "Team",            icon: "users" },
+      // Partners page is for distributor-tier tenants only. Sidebar
+      // shows the entry for everyone (low cost) — page itself gates
+      // behind tier check and shows an explainer for non-distributors.
+      { id: "partners", href: "/partners", label: "Partners",        icon: "link" },
       // Lead Sources lives here (System) — not Workspace — because it's
       // configuration-shaped: webhook URLs, form embed code, channel KPIs.
       // Set once / glanced at occasionally, not daily-use. When acquisition
@@ -95,10 +187,13 @@ export const CUSTOMER_NAV: NavSection[] = [
 // ============================================================
 // Breadcrumb titles — by URL path
 // ============================================================
+// NB: /leads + /deals share the same component (the /deals route file
+//     re-exports from /leads). The titles still need separate entries here.
 export const SCREEN_TITLES: Record<string, string[]> = {
   "/dashboard":       ["Workspace", "Dashboard"],
   "/lead-gen":        ["Workspace", "Lead Sources"],
-  "/leads":           ["Workspace", "Deal Pipeline"],
+  "/leads":           ["Workspace", "Leads"],
+  "/deals":           ["Workspace", "Deal Pipeline"],
   "/tasks":           ["Workspace", "Tasks"],
   "/customers":       ["Workspace", "Customers"],
   "/contacts":        ["Workspace", "Contacts"],
@@ -110,13 +205,31 @@ export const SCREEN_TITLES: Record<string, string[]> = {
   "/invoices":        ["Revenue", "Invoices"],
   "/subscriptions":   ["Revenue", "Subscriptions"],
   "/renewals":        ["Revenue", "Renewals"],
+  "/purchase-orders": ["Procurement", "Purchase Orders"],
+  "/accounting/saas-metrics":  ["Accounting", "SaaS Metrics"],
+  "/accounting/bills":         ["Accounting", "Vendor Bills"],
+  "/accounting/expenses":      ["Accounting", "Expenses"],
+  "/accounting/pnl":           ["Accounting", "P&L Report"],
+  "/accounting/profitability": ["Accounting", "Customer Margin"],
+  "/accounting/aging":         ["Accounting", "Customer Aging"],
+  "/accounting/tds-receivable":          ["Accounting", "TDS Receivable"],
+  "/accounting/tds-receivable/year-end": ["Accounting", "TDS Receivable", "Year-End"],
+  "/accounting/gst":      ["Accounting", "GST Reports"],
+  "/accounting/gst/output":  ["Accounting", "GST", "Output (Sales)"],
+  "/accounting/gst/input":   ["Accounting", "GST", "Input (Bills)"],
+  "/accounting/gst/summary": ["Accounting", "GST", "Summary"],
   "/whatsapp":        ["Engage", "WhatsApp Inbox"],
   "/automations":     ["Engage", "Automations"],
   "/campaigns":       ["Engage", "Campaigns"],
+  "/online-promos":   ["Engage", "Online Promos"],
+  "/coupons":         ["Engage", "Coupons"],
+
   "/reports":         ["Engage", "Reports"],
   "/support":         ["Engage", "Support"],
   "/setup":           ["System", "Setup Wizard"],
-  "/settings":        ["System", "Settings & Team"],
+  "/settings":        ["System", "Settings"],
+  "/team":            ["System", "Team"],
+  "/partners":        ["System", "Partners"],
   "/mobile":          ["System", "Mobile (PWA)"],
 };
 

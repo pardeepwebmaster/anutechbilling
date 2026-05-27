@@ -448,11 +448,16 @@ export function QuotePDF(props: QuotePDFProps) {
             <Text style={s.emptyRow}>No line items.</Text>
           ) : (
             lineItems.map((line) => {
-              const lineN    = invoicesPerYear(line.commitment);
-              const lineUnit = billingUnitLabel(line.commitment);
-              const showPer  = lineN > 1;
-              const rate     = showPer ? Math.round(line.rate / lineN) : line.rate;
-              const amount   = line.qty * rate;
+              const lineN          = invoicesPerYear(line.commitment);
+              const lineUnit       = billingUnitLabel(line.commitment);
+              const showPer        = lineN > 1;
+              const rate           = showPer ? Math.round(line.rate / lineN) : line.rate;
+              const grossAmount    = line.qty * rate;
+              // Per-line reseller discount → reflected in printed amount + meta line
+              const lineDiscountPct = line.discount_pct ?? 0;
+              const netAmount       = Math.round(grossAmount * (1 - lineDiscountPct / 100));
+              const grossAnnual     = line.qty * line.rate;
+              const netAnnual       = Math.round(grossAnnual * (1 - lineDiscountPct / 100));
               return (
                 <View key={line.id} style={s.tr} wrap={false}>
                   <View style={s.tdDesc}>
@@ -461,6 +466,12 @@ export function QuotePDF(props: QuotePDFProps) {
                       Per seat{showPer ? "" : " per year"} · HSN 998313
                       {line.commitment && ` · ${billingScheduleLabel(line.commitment)}`}
                     </Text>
+                    {lineDiscountPct > 0 && (
+                      <Text style={s.lineMeta}>
+                        Discount: {lineDiscountPct}%
+                        {line.discount_reason ? ` (${line.discount_reason})` : ""}
+                      </Text>
+                    )}
                   </View>
                   <Text style={s.tdQty}>{line.qty}</Text>
                   <Text style={s.tdRate}>
@@ -468,11 +479,12 @@ export function QuotePDF(props: QuotePDFProps) {
                   </Text>
                   <View style={s.tdAmount}>
                     <Text style={s.lineAmount}>
-                      {rupee(amount)}{showPer ? lineUnit : ""}
+                      {rupee(netAmount)}{showPer ? lineUnit : ""}
                     </Text>
                     {showPer && (
                       <Text style={s.lineAmountSub}>
-                        = {rupee(line.qty * line.rate)}/yr
+                        = {rupee(netAnnual)}/yr
+                        {lineDiscountPct > 0 ? ` (was ${rupee(grossAnnual)})` : ""}
                       </Text>
                     )}
                   </View>

@@ -63,8 +63,8 @@ function detectDevice(): DeviceClass {
 function isStandalone(): boolean {
   if (typeof window === "undefined") return false;
   // iOS exposes navigator.standalone; everyone else uses display-mode media query.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const iosStandalone = (window.navigator as any).standalone === true;
+  // iOS-only API not in the lib.dom.d.ts types; cast through unknown.
+  const iosStandalone = (window.navigator as unknown as { standalone?: boolean }).standalone === true;
   const mediaStandalone = window.matchMedia("(display-mode: standalone)").matches;
   return iosStandalone || mediaStandalone;
 }

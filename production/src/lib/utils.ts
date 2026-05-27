@@ -144,15 +144,136 @@ export function daysBetween(from: Date | string, to: Date | string): number {
   return bIST - aIST;
 }
 
+// ──────────────────────────────────────────────────────────────────────
+// GSTIN
+//
+// A valid Indian GSTIN is 15 chars: `SSPPPPPPPPPPENZC`
+//   - SS    : state code (digits 0-9)            — positions 1-2
+//   - PPPPP : PAN's first 5 (5 uppercase letters) — positions 3-7
+//   - PPPP  : PAN's next 4 (4 digits)             — positions 8-11
+//   - P     : PAN's 10th (1 uppercase letter)     — position 12
+//   - E     : entity number (1 digit 1-9 or letter) — position 13
+//   - N     : literal `Z`                          — position 14
+//   - C     : checksum char (0-9 or A-Z)           — position 15
+//
+// The checksum follows a mod-36 algorithm (similar to GS1):
+//   - chars 0-9 map to values 0-9, A-Z map to 10-35
+//   - iterate right-to-left over the first 14 chars
+//   - alternating factor 2, 1, 2, 1, ... (start 2)
+//   - product = code * factor;  digit = floor(product/36) + (product % 36)
+//   - sum all digits
+//   - checksum = (36 - sum % 36) % 36;  back-convert to char
+// ──────────────────────────────────────────────────────────────────────
+
+const GSTIN_FORMAT_RE = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/;
+const GSTIN_CHARS     = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+
+function gstinChecksum(first14: string): string {
+  let sum = 0;
+  let factor = 2;
+  for (let i = first14.length - 1; i >= 0; i--) {
+    const code = GSTIN_CHARS.indexOf(first14[i]);
+    if (code < 0) return ""; // unknown char
+    const product = code * factor;
+    sum   += Math.floor(product / 36) + (product % 36);
+    factor = factor === 2 ? 1 : 2;
+  }
+  const checkVal = (36 - (sum % 36)) % 36;
+  return GSTIN_CHARS[checkVal];
+}
+
 /**
- * Validate Indian GSTIN format and checksum.
- * Returns true if valid, false otherwise.
- * @example isValidGstin("27AABCE9876D1Z3") // true
+ * Validate an Indian GSTIN — full format + mod-36 checksum.
+ * Returns true only when the 15th character matches the computed checksum.
+ * @example isValidGstin("07ABDCA0298H1ZP") // true
+ * @example isValidGstin("27AABCE9876D1Z3") // false (placeholder, bad checksum)
  */
 export function isValidGstin(gstin: string): boolean {
-  if (!gstin || gstin.length !== 15) return false;
-  const re = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/;
-  return re.test(gstin);
+  if (!gstin || gstin.length !== 15)       return false;
+  const upper = gstin.toUpperCase();
+  if (!GSTIN_FORMAT_RE.test(upper))         return false;
+  const expected = gstinChecksum(upper.slice(0, 14));
+  return expected !== "" && expected === upper[14];
+}
+
+/**
+ * Verbose GSTIN validator — returns a structured result so callers can
+ * surface the right error to the user (format vs. checksum).
+ */
+export function validateGstin(gstin: string):
+  | { ok: true }
+  | { ok: false; reason: "empty" | "length" | "format" | "checksum"; message: string } {
+  if (!gstin)                          return { ok: false, reason: "empty",    message: "GSTIN is empty"      };
+  const upper = gstin.toUpperCase();
+  if (upper.length !== 15)             return { ok: false, reason: "length",   message: "GSTIN must be 15 chars" };
+  if (!GSTIN_FORMAT_RE.test(upper))    return { ok: false, reason: "format",   message: "GSTIN format is wrong — expected SS+5letters+4digits+letter+digit/letter+Z+check" };
+  const expected = gstinChecksum(upper.slice(0, 14));
+  if (expected !== upper[14])          return { ok: false, reason: "checksum", message: `Checksum mismatch (got ${upper[14]}, expected ${expected})` };
+  return { ok: true };
+}
+
+/**
+ * GST state-code → state-name map.
+ * First 2 digits of a GSTIN encode the state. Source: GSTN master list.
+ *  - 28 was the old AP (pre-Telangana split, deprecated)
+ *  - 25 was old Daman & Diu (merged into 26 in 2020)
+ *  - 97/99 are administrative (Other Territory / Centre)
+ * Kept here as the single lookup table for the whole app.
+ */
+export const GST_STATE_BY_CODE: Record<string, string> = {
+  "01": "Jammu and Kashmir",
+  "02": "Himachal Pradesh",
+  "03": "Punjab",
+  "04": "Chandigarh",
+  "05": "Uttarakhand",
+  "06": "Haryana",
+  "07": "Delhi",
+  "08": "Rajasthan",
+  "09": "Uttar Pradesh",
+  "10": "Bihar",
+  "11": "Sikkim",
+  "12": "Arunachal Pradesh",
+  "13": "Nagaland",
+  "14": "Manipur",
+  "15": "Mizoram",
+  "16": "Tripura",
+  "17": "Meghalaya",
+  "18": "Assam",
+  "19": "West Bengal",
+  "20": "Jharkhand",
+  "21": "Odisha",
+  "22": "Chhattisgarh",
+  "23": "Madhya Pradesh",
+  "24": "Gujarat",
+  "26": "Dadra and Nagar Haveli and Daman and Diu",
+  "27": "Maharashtra",
+  "29": "Karnataka",
+  "30": "Goa",
+  "31": "Lakshadweep",
+  "32": "Kerala",
+  "33": "Tamil Nadu",
+  "34": "Puducherry",
+  "35": "Andaman and Nicobar Islands",
+  "36": "Telangana",
+  "37": "Andhra Pradesh",
+  "38": "Ladakh",
+  "97": "Other Territory",
+  "99": "Centre Jurisdiction",
+};
+
+/**
+ * Pulls (code, name) from a GSTIN by reading the first two digits.
+ * Returns nulls if the GSTIN is too short or the code isn't recognised.
+ * Doesn't validate the full checksum — see isValidGstin() for that.
+ * @example gstStateFromGstin("07ABDCA0298H1ZP") // { code: "07", name: "Delhi" }
+ */
+export function gstStateFromGstin(gstin: string): { code: string | null; name: string | null } {
+  const cleaned = (gstin || "").trim().toUpperCase();
+  if (cleaned.length < 2) return { code: null, name: null };
+  const code = cleaned.slice(0, 2);
+  if (!/^\d{2}$/.test(code))     return { code: null, name: null };
+  const name = GST_STATE_BY_CODE[code] ?? null;
+  return { code, name };
 }
 
 /**

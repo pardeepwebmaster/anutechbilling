@@ -86,6 +86,7 @@ async function handle(req: Request): Promise<NextResponse<CronResult | { error: 
   };
 
   // ── Fetch all active subscriptions across tenants with a renewal_date ─
+  // Filters out auto_renew=false — customer chose to let it expire.
   const { data: subs, error: subsErr } = await supabase
     .from("subscriptions")
     .select(`
@@ -93,6 +94,7 @@ async function handle(req: Request): Promise<NextResponse<CronResult | { error: 
       renewal_date, status, renewal_state, reminder_count, renewal_quote_id
     `)
     .eq("status", "active")
+    .eq("auto_renew", true)
     .not("renewal_date", "is", null);
 
   if (subsErr) {

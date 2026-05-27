@@ -74,6 +74,14 @@ supabase/.branches/
 .claude/settings.local.json
 .claude/local/
 
+# ===== Firebase / Cloud Run deploy artifacts =====
+# Local Firebase hosting cache + build output directory.
+# These are generated during deploys and shouldn't pollute git.
+.firebase/
+.firebase-public/
+**/.firebase/
+**/.firebase-public/
+
 # ===== Misc =====
 .vercel
 .netlify

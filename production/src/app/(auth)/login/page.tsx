@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -21,16 +21,16 @@ const schema = z.object({
 });
 type FormData = z.infer<typeof schema>;
 
-// Demo accounts shown only in development — see /scripts/create-user.mjs
-// and the manual reset that aligned both users to the same password.
-// Hidden in production builds.
+// Demo accounts shown only in development. Kept in sync with the actual
+// tenants in Supabase — when a tenant is added/removed or its password
+// rotated, update this list. Hidden in production builds.
 const DEMO_USERS: Array<{ label: string; email: string; password: string }> = [
-  { label: "Excel Tech (Pardeep · anutech.in)", email: "pardeep@anutech.in",         password: "ResellerOS@2026" },
-  { label: "Anutech Digital (webmaster)",       email: "pardeep.webmaster@gmail.com", password: "ResellerOS@2026" },
+  { label: "Anutech Digital",                email: "pardeep@anutech.in",            password: "ResellerOS@2026" },
+  { label: "Excel Technologies · Owner",     email: "pardeep@exceltechnologies.in",  password: "ExcelTech@2026"  },
+  { label: "Excel Technologies · Darshan (sales)", email: "darshan@exceltechnologies.in", password: "ExcelSales@2026" },
 ];
 
 function LoginPageInner() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const nextPath = searchParams.get("next") ?? "/dashboard";
   const [showPassword, setShowPassword] = React.useState(false);
@@ -61,8 +61,10 @@ function LoginPageInner() {
       return;
     }
     toast.success("Welcome back");
-    router.push(nextPath as any);
-    router.refresh();
+    // Hard navigation — guarantees the fresh auth cookies are sent on the
+    // next request (router.push uses soft nav which can race the cookie
+    // write when the app is behind a Firebase Hosting → Cloud Run proxy).
+    window.location.href = nextPath;
   }
 
   async function onGoogleSignIn() {

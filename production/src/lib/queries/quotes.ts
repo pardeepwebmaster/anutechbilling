@@ -116,17 +116,41 @@ export function useCreateQuote() {
         .single();
       if (meErr || !me) throw new Error("User not linked to a tenant");
 
-      const { data, error } = await supabase
+      // Builder may save the same quote twice — "Save as draft" first,
+      // then "Send via WhatsApp" / "Finalize". The quote id was allocated
+      // up-front via next_document_number; if a row already exists with
+      // that id (in OUR tenant), update it. Otherwise insert fresh.
+      //
+      // We do this as INSERT-then-UPDATE-on-conflict explicitly (not
+      // .upsert()) because supabase-js's upsert hits an awkward RLS path
+      // that evaluates UPDATE's USING expression even for first-time
+      // inserts, causing false "row-level security policy" failures.
+      const payload = { ...input, tenant_id: me.tenant_id };
+      const insertRes = await supabase
         .from("quotes")
-        .insert({ ...input, tenant_id: me.tenant_id })
+        .insert(payload)
         .select()
         .single();
-      if (error) throw error;
-      return data;
+      // PostgreSQL unique-violation = 23505
+      if (insertRes.error?.code === "23505" && payload.id) {
+        const { id, tenant_id: _ignore, ...patch } = payload;
+        void _ignore;
+        const updateRes = await supabase
+          .from("quotes")
+          .update(patch)
+          .eq("id", id)
+          .select()
+          .single();
+        if (updateRes.error) throw updateRes.error;
+        return updateRes.data;
+      }
+      if (insertRes.error) throw insertRes.error;
+      return insertRes.data;
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["quotes"] });
-      toast.success("Quote created");
+      qc.invalidateQueries({ queryKey: ["quote"] });
+      toast.success("Quote saved");
     },
     onError: (err) => toast.error((err as Error).message),
   });

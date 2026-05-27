@@ -123,8 +123,9 @@ export async function createOrGetRenewalQuote(
     total_cost:     Math.round(annualAmount * 0.83),
     discount_pct:   0,
     tax_rate:       18,
-    is_renewal:     true,  // ← Drives the "Renewal" badge in /quotes list + detail + PDF
-    notes:          input.notes
+    is_renewal:       true,  // ← Drives the "Renewal" badge in /quotes list + detail + PDF
+    extension_months: 12,    // standard 1-year renewal; extensions use 24/36 via createExtensionQuote
+    notes:            input.notes
       ?? `Renewal quote for subscription ${input.subscriptionId}`,
   });
   if (insertErr) return null;

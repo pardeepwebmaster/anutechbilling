@@ -2,12 +2,13 @@
  * Supabase SERVER client — for Server Components, Route Handlers, Server Actions.
  *
  * Reads cookies from the Next.js request so session persists across SSR.
+ * Uses the modern getAll/setAll cookie API.
  *
  * @example In a Server Component:
  *   const supabase = createClient();
  *   const { data } = await supabase.from("leads").select("*");
  */
-import { createServerClient, type CookieOptions } from "@supabase/ssr";
+import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import type { Database } from "./database.types";
 
@@ -19,26 +20,21 @@ export function createClient() {
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
-        get(name: string) {
-          return cookieStore.get(name)?.value;
+        getAll() {
+          return cookieStore.getAll();
         },
-        set(name: string, value: string, options: CookieOptions) {
+        setAll(cookiesToSet) {
           try {
-            cookieStore.set({ name, value, ...options });
+            cookiesToSet.forEach(({ name, value, options }) =>
+              cookieStore.set(name, value, options),
+            );
           } catch {
             // Called from a Server Component — read-only cookies.
             // Middleware refreshes the session, so this is safe to ignore here.
           }
         },
-        remove(name: string, options: CookieOptions) {
-          try {
-            cookieStore.set({ name, value: "", ...options });
-          } catch {
-            // see above
-          }
-        },
       },
-    }
+    },
   );
 }
 
@@ -56,10 +52,13 @@ export function createAdminClient() {
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
     {
       cookies: {
-        get() { return undefined; },
-        set() {},
-        remove() {},
+        getAll() {
+          return [];
+        },
+        setAll() {
+          /* no-op — admin client doesn't manage session */
+        },
       },
-    }
+    },
   );
 }

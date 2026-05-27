@@ -13,6 +13,9 @@ export const size = {
   height: 32,
 };
 export const contentType = "image/png";
+// Skip static prerender — @vercel/og module hits Invalid URL during static
+// export. Runtime generation works fine + the file is cached at the edge.
+export const dynamic = "force-dynamic";
 
 export default function Icon() {
   return new ImageResponse(

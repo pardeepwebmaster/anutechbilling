@@ -1,31 +1,46 @@
 /**
- * Deal Pipeline — Kanban or list view of every active deal.
+ * Leads + Deals — same component drives BOTH /leads and /deals URLs.
  *
- * Naming note: the entity is still `leads` in DB / queries (each row starts
- * life as a lead at the "new" stage). The PIPELINE view shows them after
- * they've acquired a value + stage — at which point they behave as deals,
- * not leads. Industry convention (HubSpot / Salesforce / Pipedrive) matches.
+ * Route convention (after split, migration 0045):
+ *   /leads  → raw leads inbox (NULL plan) — list view, no Kanban
+ *   /deals  → qualified deal pipeline      — Kanban (default) + list toggle
  *
- * Layout:
- *   - Header: eyebrow "Sales" + "Deal Pipeline" + subtitle with counts
- *   - Actions: search + view toggle (Kanban / List) + Filter + Import + Add Lead
- *   - GeminiCard with AI lead intelligence
- *   - Kanban (default): 6 columns (LEAD_STAGES) with drag-drop stage update
- *   - List (toggle): sortable table for scanning many deals at scale
- *   - Detail Sheet on card / row click
+ * The same DB table backs both views — the split is just a filter cut
+ * (raw vs qualified). Industry convention (HubSpot / Salesforce / Pipedrive)
+ * matches: Leads ≠ Deals, they're distinct UI concepts on shared data.
+ *
+ * Layout (URL-driven):
+ *   - Header: eyebrow "Sales" + page-specific title + subtitle
+ *   - Actions: search + view toggle (Deals only) + Filter + advanced + Add
+ *   - GeminiCard with AI lead intelligence (Deals page only)
+ *   - Kanban (default on /deals): 6 stage columns with drag-drop
+ *   - List: sortable table for scanning many at scale
+ *   - Detail Sheet on card / row click (shared)
  */
 "use client";
 
 import * as React from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { toast } from "sonner";
 import { useLeads, useUpdateLeadStage, useDeleteLead } from "@/lib/queries/leads";
+import { LeadsBulkBar } from "@/components/features/leads/leads-bulk-bar";
 import { useQuotesByLead } from "@/lib/queries/quotes";
 import { useTasksForLead, useCompleteTask, useSnoozeTask, useDeleteTask } from "@/lib/queries/tasks";
 import { useCurrentUser } from "@/lib/hooks/useCurrentUser";
 import { AddTaskDialog } from "@/components/features/tasks/add-task-dialog";
 import { LeadCard } from "@/components/features/leads/lead-card";
 import { AddLeadForm } from "@/components/features/leads/add-lead-form";
+import { QuickAddLeadForm } from "@/components/features/leads/quick-add-lead-form";
+import { LeadsInsightBand, type LeadsDueFilter } from "@/components/features/leads/leads-insight-band";
+import { LeadsTodayStrip } from "@/components/features/leads/leads-today-strip";
+import { LeadsSmartViews, type SmartView } from "@/components/features/leads/leads-smart-views";
+import { SwipeLeadCard } from "@/components/features/leads/swipe-lead-card";
+import { ImportCsvDialog } from "@/components/features/leads/import-csv-dialog";
+import { LeadsRightRail } from "@/components/features/leads/leads-right-rail";
+import StartTrialDialog from "@/components/features/leads/start-trial-dialog";
+import CampaignComposerDialog from "@/components/features/campaigns/campaign-composer-dialog";
+import GoogleContactsImportDialog from "@/components/features/contacts/google-contacts-import-dialog";
+import SendWhatsAppDialog from "@/components/features/whatsapp/send-whatsapp-dialog";
 import { GeminiCard } from "@/components/shared/gemini-card";
 import { EmptyState } from "@/components/shared/empty-state";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -41,6 +56,15 @@ import {
   SheetDescription,
   SheetFooter,
 } from "@/components/ui/sheet";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuCheckboxItem,
+} from "@/components/ui/dropdown-menu";
 import { rupee, formatDate } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 import type { Lead } from "@/lib/supabase/database.types";
@@ -62,16 +86,75 @@ const LEAD_STAGES: { id: Lead["stage"]; label: string; dot: string }[] = [
 function LeadsPageInner() {
   const router       = useRouter();
   const searchParams = useSearchParams();
+  const pathname     = usePathname();
   const focusLeadId  = searchParams.get("lead");
 
   const { data: leads, isLoading, error, refetch } = useLeads();
   const updateStage = useUpdateLeadStage();
   const { data: currentUser } = useCurrentUser();
+  // Sales role gets a simplified UI — no Kanban / campaign / trial buttons.
+  const isSales = currentUser?.role === "sales";
+  // URL-driven mode (after the /leads + /deals split). /deals shows the
+  // qualified pipeline; /leads shows raw inbox. No tab bar — each URL is
+  // its own page now.
+  const isDealsPage = pathname === "/deals";
 
   const [search, setSearch] = React.useState("");
   const [dragId, setDragId] = React.useState<string | null>(null);
   const [overStage, setOverStage] = React.useState<Lead["stage"] | null>(null);
-  const [addOpen, setAddOpen]   = React.useState(false);
+  const [addOpen,         setAddOpen]         = React.useState(false);
+  const [quickOpen,       setQuickOpen]       = React.useState(false);
+  const [trialOpen,       setTrialOpen]       = React.useState(false);
+  const [campaignOpen,    setCampaignOpen]    = React.useState(false);
+  const [googleImportOpen, setGoogleImportOpen] = React.useState(false);
+  const [csvImportOpen,    setCsvImportOpen]    = React.useState(false);
+  // Filter state — multi-select stages + priorities. Empty array = no filter
+  // (show all). Owner filter intentionally deferred — UI is already busy.
+  const [stageFilter,    setStageFilter]    = React.useState<Lead["stage"][]>([]);
+  const [priorityFilter, setPriorityFilter] = React.useState<Array<"low"|"medium"|"high">>([]);
+  // Due-bucket filter driven by the insight band's KPI pills.
+  //   today    → follow_up_date === today
+  //   overdue  → follow_up_date < today
+  //   hot      → stage in [demo, trial, quote]
+  //   all      → no constraint
+  const [dueFilter, setDueFilter] = React.useState<LeadsDueFilter>("all");
+  // Smart view = saved filter combo (HubSpot/Close/Attio pattern). Each
+  // chip in <LeadsSmartViews/> sets this. The `searched` memo below
+  // applies the view as an additional filter cut.
+  const [smartView, setSmartView] = React.useState<SmartView>("all");
+
+  // Auto-open Google import dialog when redirected back from OAuth with the contacts scope.
+  // The dialog will then auto-call /api/contacts/google-fetch with the new provider_token.
+  React.useEffect(() => {
+    if (searchParams.get("google-import") === "1") {
+      setGoogleImportOpen(true);
+      // Clean the URL so refresh doesn't re-trigger
+      router.replace("/leads" as never);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ?action=<id> — driven by the global QuickActionsPanel in the topbar.
+  // Lets the panel open a page-local dialog (Quick add / Full add / Import /
+  // Send campaign / Start trial) by navigating here with a `?action=` query.
+  // After we handle it, we router.replace to wipe the param so a refresh
+  // doesn't re-trigger it.
+  React.useEffect(() => {
+    const action = searchParams.get("action");
+    if (!action) return;
+    switch (action) {
+      case "quick-add":     setQuickOpen(true);        break;
+      case "add":           setAddOpen(true);          break;
+      case "import-csv":    setCsvImportOpen(true);    break;
+      case "import-google": setGoogleImportOpen(true); break;
+      case "campaign":      setCampaignOpen(true);     break;
+      case "trial":         setTrialOpen(true);        break;
+      // today / overdue — no dialog; let the user use the on-page KPI pills.
+    }
+    // Strip the param so refresh / back-button don't re-trigger.
+    router.replace(pathname as never);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
   const [selected, setSelected] = React.useState<Lead | null>(null);
   const [editingLead, setEditingLead] = React.useState<Lead | null>(null);
   // Kanban is great for stage flow; list view is needed once you have 50+ leads
@@ -126,21 +209,68 @@ function LeadsPageInner() {
   // Same DB table; different filter cut so the two concepts don't mix.
   // Industry convention (HubSpot / Salesforce / Pipedrive) — direct entity
   // naming beats metaphors like "Inbox" / "Pipeline".
-  const [tab, setTab] = React.useState<"leads" | "deals">("deals");
+  // Tab is purely URL-derived now — no internal state, no setter. /leads
+  // gives the raw inbox, /deals gives the qualified pipeline. The legacy
+  // tab-bar UI is removed; navigation between the two is via sidebar.
+  const tab: "leads" | "deals" = isDealsPage ? "deals" : "leads";
 
-  // Search applies BEFORE the tab cut so both views respect the search box.
+  // Search + filter both apply BEFORE the tab cut so each view respects them.
   const searched = React.useMemo(() => {
     if (!leads) return [];
-    if (!search.trim()) return leads;
-    const s = search.toLowerCase();
-    return leads.filter(
-      (l) =>
-        l.company.toLowerCase().includes(s) ||
-        (l.contact_name?.toLowerCase().includes(s) ?? false) ||
-        (l.contact_email?.toLowerCase().includes(s) ?? false) ||
-        (l.plan?.toLowerCase().includes(s) ?? false)
-    );
-  }, [leads, search]);
+    let list = leads;
+    // 1. Text search across company / contact name / email / plan
+    if (search.trim()) {
+      const s = search.toLowerCase();
+      list = list.filter(
+        (l) =>
+          l.company.toLowerCase().includes(s) ||
+          (l.contact_name?.toLowerCase().includes(s) ?? false) ||
+          (l.contact_email?.toLowerCase().includes(s) ?? false) ||
+          (l.plan?.toLowerCase().includes(s) ?? false)
+      );
+    }
+    // 2. Stage filter (any-of). Empty array = no constraint.
+    if (stageFilter.length > 0) {
+      list = list.filter((l) => stageFilter.includes(l.stage));
+    }
+    // 3. Priority filter (any-of). Empty array = no constraint.
+    if (priorityFilter.length > 0) {
+      list = list.filter((l) => priorityFilter.includes(l.priority as "low"|"medium"|"high"));
+    }
+    // 4. Due-bucket filter from the insight band's KPI pills.
+    if (dueFilter !== "all") {
+      const todayStr = new Date().toISOString().slice(0, 10);
+      if (dueFilter === "today") {
+        list = list.filter((l) => l.follow_up_date === todayStr);
+      } else if (dueFilter === "overdue") {
+        list = list.filter((l) => l.follow_up_date && l.follow_up_date < todayStr && l.stage !== "won" && l.stage !== "lost");
+      } else if (dueFilter === "hot") {
+        list = list.filter((l) => l.stage === "demo" || l.stage === "trial" || l.stage === "quote");
+      }
+    }
+    // 5. Smart view filter (Close/Attio pattern). Sits on TOP of search +
+    //    stage + priority + dueFilter so users can stack a view with
+    //    free-text refinement.
+    if (smartView !== "all") {
+      const todayStr = new Date().toISOString().slice(0, 10);
+      const monthStart = new Date(); monthStart.setDate(1); monthStart.setHours(0, 0, 0, 0);
+      if (smartView === "mine") {
+        list = list.filter((l) => currentUser && l.owner_id === currentUser.userId);
+      } else if (smartView === "today") {
+        list = list.filter((l) =>
+          l.follow_up_date && l.follow_up_date <= todayStr && l.stage !== "won" && l.stage !== "lost",
+        );
+      } else if (smartView === "hot") {
+        list = list.filter((l) => l.stage === "demo" || l.stage === "trial" || l.stage === "quote");
+      } else if (smartView === "new") {
+        list = list.filter((l) => l.stage === "new");
+      } else if (smartView === "won-mtd") {
+        list = list.filter((l) => l.stage === "won" && l.created_at && new Date(l.created_at) >= monthStart);
+      }
+    }
+    return list;
+  }, [leads, search, stageFilter, priorityFilter, dueFilter, smartView, currentUser]);
+  const activeFilterCount = stageFilter.length + priorityFilter.length + (dueFilter !== "all" ? 1 : 0);
 
   const isRaw = (l: Lead) => !l.plan || l.plan.trim() === "";
   const rawLeads      = React.useMemo(() => searched.filter(isRaw),       [searched]);
@@ -148,6 +278,17 @@ function LeadsPageInner() {
 
   // The Kanban / List views consume this — points at whichever tab is active.
   const filtered = tab === "leads" ? rawLeads : qualifiedDeals;
+
+  // Tab-scoped UNFILTERED subset for the insight band, Smart Views chips,
+  // Today strip, and right rail. Without this they show tenant-wide counts
+  // (e.g. "All 3") while the table only renders the tab's slice (2 rows),
+  // creating the bug Pardeep flagged in dogfood (chip count ≠ table count).
+  // Derived from `leads` (not `searched`) so counts stay accurate while
+  // the user is searching / filtering.
+  const leadsForTab = React.useMemo(
+    () => (tab === "leads" ? (leads ?? []).filter(isRaw) : (leads ?? []).filter((l) => !isRaw(l))),
+    [leads, tab],
+  );
 
   // Force list view on mobile (Kanban with 6 vertical stage columns is
   // unusable on phones — each empty stage takes a screen-full).
@@ -178,25 +319,33 @@ function LeadsPageInner() {
   };
 
   return (
-    <div className="p-4 md:p-6 lg:p-8 max-w-[1600px] mx-auto">
+    <div className="p-4 md:p-6 lg:p-8 max-w-[1800px] mx-auto h-[calc(100vh-3.5rem)] flex flex-col overflow-hidden bg-paper">
       {/* Header */}
       <div className="flex items-end justify-between gap-3 flex-wrap mb-6">
         <div>
           <p className="text-xs uppercase tracking-wider text-ink-3 font-semibold mb-1">Sales</p>
-          <h1 className="font-serif text-3xl md:text-4xl leading-tight">Deal Pipeline</h1>
+          <h1 className="font-serif text-3xl md:text-4xl leading-tight">
+            {isDealsPage ? "Deal Pipeline" : "Leads"}
+          </h1>
           {!isLoading && leads && (
-            <p className="text-sm text-ink-3 mt-1 tabular-nums">
-              <b>{filtered.length}</b> active deals ·{" "}
-              <b>{rupee(totalValue, { compact: true })}</b> total pipeline ·{" "}
-              <b>{conversion}%</b> conversion
-            </p>
+            isDealsPage ? (
+              <p className="text-sm text-ink-3 mt-1 tabular-nums">
+                <b>{filtered.length}</b> active deals ·{" "}
+                <b>{rupee(totalValue, { compact: true })}</b> total pipeline ·{" "}
+                <b>{conversion}%</b> conversion
+              </p>
+            ) : (
+              <p className="text-sm text-ink-3 mt-1 tabular-nums">
+                <b>{rawLeads.length}</b> open lead{rawLeads.length === 1 ? "" : "s"} · call them, email them, update status
+              </p>
+            )
           )}
         </div>
         <div className="flex gap-2 flex-wrap items-center">
           <div className="w-56">
             <Input
               prefix={<Icon name="search" size={14} />}
-              placeholder="Search leads…"
+              placeholder={isDealsPage ? "Search deals…" : "Search leads…"}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
@@ -204,46 +353,206 @@ function LeadsPageInner() {
           {/* View toggle — Kanban for stage flow, List for scale (50+ leads).
               Hidden on the Leads tab because raw leads can only sit in 'new' /
               'contacted', making Kanban mostly empty columns. Leads tab always
-              renders as a list (triage queue, not stage flow). */}
-          <div className={cn(
-            // Hidden on mobile (Kanban makes no sense on phone, list is forced)
-            // Hidden on Leads tab (always list anyway)
-            "hidden md:inline-flex rounded-md border border-hairline overflow-hidden",
-            tab === "leads" && "md:hidden",
-          )}>
-            <button
-              type="button"
-              onClick={() => setView("kanban")}
-              className={cn(
-                "px-2.5 py-1.5 text-xs font-medium inline-flex items-center gap-1.5 transition-colors",
-                view === "kanban" ? "bg-ink text-paper" : "bg-paper text-ink-2 hover:bg-paper-2",
+              renders as a list (triage queue, not stage flow). Also hidden
+              entirely for sales role (lead-only users don't need Kanban). */}
+          {!isSales && (
+            <div className={cn(
+              // Hidden on mobile (Kanban makes no sense on phone, list is forced)
+              // Hidden on Leads tab (always list anyway)
+              "hidden md:inline-flex rounded-md border border-hairline overflow-hidden",
+              tab === "leads" && "md:hidden",
+            )}>
+              <button
+                type="button"
+                onClick={() => setView("kanban")}
+                className={cn(
+                  "px-2.5 py-1.5 text-xs font-medium inline-flex items-center gap-1.5 transition-colors",
+                  view === "kanban" ? "bg-ink text-paper" : "bg-paper text-ink-2 hover:bg-paper-2",
+                )}
+                aria-pressed={view === "kanban"}
+                title="Kanban view — best for stage flow"
+              >
+                <Icon name="layout" size={13} /> Kanban
+              </button>
+              <button
+                type="button"
+                onClick={() => setView("list")}
+                className={cn(
+                  "px-2.5 py-1.5 text-xs font-medium inline-flex items-center gap-1.5 transition-colors border-l border-hairline",
+                  view === "list" ? "bg-ink text-paper" : "bg-paper text-ink-2 hover:bg-paper-2",
+                )}
+                aria-pressed={view === "list"}
+                title="List view — best for scanning many leads by value/age"
+              >
+                <Icon name="more_h" size={13} /> List
+              </button>
+            </div>
+          )}
+          {/* Filter dropdown — multi-select stage + priority. Active count
+              shows as a badge on the button. */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button icon="filter">
+                Filter
+                {activeFilterCount > 0 && (
+                  <span className="ml-1.5 inline-flex items-center justify-center min-w-[18px] h-[18px] rounded-full bg-amber text-paper text-[10px] font-semibold px-1">
+                    {activeFilterCount}
+                  </span>
+                )}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-56">
+              <DropdownMenuLabel className="text-[10px] uppercase tracking-wider text-ink-3">Stage</DropdownMenuLabel>
+              {LEAD_STAGES.map((s) => (
+                <DropdownMenuCheckboxItem
+                  key={s.id}
+                  checked={stageFilter.includes(s.id)}
+                  onCheckedChange={(checked) => {
+                    setStageFilter((prev) =>
+                      checked ? [...prev, s.id] : prev.filter((x) => x !== s.id),
+                    );
+                  }}
+                  className="text-sm"
+                >
+                  <span className={cn("inline-block w-2 h-2 rounded-full mr-2", s.dot)} />
+                  {s.label}
+                </DropdownMenuCheckboxItem>
+              ))}
+              <DropdownMenuSeparator />
+              <DropdownMenuLabel className="text-[10px] uppercase tracking-wider text-ink-3">Priority</DropdownMenuLabel>
+              {(["high","medium","low"] as const).map((p) => (
+                <DropdownMenuCheckboxItem
+                  key={p}
+                  checked={priorityFilter.includes(p)}
+                  onCheckedChange={(checked) => {
+                    setPriorityFilter((prev) =>
+                      checked ? [...prev, p] : prev.filter((x) => x !== p),
+                    );
+                  }}
+                  className="text-sm capitalize"
+                >
+                  <span className={cn("inline-block w-2 h-2 rounded-full mr-2",
+                    p === "high"   && "bg-rose",
+                    p === "medium" && "bg-amber",
+                    p === "low"    && "bg-slate",
+                  )} />
+                  {p}
+                </DropdownMenuCheckboxItem>
+              ))}
+              {activeFilterCount > 0 && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onSelect={() => { setStageFilter([]); setPriorityFilter([]); }}
+                    className="text-sm text-rose"
+                  >
+                    Clear all filters
+                  </DropdownMenuItem>
+                </>
               )}
-              aria-pressed={view === "kanban"}
-              title="Kanban view — best for stage flow"
+            </DropdownMenuContent>
+          </DropdownMenu>
+          {/* Advanced controls — hidden for sales role to keep the inbox
+              focused on call/email/update. Owner/manager get the full set. */}
+          {!isSales && (
+            <>
+              <Button icon="download" onClick={() => setCsvImportOpen(true)}>Import CSV</Button>
+              <Button icon="send" onClick={() => setCampaignOpen(true)}>
+                Send campaign
+              </Button>
+              <Button icon="globe" onClick={() => setGoogleImportOpen(true)}>
+                Import from Google
+              </Button>
+              <Button icon="clock" onClick={() => setTrialOpen(true)}>
+                Start trial
+              </Button>
+            </>
+          )}
+          {/* Add Lead / Deal button — hidden on mobile because the floating
+              FAB at the bottom-right already provides the same action in a
+              more thumb-friendly position. Showing both was duplicate UI.
+
+              Hover-reveal: when the cursor enters the button, a small
+              "Quick add" popup slides out from below. Click main button =
+              full lead form (12+ fields); click popup = 4-field quick form.
+              The `pt-1` on the popup wrapper creates an invisible bridge so
+              the hover state doesn't drop when moving the mouse from the
+              button into the popup. */}
+          <div className="relative group hidden md:inline-flex">
+            <Button
+              variant="primary"
+              icon="plus"
+              onClick={() => setAddOpen(true)}
             >
-              <Icon name="layout" size={13} /> Kanban
-            </button>
-            <button
-              type="button"
-              onClick={() => setView("list")}
-              className={cn(
-                "px-2.5 py-1.5 text-xs font-medium inline-flex items-center gap-1.5 transition-colors border-l border-hairline",
-                view === "list" ? "bg-ink text-paper" : "bg-paper text-ink-2 hover:bg-paper-2",
-              )}
-              aria-pressed={view === "list"}
-              title="List view — best for scanning many leads by value/age"
-            >
-              <Icon name="more_h" size={13} /> List
-            </button>
+              {tab === "leads" ? "Add Lead" : "Add Deal"}
+            </Button>
+            <div className="absolute top-full right-0 pt-1.5 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-opacity duration-150 z-20">
+              <button
+                type="button"
+                onClick={() => setQuickOpen(true)}
+                className="px-3 py-2 rounded-md bg-paper border border-hairline shadow-md text-xs text-ink hover:bg-paper-2 hover:border-hairline-strong whitespace-nowrap inline-flex items-center gap-1.5 transition-colors"
+                title="Just company + name + email + phone — qualify later"
+              >
+                <Icon name="zap" size={12} className="text-amber" />
+                Quick add <span className="text-ink-3">· 4 fields</span>
+              </button>
+            </div>
           </div>
-          <Button icon="filter">Filter</Button>
-          <Button icon="download">Import CSV</Button>
-          <Button variant="primary" icon="plus" onClick={() => setAddOpen(true)}>
-            {tab === "leads" ? "Add Lead" : "Add Deal"}
-          </Button>
         </div>
       </div>
 
+      {/* Smart Views chip bar — saved filter combos as primary nav.
+          Close/Attio/HubSpot pattern. Each chip = one work mode. */}
+      {!isLoading && leads && leads.length > 0 && (
+        <LeadsSmartViews
+          leads={leadsForTab}
+          currentUserId={currentUser?.userId}
+          active={smartView}
+          onChange={setSmartView}
+        />
+      )}
+
+      {/* Today strip — urgent actionables ABOVE the KPI band.
+          HubSpot Sales Workspace 2025 pattern: reps see "what's urgent
+          NOW" before any data. Each chip is a tap-to-filter pill. */}
+      {!isLoading && leads && leads.length > 0 && (
+        <LeadsTodayStrip
+          leads={leadsForTab}
+          dueFilter={dueFilter}
+          onFilterDue={setDueFilter}
+        />
+      )}
+
+      {/* Insight band — KPI pills + pipeline pulse. Shared across all
+          breakpoints. Pills are tappable and drive `dueFilter`; pulse
+          segments are tappable and drive `stageFilter`. Reads from the
+          full `leads` array (pre-filter) so KPIs stay accurate while
+          the user is searching / filtering. */}
+      {!isLoading && leads && leads.length > 0 && (
+        <LeadsInsightBand
+          leads={leadsForTab}
+          dueFilter={dueFilter}
+          activeStages={stageFilter}
+          onChangeDueFilter={setDueFilter}
+          onToggleStage={(s) => {
+            setStageFilter((prev) =>
+              prev.length === 1 && prev[0] === s ? [] : [s],
+            );
+          }}
+        />
+      )}
+
+      {/* ─── Main content + right rail split.
+          flex-1 + min-h-0 makes this section take up all remaining
+          vertical space in the page wrapper (so the table area can
+          stretch even with only one row of data). Below xl (≤1279px)
+          this is a single column — the rail's own visibility class
+          keeps it dormant. On xl+ the rail appears (320px) and the
+          main column flexes to fill the remainder.
+          Drawer / FAB / modals live OUTSIDE this flex (position:fixed),
+          so they aren't constrained by the split. */}
+      <div className="flex gap-6 flex-1 min-h-0">
+        <div className="flex-1 min-w-0 flex flex-col">
       {/* AI lead intelligence
           "Hot leads" = highest-value rows in quote/trial stages — these
           convert at the highest rate per the prototype-era data, and they're
@@ -251,11 +560,18 @@ function LeadsPageInner() {
           target the single TOP hot lead (highest value) — Call opens the
           phone dialer; Send nudge opens the mail client with a pre-written
           follow-up. Both gracefully degrade if the contact info is missing. */}
-      {!isLoading && leads && leads.length > 0 && (() => {
+      {!isLoading && leads && leads.length > 0 && !isSales && (() => {
         const hotLeads = filtered
           .filter((l) => l.stage === "quote" || l.stage === "trial")
           .sort((a, b) => (b.value ?? 0) - (a.value ?? 0));
         const topHot = hotLeads[0] ?? null;
+        // The new Insight band (KPI pills + pulse) already surfaces "Hot"
+        // count at the top of the page. Showing this card with a "0 hot
+        // leads" empty state is just noise. Render only when there's
+        // actually a hot lead to act on. Sales role gets the band only —
+        // this card is owner/manager territory (it surfaces aggregate
+        // tenant info beyond the rep's individual book).
+        if (hotLeads.length === 0) return null;
 
         const handleCallTop = () => {
           if (!topHot) { toast.info("No hot leads right now"); return; }
@@ -284,7 +600,10 @@ function LeadsPageInner() {
         };
 
         return (
-          <div className="mb-4">
+          // Hidden on mobile — eats vertical real estate that sales reps need
+          // for the actual lead list. Desktop keeps it visible since there's
+          // plenty of width.
+          <div className="mb-4 hidden md:block">
             <GeminiCard
               title="Lead intelligence · Today"
               actions={
@@ -318,58 +637,42 @@ function LeadsPageInner() {
         );
       })()}
 
-      {/* Leads / Deals tab bar — primary separation of raw inquiries vs
-          qualified opportunities. Counts come from the SEARCH-FILTERED data
-          so the numbers reflect what the user is currently scanning. */}
-      {!isLoading && !error && leads && leads.length > 0 && (
-        <div className="mb-4 flex items-center gap-1 border-b border-hairline">
-          <button
-            type="button"
-            onClick={() => setTab("leads")}
-            className={cn(
-              "px-3 py-2 text-sm font-medium inline-flex items-center gap-2 transition-colors border-b-2 -mb-px",
-              tab === "leads"
-                ? "border-amber text-ink"
-                : "border-transparent text-ink-3 hover:text-ink",
-            )}
-            aria-pressed={tab === "leads"}
-          >
-            <Icon name="inbox" size={14} />
-            Leads
-            <span className={cn(
-              "text-[10px] tabular-nums rounded-full px-1.5 py-0.5",
-              tab === "leads" ? "bg-amber text-paper" : "bg-paper-2 text-ink-3",
-            )}>
-              {rawLeads.length}
-            </span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setTab("deals")}
-            className={cn(
-              "px-3 py-2 text-sm font-medium inline-flex items-center gap-2 transition-colors border-b-2 -mb-px",
-              tab === "deals"
-                ? "border-amber text-ink"
-                : "border-transparent text-ink-3 hover:text-ink",
-            )}
-            aria-pressed={tab === "deals"}
-          >
-            <Icon name="target" size={14} />
-            Deals
-            <span className={cn(
-              "text-[10px] tabular-nums rounded-full px-1.5 py-0.5",
-              tab === "deals" ? "bg-amber text-paper" : "bg-paper-2 text-ink-3",
-            )}>
-              {qualifiedDeals.length}
-            </span>
-          </button>
-          <p className="ml-auto text-[11px] text-ink-3 pb-1">
-            {tab === "leads"
-              ? "Raw inquiries — no plan picked yet. Qualify to move into Deals."
-              : "Qualified opportunities with plan + value, flowing through stages."}
-          </p>
-        </div>
-      )}
+      {/* Tab bar removed after the /leads + /deals split — navigation between
+          the two views is now via sidebar entries. The single-page tab UI
+          confused sales reps and added a click for owner/manager too. */}
+
+      {/* Today's follow-ups widget — sales rep ki morning worklist.
+          Counts leads where follow_up_date is today OR earlier (overdue too).
+          Notification-style compact: single-row pill on mobile, slightly
+          taller card with company preview on desktop. Hidden if no leads
+          have follow_up_date set or none are due. */}
+      {(() => {
+        if (!leads || leads.length === 0) return null;
+        const today      = new Date().toISOString().slice(0, 10);  // YYYY-MM-DD
+        const dueToday   = leads.filter((l) => l.follow_up_date && l.follow_up_date <= today &&
+                                                l.stage !== "won" && l.stage !== "lost");
+        if (dueToday.length === 0) return null;
+        const overdueCount = dueToday.filter((l) => (l.follow_up_date ?? "") < today).length;
+        const totalValue   = dueToday.reduce((s, l) => s + (l.value ?? 0), 0);
+        return (
+          <div className="rounded-full md:rounded-lg border border-amber/30 bg-amber-soft/40 px-3 py-1.5 md:p-3 mb-3 md:mb-4 flex items-center gap-2 md:gap-3 min-w-0">
+            <Icon name="clock" size={13} className="text-amber-ink flex-shrink-0" />
+            <p className="text-[12px] md:text-sm text-ink truncate min-w-0 flex-1">
+              <b className="text-amber-ink">{dueToday.length}</b>
+              <span className="text-ink-2"> follow-up{dueToday.length === 1 ? "" : "s"} due today</span>
+              {overdueCount > 0 && (
+                <span className="text-rose text-[11px] md:text-xs ml-1.5">({overdueCount} overdue)</span>
+              )}
+              {/* Desktop-only preview line (companies + total value) */}
+              <span className="hidden md:inline text-[11px] text-ink-3 ml-2">
+                · {dueToday.slice(0, 3).map((l) => l.company).join(" · ")}
+                {dueToday.length > 3 && ` · +${dueToday.length - 3} more`}
+                {totalValue > 0 && ` · ${rupee(totalValue, { compact: true })} value`}
+              </span>
+            </p>
+          </div>
+        );
+      })()}
 
       {/* Error */}
       {error && (
@@ -383,7 +686,7 @@ function LeadsPageInner() {
 
       {/* Loading */}
       {isLoading && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3 flex-1 min-h-0">
           {LEAD_STAGES.map((s) => (
             <div key={s.id} className="bg-paper-2 border-2 border-dashed border-hairline rounded-lg p-2.5 min-h-[400px]">
               <div className="flex items-center gap-1.5 mb-3 px-1">
@@ -399,22 +702,72 @@ function LeadsPageInner() {
         </div>
       )}
 
-      {/* Empty */}
+      {/* Empty — copy + CTAs swap based on which page we're on. Import CSV
+          stays a secondary action for owner/manager only (sales role has it
+          hidden from the toolbar above; keeping it consistent here). */}
       {!isLoading && !error && leads && leads.length === 0 && (
         <EmptyState
           icon="target"
-          title="No leads yet"
-          body="Leads will appear here when customers fill the contact form, or you can add them manually."
-          action={<Button variant="primary" icon="plus" onClick={() => setAddOpen(true)}>Add your first lead</Button>}
-          secondary={<Button icon="download">Import CSV</Button>}
+          title={isDealsPage ? "No deals yet" : "No leads yet"}
+          body={
+            isDealsPage
+              ? "Qualified deals will appear here once a lead picks a plan. You can also add deals manually with a known seat count + value."
+              : "Leads will appear here when customers fill the contact form, or you can add them manually."
+          }
+          action={
+            <Button variant="primary" icon="plus" onClick={() => setAddOpen(true)}>
+              {isDealsPage ? "Add your first deal" : "Add your first lead"}
+            </Button>
+          }
+          secondary={!isSales ? <Button icon="download" onClick={() => setCsvImportOpen(true)}>Import CSV</Button> : undefined}
+        />
+      )}
+
+      {/* Per-view empty — tenant HAS leads but the active smart view filter
+          hides all of them. Purpose-specific message per view (research
+          finding: generic "no results" loses users; targeted copy with a
+          relevant action recovers them). */}
+      {!isLoading && !error && leads && leads.length > 0 && filtered.length === 0 && smartView !== "all" && (
+        <EmptyState
+          icon={
+            smartView === "today"   ? "clock" :
+            smartView === "hot"     ? "zap" :
+            smartView === "new"     ? "inbox" :
+            smartView === "won-mtd" ? "trending_up" :
+            smartView === "mine"    ? "user" : "target"
+          }
+          title={
+            smartView === "today"   ? "Nothing due today" :
+            smartView === "hot"     ? "No hot leads right now" :
+            smartView === "new"     ? "No new leads" :
+            smartView === "won-mtd" ? "No wins this month yet" :
+            smartView === "mine"    ? "You don't own any leads yet" :
+            "No leads match this view"
+          }
+          body={
+            smartView === "today"   ? "No follow-ups scheduled for today. Schedule one on a lead, or browse all leads." :
+            smartView === "hot"     ? "No leads in Demo / Trial / Quote stage. Move qualified leads forward to surface hot opportunities." :
+            smartView === "new"     ? "Inbox is clear. Switch to Hot or Won MTD to see what's moving." :
+            smartView === "won-mtd" ? "Close your first deal this month — it'll show up here." :
+            smartView === "mine"    ? "Leads assigned to you will appear here. Switch to All to see everyone's." :
+            "Try a different view or clear filters."
+          }
+          action={
+            <Button variant="primary" icon="eye" onClick={() => setSmartView("all")}>
+              Show all leads
+            </Button>
+          }
         />
       )}
 
       {/* Kanban — only shows on Deals tab (raw leads in the Leads tab have
-          no meaningful stage flow, so we force list view there). */}
+          no meaningful stage flow, so we force list view there).
+          flex-1 + min-h-0 lets the grid stretch to fill remaining viewport
+          height (page wrapper is min-h-[calc(100vh-3.5rem)] flex-col), so
+          columns visually fill instead of bottom cream area showing. */}
       {!isLoading && !error && leads && leads.length > 0 && effectiveView === "kanban" && (
         <>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3 overflow-x-auto pb-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 auto-rows-fr gap-3 overflow-x-auto pb-4 flex-1 min-h-0">
             {LEAD_STAGES.map((stage) => {
               const stageLeads = filtered.filter((l) => l.stage === stage.id);
               const stageValue = stageLeads.reduce((s, l) => s + (l.value ?? 0), 0);
@@ -430,7 +783,7 @@ function LeadsPageInner() {
                   onDragLeave={() => setOverStage(null)}
                   onDrop={() => handleDrop(stage.id)}
                   className={cn(
-                    "rounded-lg p-2.5 min-h-[400px] flex flex-col gap-2",
+                    "rounded-lg p-2.5 flex flex-col gap-2 min-h-0 overflow-y-auto",
                     "transition-colors",
                     "bg-paper-2",
                     isOver
@@ -520,6 +873,33 @@ function LeadsPageInner() {
         </div>
       )}
 
+      {/* Right rail (horizontal "below" mode) — fills empty vertical
+          space at md-lg viewports (768-1279px). Same component, same
+          data — sections render as a horizontal grid instead of a
+          stacked aside. Hidden on mobile (mobile already has its own
+          dense card stack) and at xl+ (vertical aside takes over). */}
+      <LeadsRightRail
+        leads={leadsForTab}
+        orientation="below"
+        className="hidden md:block xl:hidden"
+        onOpenLead={(l) => setSelected(l)}
+        onAddLead={() => setAddOpen(true)}
+        onImportCsv={!isSales ? () => setCsvImportOpen(true) : undefined}
+      />
+        </div>{/* /flex-1 main column */}
+
+        {/* Right insight rail (vertical "side" mode) — xl+ only.
+            Renders sticky on the right at ≥1280px wide. */}
+        <LeadsRightRail
+          leads={leads ?? []}
+          orientation="side"
+          className="hidden xl:block"
+          onOpenLead={(l) => setSelected(l)}
+          onAddLead={() => setAddOpen(true)}
+          onImportCsv={!isSales ? () => setCsvImportOpen(true) : undefined}
+        />
+      </div>{/* /flex split */}
+
       {/* Detail drawer */}
       <LeadDetailSheet
         lead={selected}
@@ -541,11 +921,40 @@ function LeadsPageInner() {
         editingLead={editingLead}
       />
 
-      {/* Mobile FAB — thumb-zone primary action, label switches with active tab */}
+      {/* Quick add — 4-field minimal lead capture (company + contact only). */}
+      <QuickAddLeadForm
+        open={quickOpen}
+        onOpenChange={setQuickOpen}
+      />
+
+      <StartTrialDialog open={trialOpen} onOpenChange={setTrialOpen} />
+
+      <CampaignComposerDialog open={campaignOpen} onOpenChange={setCampaignOpen} />
+
+      <GoogleContactsImportDialog open={googleImportOpen} onOpenChange={setGoogleImportOpen} />
+
+      {/* CSV bulk upload — 4-field minimal capture, matches Quick form. */}
+      <ImportCsvDialog
+        open={csvImportOpen}
+        onOpenChange={setCsvImportOpen}
+        onImportComplete={() => refetch()}
+      />
+
+      {/* Mobile FAB — thumb-zone primary action, label switches with the URL.
+          /leads → "Add lead", /deals → "Add deal".
+          The stacked mini-FAB above ("⚡ Quick") opens the 4-field quick
+          capture form — same hover-reveal pattern we use on desktop, but
+          here it's always-visible since mobile has no hover. */}
       <FAB
         icon="plus"
         label={tab === "leads" ? "Add lead" : "Add deal"}
         onClick={() => setAddOpen(true)}
+        quickAction={{
+          icon:      "zap",
+          label:     "Quick",
+          ariaLabel: "Quick add lead — only company + contact + email + phone",
+          onClick:   () => setQuickOpen(true),
+        }}
       />
     </div>
   );
@@ -577,6 +986,7 @@ function LeadDetailSheet({
   const snoozeTask   = useSnoozeTask();
   const deleteTask   = useDeleteTask();
   const [addTaskOpen, setAddTaskOpen] = React.useState(false);
+  const [whatsOpen,   setWhatsOpen]   = React.useState(false);
 
   if (!lead) return null;
   const hasQuotes = quotesForLead.length > 0;
@@ -658,6 +1068,92 @@ function LeadDetailSheet({
         </SheetHeader>
 
         <div className="flex-1 overflow-y-auto p-5 space-y-4">
+          {/* Contact action card — first thing in the drawer per research
+              (Close.com / Folk pattern). Shows the rep's three primary
+              reach-out actions as big tap targets + a GST badge for B2B
+              context. Replaces the need to scroll for contact info. */}
+          {(lead.contact_phone || lead.contact_email || lead.gstin) && (
+            <div className="rounded-lg border border-hairline bg-paper-2/40 p-3">
+              {/* Top row — contact name + GST badge if present */}
+              <div className="flex items-center justify-between gap-2 mb-3 min-w-0">
+                <div className="min-w-0 flex-1">
+                  {lead.contact_name && (
+                    <p className="font-medium text-ink text-sm truncate">{lead.contact_name}</p>
+                  )}
+                  {(lead.contact_phone || lead.contact_email) && (
+                    <p className="text-[11px] text-ink-3 font-mono truncate">
+                      {lead.contact_phone}
+                      {lead.contact_phone && lead.contact_email && " · "}
+                      {lead.contact_email}
+                    </p>
+                  )}
+                </div>
+                {lead.gstin && (
+                  <span
+                    className="shrink-0 inline-flex items-center gap-1 text-[10px] font-mono font-semibold uppercase px-1.5 py-0.5 rounded bg-indigo-soft text-indigo-ink border border-indigo/20"
+                    title="GST Identification Number"
+                  >
+                    GST {lead.gstin.slice(0, 2)}…
+                  </span>
+                )}
+              </div>
+
+              {/* Action row — Call / WhatsApp / Email as big buttons.
+                  These are the rep's bread-and-butter — surface them
+                  prominently so 1 tap = action, no scrolling needed. */}
+              <div className="grid grid-cols-3 gap-2">
+                {lead.contact_phone ? (
+                  <a
+                    href={`tel:${lead.contact_phone.replace(/\s+/g, "")}`}
+                    className="inline-flex items-center justify-center gap-1.5 py-2 rounded-md bg-paper border border-hairline hover:bg-emerald-soft/40 text-emerald text-xs font-semibold transition-colors"
+                  >
+                    <Icon name="mobile" size={13} /> Call
+                  </a>
+                ) : (
+                  <div className="inline-flex items-center justify-center gap-1.5 py-2 rounded-md bg-paper-2 border border-hairline text-ink-3 text-xs">
+                    <Icon name="mobile" size={13} /> —
+                  </div>
+                )}
+                {lead.contact_phone ? (
+                  (() => {
+                    const phoneDigits = lead.contact_phone.replace(/\D/g, "");
+                    const waNumber = phoneDigits.startsWith("91") ? phoneDigits : (phoneDigits.length === 10 ? `91${phoneDigits}` : phoneDigits);
+                    const greeting = lead.contact_name ? `Hi ${lead.contact_name},` : "Hello,";
+                    const ref = lead.plan ? `about ${lead.plan} for ${lead.company}` : `regarding ${lead.company}`;
+                    const waText = encodeURIComponent(`${greeting} Following up ${ref}. When's a good time for a quick call?`);
+                    return (
+                      <a
+                        href={`https://wa.me/${waNumber}?text=${waText}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center justify-center gap-1.5 py-2 rounded-md bg-paper border border-hairline hover:bg-emerald-soft/40 text-emerald text-xs font-semibold transition-colors"
+                      >
+                        <Icon name="whatsapp" size={13} /> WhatsApp
+                      </a>
+                    );
+                  })()
+                ) : (
+                  <div className="inline-flex items-center justify-center gap-1.5 py-2 rounded-md bg-paper-2 border border-hairline text-ink-3 text-xs">
+                    <Icon name="whatsapp" size={13} /> —
+                  </div>
+                )}
+                {lead.contact_email ? (
+                  <a
+                    href={`mailto:${lead.contact_email}`}
+                    onClick={(e) => { e.preventDefault(); handleEmail(); }}
+                    className="inline-flex items-center justify-center gap-1.5 py-2 rounded-md bg-paper border border-hairline hover:bg-indigo-50 text-indigo text-xs font-semibold transition-colors"
+                  >
+                    <Icon name="mail" size={13} /> Email
+                  </a>
+                ) : (
+                  <div className="inline-flex items-center justify-center gap-1.5 py-2 rounded-md bg-paper-2 border border-hairline text-ink-3 text-xs">
+                    <Icon name="mail" size={13} /> —
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* Grid of facts */}
           <div className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
             <Fact label="Plan" value={lead.plan} />
@@ -937,9 +1433,28 @@ function LeadDetailSheet({
 
           {/* Primary row — communication actions
               Stage-aware so the primary CTA always reflects the actual next
-              step a sales person would take with this lead. */}
+              step a sales person would take with this lead. Call button
+              is first because that's the most common mobile action. */}
           <div className="flex justify-end gap-2 pt-2 border-t border-hairline flex-wrap">
+            {lead.contact_phone && (
+              <Button
+                icon="mobile"
+                onClick={() => { window.location.href = `tel:${lead.contact_phone}`; }}
+                title="Native dialer"
+              >
+                Call
+              </Button>
+            )}
             <Button icon="mail" onClick={handleEmail}>Email</Button>
+            {lead.contact_phone && (
+              <Button
+                icon="whatsapp"
+                onClick={() => setWhatsOpen(true)}
+                title="Send a WhatsApp message via Meta Cloud API"
+              >
+                WhatsApp
+              </Button>
+            )}
 
             {lead.stage === "won" ? (
               <>
@@ -998,6 +1513,25 @@ function LeadDetailSheet({
         linkLabel={lead.company}
         linkTo={{ lead_id: lead.id }}
       />
+
+      {/* Send-via-WhatsApp — pre-fills contact phone and an opening line
+          using the lead's plan/seats context. */}
+      {whatsOpen && lead.contact_phone && (
+        <SendWhatsAppDialog
+          open={whatsOpen}
+          onOpenChange={setWhatsOpen}
+          defaultTo={lead.contact_phone}
+          defaultText={
+            `Hi ${lead.contact_name ?? "there"},\n\n` +
+            `Thanks for your interest in ${lead.plan ?? "our cloud services"}` +
+            (lead.seats ? ` for ${lead.seats} users.` : ".") +
+            `\n\nLet me know if you'd like to schedule a quick call or get a tailored quote.\n\n` +
+            `— ${currentUser?.tenantName ?? "your team"}`
+          }
+          title={`WhatsApp · ${lead.company}`}
+          related={{ leadId: lead.id }}
+        />
+      )}
     </Sheet>
   );
 }
@@ -1041,11 +1575,74 @@ function LeadListView({
   onSort: (col: SortCol) => void;
   onRowClick: (l: Lead) => void;
 }) {
-  // Apply sort (memo so we don't resort on every render)
+  // Stage-mutation hook for quick-change chips on cards. Tapping the stage
+  // badge on a mobile card opens a dropdown to flip the stage without
+  // needing to open the full detail drawer.
+  const updateStage = useUpdateLeadStage();
+  const deleteLead  = useDeleteLead();
+
+  // Bulk-select state — desktop power-table only. A Set of lead IDs makes
+  // toggle / has() / size O(1). Resets on the leads array changing
+  // identity (e.g. after a refetch) to avoid keeping stale IDs.
+  const [selectedIds, setSelectedIds] = React.useState<Set<string>>(new Set());
+  const toggleId = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+  const clearSelection = () => setSelectedIds(new Set());
+
+  /** Bulk-mutate stage on all selected leads. Promise.all parallel because
+   *  these are independent row updates. */
+  const bulkChangeStage = async (stage: Lead["stage"]) => {
+    const ids = Array.from(selectedIds);
+    try {
+      await Promise.all(ids.map((id) => updateStage.mutateAsync({ id, stage })));
+      toast.success(`Moved ${ids.length} lead${ids.length === 1 ? "" : "s"} to ${STAGE_LABEL[stage]}`);
+    } catch {
+      toast.error("Some leads failed to update");
+    }
+    clearSelection();
+  };
+
+  /** Bulk-delete selected leads. The LeadsBulkBar already has a two-step
+   *  confirm, so we proceed without an additional prompt. */
+  const bulkDelete = async () => {
+    const ids = Array.from(selectedIds);
+    try {
+      await Promise.all(ids.map((id) => deleteLead.mutateAsync(id)));
+      toast.success(`Deleted ${ids.length} lead${ids.length === 1 ? "" : "s"}`);
+    } catch {
+      toast.error("Some leads failed to delete");
+    }
+    clearSelection();
+  };
+  // Apply sort (memo so we don't resort on every render).
+  // Pre-sort layer (always wins): leads with follow_up_date <= today get
+  // hoisted to the top regardless of the user's chosen column sort. Within
+  // that group, overdue (older follow_up_date) comes first. After due-today,
+  // the user's sort applies normally. This makes the "morning worklist"
+  // mental model match the visual order without a separate filter.
   const sorted = React.useMemo(() => {
     const out = [...leads];
     const dir = sortDir === "asc" ? 1 : -1;
+    const today = new Date().toISOString().slice(0, 10);
+    const dueRank = (l: Lead) => {
+      if (!l.follow_up_date || l.follow_up_date > today) return 1;       // not due → bottom group
+      if (l.stage === "won" || l.stage === "lost") return 1;              // closed leads — skip
+      return 0;                                                            // due / overdue → top group
+    };
     out.sort((a, b) => {
+      // 1. Due-today group first
+      const ra = dueRank(a), rb = dueRank(b);
+      if (ra !== rb) return ra - rb;
+      // 2. Within due-today, older follow_up_date first (most overdue)
+      if (ra === 0 && a.follow_up_date && b.follow_up_date && a.follow_up_date !== b.follow_up_date) {
+        return a.follow_up_date.localeCompare(b.follow_up_date);
+      }
+      // 3. User-chosen sort
       switch (sortBy) {
         case "value":   return ((a.value ?? 0) - (b.value ?? 0)) * dir;
         case "company": return a.company.localeCompare(b.company) * dir;
@@ -1057,6 +1654,11 @@ function LeadListView({
     });
     return out;
   }, [leads, sortBy, sortDir]);
+
+  // NOTE: buildWaMessage / followUpLabel / priorityDot helpers used to live
+  // here for the inline mobile card. They've been lifted into SwipeLeadCard
+  // (the new component handles its own formatting). Desktop / tablet table
+  // doesn't need them so they're gone from this file.
 
   const SortHeader = ({ col, label, align = "left" }: { col: SortCol; label: string; align?: "left" | "right" }) => (
     <th
@@ -1077,90 +1679,109 @@ function LeadListView({
 
   return (
     <>
-    {/* Mobile card list — phones only */}
-    <ul className="md:hidden space-y-2">
+    {/* Mobile card list — phones only.
+        Each card is a SwipeLeadCard:
+          - Tap → open drawer
+          - Drag right ≥ 80px → Call
+          - Drag left  ≥ 80px → WhatsApp
+        Dense 3-row layout: header (co/value), contact, meta+actions.
+        Stage quick-change chip + inline action icons are tap-isolated
+        from the card via stopPropagation. */}
+    <ul className="md:hidden grid grid-cols-1 gap-3 flex-1 min-h-0 overflow-y-auto auto-rows-[minmax(120px,1fr)]">
       {sorted.map((lead) => {
         const stale = daysSince(lead.updated_at) > 14 && lead.stage !== "won" && lead.stage !== "lost";
-        const stageMeta = LEAD_STAGES.find((s) => s.id === lead.stage);
         return (
-          <li key={lead.id}>
-            <button
-              type="button"
-              onClick={() => onRowClick(lead)}
-              className="block w-full text-left bg-paper border border-hairline rounded-lg p-3 active:bg-paper-2/50"
-            >
-              <div className="flex items-start justify-between gap-3 mb-1">
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-1.5">
-                    {stale && (
-                      <span className="w-1.5 h-1.5 rounded-full bg-rose shrink-0" />
-                    )}
-                    <p className="font-medium text-ink truncate">{lead.company}</p>
-                  </div>
-                  {lead.contact_name && (
-                    <p className="text-xs text-ink-3 truncate mt-0.5">
-                      {lead.contact_name}
-                      {lead.contact_phone && <span className="ml-1.5">· {lead.contact_phone}</span>}
-                    </p>
-                  )}
-                </div>
-                <div className="text-right shrink-0">
-                  <p className="font-serif text-base tabular-nums text-ink">
-                    {lead.value ? rupee(lead.value, { compact: true }) : "—"}
-                  </p>
-                  {lead.seats && (
-                    <p className="text-[10px] text-ink-3 tabular-nums">{lead.seats} seats</p>
-                  )}
-                </div>
-              </div>
-              <div className="flex items-center justify-between gap-2 mt-2 pt-2 border-t border-hairline/60">
-                <span className="text-xs text-ink-3 truncate">
-                  {lead.plan ?? "No plan yet"}
-                </span>
-                <div className="flex items-center gap-1.5 shrink-0">
-                  {stageMeta && (
-                    <span className="inline-flex items-center gap-1 text-[10px] font-medium text-ink-2">
-                      <span className={cn("w-1.5 h-1.5 rounded-full", stageMeta.dot)} />
-                      {stageMeta.label}
-                    </span>
-                  )}
-                </div>
-              </div>
-            </button>
-          </li>
+          <SwipeLeadCard
+            key={lead.id}
+            lead={lead}
+            stale={stale}
+            onTap={onRowClick}
+            onChangeStage={(s) => updateStage.mutate({ id: lead.id, stage: s })}
+          />
         );
       })}
       {sorted.length === 0 && (
         <li className="py-8 text-center text-sm text-ink-3">No leads match.</li>
       )}
     </ul>
+    {/* ─── End of mobile list — old inline card markup retired ─── */}
 
-    {/* Desktop / tablet table */}
-    <div className="hidden md:block border border-hairline rounded-md overflow-hidden bg-paper">
+    {/* Desktop / tablet power table.
+        New columns vs v1:
+          - leading checkbox  → bulk select
+          - trailing actions  → row-hover Call / WhatsApp / Email icons
+        Selecting any row reveals the floating LeadsBulkBar at the
+        viewport bottom (stage change, delete). */}
+    <div className="hidden md:block w-full max-w-full relative border border-hairline rounded-md overflow-auto bg-paper flex-1 min-h-0">
       <table className="w-full">
         <thead className="bg-paper-2 border-b border-hairline">
           <tr>
+            {/* Select-all checkbox — checked when every row is selected,
+                indeterminate when only some are. */}
+            <th className="px-3 py-2 w-10">
+              <input
+                type="checkbox"
+                aria-label="Select all leads"
+                checked={sorted.length > 0 && selectedIds.size === sorted.length}
+                ref={(el) => {
+                  if (el) el.indeterminate = selectedIds.size > 0 && selectedIds.size < sorted.length;
+                }}
+                onChange={(e) => {
+                  if (e.target.checked) setSelectedIds(new Set(sorted.map((l) => l.id)));
+                  else clearSelection();
+                }}
+                onClick={(e) => e.stopPropagation()}
+                className="w-4 h-4 accent-amber cursor-pointer"
+              />
+            </th>
             <SortHeader col="company" label="Company" />
-            <th className="p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider text-left">Contact</th>
-            <th className="p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider text-left">Plan</th>
-            <th className="p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider text-right">Seats</th>
+            <th className="px-3 py-2 text-xs font-semibold text-ink-3 uppercase tracking-wider text-left">Contact</th>
+            <th className="px-3 py-2 text-xs font-semibold text-ink-3 uppercase tracking-wider text-left">Plan</th>
+            <th className="px-3 py-2 text-xs font-semibold text-ink-3 uppercase tracking-wider text-right">Seats</th>
             <SortHeader col="value" label="Value" align="right" />
             <SortHeader col="stage" label="Stage" />
             <SortHeader col="created" label="Created" />
             <SortHeader col="age" label="Last update" />
+            {/* Actions column — header is blank, body shows row-hover icons. */}
+            <th className="px-3 py-2 w-32 text-xs font-semibold text-ink-3 uppercase tracking-wider text-right">
+              <span className="sr-only">Quick actions</span>
+            </th>
           </tr>
         </thead>
         <tbody>
           {sorted.map((lead) => {
-            const stale = daysSince(lead.updated_at) > 14 && lead.stage !== "won" && lead.stage !== "lost";
-            const age   = daysSince(lead.updated_at);
+            const stale       = daysSince(lead.updated_at) > 14 && lead.stage !== "won" && lead.stage !== "lost";
+            const age         = daysSince(lead.updated_at);
+            const isSelected  = selectedIds.has(lead.id);
+            const phoneDigits = (lead.contact_phone ?? "").replace(/\D/g, "");
+            const waNumber    = phoneDigits.startsWith("91")
+              ? phoneDigits
+              : (phoneDigits.length === 10 ? `91${phoneDigits}` : phoneDigits);
+            const hasPhone    = phoneDigits.length >= 10;
+            const hasEmail    = Boolean(lead.contact_email);
             return (
               <tr
                 key={lead.id}
                 data-lead-id={lead.id}
                 onClick={() => onRowClick(lead)}
-                className="border-b border-hairline last:border-0 hover:bg-paper-2/40 cursor-pointer transition-colors"
+                className={cn(
+                  "border-b border-hairline last:border-0 cursor-pointer transition-colors group",
+                  // Selected rows pick up the brand accent. Hover state
+                  // layered on top so it still reacts to mouse-over.
+                  isSelected
+                    ? "bg-amber-soft/60 hover:bg-amber-soft"
+                    : "hover:bg-paper-2/40",
+                )}
               >
+                <td className="p-3" onClick={(e) => e.stopPropagation()}>
+                  <input
+                    type="checkbox"
+                    aria-label={`Select ${lead.company}`}
+                    checked={isSelected}
+                    onChange={() => toggleId(lead.id)}
+                    className="w-4 h-4 accent-amber cursor-pointer"
+                  />
+                </td>
                 <td className="p-3">
                   <div className="flex items-center gap-2">
                     {stale && (
@@ -1175,15 +1796,15 @@ function LeadListView({
                     </div>
                   </div>
                 </td>
-                <td className="p-3 text-sm">
+                <td className="px-3 py-2 text-sm">
                   <div className="text-ink">{lead.contact_name ?? "—"}</div>
                   <div className="text-[11px] text-ink-3 font-mono truncate max-w-[180px]">
                     {lead.contact_email ?? lead.contact_phone ?? ""}
                   </div>
                 </td>
-                <td className="p-3 text-sm text-ink-2">{lead.plan ?? "—"}</td>
-                <td className="p-3 text-right tabular-nums text-sm">{lead.seats ?? "—"}</td>
-                <td className="p-3 text-right tabular-nums text-sm font-medium">
+                <td className="px-3 py-2 text-sm text-ink-2">{lead.plan ?? "—"}</td>
+                <td className="px-3 py-2 text-right tabular-nums text-sm">{lead.seats ?? "—"}</td>
+                <td className="px-3 py-2 text-right tabular-nums text-sm font-medium">
                   {lead.value ? rupee(lead.value) : <span className="text-ink-3">—</span>}
                 </td>
                 <td className="p-3">
@@ -1192,14 +1813,53 @@ function LeadListView({
                     {STAGE_LABEL[lead.stage]}
                   </span>
                 </td>
-                <td className="p-3 text-sm text-ink-2">{formatDate(lead.created_at)}</td>
-                <td className="p-3 text-sm">
+                <td className="px-3 py-2 text-sm text-ink-2">{formatDate(lead.created_at)}</td>
+                <td className="px-3 py-2 text-sm">
                   <span className={cn(
                     "tabular-nums",
                     stale ? "text-rose font-medium" : "text-ink-3",
                   )}>
                     {age === 0 ? "today" : age === 1 ? "1d ago" : `${age}d ago`}
                   </span>
+                </td>
+                {/* Quick-action icons — invisible until row hover. opacity
+                    transition keeps the layout stable (no shift on hover).
+                    Each icon stopsPropagation so they don't open the drawer. */}
+                <td className="p-3" onClick={(e) => e.stopPropagation()}>
+                  <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    {hasPhone && (
+                      <a
+                        href={`tel:${lead.contact_phone}`}
+                        onClick={(e) => e.stopPropagation()}
+                        className="inline-flex items-center justify-center w-7 h-7 rounded-md text-emerald hover:bg-emerald-soft/40"
+                        title="Call"
+                      >
+                        <Icon name="mobile" size={14} />
+                      </a>
+                    )}
+                    {hasPhone && (
+                      <a
+                        href={`https://wa.me/${waNumber}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        className="inline-flex items-center justify-center w-7 h-7 rounded-md text-emerald hover:bg-emerald-soft/40"
+                        title="WhatsApp"
+                      >
+                        <Icon name="whatsapp" size={14} />
+                      </a>
+                    )}
+                    {hasEmail && (
+                      <a
+                        href={`mailto:${lead.contact_email}`}
+                        onClick={(e) => e.stopPropagation()}
+                        className="inline-flex items-center justify-center w-7 h-7 rounded-md text-indigo hover:bg-indigo-50"
+                        title="Email"
+                      >
+                        <Icon name="mail" size={14} />
+                      </a>
+                    )}
+                  </div>
                 </td>
               </tr>
             );
@@ -1211,9 +1871,17 @@ function LeadListView({
       )}
       <div className="px-3 py-2 border-t border-hairline bg-paper-2/40 text-[11px] text-ink-3 flex items-center gap-2">
         <Icon name="info" size={11} />
-        Click any row to open the lead drawer · Red dot = stale (no activity 14+ days) · Click column headers to sort
+        Click any row to open the drawer · Tick a checkbox to enable bulk actions · Hover a row to reveal Call / WhatsApp / Email
       </div>
     </div>
+
+    {/* Floating bulk action toolbar — only renders when ≥1 row selected. */}
+    <LeadsBulkBar
+      count={selectedIds.size}
+      onChangeStage={bulkChangeStage}
+      onDeselectAll={clearSelection}
+      onDelete={bulkDelete}
+    />
     </>
   );
 }

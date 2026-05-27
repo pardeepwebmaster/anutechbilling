@@ -23,7 +23,7 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
-import { APP_NAV } from "@/lib/nav";
+import { APP_NAV, filterNavForRole, type UserRole } from "@/lib/nav";
 import { useNavBadges } from "@/lib/hooks/useNavBadges";
 import { useCurrentUser } from "@/lib/hooks/useCurrentUser";
 import { cn } from "@/lib/utils";
@@ -51,15 +51,22 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
         </div>
       </div>
 
-      {/* Nav scroll area */}
+      {/* Nav scroll area — items filtered by current user's role (sales-only
+          users get a stripped-down menu). For sales users, also relabel
+          "Deal Pipeline" → "Leads" since the Kanban / deals UI is hidden. */}
       <nav className="flex-1 overflow-y-auto px-2 py-3 space-y-5">
-        {APP_NAV.map((section) => (
+        {filterNavForRole(APP_NAV, me?.role as UserRole | undefined, { canViewDeals: me?.canViewDeals }).map((section) => (
           <div key={section.section}>
             <div className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-ink-3 mb-1">
               {section.section}
             </div>
             <div className="space-y-0.5">
-              {section.items.map((item) => {
+              {section.items
+                // Setup Wizard is a first-run experience — once setup is
+                // complete, drop it from the sidebar. The "Re-run setup"
+                // link in Dashboard quick actions keeps it reachable.
+                .filter((item) => item.id !== "setup" || !me?.tenantSetupCompletedAt)
+                .map((item) => {
                 const active = pathname === item.href;
                 return (
                   <Link

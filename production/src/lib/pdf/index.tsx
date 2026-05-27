@@ -29,6 +29,26 @@ export async function renderQuotePDF(props: QuotePDFProps): Promise<Blob> {
   return await pdf(<QuotePDF {...props} />).toBlob();
 }
 
+/**
+ * Render + open the quote PDF in a new browser tab WITHOUT triggering
+ * a download. Used by the WhatsApp attach card so visitors can review
+ * what will land in the customer's inbox before pressing Send.
+ */
+export async function previewQuotePDF(props: QuotePDFProps): Promise<void> {
+  const blob = await renderQuotePDF(props);
+  const url  = URL.createObjectURL(blob);
+  // _blank with a noopener tab so the preview doesn't share state with
+  // the dialog window (and accidental Cmd+W stays scoped).
+  const win = window.open(url, "_blank", "noopener,noreferrer");
+  // Revoke the object URL once the new tab has had time to grab it.
+  // (Revoke immediately and Safari sometimes shows a broken page.)
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  if (!win) {
+    // Pop-up blocked — fall back to opening in the same tab.
+    window.location.href = url;
+  }
+}
+
 // ─── Invoice ──────────────────────────────────────────────────────────────
 
 export async function downloadInvoicePDF(props: InvoicePDFProps): Promise<Blob> {

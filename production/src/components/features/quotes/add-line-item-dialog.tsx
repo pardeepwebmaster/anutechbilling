@@ -78,13 +78,23 @@ export function AddLineItemDialog({ open, onOpenChange, onAdd }: AddLineItemDial
   }, [open, reset]);
 
   const addFromCatalog = (it: Item) => {
+    // Catalog stores prices as ₹/seat/MONTH. QuoteLineItem.rate/cost must be
+    // ₹/seat/YEAR (the canonical storage unit). Default commitment is
+    // "annual_yearly" so we use the annual tier × 12. The commitment picker
+    // can later switch to monthly which recalculates via updateCommitment().
+    const annualTier  = it.prices?.annual;
+    const monthlyTier = it.prices?.monthly;
+    const msrpPerMo      = annualTier?.msrp      ?? monthlyTier?.msrp      ?? it.msrp;
+    const wholesalePerMo = annualTier?.wholesale ?? monthlyTier?.wholesale ?? it.wholesale;
+
     onAdd({
       id: crypto.randomUUID(),
       item_id: it.id,
       name: it.name,
-      qty: 10, // default
-      rate: it.msrp,
-      cost: it.wholesale,
+      qty: 10,                              // default
+      rate: msrpPerMo * 12,                 // store as ₹/seat/year
+      cost: wholesalePerMo * 12,
+      commitment: "annual_yearly",
     });
     onOpenChange(false);
   };

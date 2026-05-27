@@ -9,25 +9,38 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { updateSession } from "@/lib/supabase/middleware";
 import { isSupabaseConfigured } from "@/lib/supabase/client";
+import { allowedRoutesForRole, ROLE_HOME, type UserRole } from "@/lib/nav";
 
-// Routes that require authentication (the entire app shell)
+// Routes that require authentication (the entire app shell).
+// Keep this in sync with APP_NAV in src/lib/nav.ts — any new section's
+// prefix must be added here for the auth gate + role guard to fire.
 const PROTECTED_PREFIXES = [
   "/dashboard",
   "/leads",
+  "/deals",
+  "/tasks",
   "/customers",
+  "/contacts",
   "/items",
   "/online-orders",
   "/quotes",
+  "/payments",
   "/invoices",
   "/subscriptions",
   "/renewals",
+  "/purchase-orders",
+  "/accounting",      // /accounting/bills, /accounting/pnl, etc.
   "/whatsapp",
   "/automations",
   "/campaigns",
+  "/online-promos",
+  "/coupons",
   "/reports",
   "/support",
   "/setup",
   "/settings",
+  "/team",
+  "/partners",
   "/mobile",
   "/lead-gen",
 ];
@@ -50,7 +63,7 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  const { response, user } = await updateSession(request);
+  const { response, user, role, canViewDeals } = await updateSession(request);
   const isAuthed = !!user;
   const isProtected = PROTECTED_PREFIXES.some((p) => pathname.startsWith(p));
   const isAuthPage = AUTH_PREFIXES.some((p) => pathname.startsWith(p));
@@ -63,12 +76,30 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  // Logged in → redirect away from auth pages
+  // Logged in → redirect away from auth pages, sending each role to its
+  // own home page (sales lands on /leads, others on /dashboard).
   if (isAuthed && isAuthPage) {
     const url = request.nextUrl.clone();
-    url.pathname = "/dashboard";
+    url.pathname = ROLE_HOME[(role as UserRole) ?? "owner"] ?? "/dashboard";
     url.searchParams.delete("next");
     return NextResponse.redirect(url);
+  }
+
+  // Role-based route guard. Sales users only have /leads + /tasks in their
+  // nav; visiting any other protected route bounces them to their home.
+  // Owners + managers get the full app — no gate applied to them.
+  if (isAuthed && isProtected && role && role !== "owner" && role !== "manager") {
+    const userRole = role as UserRole;
+    const allowed = allowedRoutesForRole(userRole, { canViewDeals });
+    const isAllowedPath = allowed.some(
+      (a) => pathname === a || pathname.startsWith(a + "/"),
+    );
+    if (!isAllowedPath) {
+      const url = request.nextUrl.clone();
+      url.pathname = ROLE_HOME[userRole];
+      url.searchParams.delete("next");
+      return NextResponse.redirect(url);
+    }
   }
 
   return response;

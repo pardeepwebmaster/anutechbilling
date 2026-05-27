@@ -11,19 +11,21 @@
 import { useQuery } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
 
-export type ContactSource = "lead" | "customer";
+export type ContactSource = "lead" | "customer" | "imported";
 
 export interface UnifiedContact {
-  id:        string;            // "lead:<id>" or "customer:<id>"
+  id:        string;            // "lead:<id>" / "customer:<id>" / "imported:<id>"
   source:    ContactSource;
-  refId:     string;            // original lead.id or customer.id
+  refId:     string;            // original lead.id / customer.id / contacts.id
   name:      string | null;
   email:     string | null;
   phone:     string | null;
   company:   string;
   title:     string | null;
-  /** For leads: stage. For customers: health (0-100). */
+  /** For leads: stage. For customers: health (0-100). For imported: pending/engaged/promoted/archived. */
   status:    string | null;
+  /** Sub-source for imported contacts: 'google_csv' | 'manual' | etc. */
+  importedFrom?: string;
   createdAt: string;
 }
 
@@ -33,17 +35,23 @@ export function useAllContacts() {
     queryFn: async (): Promise<UnifiedContact[]> => {
       const supabase = createClient();
 
-      const [leadsRes, customersRes] = await Promise.all([
+      const [leadsRes, customersRes, importedRes] = await Promise.all([
         supabase
           .from("leads")
           .select("id, company, contact_name, contact_email, contact_phone, stage, created_at"),
         supabase
           .from("customers")
           .select("id, name, contact_name, contact_title, contact_email, contact_phone, health, created_at"),
+        supabase
+          .from("contacts")
+          .select("id, full_name, email, phone, company, title, source, status, created_at")
+          // Hide promoted contacts here — they show up via the leads row already
+          .neq("status", "promoted"),
       ]);
 
       if (leadsRes.error)     throw leadsRes.error;
       if (customersRes.error) throw customersRes.error;
+      if (importedRes.error)  throw importedRes.error;
 
       const fromLeads: UnifiedContact[] = (leadsRes.data ?? [])
         .filter((l) => l.contact_name || l.contact_email || l.contact_phone)
@@ -75,6 +83,20 @@ export function useAllContacts() {
           createdAt: c.created_at,
         }));
 
+      const fromImported: UnifiedContact[] = (importedRes.data ?? []).map((c) => ({
+        id:           `imported:${c.id}`,
+        source:       "imported" as const,
+        refId:        c.id,
+        name:         c.full_name,
+        email:        c.email,
+        phone:        c.phone,
+        company:      c.company ?? "—",
+        title:        c.title,
+        status:       c.status,
+        importedFrom: c.source,
+        createdAt:    c.created_at,
+      }));
+
       // Combine + dedupe by email (a customer + lead with same email = 1 contact, prefer customer)
       const seenEmails = new Set<string>();
       const combined: UnifiedContact[] = [];
@@ -89,6 +111,12 @@ export function useAllContacts() {
         if (key && seenEmails.has(key)) continue;
         if (key) seenEmails.add(key);
         combined.push(l);
+      }
+      for (const i of fromImported) {
+        const key = i.email?.toLowerCase().trim();
+        if (key && seenEmails.has(key)) continue;
+        if (key) seenEmails.add(key);
+        combined.push(i);
       }
 
       // Sort by created date desc

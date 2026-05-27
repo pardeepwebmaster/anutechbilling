@@ -58,9 +58,15 @@ const DialogContent = React.forwardRef<
       ref={ref}
       className={cn(
         // ── Mobile (default): bottom sheet — slides up from viewport bottom,
-        //    full-width, top-rounded only. Touch zone is the entire screen.
-        //    Max height capped so long content scrolls inside the sheet.
-        "fixed inset-x-0 bottom-0 z-50 grid w-full",
+        //    full-width, top-rounded only.
+        // ── Desktop (md+): centered modal.
+        //
+        // We use `!important` (`!`) on every md: positioning rule because
+        // tailwind-merge and CSS source-order can silently let mobile rules
+        // win on desktop otherwise. Confirmed via preview_inspect — without
+        // `!`, `right-0` from mobile bleeds into md and forces the dialog
+        // against the right edge of the viewport.
+        "fixed left-0 right-0 bottom-0 z-50 grid w-full",
         "max-h-[90vh] overflow-y-auto",
         "gap-4 border-t border-hairline bg-paper p-5 pb-6 shadow-2xl",
         "rounded-t-2xl",
@@ -71,9 +77,9 @@ const DialogContent = React.forwardRef<
         "data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
         "data-[state=closed]:slide-out-to-bottom data-[state=open]:slide-in-from-bottom",
 
-        // ── Desktop (md+): centered modal — original behaviour.
-        "md:fixed md:left-1/2 md:top-1/2 md:inset-x-auto md:bottom-auto",
-        "md:max-w-lg md:max-h-[85vh] md:-translate-x-1/2 md:-translate-y-1/2",
+        // Desktop position — `!` forces override of the mobile anchors.
+        "md:!left-1/2 md:!right-auto md:!top-1/2 md:!bottom-auto",
+        "md:!w-auto md:!max-w-lg md:max-h-[85vh] md:-translate-x-1/2 md:-translate-y-1/2",
         "md:rounded-lg md:border md:p-6",
         "md:data-[state=closed]:zoom-out-95 md:data-[state=open]:zoom-in-95",
         "md:data-[state=closed]:slide-out-to-left-1/2 md:data-[state=closed]:slide-out-to-top-[48%]",

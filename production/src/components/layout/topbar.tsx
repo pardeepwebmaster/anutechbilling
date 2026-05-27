@@ -16,6 +16,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 
 import { CommandPalette, useCommandPalette } from "./command-palette";
 import { NotificationPanel } from "./notification-panel";
+import { QuickActionsPanel } from "./quick-actions-panel";
 import { getCrumb } from "@/lib/nav";
 import { useTaskCountDueOrOverdue } from "@/lib/queries/tasks";
 
@@ -31,7 +32,8 @@ export function TopBar({ onMobileMenuClick, crumb: crumbOverride }: TopBarProps)
   const crumb = crumbOverride ?? getCrumb(pathname);
   const { setTheme, resolvedTheme } = useTheme();
   const cmdk = useCommandPalette();
-  const [notifOpen, setNotifOpen] = React.useState(false);
+  const [notifOpen,   setNotifOpen]   = React.useState(false);
+  const [actionsOpen, setActionsOpen] = React.useState(false);
 
   // Bell badge = open tasks due by end of today (today + overdue). When push
   // notifications + WhatsApp reminders arrive in Phase 2 they'll feed the
@@ -97,6 +99,20 @@ export function TopBar({ onMobileMenuClick, crumb: crumbOverride }: TopBarProps)
         <TooltipContent>Toggle theme</TooltipContent>
       </Tooltip>
 
+      {/* Quick actions — page-aware "what should I do now" panel.
+          Sits just left of the bell so the order reads as:
+          info (search) → do (sparkles) → alert (bell). */}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <IconButton
+            icon="sparkles"
+            aria-label="Quick actions for this page"
+            onClick={() => setActionsOpen(true)}
+          />
+        </TooltipTrigger>
+        <TooltipContent>Quick actions</TooltipContent>
+      </Tooltip>
+
       {/* Notifications */}
       <div className="relative">
         <Tooltip>
@@ -122,6 +138,7 @@ export function TopBar({ onMobileMenuClick, crumb: crumbOverride }: TopBarProps)
       {/* Mounted panels */}
       <CommandPalette open={cmdk.isOpen} onOpenChange={cmdk.setOpen} />
       <NotificationPanel open={notifOpen} onOpenChange={setNotifOpen} />
+      <QuickActionsPanel open={actionsOpen} onOpenChange={setActionsOpen} />
     </header>
   );
 }

@@ -13,7 +13,7 @@
 
 import * as React from "react";
 import { toast } from "sonner";
-import { Dialog, DialogContent, DialogFooter } from "@/components/ui/dialog";
+import { Sheet, SheetContent, SheetFooter } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -89,9 +89,12 @@ export default function SendWhatsAppDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="md:!max-w-lg">
-        <header className="border-b border-hairline pb-3 mb-4">
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent
+        side="right"
+        className="w-full sm:max-w-[480px] md:max-w-[520px] p-0 flex flex-col overflow-x-hidden"
+      >
+        <header className="border-b border-hairline px-5 pt-5 pb-3 flex-shrink-0">
           <p className="text-[10px] uppercase tracking-wider font-semibold text-emerald mb-1 inline-flex items-center gap-1.5">
             <Icon name="whatsapp" size={11} /> WhatsApp · Cloud API
           </p>
@@ -101,7 +104,7 @@ export default function SendWhatsAppDialog({
           </p>
         </header>
 
-        <div className="space-y-3">
+        <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4 space-y-3">
           <div>
             <Label>To (E.164)</Label>
             <Input
@@ -191,7 +194,7 @@ export default function SendWhatsAppDialog({
           )}
         </div>
 
-        <DialogFooter>
+        <SheetFooter>
           <Button type="button" variant="ghost" onClick={() => onOpenChange(false)} disabled={send.isPending}>
             Cancel
           </Button>
@@ -205,8 +208,8 @@ export default function SendWhatsAppDialog({
           >
             Send
           </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </SheetFooter>
+      </SheetContent>
+    </Sheet>
   );
 }

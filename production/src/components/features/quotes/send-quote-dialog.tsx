@@ -21,13 +21,13 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from "@/components/ui/dialog";
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+  SheetFooter,
+} from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { FormField } from "@/components/ui/label";
@@ -144,18 +144,25 @@ export function SendQuoteDialog({
   const onSubmit = (data: FormData) => sendQuote.mutate(data);
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg">
-        <DialogHeader>
-          <DialogTitle>
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent
+        side="right"
+        className="w-full sm:max-w-[480px] md:max-w-[520px] p-0 flex flex-col overflow-x-hidden"
+      >
+        <SheetHeader>
+          <SheetTitle>
             {alreadySent ? "Resend" : "Send"} quote {quoteId}
-          </DialogTitle>
-          <DialogDescription>
+          </SheetTitle>
+          <SheetDescription>
             Email a copy of the quote PDF to {customerName}. The customer-facing accept link is included automatically.
-          </DialogDescription>
-        </DialogHeader>
+          </SheetDescription>
+        </SheetHeader>
 
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+        <form
+          onSubmit={handleSubmit(onSubmit)}
+          className="flex flex-col flex-1 min-h-0 min-w-0 w-full"
+        >
+          <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4 space-y-4">
           <FormField label="To" required htmlFor="send-to">
             <Input
               id="send-to"
@@ -196,7 +203,15 @@ export function SendQuoteDialog({
             </span>
           </div>
 
-          <DialogFooter className="gap-2 sm:gap-2">
+            {!alreadySent && (
+              <div className="pt-1 text-[11px] text-ink-3">
+                <Badge kind="muted">Tip</Badge>{" "}
+                Status flips to <b>Sent</b> on success — downstream automation (reminders, renewals) starts tracking from here.
+              </div>
+            )}
+          </div>  {/* close scrollable form body */}
+
+          <SheetFooter className="gap-2 sm:gap-2">
             <Button
               type="button"
               variant="ghost"
@@ -213,16 +228,9 @@ export function SendQuoteDialog({
             >
               {alreadySent ? "Resend now" : "Send now"}
             </Button>
-          </DialogFooter>
+          </SheetFooter>
         </form>
-
-        {!alreadySent && (
-          <div className="-mt-2 pl-1 text-[11px] text-ink-3">
-            <Badge kind="muted">Tip</Badge>{" "}
-            Status flips to <b>Sent</b> on success — downstream automation (reminders, renewals) starts tracking from here.
-          </div>
-        )}
-      </DialogContent>
-    </Dialog>
+      </SheetContent>
+    </Sheet>
   );
 }

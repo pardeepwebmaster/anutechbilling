@@ -25,13 +25,13 @@ import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from "@/components/ui/dialog";
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+  SheetFooter,
+} from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
 import { FormField } from "@/components/ui/label";
 import {
@@ -444,23 +444,28 @@ export function AddLeadForm({ open, onOpenChange, editingLead }: AddLeadFormProp
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      {/* On mobile the dialog renders as a bottom sheet (full-width). We add
-          overflow-x-hidden + min-w-0 here because nested grid/flex children
-          with intrinsic widths (inputs, buttons with long labels, the
-          "Pick from contacts" banner) were horizontally overflowing on
-          narrow phones (≤ 380px). */}
-      <DialogContent className="md:!max-w-2xl overflow-x-hidden">
-        <DialogHeader className="min-w-0">
-          <DialogTitle className="break-words">{isEditing ? "Edit lead" : "Add a new lead"}</DialogTitle>
-          <DialogDescription className="break-words">
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      {/* Slide-in drawer from the right (Linear / Attio / HubSpot pattern).
+          Full-width on phones, ~560px panel on desktop. Form body scrolls
+          independently; header + footer stay pinned. */}
+      <SheetContent
+        side="right"
+        className="w-full sm:max-w-[520px] md:max-w-[600px] p-0 flex flex-col overflow-x-hidden"
+      >
+        <SheetHeader className="min-w-0">
+          <SheetTitle className="break-words">{isEditing ? "Edit lead" : "Add a new lead"}</SheetTitle>
+          <SheetDescription className="break-words">
             {isEditing
               ? `Update details for ${editingLead?.company}.`
               : "Track a potential deal. You can update stage anytime via drag-drop."}
-          </DialogDescription>
-        </DialogHeader>
+          </SheetDescription>
+        </SheetHeader>
 
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4 min-w-0 w-full">
+        <form
+          onSubmit={handleSubmit(onSubmit)}
+          className="flex flex-col flex-1 min-h-0 min-w-0 w-full"
+        >
+          <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4 space-y-4">
           {/* Company name */}
           <FormField label="Company name" required htmlFor="company">
             <Input
@@ -747,7 +752,9 @@ export function AddLeadForm({ open, onOpenChange, editingLead }: AddLeadFormProp
             />
           </FormField>
 
-          <DialogFooter>
+          </div>  {/* close scrollable form body */}
+
+          <SheetFooter>
             <Button
               type="button"
               variant="ghost"
@@ -762,9 +769,9 @@ export function AddLeadForm({ open, onOpenChange, editingLead }: AddLeadFormProp
             >
               {isEditing ? "Save changes" : "Add lead"}
             </Button>
-          </DialogFooter>
+          </SheetFooter>
         </form>
-      </DialogContent>
-    </Dialog>
+      </SheetContent>
+    </Sheet>
   );
 }

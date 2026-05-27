@@ -13,7 +13,7 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Dialog, DialogContent, DialogFooter } from "@/components/ui/dialog";
+import { Sheet, SheetContent, SheetFooter } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -101,8 +101,12 @@ export default function StartTrialDialog({ open, onOpenChange }: Props) {
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-xl">
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent
+        side="right"
+        className="w-full sm:max-w-[520px] md:max-w-[600px] p-0 flex flex-col overflow-x-hidden"
+      >
+        <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4">
         <header className="border-b border-hairline pb-3 mb-4">
           <p className="text-[10px] uppercase tracking-wider font-semibold text-amber-ink mb-1">
             Workspace · Start 14-day trial
@@ -187,15 +191,17 @@ export default function StartTrialDialog({ open, onOpenChange }: Props) {
           </ol>
         </div>
 
-        <DialogFooter>
+        </div>  {/* close scrollable body */}
+
+        <SheetFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={submitting}>
             Cancel
           </Button>
           <Button variant="primary" icon="check_circle" onClick={onSubmit} disabled={submitting}>
             {submitting ? "Starting trial…" : "Start 14-day trial"}
           </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </SheetFooter>
+      </SheetContent>
+    </Sheet>
   );
 }

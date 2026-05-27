@@ -36,13 +36,13 @@ import { z } from "zod";
 import { toast } from "sonner";
 
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from "@/components/ui/dialog";
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+  SheetFooter,
+} from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
 import { FormField } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
@@ -156,20 +156,28 @@ export function QuickAddLeadForm({ open, onOpenChange }: QuickAddLeadFormProps) 
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      {/* Same responsive mobile-sheet treatment as the full form. */}
-      <DialogContent className="md:!max-w-md overflow-x-hidden">
-        <DialogHeader className="min-w-0">
-          <DialogTitle className="break-words inline-flex items-center gap-2">
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      {/* Slide-in drawer from the right — same pattern as full Add Lead form,
+          but narrower (440px) since this is only 4 fields. */}
+      <SheetContent
+        side="right"
+        className="w-full sm:max-w-[440px] md:max-w-[480px] p-0 flex flex-col overflow-x-hidden"
+      >
+        <SheetHeader className="min-w-0">
+          <SheetTitle className="break-words inline-flex items-center gap-2">
             <Icon name="zap" size={18} className="text-amber" />
             Quick add lead
-          </DialogTitle>
-          <DialogDescription className="break-words">
+          </SheetTitle>
+          <SheetDescription className="break-words">
             4 fields. Just the basics — qualify later from the lead drawer.
-          </DialogDescription>
-        </DialogHeader>
+          </SheetDescription>
+        </SheetHeader>
 
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4 min-w-0 w-full">
+        <form
+          onSubmit={handleSubmit(onSubmit)}
+          className="flex flex-col flex-1 min-h-0 min-w-0 w-full"
+        >
+          <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4 space-y-4">
           {/* Company */}
           <FormField label="Company name" required htmlFor="q-company">
             <Input
@@ -237,8 +245,9 @@ export function QuickAddLeadForm({ open, onOpenChange }: QuickAddLeadFormProps) 
             priority <span className="font-semibold text-ink-2">Medium</span>. Pick plan + seats
             later to promote it to a deal.
           </p>
+          </div>  {/* close scrollable form body */}
 
-          <DialogFooter>
+          <SheetFooter>
             <Button
               type="button"
               variant="ghost"
@@ -253,9 +262,9 @@ export function QuickAddLeadForm({ open, onOpenChange }: QuickAddLeadFormProps) 
             >
               Save lead
             </Button>
-          </DialogFooter>
+          </SheetFooter>
         </form>
-      </DialogContent>
-    </Dialog>
+      </SheetContent>
+    </Sheet>
   );
 }

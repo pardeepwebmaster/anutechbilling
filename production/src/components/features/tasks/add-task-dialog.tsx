@@ -14,13 +14,13 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from "@/components/ui/dialog";
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+  SheetFooter,
+} from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { FormField } from "@/components/ui/label";
@@ -152,18 +152,25 @@ export function AddTaskDialog({ open, onOpenChange, linkLabel, linkTo }: AddTask
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle>Add follow-up task</DialogTitle>
-          <DialogDescription>
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent
+        side="right"
+        className="w-full sm:max-w-[440px] md:max-w-[480px] p-0 flex flex-col overflow-x-hidden"
+      >
+        <SheetHeader>
+          <SheetTitle>Add follow-up task</SheetTitle>
+          <SheetDescription>
             {linkLabel
-              ? <>Schedule a reminder linked to <b>{linkLabel}</b>. You'll see it on the dashboard, the bell, and the Tasks page when due.</>
-              : <>Schedule a reminder. You'll see it on the dashboard, the bell, and the Tasks page when due.</>}
-          </DialogDescription>
-        </DialogHeader>
+              ? <>Schedule a reminder linked to <b>{linkLabel}</b>. You&apos;ll see it on the dashboard, the bell, and the Tasks page when due.</>
+              : <>Schedule a reminder. You&apos;ll see it on the dashboard, the bell, and the Tasks page when due.</>}
+          </SheetDescription>
+        </SheetHeader>
 
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+        <form
+          onSubmit={handleSubmit(onSubmit)}
+          className="flex flex-col flex-1 min-h-0 min-w-0 w-full"
+        >
+          <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4 space-y-4">
           <FormField label="What's the task?" required htmlFor="title">
             <Input
               id="title"
@@ -235,7 +242,9 @@ export function AddTaskDialog({ open, onOpenChange, linkLabel, linkTo }: AddTask
             />
           </FormField>
 
-          <DialogFooter>
+          </div>  {/* close scrollable form body */}
+
+          <SheetFooter>
             <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
@@ -247,9 +256,9 @@ export function AddTaskDialog({ open, onOpenChange, linkLabel, linkTo }: AddTask
             >
               Schedule
             </Button>
-          </DialogFooter>
+          </SheetFooter>
         </form>
-      </DialogContent>
-    </Dialog>
+      </SheetContent>
+    </Sheet>
   );
 }

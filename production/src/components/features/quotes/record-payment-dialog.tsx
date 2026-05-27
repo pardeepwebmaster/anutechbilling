@@ -14,13 +14,13 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from "@/components/ui/dialog";
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+  SheetFooter,
+} from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { FormField } from "@/components/ui/label";
@@ -364,21 +364,28 @@ export function RecordPaymentDialog({
   });
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg">
-        <DialogHeader>
-          <DialogTitle>
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent
+        side="right"
+        className="w-full sm:max-w-[480px] md:max-w-[560px] p-0 flex flex-col overflow-x-hidden"
+      >
+        <SheetHeader>
+          <SheetTitle>
             {hasPriorPayments ? "Record additional payment" : "Record payment received"}
-          </DialogTitle>
-          <DialogDescription>
+          </SheetTitle>
+          <SheetDescription>
             Log a payment against quote <span className="font-mono font-semibold">{quoteId}</span> from <b>{customerName}</b>.
             {hasPriorPayments
               ? " Multiple payments are supported (installments / partial)."
               : " You can record more payments later if it's paid in installments."}
-          </DialogDescription>
-        </DialogHeader>
+          </SheetDescription>
+        </SheetHeader>
 
-        <form onSubmit={handleSubmit((data) => recordPayment.mutate(data))} className="space-y-4">
+        <form
+          onSubmit={handleSubmit((data) => recordPayment.mutate(data))}
+          className="flex flex-col flex-1 min-h-0 min-w-0 w-full"
+        >
+          <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4 space-y-4">
           {/* Prospect → Customer activation notice — fires on FIRST payment now (advance ok) */}
           {isProspect && !hasPriorPayments && (
             <div className="rounded-md bg-amber-soft border border-amber/40 px-3 py-2.5 text-xs flex items-start gap-2">
@@ -614,7 +621,9 @@ export function RecordPaymentDialog({
             </div>
           )}
 
-          <DialogFooter>
+          </div>  {/* close scrollable form body */}
+
+          <SheetFooter>
             <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
@@ -626,9 +635,9 @@ export function RecordPaymentDialog({
             >
               Confirm payment
             </Button>
-          </DialogFooter>
+          </SheetFooter>
         </form>
-      </DialogContent>
-    </Dialog>
+      </SheetContent>
+    </Sheet>
   );
 }

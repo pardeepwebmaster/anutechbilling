@@ -19,13 +19,13 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from "@/components/ui/dialog";
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+  SheetFooter,
+} from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
 import { FormField } from "@/components/ui/label";
 import { Icon } from "@/components/ui/icon";
@@ -129,16 +129,23 @@ export function AddCustomerForm({ open, onOpenChange }: AddCustomerFormProps) {
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl">
-        <DialogHeader>
-          <DialogTitle>Add a customer</DialogTitle>
-          <DialogDescription>
-            Type the GSTIN first — we'll verify with GSTN and auto-fill the rest.
-          </DialogDescription>
-        </DialogHeader>
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent
+        side="right"
+        className="w-full sm:max-w-[520px] md:max-w-[600px] p-0 flex flex-col overflow-x-hidden"
+      >
+        <SheetHeader>
+          <SheetTitle>Add a customer</SheetTitle>
+          <SheetDescription>
+            Type the GSTIN first — we&apos;ll verify with GSTN and auto-fill the rest.
+          </SheetDescription>
+        </SheetHeader>
 
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+        <form
+          onSubmit={handleSubmit(onSubmit)}
+          className="flex flex-col flex-1 min-h-0 min-w-0 w-full"
+        >
+          <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4 space-y-4">
           {/* GSTIN — leads the form. Verify card lives directly under it. */}
           <FormField label="GSTIN (recommended)" htmlFor="gstin">
             <Input
@@ -277,7 +284,9 @@ export function AddCustomerForm({ open, onOpenChange }: AddCustomerFormProps) {
             </FormField>
           </div>
 
-          <DialogFooter>
+          </div>  {/* close scrollable form body */}
+
+          <SheetFooter>
             <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
@@ -288,9 +297,9 @@ export function AddCustomerForm({ open, onOpenChange }: AddCustomerFormProps) {
             >
               Add customer
             </Button>
-          </DialogFooter>
+          </SheetFooter>
         </form>
-      </DialogContent>
-    </Dialog>
+      </SheetContent>
+    </Sheet>
   );
 }

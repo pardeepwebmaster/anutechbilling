@@ -240,3 +240,17 @@ export const SCREEN_TITLES: Record<string, string[]> = {
 export function getCrumb(pathname: string): string[] {
   return SCREEN_TITLES[pathname] ?? ["Workspace", "Dashboard"];
 }
+
+/**
+ * Get the primary destination for a section name, so a breadcrumb like
+ * `Workspace / Dashboard` can wrap "Workspace" in a Link → /dashboard.
+ *
+ * Returns the first nav item's href in that section. If no match (the label
+ * isn't a known section name — e.g., a sub-page label like "Year-End"),
+ * returns null and the caller renders plain text.
+ */
+export function getSectionPrimaryHref(sectionName: string): string | null {
+  const section = APP_NAV.find((s) => s.section === sectionName);
+  if (!section || section.items.length === 0) return null;
+  return section.items[0].href;
+}

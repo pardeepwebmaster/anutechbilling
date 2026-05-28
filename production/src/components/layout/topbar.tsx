@@ -17,7 +17,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { CommandPalette, useCommandPalette } from "./command-palette";
 import { NotificationPanel } from "./notification-panel";
 import { QuickActionsPanel } from "./quick-actions-panel";
-import { getCrumb } from "@/lib/nav";
+import { getCrumb, getSectionPrimaryHref } from "@/lib/nav";
+import type { Route } from "next";
 import { useTaskCountDueOrOverdue } from "@/lib/queries/tasks";
 
 interface TopBarProps {
@@ -56,21 +57,42 @@ export function TopBar({ onMobileMenuClick, crumb: crumbOverride }: TopBarProps)
         <Icon name="list" size={18} />
       </button>
 
-      {/* Breadcrumb */}
+      {/* Breadcrumb — every item navigable except the current page (last).
+          The home icon goes to /dashboard. Section names (Workspace, Revenue,
+          Accounting, etc.) link to that section's primary page so power users
+          can jump up the tree. The final crumb stays as bold text — it
+          represents the current page, by convention non-clickable. */}
       <nav aria-label="Breadcrumb" className="hidden sm:flex items-center gap-1.5 text-xs text-ink-3">
-        <Link href="/dashboard" className="hover:text-ink">
+        <Link href="/dashboard" className="hover:text-ink transition-colors" aria-label="Home">
           <Icon name="home" size={13} />
         </Link>
-        {crumb.map((label, i) => (
-          <React.Fragment key={i}>
-            <span className="text-ink-3">/</span>
-            <span
-              className={i === crumb.length - 1 ? "font-semibold text-ink" : "text-ink-3"}
-            >
-              {label}
-            </span>
-          </React.Fragment>
-        ))}
+        {crumb.map((label, i) => {
+          const isLast = i === crumb.length - 1;
+          // First crumb is the section name — link to that section's primary
+          // page. Intermediate crumbs (rare, e.g., GST > Output) may not map
+          // to a section; in that case we render plain text.
+          const sectionHref = !isLast ? getSectionPrimaryHref(label) : null;
+          return (
+            <React.Fragment key={i}>
+              <span className="text-ink-3" aria-hidden>/</span>
+              {sectionHref ? (
+                <Link
+                  href={sectionHref as Route}
+                  className="text-ink-3 hover:text-ink hover:underline underline-offset-2 transition-colors"
+                >
+                  {label}
+                </Link>
+              ) : (
+                <span
+                  className={isLast ? "font-semibold text-ink" : "text-ink-3"}
+                  aria-current={isLast ? "page" : undefined}
+                >
+                  {label}
+                </span>
+              )}
+            </React.Fragment>
+          );
+        })}
       </nav>
 
       <div className="flex-1" />

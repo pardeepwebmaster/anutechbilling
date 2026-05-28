@@ -92,7 +92,9 @@ export function LeadsInsightBand({
   // ── KPI counts ─────────────────────────────────────────────
   // "Open" excludes won/lost — those don't need follow-ups.
   const openLeads = leads.filter((l) => l.stage !== "won" && l.stage !== "lost");
-  const dueTodayCount = openLeads.filter((l) => l.follow_up_date === today).length;
+  // "Today" KPI = leads created today (operator-friendly: "aaj jo aayi").
+  // The Overdue KPI handles follow-up urgency separately.
+  const dueTodayCount = leads.filter((l) => l.created_at?.slice(0, 10) === today).length;
   const overdueCount  = openLeads.filter((l) => l.follow_up_date && l.follow_up_date < today).length;
   // "Hot" = stages where the customer is engaged + a deal is on the table.
   const hotCount = leads.filter((l) =>
@@ -137,7 +139,7 @@ export function LeadsInsightBand({
           tone={dueTodayCount > 0 ? "amber" : "muted"}
           active={dueFilter === "today"}
           onClick={() => onChangeDueFilter(dueFilter === "today" ? "all" : "today")}
-          tooltipText="Leads with a follow-up scheduled today"
+          tooltipText="Aaj jo nayi leads aayi hain (created today)"
         />
         <KpiPill
           icon="alert"

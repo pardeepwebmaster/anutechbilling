@@ -10,7 +10,7 @@
  * Built-in views (v1):
  *   • All        — every lead
  *   • Mine       — leads owned by current user
- *   • Today      — follow_up_date ≤ today (overdue + due-today)
+ *   • Today      — leads that ARRIVED today (created today) — new inbound
  *   • Hot        — demo / trial / quote stage
  *   • New        — stage = new
  *   • Won MTD    — won leads created this month (₹ chip)
@@ -52,9 +52,10 @@ export function LeadsSmartViews({ leads, currentUserId, active, onChange }: Lead
   // ── Compute counts for each view ──────────────────────────
   const all      = leads.length;
   const mine     = currentUserId ? leads.filter((l) => l.owner_id === currentUserId).length : 0;
-  const todayDue = leads.filter((l) =>
-    l.follow_up_date && l.follow_up_date <= today && l.stage !== "won" && l.stage !== "lost",
-  ).length;
+  // Count leads that ARRIVED today (created today) — matches the
+  // operator's mental model of "what came in today?". Follow-up due
+  // belongs to the Overdue KPI in the insight band, not here.
+  const todayDue = leads.filter((l) => l.created_at?.slice(0, 10) === today).length;
   const hot      = leads.filter((l) => l.stage === "demo" || l.stage === "trial" || l.stage === "quote").length;
   const newCt    = leads.filter((l) => l.stage === "new").length;
   const wonMtdValue = leads

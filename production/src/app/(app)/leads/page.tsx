@@ -241,7 +241,9 @@ function LeadsPageInner() {
     if (dueFilter !== "all") {
       const todayStr = new Date().toISOString().slice(0, 10);
       if (dueFilter === "today") {
-        list = list.filter((l) => l.follow_up_date === todayStr);
+        // KPI "Today" = leads created today (aaj aayi). Follow-up due-today
+        // is rare in the operator's mental model — overdue is the urgent one.
+        list = list.filter((l) => l.created_at?.slice(0, 10) === todayStr);
       } else if (dueFilter === "overdue") {
         list = list.filter((l) => l.follow_up_date && l.follow_up_date < todayStr && l.stage !== "won" && l.stage !== "lost");
       } else if (dueFilter === "hot") {
@@ -257,9 +259,11 @@ function LeadsPageInner() {
       if (smartView === "mine") {
         list = list.filter((l) => currentUser && l.owner_id === currentUser.userId);
       } else if (smartView === "today") {
-        list = list.filter((l) =>
-          l.follow_up_date && l.follow_up_date <= todayStr && l.stage !== "won" && l.stage !== "lost",
-        );
+        // "Today" = leads that arrived TODAY (created today). Operator-friendly:
+        // when they ask "what came in today?" they mean new inbound, not
+        // follow-up reminders. Follow-up bucket is "Overdue" (a separate
+        // KPI in the insight band).
+        list = list.filter((l) => l.created_at?.slice(0, 10) === todayStr);
       } else if (smartView === "hot") {
         list = list.filter((l) => l.stage === "demo" || l.stage === "trial" || l.stage === "quote");
       } else if (smartView === "new") {
@@ -737,7 +741,7 @@ function LeadsPageInner() {
             smartView === "mine"    ? "user" : "target"
           }
           title={
-            smartView === "today"   ? "Nothing due today" :
+            smartView === "today"   ? "Koi lead aaj nahi aayi" :
             smartView === "hot"     ? "No hot leads right now" :
             smartView === "new"     ? "No new leads" :
             smartView === "won-mtd" ? "No wins this month yet" :
@@ -745,7 +749,7 @@ function LeadsPageInner() {
             "No leads match this view"
           }
           body={
-            smartView === "today"   ? "No follow-ups scheduled for today. Schedule one on a lead, or browse all leads." :
+            smartView === "today"   ? "Aaj koi nayi lead nahi aayi. Add Lead button se manually add karo ya kal wait karo — nayi inbound leads yahaan dikhengi." :
             smartView === "hot"     ? "No leads in Demo / Trial / Quote stage. Move qualified leads forward to surface hot opportunities." :
             smartView === "new"     ? "Inbox is clear. Switch to Hot or Won MTD to see what's moving." :
             smartView === "won-mtd" ? "Close your first deal this month — it'll show up here." :
@@ -1832,7 +1836,12 @@ function LeadListView({
           - trailing actions  → row-hover Call / WhatsApp / Email icons
         Selecting any row reveals the floating LeadsBulkBar at the
         viewport bottom (stage change, delete). */}
-    <div className="hidden md:block w-full max-w-full relative border border-hairline rounded-md overflow-auto bg-paper flex-1 min-h-0">
+    {/* min-h-[400px] guarantees the table never collapses below a usable
+        height even when the rail-below section is tall (sparse-data flex
+        competition bug — table had been crushing to 1.6px on /deals when
+        only 1-3 deals existed and rail-below's quick-actions grid was
+        taking all the flex space). */}
+    <div className="hidden md:block w-full max-w-full relative border border-hairline rounded-md overflow-auto bg-paper flex-1 min-h-[400px]">
       <table className="w-full">
         <thead className="bg-paper-2 border-b border-hairline">
           <tr>

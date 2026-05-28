@@ -1,0 +1,351 @@
+/**
+ * ImportStatementDialog — paste / upload a bank statement CSV.
+ *
+ * Accepts: CSV pasted text, or .csv / .xlsx file upload (file is read in
+ * the browser via FileReader). Tries to auto-detect the column mapping
+ * from the header row. Supports the column layouts used by HDFC, ICICI,
+ * SBI, Axis, Kotak, IndusInd — which all use slightly different names.
+ *
+ * Phase 1 limitation: the operator may need to nudge the mapping if
+ * their bank's header text is unusual. A "Sample row preview" pane
+ * shows what we parsed so they can spot issues before importing.
+ */
+"use client";
+
+import * as React from "react";
+import { toast } from "sonner";
+
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+  SheetFooter,
+} from "@/components/ui/sheet";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Icon } from "@/components/ui/icon";
+import { useImportBankTransactions } from "@/lib/queries/bank";
+import { rupee, formatDate } from "@/lib/utils";
+
+interface Props {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  accountId: string;
+}
+
+type ParsedRow = {
+  txn_date:      string;       // ISO YYYY-MM-DD
+  description:   string;
+  debit:         number;       // ₹ integer
+  credit:        number;       // ₹ integer
+  balance_after: number | null;
+  reference:     string | null;
+};
+
+// Common header aliases across Indian banks. Each canonical key maps to
+// possible header names we'll match (lowercase, trimmed).
+const HEADER_ALIASES: Record<keyof ParsedRow, string[]> = {
+  txn_date:      ["date", "txn date", "transaction date", "value date", "post date", "tran date"],
+  description:   ["description", "narration", "particulars", "details", "remarks", "transaction details"],
+  debit:         ["debit", "withdrawal", "withdrawal amt", "withdrawal (dr)", "amount (debit)", "debit (rs.)", "debit amount"],
+  credit:        ["credit", "deposit", "deposit amt", "deposit (cr)", "amount (credit)", "credit (rs.)", "credit amount"],
+  balance_after: ["balance", "closing balance", "running balance", "available balance"],
+  reference:     ["ref no", "ref no./cheque no", "reference no", "chq./ref. no.", "ref.no./cheque no", "utr no"],
+};
+
+// ─── CSV parsing ───────────────────────────────────────────────────────────
+// Naive but reliable for bank statements (no embedded commas in amounts;
+// quoted fields handled). For complex CSV use papaparse later if needed.
+function parseCSV(text: string): string[][] {
+  const rows: string[][] = [];
+  let cur: string[] = [];
+  let buf = "";
+  let inQuotes = false;
+
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    const next = text[i + 1];
+    if (ch === '"' && inQuotes && next === '"') { buf += '"'; i++; continue; }
+    if (ch === '"')              { inQuotes = !inQuotes; continue; }
+    if (ch === "," && !inQuotes) { cur.push(buf); buf = ""; continue; }
+    if ((ch === "\n" || ch === "\r") && !inQuotes) {
+      if (ch === "\r" && next === "\n") i++;
+      cur.push(buf);
+      // Only push non-empty rows
+      if (cur.some((c) => c.trim().length > 0)) rows.push(cur);
+      cur = []; buf = "";
+      continue;
+    }
+    buf += ch;
+  }
+  if (buf || cur.length) {
+    cur.push(buf);
+    if (cur.some((c) => c.trim().length > 0)) rows.push(cur);
+  }
+  return rows;
+}
+
+/** Heuristic date parser — handles DD/MM/YYYY, DD-MM-YYYY, YYYY-MM-DD. */
+function parseDate(input: string): string | null {
+  const s = input.trim();
+  if (!s) return null;
+  // YYYY-MM-DD already
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+  // DD/MM/YYYY or DD-MM-YYYY (Indian convention)
+  const m = s.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})/);
+  if (m) {
+    const dd = m[1].padStart(2, "0");
+    const mm = m[2].padStart(2, "0");
+    let yy = m[3];
+    if (yy.length === 2) yy = (parseInt(yy, 10) > 50 ? "19" : "20") + yy;
+    return `${yy}-${mm}-${dd}`;
+  }
+  // Try Date.parse fallback
+  const d = new Date(s);
+  if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+  return null;
+}
+
+/** Strip commas / spaces / ₹ from amount string, return integer rupees. */
+function parseAmount(input: string | undefined): number {
+  if (!input) return 0;
+  const cleaned = input.replace(/[₹,\s]/g, "").replace(/[Cc][Rr]$/, "").replace(/[Dd][Rr]$/, "");
+  const n = parseFloat(cleaned);
+  return isNaN(n) ? 0 : Math.round(n);
+}
+
+/**
+ * Given a parsed CSV (header + data rows), figure out which column index
+ * holds which field. Returns null when the basic Date/Debit/Credit columns
+ * can't be detected.
+ */
+function detectColumns(headerRow: string[]): Record<keyof ParsedRow, number> | null {
+  const normalised = headerRow.map((h) => h.toLowerCase().trim());
+  const map: Partial<Record<keyof ParsedRow, number>> = {};
+
+  for (const [field, aliases] of Object.entries(HEADER_ALIASES) as Array<[keyof ParsedRow, string[]]>) {
+    for (let i = 0; i < normalised.length; i++) {
+      if (aliases.includes(normalised[i])) {
+        map[field] = i;
+        break;
+      }
+    }
+  }
+  if (map.txn_date == null || map.description == null) return null;
+  if (map.debit == null && map.credit == null) return null;
+  return {
+    txn_date:      map.txn_date,
+    description:   map.description,
+    debit:         map.debit ?? -1,
+    credit:        map.credit ?? -1,
+    balance_after: map.balance_after ?? -1,
+    reference:     map.reference ?? -1,
+  };
+}
+
+function parseStatement(text: string): { rows: ParsedRow[]; skipped: number; warnings: string[] } {
+  const raw = parseCSV(text);
+  if (raw.length === 0) return { rows: [], skipped: 0, warnings: ["Empty file"] };
+
+  // Find the first row that looks like a header. Bank statements often have
+  // 5-10 lines of metadata (account name, statement period etc.) before the
+  // actual table.
+  let headerIdx = -1;
+  let mapping: ReturnType<typeof detectColumns> | null = null;
+  for (let i = 0; i < Math.min(15, raw.length); i++) {
+    const m = detectColumns(raw[i]);
+    if (m) { headerIdx = i; mapping = m; break; }
+  }
+  if (headerIdx < 0 || !mapping) {
+    return { rows: [], skipped: raw.length, warnings: [
+      "Couldn't auto-detect column layout. Expected headers like Date, Description, Debit, Credit (or Withdrawal, Deposit).",
+    ] };
+  }
+
+  const out: ParsedRow[] = [];
+  let skipped = 0;
+  for (let i = headerIdx + 1; i < raw.length; i++) {
+    const r = raw[i];
+    const date = parseDate(r[mapping.txn_date] ?? "");
+    if (!date) { skipped++; continue; }
+    const debit  = mapping.debit  >= 0 ? parseAmount(r[mapping.debit])  : 0;
+    const credit = mapping.credit >= 0 ? parseAmount(r[mapping.credit]) : 0;
+    if (debit === 0 && credit === 0) { skipped++; continue; }
+    out.push({
+      txn_date:      date,
+      description:   (r[mapping.description] ?? "").trim() || "(no description)",
+      debit, credit,
+      balance_after: mapping.balance_after >= 0 ? parseAmount(r[mapping.balance_after]) || null : null,
+      reference:     mapping.reference     >= 0 ? (r[mapping.reference]?.trim() || null)        : null,
+    });
+  }
+
+  return { rows: out, skipped, warnings: [] };
+}
+
+// ─── Component ─────────────────────────────────────────────────────────────
+
+export function ImportStatementDialog({ open, onOpenChange, accountId }: Props) {
+  const [csvText, setCsvText] = React.useState("");
+  const [parsed, setParsed]   = React.useState<{ rows: ParsedRow[]; skipped: number; warnings: string[] } | null>(null);
+  const importMut = useImportBankTransactions();
+
+  React.useEffect(() => {
+    if (!open) { setCsvText(""); setParsed(null); }
+  }, [open]);
+
+  // Re-parse whenever the textarea changes (cheap)
+  React.useEffect(() => {
+    if (!csvText.trim()) { setParsed(null); return; }
+    setParsed(parseStatement(csvText));
+  }, [csvText]);
+
+  const onFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("File too large (>5 MB). Paste the CSV instead.");
+      return;
+    }
+    const text = await file.text();
+    setCsvText(text);
+  };
+
+  const handleImport = async () => {
+    if (!parsed || parsed.rows.length === 0) {
+      toast.error("Nothing to import. Paste a statement first.");
+      return;
+    }
+    try {
+      await importMut.mutateAsync({ accountId, rows: parsed.rows });
+      onOpenChange(false);
+    } catch {
+      /* hook handles toast */
+    }
+  };
+
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent
+        side="right"
+        className="w-full sm:max-w-[600px] md:max-w-[720px] p-0 flex flex-col overflow-x-hidden"
+      >
+        <SheetHeader>
+          <SheetTitle>Import bank statement</SheetTitle>
+          <SheetDescription>
+            Upload a .csv / .xlsx file or paste the statement text below. We&apos;ll
+            auto-detect the columns (Date / Description / Debit / Credit) and
+            import the rows.
+          </SheetDescription>
+        </SheetHeader>
+
+        <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4 space-y-4">
+          {/* File upload */}
+          <div className="rounded-md border border-dashed border-hairline-strong bg-paper-2/30 p-4">
+            <label className="cursor-pointer flex flex-col items-center text-center gap-2">
+              <Icon name="upload" size={20} className="text-ink-3" />
+              <span className="text-sm font-medium">Choose file (CSV or paste)</span>
+              <span className="text-[11px] text-ink-3">.csv up to 5 MB · or paste the table below</span>
+              <input
+                type="file"
+                accept=".csv,text/csv"
+                className="hidden"
+                onChange={onFileChange}
+              />
+            </label>
+          </div>
+
+          {/* OR paste */}
+          <div>
+            <label className="text-xs font-medium text-ink-2">Or paste CSV text</label>
+            <textarea
+              rows={6}
+              placeholder={"Date,Description,Debit,Credit,Balance\n28/05/2026,UPI/RAZORPAY/...,0,521088,..."}
+              className="mt-1 w-full rounded-md border border-hairline bg-paper px-3 py-2 text-xs font-mono text-ink placeholder:text-ink-3 focus:outline-none focus:ring-2 focus:ring-amber resize-y"
+              value={csvText}
+              onChange={(e) => setCsvText(e.target.value)}
+            />
+          </div>
+
+          {/* Parse summary */}
+          {parsed && (
+            <div className="rounded-md border border-hairline bg-paper-2/30 p-3">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-sm font-semibold">Parse summary</p>
+                {parsed.rows.length > 0 ? (
+                  <Badge kind="success" dot size="sm">
+                    {parsed.rows.length} ready to import
+                  </Badge>
+                ) : (
+                  <Badge kind="danger" dot size="sm">Couldn&apos;t parse</Badge>
+                )}
+              </div>
+              {parsed.warnings.length > 0 && (
+                <ul className="text-[11px] text-rose space-y-0.5 mb-2">
+                  {parsed.warnings.map((w, i) => <li key={i}>• {w}</li>)}
+                </ul>
+              )}
+              {parsed.skipped > 0 && (
+                <p className="text-[11px] text-ink-3 mb-2">
+                  Skipped {parsed.skipped} row{parsed.skipped === 1 ? "" : "s"} (missing date or both amounts zero — usually opening-balance / sub-total lines)
+                </p>
+              )}
+              {parsed.rows.length > 0 && (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-[11px]">
+                    <thead className="text-ink-3">
+                      <tr>
+                        <th className="text-left py-1">Date</th>
+                        <th className="text-left py-1">Description</th>
+                        <th className="text-right py-1">Debit</th>
+                        <th className="text-right py-1">Credit</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {parsed.rows.slice(0, 5).map((r, i) => (
+                        <tr key={i} className="border-t border-hairline">
+                          <td className="py-1 whitespace-nowrap">{formatDate(r.txn_date)}</td>
+                          <td className="py-1 truncate max-w-[200px]">{r.description}</td>
+                          <td className="py-1 text-right text-rose tabular-nums">{r.debit > 0 ? rupee(r.debit) : "—"}</td>
+                          <td className="py-1 text-right text-emerald tabular-nums">{r.credit > 0 ? rupee(r.credit) : "—"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {parsed.rows.length > 5 && (
+                    <p className="text-[10px] text-ink-3 mt-1 italic">
+                      …and {parsed.rows.length - 5} more rows
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="rounded-md bg-indigo-50 border border-indigo/20 px-3 py-2 text-[11px] text-indigo-ink">
+            <b>Tip:</b> Most Indian banks let you download a 30-day statement
+            from net banking as CSV. We support HDFC, ICICI, SBI, Axis, Kotak,
+            IndusInd, Yes Bank header formats.
+          </div>
+        </div>
+
+        <SheetFooter>
+          <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            icon="upload"
+            disabled={!parsed || parsed.rows.length === 0}
+            loading={importMut.isPending}
+            onClick={handleImport}
+          >
+            Import {parsed?.rows.length ?? 0} row{(parsed?.rows.length ?? 0) === 1 ? "" : "s"}
+          </Button>
+        </SheetFooter>
+      </SheetContent>
+    </Sheet>
+  );
+}

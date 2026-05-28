@@ -123,6 +123,7 @@ export const APP_NAV: NavSection[] = [
     roles: ["owner", "manager"],
     items: [
       { id: "saas-metrics",  href: "/accounting/saas-metrics",  label: "SaaS Metrics",       icon: "sparkles" },
+      { id: "banking",       href: "/accounting/banking",       label: "Banking",            icon: "rupee" },
       { id: "bills",         href: "/accounting/bills",         label: "Vendor Bills",       icon: "receipt" },
       { id: "expenses",      href: "/accounting/expenses",      label: "Expenses",           icon: "rupee" },
       { id: "pnl",           href: "/accounting/pnl",           label: "P&L Report",         icon: "trending_up" },
@@ -207,6 +208,8 @@ export const SCREEN_TITLES: Record<string, string[]> = {
   "/renewals":        ["Revenue", "Renewals"],
   "/purchase-orders": ["Procurement", "Purchase Orders"],
   "/accounting/saas-metrics":  ["Accounting", "SaaS Metrics"],
+  "/accounting/banking":       ["Accounting", "Banking"],
+  "/accounting/banking/[id]":  ["Accounting", "Banking", "Account"],
   "/accounting/bills":         ["Accounting", "Vendor Bills"],
   "/accounting/expenses":      ["Accounting", "Expenses"],
   "/accounting/pnl":           ["Accounting", "P&L Report"],

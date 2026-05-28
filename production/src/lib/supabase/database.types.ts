@@ -188,6 +188,84 @@ type WhatsAppMessageInsert = Partial<WhatsAppMessageRow> & {
 };
 type WhatsAppMessageUpdate = Partial<Omit<WhatsAppMessageInsert, "id" | "tenant_id">>;
 
+// ============================================================
+// Banking — bank_accounts + bank_transactions (migration 0048)
+// ============================================================
+export type BankAccountType =
+  | "current" | "savings" | "overdraft" | "fixed_deposit" | "other";
+
+export type BankTransactionSource =
+  | "manual" | "csv_upload" | "api_fetch";
+
+export type BankMatchToType =
+  | "payment" | "expense" | "vendor_bill" | "transfer" | "manual";
+
+export type BankMatchConfidence =
+  | "exact" | "high" | "low" | "manual";
+
+type BankAccountRow = {
+  id:                   string;
+  tenant_id:            string;
+  name:                 string;
+  bank_name:            string;
+  account_number_last4: string;
+  ifsc:                 string;
+  account_type:         BankAccountType;
+  opening_balance:      number;
+  opening_balance_date: string;
+  is_active:            boolean;
+  notes:                string | null;
+  created_at:           string;
+  updated_at:           string;
+};
+type BankAccountInsert = Partial<BankAccountRow> & {
+  tenant_id:            string;
+  name:                 string;
+  bank_name:            string;
+  account_number_last4: string;
+  ifsc:                 string;
+  opening_balance_date: string;
+};
+type BankAccountUpdate = Partial<Omit<BankAccountInsert, "id" | "tenant_id">>;
+
+type BankTransactionRow = {
+  id:               string;
+  tenant_id:        string;
+  bank_account_id:  string;
+  txn_date:         string;
+  description:      string;
+  debit:            number;
+  credit:           number;
+  balance_after:    number | null;
+  reference:        string | null;
+  source:           BankTransactionSource;
+  matched_to_type:  BankMatchToType | null;
+  matched_to_id:    string | null;
+  matched_at:       string | null;
+  matched_by:       string | null;
+  match_confidence: BankMatchConfidence | null;
+  imported_at:      string;
+  created_at:       string;
+  updated_at:       string;
+};
+type BankTransactionInsert = Partial<BankTransactionRow> & {
+  tenant_id:       string;
+  bank_account_id: string;
+  txn_date:        string;
+  description:     string;
+};
+type BankTransactionUpdate = Partial<Omit<BankTransactionInsert, "id" | "tenant_id">>;
+
+// Suggestion row returned by suggest_bank_transaction_matches RPC
+export type BankMatchSuggestionRow = {
+  match_type:       "payment" | "expense";
+  match_id:         string;
+  match_label:      string;
+  match_amount:     number;
+  match_date:       string;
+  match_confidence: "exact" | "high" | "low";
+};
+
 type UserRow = {
   id: string;
   tenant_id: string;
@@ -1366,6 +1444,8 @@ export type Database = {
       site_promos:        { Row: SitePromoRow;         Insert: SitePromoInsert;         Update: SitePromoUpdate;         Relationships: [] };
       tenant_secrets:     { Row: TenantSecretsRow;     Insert: TenantSecretsInsert;     Update: TenantSecretsUpdate;     Relationships: [] };
       whatsapp_messages:  { Row: WhatsAppMessageRow;   Insert: WhatsAppMessageInsert;   Update: WhatsAppMessageUpdate;   Relationships: [] };
+      bank_accounts:      { Row: BankAccountRow;       Insert: BankAccountInsert;       Update: BankAccountUpdate;       Relationships: [] };
+      bank_transactions:  { Row: BankTransactionRow;   Insert: BankTransactionInsert;   Update: BankTransactionUpdate;   Relationships: [] };
     };
     Views: {
       // Added in migration 0040 — tenant joined with its parent's display fields.
@@ -1597,6 +1677,25 @@ export type Database = {
           /** Added in migration 0010. True when this payment fully covered a renewal quote and the linked subscription was advanced 1 year. */
           renewal_rolled_forward:  boolean;
         };
+      };
+      /**
+       * Returns the current balance for a bank account = opening_balance +
+       * sum(credit - debit) across all bank_transactions for that account.
+       * SECURITY DEFINER — uses RLS on the underlying tables. Added in 0048.
+       */
+      bank_account_current_balance: {
+        Args: { p_account_id: string };
+        Returns: number;
+      };
+      /**
+       * Server-side reconciliation hint — returns top 3-5 nearest
+       * payments/expenses by amount (±₹100) and date (±7 days) for the
+       * given bank_transaction. Used by the Reconcile drawer in the
+       * banking module. Added in migration 0048.
+       */
+      suggest_bank_transaction_matches: {
+        Args: { p_bank_txn_id: string };
+        Returns: BankMatchSuggestionRow[];
       };
     };
     Enums: {

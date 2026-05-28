@@ -1,0 +1,283 @@
+/**
+ * Bank account detail — transactions list + reconcile actions.
+ *
+ * Per-account view showing every imported/manual transaction with its
+ * reconciliation state. Operator can:
+ *   • Filter by status (all / matched / unmatched / overdue)
+ *   • Import a new statement (CSV/Excel) — opens the import drawer
+ *   • Reconcile each unmatched row against a payment / expense / vendor bill
+ *
+ * The match-suggestion popover (server-computed via the
+ * suggest_bank_transaction_matches RPC) shows the top 3-5 nearest
+ * candidates by amount + date proximity so the operator just clicks
+ * "Match" — they don't have to search.
+ */
+"use client";
+
+import * as React from "react";
+import Link from "next/link";
+import { useParams } from "next/navigation";
+
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Icon } from "@/components/ui/icon";
+import { Skeleton } from "@/components/ui/skeleton";
+import { EmptyState } from "@/components/shared/empty-state";
+import { TabBar, type TabBarItem } from "@/components/ui/tabs";
+import {
+  useBankAccount,
+  useBankTransactions,
+  useReconcileTransaction,
+  type BankTransactionRow,
+} from "@/lib/queries/bank";
+import { rupee, formatDate } from "@/lib/utils";
+import { ImportStatementDialog } from "@/components/features/banking/import-statement-dialog";
+import { ReconcileTransactionDialog } from "@/components/features/banking/reconcile-transaction-dialog";
+
+type FilterTab = "all" | "unmatched" | "matched";
+
+export default function BankAccountDetailPage() {
+  const params = useParams<{ id: string }>();
+  const accountId = params?.id ?? null;
+
+  const { data: account,      isLoading: accLoading } = useBankAccount(accountId);
+  const { data: transactions, isLoading: txnLoading } = useBankTransactions(accountId);
+
+  const [tab,           setTab]           = React.useState<FilterTab>("all");
+  const [importOpen,    setImportOpen]    = React.useState(false);
+  const [reconcileTxn,  setReconcileTxn]  = React.useState<BankTransactionRow | null>(null);
+
+  // Tab counts
+  const counts = React.useMemo(() => {
+    const all       = transactions?.length ?? 0;
+    const matched   = transactions?.filter((t) => t.matched_to_type !== null).length ?? 0;
+    const unmatched = all - matched;
+    return { all, unmatched, matched };
+  }, [transactions]);
+
+  const tabs: TabBarItem[] = [
+    { id: "all",       label: "All",        count: counts.all       },
+    { id: "unmatched", label: "Unmatched",  count: counts.unmatched },
+    { id: "matched",   label: "Reconciled", count: counts.matched   },
+  ];
+
+  const visibleTxns = React.useMemo(() => {
+    if (!transactions) return [];
+    if (tab === "unmatched") return transactions.filter((t) => t.matched_to_type === null);
+    if (tab === "matched")   return transactions.filter((t) => t.matched_to_type !== null);
+    return transactions;
+  }, [transactions, tab]);
+
+  if (accLoading) {
+    return <div className="p-8"><Skeleton className="h-32" /></div>;
+  }
+  if (!account) {
+    return (
+      <div className="p-8 max-w-2xl mx-auto">
+        <Card>
+          <EmptyState
+            icon="alert"
+            title="Bank account not found."
+            body="It may have been removed, or the link is broken."
+            action={<Link href={"/accounting/banking" as never}><Button variant="primary">Back to Banking</Button></Link>}
+          />
+        </Card>
+      </div>
+    );
+  }
+
+  const balance = account.current_balance ?? account.opening_balance;
+
+  return (
+    <div className="p-4 md:p-6 lg:p-8 max-w-[1800px] mx-auto">
+      {/* Header */}
+      <div className="flex items-end justify-between gap-3 flex-wrap mb-6">
+        <div>
+          <Link
+            href={"/accounting/banking" as never}
+            className="text-xs text-ink-3 hover:text-ink-2 inline-flex items-center gap-1 mb-1"
+          >
+            <Icon name="arrow_left" size={11} /> All accounts
+          </Link>
+          <p className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold">
+            {account.bank_name}
+          </p>
+          <h1 className="font-serif text-3xl md:text-4xl leading-tight">{account.name}</h1>
+          <p className="text-xs text-ink-3 font-mono mt-1">
+            ••• {account.account_number_last4} · {account.ifsc} · {account.account_type}
+          </p>
+        </div>
+        <Button variant="primary" icon="upload" onClick={() => setImportOpen(true)}>
+          Import statement
+        </Button>
+      </div>
+
+      {/* Balance summary */}
+      <Card className="mb-6">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div>
+            <p className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold">Current balance</p>
+            <p className={`font-serif text-2xl mt-1 ${balance >= 0 ? "text-ink" : "text-rose"}`}>
+              {rupee(balance)}
+            </p>
+          </div>
+          <div>
+            <p className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold">Opening balance</p>
+            <p className="font-serif text-2xl text-ink-2 mt-1">{rupee(account.opening_balance)}</p>
+            <p className="text-[10px] text-ink-3 mt-0.5">as of {formatDate(account.opening_balance_date)}</p>
+          </div>
+          <div>
+            <p className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold">Transactions</p>
+            <p className="font-serif text-2xl text-ink mt-1">{counts.all}</p>
+            <p className="text-[10px] text-ink-3 mt-0.5">All time</p>
+          </div>
+          <div>
+            <p className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold">Unmatched</p>
+            <p className={`font-serif text-2xl mt-1 ${counts.unmatched > 0 ? "text-rose" : "text-emerald"}`}>
+              {counts.unmatched}
+            </p>
+            <p className="text-[10px] text-ink-3 mt-0.5">
+              {counts.unmatched === 0 ? "All reconciled ✓" : "Need attention"}
+            </p>
+          </div>
+        </div>
+      </Card>
+
+      {/* Filter tabs */}
+      <div className="mb-4">
+        <TabBar items={tabs} value={tab} onChange={(v) => setTab(v as FilterTab)} />
+      </div>
+
+      {/* Transactions list */}
+      {txnLoading ? (
+        <div className="space-y-2">
+          {[1, 2, 3].map((i) => <Skeleton key={i} className="h-16" />)}
+        </div>
+      ) : visibleTxns.length === 0 ? (
+        <Card>
+          <EmptyState
+            icon={tab === "unmatched" ? "check_circle" : "upload"}
+            title={
+              tab === "unmatched"  ? "All transactions reconciled ✓" :
+              tab === "matched"    ? "No reconciled transactions yet." :
+                                     "No transactions yet."
+            }
+            body={
+              counts.all === 0
+                ? "Import a bank statement CSV to populate this account. Most Indian banks let you download a 30-day or 90-day statement from net banking."
+                : tab === "unmatched"
+                  ? "Every transaction has been matched to a payment, expense, or marked as reconciled."
+                  : "Matched transactions will appear here after you reconcile."
+            }
+            action={
+              counts.all === 0
+                ? <Button variant="primary" icon="upload" onClick={() => setImportOpen(true)}>Import statement</Button>
+                : undefined
+            }
+          />
+        </Card>
+      ) : (
+        <Card flush>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-hairline text-left text-[11px] uppercase tracking-wider text-ink-3">
+                <th className="px-4 py-2 font-semibold">Date</th>
+                <th className="px-4 py-2 font-semibold">Description</th>
+                <th className="px-4 py-2 font-semibold text-right">Debit</th>
+                <th className="px-4 py-2 font-semibold text-right">Credit</th>
+                <th className="px-4 py-2 font-semibold">Status</th>
+                <th className="px-4 py-2 font-semibold text-right">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {visibleTxns.map((txn) => (
+                <TransactionRow
+                  key={txn.id}
+                  txn={txn}
+                  onReconcile={() => setReconcileTxn(txn)}
+                />
+              ))}
+            </tbody>
+          </table>
+        </Card>
+      )}
+
+      <ImportStatementDialog open={importOpen} onOpenChange={setImportOpen} accountId={account.id} />
+      <ReconcileTransactionDialog
+        open={Boolean(reconcileTxn)}
+        onOpenChange={(o) => !o && setReconcileTxn(null)}
+        transaction={reconcileTxn}
+      />
+    </div>
+  );
+}
+
+// ============================================================
+// Row
+// ============================================================
+function TransactionRow({
+  txn,
+  onReconcile,
+}: {
+  txn: BankTransactionRow;
+  onReconcile: () => void;
+}) {
+  const reconcile = useReconcileTransaction();
+
+  return (
+    <tr className="border-b border-hairline last:border-b-0 hover:bg-paper-2/30">
+      <td className="px-4 py-3 text-ink-2 whitespace-nowrap">
+        {formatDate(txn.txn_date)}
+      </td>
+      <td className="px-4 py-3 min-w-0">
+        <div className="font-medium text-ink truncate max-w-md">{txn.description}</div>
+        {txn.reference && (
+          <div className="text-[10px] text-ink-3 font-mono mt-0.5">{txn.reference}</div>
+        )}
+      </td>
+      <td className="px-4 py-3 text-right tabular-nums text-rose">
+        {txn.debit > 0 ? rupee(txn.debit) : <span className="text-ink-3">—</span>}
+      </td>
+      <td className="px-4 py-3 text-right tabular-nums text-emerald">
+        {txn.credit > 0 ? rupee(txn.credit) : <span className="text-ink-3">—</span>}
+      </td>
+      <td className="px-4 py-3">
+        {txn.matched_to_type ? (
+          <Badge kind="success" size="sm" dot>
+            {txn.matched_to_type === "payment"     ? "Matched payment" :
+             txn.matched_to_type === "expense"     ? "Matched expense" :
+             txn.matched_to_type === "vendor_bill" ? "Matched bill"    :
+             txn.matched_to_type === "transfer"    ? "Inter-account"   :
+                                                      "Reconciled"}
+          </Badge>
+        ) : (
+          <Badge kind="warning" size="sm" dot>Unmatched</Badge>
+        )}
+      </td>
+      <td className="px-4 py-3 text-right">
+        {txn.matched_to_type ? (
+          <button
+            type="button"
+            onClick={() =>
+              reconcile.mutate({ transactionId: txn.id, matchedToType: null, matchedToId: null })
+            }
+            className="text-xs text-ink-3 hover:text-rose"
+            disabled={reconcile.isPending}
+          >
+            Un-reconcile
+          </button>
+        ) : (
+          <Button
+            size="sm"
+            variant="default"
+            onClick={onReconcile}
+            disabled={reconcile.isPending}
+          >
+            Reconcile
+          </Button>
+        )}
+      </td>
+    </tr>
+  );
+}

@@ -1151,6 +1151,27 @@ function LeadDetailSheet({
                   </div>
                 )}
               </div>
+
+              {/* Prominent "Send Quote" CTA — surfaced here (not just at the
+                  bottom of the drawer) because creating a quote is the most
+                  common natural next step from a qualified lead. Was a
+                  discoverability gap — operator had to scroll all the way
+                  down to the SheetFooter to find it. */}
+              {lead.stage !== "won" && lead.stage !== "lost" && (
+                <button
+                  type="button"
+                  onClick={hasQuotes ? handleReviseQuote : handleSendQuote}
+                  className="w-full inline-flex items-center justify-center gap-2 py-2.5 rounded-md bg-amber text-white hover:bg-amber/90 text-sm font-semibold transition-colors"
+                >
+                  <Icon name="send" size={14} />
+                  {hasQuotes ? "Revise & resend quote" : "Send Quote"}
+                  {lead.value ? (
+                    <span className="text-[11px] opacity-90 ml-1">
+                      · {rupee(lead.value, { compact: true })}
+                    </span>
+                  ) : null}
+                </button>
+              )}
             </div>
           )}
 

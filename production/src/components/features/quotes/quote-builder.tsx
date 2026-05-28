@@ -34,7 +34,7 @@ import { AddLineItemDialog } from "@/components/features/quotes/add-line-item-di
 import { QuotePreviewDialog } from "@/components/features/quotes/quote-preview-dialog";
 import { useCustomers } from "@/lib/queries/customers";
 import { useCreateQuote, useQuote } from "@/lib/queries/quotes";
-import { useUpdateLead } from "@/lib/queries/leads";
+import { useUpdateLead, useLeads } from "@/lib/queries/leads";
 import { useItems } from "@/lib/queries/items";
 import { useCurrentUser } from "@/lib/hooks/useCurrentUser";
 import { rupee, formatDate } from "@/lib/utils";
@@ -94,19 +94,45 @@ export function QuoteBuilder() {
   // Lead pre-fill context (when navigated from Lead Detail → Send Quote).
   // When leadId is present, we're in "lead mode" — quote belongs to a prospect,
   // not a paying customer. Customer record will be created only after payment.
-  const leadId      = searchParams.get("leadId");
-  const leadCompany = searchParams.get("company");
-  const leadPlan    = searchParams.get("plan");
-  const leadSeats   = searchParams.get("seats");
-  const leadContact = searchParams.get("contact");
-  const leadEmail   = searchParams.get("email");
-  const leadPhone   = searchParams.get("phone");
+  //
+  // Accept both `?lead=` (short, easier for operators to type/share) and
+  // `?leadId=` (legacy, built by lead drawer Send Quote button).
+  const leadId      = searchParams.get("leadId") || searchParams.get("lead");
+  // The lead drawer "Send Quote" button supplies these chained params for
+  // instant prefill without a network round-trip. We also support the
+  // shortcut form (`?lead=L-XXX` alone) by falling back to a useLeads()
+  // lookup below.
+  const urlCompany  = searchParams.get("company");
+  const urlPlan     = searchParams.get("plan");
+  const urlSeats    = searchParams.get("seats");
+  const urlContact  = searchParams.get("contact");
+  const urlEmail    = searchParams.get("email");
+  const urlPhone    = searchParams.get("phone");
   // Duplicate / revise an existing quote ("edit & resend" workflow)
   const duplicateOf       = searchParams.get("duplicate");
   const { data: sourceQuote } = useQuote(duplicateOf ?? undefined);
 
+  // Look up the lead from the cached useLeads() query so the operator can
+  // navigate to /quotes/new?lead=L-XXX with JUST the ID — we fill in the
+  // rest from the lead row. This makes the URL bookmarkable / shareable
+  // and unblocks the "type URL" workflow that was hitting "No customers yet".
+  const { data: allLeads } = useLeads();
+  const leadFromQuery = React.useMemo(() => {
+    if (!leadId || !allLeads) return null;
+    return allLeads.find((l) => l.id === leadId) ?? null;
+  }, [leadId, allLeads]);
+
+  // Effective lead fields — URL param wins, lead row fills in the rest.
+  // Stays null until the lead has loaded OR all URL params are present.
+  const leadCompany = urlCompany || leadFromQuery?.company || null;
+  const leadPlan    = urlPlan    || leadFromQuery?.plan    || null;
+  const leadSeats   = urlSeats   || (leadFromQuery?.seats != null ? String(leadFromQuery.seats) : null);
+  const leadContact = urlContact || leadFromQuery?.contact_name  || null;
+  const leadEmail   = urlEmail   || leadFromQuery?.contact_email || null;
+  const leadPhone   = urlPhone   || leadFromQuery?.contact_phone || null;
+
   // Lead mode applies when either:
-  //   - explicit leadId in URL (from Lead Detail → Send Quote), OR
+  //   - explicit leadId in URL (from Lead Detail → Send Quote OR direct URL), OR
   //   - duplicating an existing prospect-only quote (source has lead_id, no customer_id)
   const isLeadMode = Boolean(
     leadId || (sourceQuote && sourceQuote.lead_id && !sourceQuote.customer_id),
@@ -114,6 +140,12 @@ export function QuoteBuilder() {
 
   // Form state
   const [customerId, setCustomerId] = React.useState<string>("");
+  // Free-text prospect name — used when the operator wants to quote a NEW
+  // prospect who isn't yet in the customers table. customer_id stays null;
+  // the typed name is saved as quote.customer_name. A real customer record
+  // gets created later when record_payment fires (lead → customer cascade).
+  // This unblocks the "no customers yet" dead-end the picker had.
+  const [prospectName, setProspectName] = React.useState<string>("");
   const [validityDays, setValidityDays] = React.useState(30);
   const [discountPct, setDiscountPct] = React.useState(0);
   const [taxRate, setTaxRate] = React.useState(18);
@@ -364,8 +396,11 @@ export function QuoteBuilder() {
   const handleSubmit = async (status: "draft" | "sent", afterAction?: "email" | "whatsapp") => {
     // In lead mode, customer is NOT required (lead = potential customer).
     // A real customer record gets created only after payment.
-    if (!isLeadMode && !customerId) {
-      toast.error("Please select a customer");
+    // In customer mode, accept EITHER an existing customer pick OR a typed
+    // prospect name — prospect mode lets the operator quote a brand-new
+    // company without first creating a customer record.
+    if (!isLeadMode && !customerId && !prospectName.trim()) {
+      toast.error("Pick a customer or type a new prospect name");
       return;
     }
     if (lineItems.length === 0) {
@@ -393,10 +428,19 @@ export function QuoteBuilder() {
         setQuoteId(newId);
       }
 
+      // Resolve customer_name: lead → use lead.company. Else if customerId
+      // picked → use that customer's name. Else (prospect mode) → use typed
+      // prospect name. Validation upstream ensures one of these is present.
+      const resolvedCustomerName = isLeadMode
+        ? (leadCompany ?? "Prospect")
+        : customer
+          ? customer.name
+          : (prospectName.trim() || "Prospect");
+
       const quote = await createQuote.mutateAsync({
         id: idToUse,
-        customer_id:   isLeadMode ? null : customerId,
-        customer_name: isLeadMode ? (leadCompany ?? "Prospect") : customer!.name,
+        customer_id:   isLeadMode ? null : (customerId || null),
+        customer_name: resolvedCustomerName,
         lead_id:       isLeadMode ? leadId : null,
         line_items:    lineItems,
         subtotal,
@@ -457,8 +501,10 @@ export function QuoteBuilder() {
               {quoteId ?? <span className="text-ink-3">Q-…-…-…</span>}
             </h1>
             <p className="text-sm text-ink-3 mt-1">
-              For <b className="text-ink">{isLeadMode ? leadCompany : (customer?.name ?? "—")}</b>
-              {isLeadMode && <span className="ml-1 text-amber-ink">(prospect)</span>}
+              For <b className="text-ink">{isLeadMode ? leadCompany : (customer?.name ?? prospectName.trim() ?? "—")}</b>
+              {(isLeadMode || (!customer && prospectName.trim())) && (
+                <span className="ml-1 text-amber-ink">(prospect)</span>
+              )}
               {" · Draft"}
             </p>
           </div>
@@ -484,7 +530,7 @@ export function QuoteBuilder() {
             variant="primary"
             onClick={() => handleSubmit("sent")}
             loading={createQuote.isPending}
-            disabled={(!isLeadMode && !customerId) || lineItems.length === 0}
+            disabled={(!isLeadMode && !customerId && !prospectName.trim()) || lineItems.length === 0}
           >
             Save & send
           </Button>
@@ -563,32 +609,63 @@ export function QuoteBuilder() {
             </div>
           </Card>
         ) : (
-          /* ───── Customer Details (existing customer flow) ───── */
+          /* ───── Customer Details (existing customer OR new prospect flow) ───── */
           <Card title="Customer Details">
             <div className="space-y-3">
-              <FormField label="Customer" required htmlFor="customer">
+              <FormField label="Existing customer" htmlFor="customer">
                 {customersLoading ? (
                   <Skeleton className="h-9" />
-                ) : (
-                  <Select value={customerId} onValueChange={setCustomerId}>
+                ) : customers && customers.length > 0 ? (
+                  <Select
+                    value={customerId}
+                    onValueChange={(v) => {
+                      setCustomerId(v);
+                      // Picking an existing customer clears the prospect name
+                      // so there's a single source of truth.
+                      if (v) setProspectName("");
+                    }}
+                  >
                     <SelectTrigger id="customer">
                       <SelectValue placeholder="Pick a customer" />
                     </SelectTrigger>
                     <SelectContent>
-                      {customers && customers.length > 0 ? (
-                        customers.map((c) => (
-                          <SelectItem key={c.id} value={c.id}>
-                            {c.name}
-                          </SelectItem>
-                        ))
-                      ) : (
-                        <SelectItem value="none" disabled>
-                          No customers yet — add one at /customers
+                      {customers.map((c) => (
+                        <SelectItem key={c.id} value={c.id}>
+                          {c.name}
                         </SelectItem>
-                      )}
+                      ))}
                     </SelectContent>
                   </Select>
+                ) : (
+                  <p className="text-xs text-ink-3 italic px-1 py-2">
+                    No saved customers yet — type a new prospect below.
+                  </p>
                 )}
+              </FormField>
+
+              {/* Free-text prospect entry — works WITH or WITHOUT existing customers.
+                  Operator can quote a brand-new company without first creating a
+                  customer record. customer_id stays null on this quote; a real
+                  customer auto-creates on first payment (record_payment RPC). */}
+              <FormField
+                label={customers && customers.length > 0 ? "Or type a new prospect" : "Prospect name"}
+                required={!customerId}
+                htmlFor="prospectName"
+              >
+                <Input
+                  id="prospectName"
+                  placeholder="Acme Corp Pvt Ltd"
+                  value={prospectName}
+                  onChange={(e) => {
+                    setProspectName(e.target.value);
+                    // Typing clears the customer pick — single source of truth.
+                    if (e.target.value && customerId) setCustomerId("");
+                  }}
+                />
+                <p className="text-[10px] text-ink-3 mt-1">
+                  Use this for new prospects who haven&apos;t made a payment yet.
+                  We&apos;ll auto-create the customer record when they pay.
+                </p>
               </FormField>
 
               <div className="grid grid-cols-2 gap-3">
@@ -1080,7 +1157,7 @@ export function QuoteBuilder() {
             icon="mail"
             onClick={() => handleSubmit("sent", "email")}
             loading={createQuote.isPending}
-            disabled={!isLeadMode && !customerId}
+            disabled={!isLeadMode && !customerId && !prospectName.trim()}
           >
             Send via email
           </Button>
@@ -1089,7 +1166,7 @@ export function QuoteBuilder() {
             className="!text-[#25D366] !border-[#25D366] hover:!bg-[#25D366]/5"
             onClick={() => handleSubmit("sent", "whatsapp")}
             loading={createQuote.isPending}
-            disabled={!isLeadMode && !customerId}
+            disabled={!isLeadMode && !customerId && !prospectName.trim()}
           >
             Send via WhatsApp
           </Button>
@@ -1098,7 +1175,7 @@ export function QuoteBuilder() {
             icon="check_circle"
             onClick={() => handleSubmit("sent")}
             loading={createQuote.isPending}
-            disabled={!isLeadMode && !customerId}
+            disabled={!isLeadMode && !customerId && !prospectName.trim()}
           >
             Finalize quote
           </Button>
@@ -1118,7 +1195,7 @@ export function QuoteBuilder() {
         tenantPhone={currentUser?.tenantPhone}
         tenantAddress={currentUser?.tenantAddress}
         quoteId={quoteId ?? "(pending)"}
-        customerName={isLeadMode ? (leadCompany ?? "Prospect") : (customer?.name ?? "—")}
+        customerName={isLeadMode ? (leadCompany ?? "Prospect") : (customer?.name ?? prospectName.trim() ?? "—")}
         contactName={isLeadMode ? leadContact : null}
         contactEmail={isLeadMode ? leadEmail : null}
         contactPhone={isLeadMode ? leadPhone : null}

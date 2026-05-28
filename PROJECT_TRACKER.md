@@ -1,0 +1,439 @@
+# ResellerOS — Project Tracker
+
+> **Single source of truth** for what's shipped, what's in flight, and what's next.
+> Mark items `[x]` when done. Add new items as `[ ]`.
+> Last refreshed: **2026-05-28**
+
+---
+
+## 📌 Project at a glance
+
+| Field | Value |
+|---|---|
+| **Product** | ResellerOS — multi-tenant SaaS for Indian cloud resellers (Google Workspace, M365, Zoho) |
+| **Owner** | Pardeep A (Excel Technologies Pvt Ltd) |
+| **Stack** | Next.js 14 + Supabase Postgres + Cloud Run + Razorpay + Resend |
+| **Live URL** | https://resellersos-490252291080.asia-south1.run.app |
+| **Repo** | https://github.com/Pardeep-byte1/resellersos |
+| **Supabase project ID** | `ontpnqjoysjgrlsukecm` |
+| **Cloud Run region** | `asia-south1` (Mumbai) |
+| **Current revision** | `resellersos-00046-bvw` (banking + AA scaffold + CSV fix) |
+| **Paying customers** | **0** ← the real KPI to move |
+| **Modules built** | 50+ features across 17 modules |
+
+---
+
+## 🔥 ACTIVE — current sprint (this week)
+
+### 🎯 Sprint goal: **World-class polish + first paying customer push**
+
+#### In progress
+- [ ] **Google OAuth fix** — code shipped (`2ea2a6d`), waiting on Pardeep's manual config:
+  - [ ] Google Cloud Console → Create OAuth Client (Web)
+  - [ ] Save Client ID + Secret
+  - [ ] Supabase Dashboard → Auth → Providers → Google → toggle ON + paste credentials
+  - [ ] Live test on `/login` "Sign in with Google" → land on `/setup?welcome=1`
+
+#### Next 10-day priority (from world-class plan)
+- [ ] Day 1: Privacy policy + Terms pages publish
+- [ ] Day 2: Buy custom domain `resellersos.in`
+- [ ] Day 3: Wire custom domain to Cloud Run (HTTPS auto)
+- [ ] Day 4: Sentry + BetterStack uptime monitoring setup
+- [ ] Day 5: Marketing landing page (replace current `/`)
+- [ ] Day 6: Pricing page (3 tiers — Starter/Growth/Pro)
+- [ ] Day 7: Setup wizard polish — onboarding flow
+- [ ] Day 8: Demo data seed for fresh signups
+- [ ] Day 9: ICP list — 50 target resellers identify
+- [ ] Day 10: First cold outreach — 10 resellers
+
+---
+
+## 🛠 Manual ops pending (Pardeep-only)
+
+| Task | Status | Why |
+|---|---|---|
+| Google Cloud OAuth Client setup | ⏳ pending | Enables Google Sign-In for new users |
+| Supabase Auth provider toggle | ⏳ pending | Same as above |
+| Setu AA signup (email `hello@setu.co`) | ⏳ pending | Production AA bank fetch |
+| LinkedIn DM to Sahil Kini (Setu founder) | ⏳ pending | Backup faster AA route |
+| HDFC RM call — request API Banking | 🅿️ parked | Direct HDFC API for own account |
+| Domain purchase `resellersos.in` | ⏳ pending | Brand + custom URL |
+| Update GitHub PAT with `workflow` scope | ⏳ pending | Push `.github/workflows/ci.yml` |
+| GitHub PAT secret in Cloud Run env | ⏳ pending | CI workflow |
+| Privacy policy + Terms content (legal review) | ⏳ pending | Required for paying customers |
+
+---
+
+## 📦 Module status
+
+Legend: ✅ shipped · 🟡 partial · 🔴 missing · 🅿️ parked
+
+### Core CRM
+| Module | Status | Notes |
+|---|---|---|
+| Leads (inbox + pipeline + smart actions) | ✅ | List/Kanban toggle, Today strip, Smart Views, follow-ups |
+| Deal Pipeline (Kanban) | ✅ | Flex-fill, drag-drop, ₹ value per stage |
+| Tasks management | ✅ | Schema, dialog, /tasks page, dashboard widget, bell badge |
+| Customers | ✅ | List, drawer form, GSTIN auto-fill, address |
+| Contacts | ✅ | Google CSV/OAuth import, promote-to-lead |
+| Items catalog | ✅ | 2-tier pricing (monthly/annual), MSRP/wholesale, partner sync |
+| Campaigns | ✅ | Bulk email, templates, AI-assisted HTML |
+
+### Revenue
+| Module | Status | Notes |
+|---|---|---|
+| Quote builder | ✅ | 5 commitments × 2 tiers, line discounts, prospect mode |
+| Quote send via email + PDF | ✅ | Server-rendered PDF, audit log |
+| Quote accept page (public) | ✅ | Accept-with/without-payment |
+| Online orders (Razorpay) | ✅ | Test mode, BuyNowDialog, simulation mode |
+| Payments + Receipt vouchers | ✅ | record_payment RPC, TDS capture |
+| Invoices (GST compliant) | ✅ | Partial invoices, advance adjustment, PDF |
+| Subscriptions + lifecycle | ✅ | Annual + monthly, top-up, add-seats pro-rata |
+| Renewals automation | ✅ | T-30/T-15/T-7/T-0 cadence, cron, auto-suspend |
+| Coupons + Site promos | ✅ | Public buy page, auto-applied online sale |
+
+### Accounting
+| Module | Status | Notes |
+|---|---|---|
+| SaaS metrics (MRR/ARR/Churn/LTV) | ✅ | |
+| Vendor Bills | ✅ | PO-bill matching, pre-fill wizard |
+| Expenses | ✅ | |
+| Bank Accounts | ✅ | Multi-bank, IFSC, opening balance |
+| Bank Transactions + CSV import | ✅ | HDFC/ICICI/SBI/Axis/Kotak/Yes Bank auto-detect (fixed period suffix bug) |
+| Reconcile + match suggestions | ✅ | exact/high/low confidence pills, manual override |
+| Account Aggregator scaffold | ✅ | Setu API client, mock mode, consent + sync UI |
+| Account Aggregator LIVE | 🟡 | Mock active; needs Setu API keys to flip to live |
+| P&L Report | ✅ | |
+| Customer Aging | ✅ | |
+| Customer Margin (profitability) | ✅ | |
+| GST Reports (output/input/summary) | ✅ | |
+| TDS Receivable (4-tab lifecycle + Form 26AS) | ✅ | |
+
+### Procurement
+| Module | Status | Notes |
+|---|---|---|
+| Purchase Orders | ✅ | |
+| PO ↔ Bill matching | ✅ | |
+| PO → Vendor Bill pre-fill | ✅ | |
+
+### Partner channel (distributor tier)
+| Module | Status | Notes |
+|---|---|---|
+| Reseller hierarchy (distributor/reseller) | ✅ | |
+| Partner catalog (parent → child sync) | ✅ | |
+| /partners aggregated metrics page | ✅ | |
+| Cross-tenant invoice → vendor bill mirror | ✅ | |
+| Renewal sync (parent inventory alerts) | ✅ | |
+
+### Customer portal
+| Module | Status | Notes |
+|---|---|---|
+| Magic link auth + portal layout | ✅ | |
+| Dashboard + orders + invoices | ✅ | |
+| Support tickets + subscription management | ✅ | |
+
+### Engagement
+| Module | Status | Notes |
+|---|---|---|
+| WhatsApp inbox (Gupshup BSP) | ✅ | Send + webhook + Inbox UI + quote PDF attach |
+| Email (Resend) | ✅ | |
+| Setup wizard + Settings | ✅ | Unified company form, role split |
+
+### Auth + multi-tenancy
+| Module | Status | Notes |
+|---|---|---|
+| Email/password signup | ✅ | Server-side via `/api/auth/signup` |
+| Google OAuth signin (existing user) | 🟡 | Code shipped, needs OAuth Client config |
+| Google OAuth signup (new user) | 🟡 | Tenant + users row provisioning shipped (`2ea2a6d`), needs OAuth Client config |
+| Restricted sales role (Darshan) | ✅ | |
+| Customer portal magic link | ✅ | |
+
+### Mobile + PWA
+| Module | Status | Notes |
+|---|---|---|
+| PWA manifest + install page (/mobile) | ✅ | |
+| Responsive foundation (FAB, MobileBottomNav, BottomSheet) | ✅ | |
+| All 30+ pages mobile-tested | ✅ | |
+| Draggable FAB | ✅ | |
+| Mobile contacts picker | ✅ | |
+
+### GSTIN + Sandbox API
+| Module | Status | Notes |
+|---|---|---|
+| GSTIN checksum validation | ✅ | |
+| Sandbox.co.in verification with mock fallback | ✅ | Two-step token flow |
+| Auto-fill form from GST | ✅ | |
+| Customer GSTIN verification | ✅ | |
+
+---
+
+## ⏳ Backlog (not started, future)
+
+### Tier 1 — when first paying customer demands them
+- [ ] Setu AA live integration (Phase 2) — schema ready, just needs API keys
+- [ ] HDFC API Banking direct integration (Phase 3) — own bank, faster sync
+- [ ] Email-to-statement automation (parse HDFC daily emails)
+- [ ] Razorpay live mode + production webhook
+- [ ] GST e-Invoice IRP integration (mandatory above ₹5cr turnover)
+
+### Tier 2 — polish for world-class
+- [ ] Sentry error monitoring
+- [ ] BetterStack uptime monitoring
+- [ ] Lighthouse audit on all pages → fix anything <90
+- [ ] Privacy policy + Terms of Service pages
+- [ ] Marketing landing page (replace current `/`)
+- [ ] Pricing page (3 tiers, comparison)
+- [ ] About page (founder story, brand)
+- [ ] Status page (uptime dashboard)
+- [ ] Custom domain `resellersos.in`
+- [ ] Email sending domain (`hello@resellersos.in`)
+- [ ] Onboarding magic — guided tour, demo data seed
+- [ ] Composite PK migration (quotes/POs/invoices — fix cross-tenant ID collision risk)
+
+### Tier 3 — future
+- [ ] Hindi i18n (next-intl) — when 100+ customers
+- [ ] Native iOS/Android apps (PWA covers for now)
+- [ ] Google CSP API integration (auto-provision Workspace seats)
+- [ ] Microsoft Partner Center API
+- [ ] Zoho Partner API
+- [ ] Gemini AI lead scoring + reply suggestions
+- [ ] Bulk reconcile (10 transactions at once)
+- [ ] Multi-account transfer detection (HDFC → ICICI auto-link)
+- [ ] Bank charges automatic categorization
+
+---
+
+## 🎯 90-day plan (high-level)
+
+### Month 1: Foundation polish (NO new features)
+- Trust + brand: privacy/terms/about pages, custom domain, monitoring
+- Onboarding magic: setup wizard polish, demo data, guided tour
+- UX polish: Lighthouse audits, loading/empty/error states audit
+- Pricing + landing page
+
+### Month 2: Customer hunt
+- ICP list of 50 Indian cloud resellers
+- Outreach (email + WhatsApp + LinkedIn)
+- 10 free trial signups
+- 3 paying customers (₹999/mo Starter tier)
+- Personal demos + customer success stories
+
+### Month 3: Iterate on feedback
+- Top 5 feature requests from paying customers
+- Top 10 bug fixes
+- AA integration (Setu) — paying customer demand
+- Case studies
+- **Goal: 10 paying customers, ₹15K MRR**
+
+---
+
+## 🔑 World-class success metrics
+
+| Metric | Today | 90-day target | World-class target |
+|---|---|---|---|
+| Paying customers | 0 | 10 | 100 |
+| MRR | ₹0 | ₹15K | ₹2L |
+| Lighthouse score | unknown | >90 | >95 |
+| Time to first value | unknown | <5 min | <2 min |
+| Uptime SLA | unknown | 99.5% | 99.9% |
+| NPS | n/a | >40 | >60 |
+| Monthly churn | n/a | <5% | <2% |
+
+---
+
+## 🚫 What NOT to do (avoid these temptations)
+
+- ❌ Adding new features without paying-customer demand
+- ❌ Database migration (Firebase, Cloud SQL) — Supabase is the right call
+- ❌ Tech stack changes (Next.js + Supabase = solid)
+- ❌ More TSP integration (Setu signup is enough work)
+- ❌ Hindi i18n until 100+ customers
+- ❌ Native mobile app (PWA covers it)
+- ❌ Chasing self-serve AA TSP URLs (sales-led signup is the only path)
+
+---
+
+## 🌐 Live links + admin URLs
+
+| Purpose | URL |
+|---|---|
+| Live app | https://resellersos-490252291080.asia-south1.run.app |
+| Login page | https://resellersos-490252291080.asia-south1.run.app/login |
+| Banking module | https://resellersos-490252291080.asia-south1.run.app/accounting/banking |
+| GitHub repo | https://github.com/Pardeep-byte1/resellersos |
+| Supabase project | https://supabase.com/dashboard/project/ontpnqjoysjgrlsukecm |
+| Cloud Run console | https://console.cloud.google.com/run/detail/asia-south1/resellersos/metrics?project=resellersos-prod |
+| Google Cloud Console (OAuth) | https://console.cloud.google.com/apis/credentials |
+| Razorpay dashboard | https://dashboard.razorpay.com (test mode) |
+
+---
+
+## 👥 Test users (dev mode)
+
+| Email | Password | Tenant | Role |
+|---|---|---|---|
+| `pardeep@exceltechnologies.in` | `ExcelTech@2026` | Excel Technologies (distributor) | owner |
+| `darshan@exceltechnologies.in` | `ExcelSales@2026` | Excel Technologies | sales |
+| `pardeep.webmaster@gmail.com` | (in DB) | Excel Technologies | sales |
+| `pardeep@anutech.in` | `ResellerOS@2026` | Anutech Digital (reseller) | owner |
+
+---
+
+## ⚠️ Known issues + pitfalls
+
+| Issue | Workaround |
+|---|---|
+| Google OAuth not yet enabled in Supabase | Use email/password login until OAuth Client configured |
+| Setu AA real-time fetch | Use CSV upload monthly (or mock mode for demos) |
+| Cross-tenant ID collision on quotes/POs | Currently mitigated with renamed prefixes (e.g. PO-ET-...) — composite PK migration pending |
+| Screenshot tool timeout on first-compile pages | Wait 5-8 sec after navigate, retry once |
+| Browser Chrome MCP can't navigate to Cloud Run URL | Localhost works fine; Chrome extension domain permission limitation |
+
+---
+
+## 🏆 Completed phases (historical rollup)
+
+These represent **223+ completed tasks** rolled up into modules. Not exhaustive, see git history for details.
+
+### Phase 1 — Foundation (Weeks 1-3)
+- Auth, multi-tenant (tenants/users/RLS)
+- Design system + 30+ shadcn components
+- Layout shell (Sidebar + TopBar + CommandPalette)
+- Basic CRUD for all 12 core entities
+
+### Phase 2 — Money (Weeks 4-6)
+- Razorpay test mode + checkout
+- GST 18% (CGST/SGST split, IGST inter-state)
+- WhatsApp via Gupshup BSP
+- Resend email integration
+
+### Phase 3 — Document numbering + atomic writes (Week 5)
+- `next_document_number` RPC (GST-compliant per-FY series)
+- `record_payment` RPC (lead → customer cascade + receipt voucher)
+- `compute_advance_adjustment` for invoices
+- `accept_quote` for accept-without-payment
+
+### Phase 4 — Renewal automation (Weeks 6-7)
+- Cadence engine (T-30/T-15/T-7/T-0)
+- Daily cron handler
+- Auto-suspend with grace period
+- On-demand quote generation
+
+### Phase 5 — Quote send + PDF (Week 7)
+- Server-rendered PDF via @react-pdf/renderer
+- Quote send dialog with audit log
+- Multi-tenant branding fix
+
+### Phase 6 — Responsive foundation (Week 8)
+- `useBreakpoint`, `FAB`, `MobileBottomNav`, `BottomSheet`
+- 11 listing pages ported to card-list-on-mobile
+- KPI grid squish fix, max-width fix
+
+### Phase 7 — Accounting layer (Weeks 9-10)
+- Vendor Bills + Expenses
+- P&L Report
+- Customer Aging
+- GST Reports (3 sub-pages)
+- Customer Margin
+- SaaS Metrics (MRR/ARR/Churn/LTV)
+- TDS Receivable (4-tab lifecycle + Form 26AS reconciliation)
+
+### Phase 8 — Customer portal (Week 11)
+- Magic link auth
+- Portal dashboard + orders + invoices
+- Support tickets + subscription management
+
+### Phase 9 — Subscription lifecycle (Week 11)
+- Domain field end-to-end
+- Subscription extension/top-up (N years)
+- Add Seats pro-rata
+- Trial automation (Option B)
+
+### Phase 10 — Procurement (Week 12)
+- Purchase Orders
+- PO ↔ Vendor Bill matching
+- PO → Vendor bill pre-fill wizard
+
+### Phase 11 — Partner channel (Week 13)
+- Reseller hierarchy schema (distributor/reseller tiers)
+- Partner catalog (parent → child sync)
+- Cross-tenant invoice → vendor bill auto-mirror
+- /partners aggregated metrics page
+- Renewal sync (parent inventory alerts)
+
+### Phase 12 — Engagement (Week 14)
+- Campaigns (bulk email, templates, AI-assisted HTML)
+- WhatsApp inbox + send + webhook + Send buttons
+- Coupons + Site Promos
+- Google Contacts (CSV + direct OAuth import)
+
+### Phase 13 — GSTIN verification (Week 15)
+- Real checksum validation
+- Sandbox.co.in API with mock fallback
+- Two-step token flow
+- "Fill form from GST" auto-populate
+- Customer GSTIN verification + auto-fill
+
+### Phase 14 — Roles + Sales workspace v2 (Week 16)
+- Restricted sales role (Darshan @ Excel Tech)
+- Split Leads/Deals UX
+- Today Strip + Smart Views + Pipeline Pulse
+- Dense lead rows + slim KPI strip
+- Detail sheet with timeline + actions
+
+### Phase 15 — Lead acquisition polish (Week 17)
+- Mobile Leads card list + FAB + swipe gestures
+- Draggable FAB with persisted position
+- Quick-add lead form (4 fields)
+- CSV bulk upload for leads
+- Topbar action button page-aware panel
+
+### Phase 16 — Banking module Phase 1 (Week 18, **today**)
+- Schema: `bank_accounts`, `bank_transactions`
+- UI: list, detail, add-account drawer, import-statement drawer
+- CSV parser for HDFC/ICICI/SBI/Axis/Kotak/IndusInd/Yes Bank
+- Reconcile drawer with exact/high/low match suggestions
+- Manual reconcile escape hatch
+- Fixed: HDFC "Withdrawal Amt." header parser bug
+
+### Phase 17 — Banking AA scaffold (Week 18, **today**)
+- `bank_aa_connections` table
+- Setu API client (mock-first, switches to live with env keys)
+- 3 API routes: consent init, callback, fetch
+- ConnectAaDialog drawer
+- Simulate-approval page (mock consent UI)
+- Daily-sync ready (cron handler)
+- Verified end-to-end on Chrome: connect → approve → 4 mock txns synced
+
+---
+
+## 📝 How to use this file
+
+1. **Active sprint section** — daily check, mark `[x]` when done
+2. **Manual ops** — these need Pardeep's action, not Claude's
+3. **Module status** — see what's shipped vs partial vs missing
+4. **Backlog** — defer non-critical items here
+5. **Add new items** — `[ ] description` under appropriate section
+6. **Completed phases** — historical context, don't edit
+
+When adding a new task today:
+- If in current sprint → add to "Active" section
+- If for next sprint → add to "Next 10-day priority"
+- If non-urgent → add to "Backlog → Tier X"
+
+When completing a task:
+- Change `[ ]` to `[x]`
+- If it's a significant module, add a 1-line entry to "Completed phases"
+
+---
+
+## 🤖 Claude conventions (for future sessions)
+
+- **Always read this file at session start** to know current priorities
+- **Never add new features without paying-customer demand** (architect rule)
+- **Always run `npm run typecheck && npm run lint` before commit**
+- **Always use `gcloud run deploy resellersos --source . --region asia-south1`** for deploys
+- **Always commit with `Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>`**
+- **Skip `.github/` from staging** until GitHub PAT has `workflow` scope
+- **Use Hinglish in operator-facing messages** (Pardeep's preference)
+- **Push back as Product Architect** when scope/timing is wrong

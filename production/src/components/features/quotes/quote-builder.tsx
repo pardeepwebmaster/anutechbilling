@@ -124,12 +124,29 @@ export function QuoteBuilder() {
 
   // Effective lead fields — URL param wins, lead row fills in the rest.
   // Stays null until the lead has loaded OR all URL params are present.
-  const leadCompany = urlCompany || leadFromQuery?.company || null;
-  const leadPlan    = urlPlan    || leadFromQuery?.plan    || null;
-  const leadSeats   = urlSeats   || (leadFromQuery?.seats != null ? String(leadFromQuery.seats) : null);
-  const leadContact = urlContact || leadFromQuery?.contact_name  || null;
-  const leadEmail   = urlEmail   || leadFromQuery?.contact_email || null;
-  const leadPhone   = urlPhone   || leadFromQuery?.contact_phone || null;
+  const leadCompanyInit = urlCompany || leadFromQuery?.company || "";
+  const leadPlan        = urlPlan    || leadFromQuery?.plan    || null;
+  const leadSeats       = urlSeats   || (leadFromQuery?.seats != null ? String(leadFromQuery.seats) : null);
+  const leadContactInit = urlContact || leadFromQuery?.contact_name  || "";
+  const leadEmailInit   = urlEmail   || leadFromQuery?.contact_email || "";
+  const leadPhoneInit   = urlPhone   || leadFromQuery?.contact_phone || "";
+
+  // Editable prospect detail state — initial values from lead row; user
+  // can refine inline on the quote builder, and changes flow back to the
+  // lead row on save. This was previously read-only; operators repeatedly
+  // hit the wall of "phone/email blank, can't fill it here" and had to
+  // bounce to /leads → edit → return. Inline edit collapses that loop.
+  const [leadCompany, setLeadCompany] = React.useState(leadCompanyInit);
+  const [leadContact, setLeadContact] = React.useState(leadContactInit);
+  const [leadPhone,   setLeadPhone]   = React.useState(leadPhoneInit);
+  const [leadEmail,   setLeadEmail]   = React.useState(leadEmailInit);
+
+  // Sync local state when the lead loads asynchronously (initial mount the
+  // values are empty strings; once allLeads arrives they get populated).
+  React.useEffect(() => { if (leadCompanyInit) setLeadCompany(leadCompanyInit); }, [leadCompanyInit]);
+  React.useEffect(() => { if (leadContactInit) setLeadContact(leadContactInit); }, [leadContactInit]);
+  React.useEffect(() => { if (leadPhoneInit)   setLeadPhone(leadPhoneInit);     }, [leadPhoneInit]);
+  React.useEffect(() => { if (leadEmailInit)   setLeadEmail(leadEmailInit);     }, [leadEmailInit]);
 
   // Lead mode applies when either:
   //   - explicit leadId in URL (from Lead Detail → Send Quote OR direct URL), OR
@@ -472,11 +489,36 @@ export function QuoteBuilder() {
               plan:  lineItems[0]?.name ?? null,
               seats: totalSeats > 0 ? totalSeats : null,
               value: total > 0     ? total     : null,
+              // Sync the edited contact info back to the lead row — single
+              // source of truth lives on the lead. company is NOT NULL on
+              // the DB so we only patch when the new value is non-empty;
+              // contact_* fields are nullable so we patch with null when
+              // user clears them.
+              ...(leadCompany !== leadCompanyInit && leadCompany.trim() && { company:       leadCompany.trim()    }),
+              ...(leadContact !== leadContactInit                       && { contact_name:  leadContact || null   }),
+              ...(leadPhone   !== leadPhoneInit                         && { contact_phone: leadPhone   || null   }),
+              ...(leadEmail   !== leadEmailInit                         && { contact_email: leadEmail   || null   }),
             },
           });
           toast.success(`Lead moved to "Quote Sent" · qualified`);
         } catch {
           // Don't block the redirect if stage update fails; quote is saved.
+        }
+      } else if (isLeadMode && leadId && status === "draft") {
+        // For drafts: still persist contact-info edits to the lead so they
+        // don't get lost when the user comes back. Stage stays as-is.
+        const contactPatch = {
+          ...(leadCompany !== leadCompanyInit && leadCompany.trim() && { company:       leadCompany.trim()  }),
+          ...(leadContact !== leadContactInit                       && { contact_name:  leadContact || null }),
+          ...(leadPhone   !== leadPhoneInit                         && { contact_phone: leadPhone   || null }),
+          ...(leadEmail   !== leadEmailInit                         && { contact_email: leadEmail   || null }),
+        };
+        if (Object.keys(contactPatch).length > 0) {
+          try {
+            await updateLead.mutateAsync({ id: leadId, patch: contactPatch });
+          } catch {
+            /* don't block redirect */
+          }
         }
       }
 
@@ -564,9 +606,10 @@ export function QuoteBuilder() {
               <FormField label="Company" htmlFor="leadCompany">
                 <Input
                   id="leadCompany"
-                  value={leadCompany ?? ""}
-                  readOnly
-                  className="bg-paper-2 cursor-default font-medium"
+                  value={leadCompany}
+                  onChange={(e) => setLeadCompany(e.target.value)}
+                  className="font-medium"
+                  placeholder="Company name"
                 />
               </FormField>
 
@@ -574,19 +617,18 @@ export function QuoteBuilder() {
                 <FormField label="Contact name" htmlFor="leadContact">
                   <Input
                     id="leadContact"
-                    value={leadContact ?? ""}
-                    readOnly
-                    className="bg-paper-2 cursor-default"
-                    placeholder="—"
+                    value={leadContact}
+                    onChange={(e) => setLeadContact(e.target.value)}
+                    placeholder="Contact person"
                   />
                 </FormField>
                 <FormField label="Phone" htmlFor="leadPhone">
                   <Input
                     id="leadPhone"
-                    value={leadPhone ?? ""}
-                    readOnly
-                    className="bg-paper-2 cursor-default font-mono"
-                    placeholder="—"
+                    value={leadPhone}
+                    onChange={(e) => setLeadPhone(e.target.value)}
+                    className="font-mono"
+                    placeholder="+91 98765 43210"
                   />
                 </FormField>
               </div>
@@ -594,10 +636,11 @@ export function QuoteBuilder() {
               <FormField label="Email" htmlFor="leadEmail">
                 <Input
                   id="leadEmail"
-                  value={leadEmail ?? ""}
-                  readOnly
-                  className="bg-paper-2 cursor-default font-mono"
-                  placeholder="—"
+                  type="email"
+                  value={leadEmail}
+                  onChange={(e) => setLeadEmail(e.target.value)}
+                  className="font-mono"
+                  placeholder="contact@company.com"
                 />
               </FormField>
 

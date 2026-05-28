@@ -61,6 +61,16 @@ export default async function HomePage() {
         <div className="mt-16 text-xs text-ink-3 font-mono">
           Made in India · Excel Technologies Pvt Ltd
         </div>
+
+        {/* Public-page links — discoverability for paying customers + DPDP
+            Act 2023 compliance (privacy policy must be reachable from the
+            landing page). */}
+        <nav className="mt-8 flex justify-center gap-5 text-[12px] text-ink-3">
+          <Link href={"/about" as never}   className="hover:text-ink transition-colors">About</Link>
+          <Link href={"/privacy" as never} className="hover:text-ink transition-colors">Privacy</Link>
+          <Link href={"/terms" as never}   className="hover:text-ink transition-colors">Terms</Link>
+          <a href="mailto:hello@resellersos.in" className="hover:text-ink transition-colors">Contact</a>
+        </nav>
       </div>
     </main>
   );

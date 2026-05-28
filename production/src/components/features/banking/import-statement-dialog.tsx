@@ -117,17 +117,33 @@ function parseAmount(input: string | undefined): number {
 }
 
 /**
+ * Normalise a header cell so HDFC's "Withdrawal Amt." matches the alias
+ * "withdrawal amt", ICICI's "Chq.No./Ref.No." matches "chq./ref. no.", etc.
+ * Strips dots, parens, slashes, extra whitespace — collapses to a single
+ * lowercase token sequence.
+ */
+function normaliseHeader(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/[.()/]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
  * Given a parsed CSV (header + data rows), figure out which column index
  * holds which field. Returns null when the basic Date/Debit/Credit columns
  * can't be detected.
  */
 function detectColumns(headerRow: string[]): Record<keyof ParsedRow, number> | null {
-  const normalised = headerRow.map((h) => h.toLowerCase().trim());
+  const normalised = headerRow.map(normaliseHeader);
   const map: Partial<Record<keyof ParsedRow, number>> = {};
 
   for (const [field, aliases] of Object.entries(HEADER_ALIASES) as Array<[keyof ParsedRow, string[]]>) {
+    const normAliases = aliases.map(normaliseHeader);
     for (let i = 0; i < normalised.length; i++) {
-      if (aliases.includes(normalised[i])) {
+      // Match either exact or prefix (covers "withdrawal amt" ↔ "withdrawal amt rs")
+      if (normAliases.some((a) => normalised[i] === a || normalised[i].startsWith(a + " "))) {
         map[field] = i;
         break;
       }

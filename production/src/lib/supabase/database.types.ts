@@ -256,6 +256,41 @@ type BankTransactionInsert = Partial<BankTransactionRow> & {
 };
 type BankTransactionUpdate = Partial<Omit<BankTransactionInsert, "id" | "tenant_id">>;
 
+// AA connection (migration 0050)
+export type BankAaProvider = "setu" | "finvu" | "onemoney";
+export type BankAaStatus =
+  | "initiated" | "pending_approval" | "active" | "expired" | "revoked" | "rejected" | "error";
+
+type BankAaConnectionRow = {
+  id:                  string;
+  tenant_id:           string;
+  bank_account_id:     string;
+  provider:            BankAaProvider;
+  vua:                 string;
+  consent_handle_id:   string | null;
+  consent_id:          string | null;
+  linked_account_ref:  string | null;
+  status:              BankAaStatus;
+  status_reason:       string | null;
+  consent_expires_at:  string | null;
+  fetch_window_from:   string | null;
+  fetch_window_to:     string | null;
+  last_fetch_at:       string | null;
+  last_fetch_status:   string | null;
+  last_fetch_count:    number;
+  next_fetch_after:    string | null;
+  consent_payload:     unknown;
+  notes:               string | null;
+  created_at:          string;
+  updated_at:          string;
+};
+type BankAaConnectionInsert = Partial<BankAaConnectionRow> & {
+  tenant_id:       string;
+  bank_account_id: string;
+  vua:             string;
+};
+type BankAaConnectionUpdate = Partial<Omit<BankAaConnectionInsert, "id" | "tenant_id">>;
+
 // Suggestion row returned by suggest_bank_transaction_matches RPC
 export type BankMatchSuggestionRow = {
   match_type:       "payment" | "expense";
@@ -1444,8 +1479,9 @@ export type Database = {
       site_promos:        { Row: SitePromoRow;         Insert: SitePromoInsert;         Update: SitePromoUpdate;         Relationships: [] };
       tenant_secrets:     { Row: TenantSecretsRow;     Insert: TenantSecretsInsert;     Update: TenantSecretsUpdate;     Relationships: [] };
       whatsapp_messages:  { Row: WhatsAppMessageRow;   Insert: WhatsAppMessageInsert;   Update: WhatsAppMessageUpdate;   Relationships: [] };
-      bank_accounts:      { Row: BankAccountRow;       Insert: BankAccountInsert;       Update: BankAccountUpdate;       Relationships: [] };
-      bank_transactions:  { Row: BankTransactionRow;   Insert: BankTransactionInsert;   Update: BankTransactionUpdate;   Relationships: [] };
+      bank_accounts:        { Row: BankAccountRow;       Insert: BankAccountInsert;       Update: BankAccountUpdate;       Relationships: [] };
+      bank_transactions:    { Row: BankTransactionRow;   Insert: BankTransactionInsert;   Update: BankTransactionUpdate;   Relationships: [] };
+      bank_aa_connections:  { Row: BankAaConnectionRow;  Insert: BankAaConnectionInsert;  Update: BankAaConnectionUpdate;  Relationships: [] };
     };
     Views: {
       // Added in migration 0040 — tenant joined with its parent's display fields.

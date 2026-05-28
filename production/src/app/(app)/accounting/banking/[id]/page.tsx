@@ -34,6 +34,8 @@ import {
 import { rupee, formatDate } from "@/lib/utils";
 import { ImportStatementDialog } from "@/components/features/banking/import-statement-dialog";
 import { ReconcileTransactionDialog } from "@/components/features/banking/reconcile-transaction-dialog";
+import { ConnectAaDialog } from "@/components/features/banking/connect-aa-dialog";
+import { useBankAaConnection, useFetchAaNow } from "@/lib/queries/bank-aa";
 
 type FilterTab = "all" | "unmatched" | "matched";
 
@@ -46,7 +48,12 @@ export default function BankAccountDetailPage() {
 
   const [tab,           setTab]           = React.useState<FilterTab>("all");
   const [importOpen,    setImportOpen]    = React.useState(false);
+  const [aaConnectOpen, setAaConnectOpen] = React.useState(false);
   const [reconcileTxn,  setReconcileTxn]  = React.useState<BankTransactionRow | null>(null);
+
+  // AA connection state (returns null if not connected yet)
+  const { data: aaConn } = useBankAaConnection(accountId);
+  const fetchAa = useFetchAaNow();
 
   // Tab counts
   const counts = React.useMemo(() => {
@@ -108,10 +115,47 @@ export default function BankAccountDetailPage() {
             ••• {account.account_number_last4} · {account.ifsc} · {account.account_type}
           </p>
         </div>
-        <Button variant="primary" icon="upload" onClick={() => setImportOpen(true)}>
-          Import statement
-        </Button>
+        <div className="flex items-center gap-2 flex-wrap">
+          {aaConn?.status === "active" ? (
+            <Button
+              variant="default"
+              icon="refresh"
+              loading={fetchAa.isPending}
+              onClick={() => fetchAa.mutate({ connection_id: aaConn.id })}
+            >
+              Sync via AA
+            </Button>
+          ) : (
+            <Button variant="default" icon="link" onClick={() => setAaConnectOpen(true)}>
+              {aaConn?.status === "pending_approval" ? "Approval pending…" : "Connect bank (AA)"}
+            </Button>
+          )}
+          <Button variant="primary" icon="upload" onClick={() => setImportOpen(true)}>
+            Import statement
+          </Button>
+        </div>
       </div>
+
+      {/* AA status strip (only when a connection exists) */}
+      {aaConn && (
+        <div className="mb-4 rounded-md border border-hairline bg-paper-2/40 px-4 py-2.5 flex items-center gap-3 flex-wrap text-[12px]">
+          <Badge
+            kind={aaConn.status === "active" ? "success" : aaConn.status === "pending_approval" ? "warning" : "muted"}
+            size="sm"
+            dot
+          >
+            {aaConn.status === "active" ? "Auto-sync via AA" :
+             aaConn.status === "pending_approval" ? "Pending approval" :
+             aaConn.status}
+          </Badge>
+          <span className="text-ink-3 font-mono">{aaConn.vua}</span>
+          {aaConn.last_fetch_at && (
+            <span className="text-ink-3">
+              Last sync: {formatDate(aaConn.last_fetch_at)} · {aaConn.last_fetch_count} new
+            </span>
+          )}
+        </div>
+      )}
 
       {/* Balance summary */}
       <Card className="mb-6">
@@ -204,6 +248,12 @@ export default function BankAccountDetailPage() {
       )}
 
       <ImportStatementDialog open={importOpen} onOpenChange={setImportOpen} accountId={account.id} />
+      <ConnectAaDialog
+        open={aaConnectOpen}
+        onOpenChange={setAaConnectOpen}
+        bankAccountId={account.id}
+        bankName={account.bank_name}
+      />
       <ReconcileTransactionDialog
         open={Boolean(reconcileTxn)}
         onOpenChange={(o) => !o && setReconcileTxn(null)}

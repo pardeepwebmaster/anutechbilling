@@ -24,7 +24,7 @@ import { useQuery } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
 import type { PartnerMetricsRow, TenantWithParent } from "@/lib/supabase/database.types";
 import { Card } from "@/components/ui/card";
-import { Button, IconButton } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { KPI } from "@/components/shared/kpi";
 import { Icon } from "@/components/ui/icon";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -33,6 +33,26 @@ import { cn } from "@/lib/utils";
 import { renewalStateLabel, renewalStateTone } from "@/lib/renewals/cadence";
 import { TrialsExpiringCard } from "@/components/features/trials/trials-expiring-card";
 import { Badge } from "@/components/ui/badge";
+
+// ============================================================
+// Helpers
+// ============================================================
+
+/**
+ * Friendly relative-time label for activity feed entries.
+ * Examples: "Just now" · "5 min ago" · "2 hrs ago" · "Yesterday"
+ */
+function relativeTime(ts: number, now: number): string {
+  const diffSec = Math.max(1, Math.floor((now - ts) / 1000));
+  if (diffSec < 60)    return "Just now";
+  const min = Math.floor(diffSec / 60);
+  if (min < 60)        return `${min} min ago`;
+  const hr  = Math.floor(min / 60);
+  if (hr  < 24)        return `${hr} hr${hr === 1 ? "" : "s"} ago`;
+  const day = Math.floor(hr / 24);
+  if (day === 1)       return "Yesterday";
+  return `${day} days ago`;
+}
 
 // ============================================================
 // Lead stage config (matches prototype LEAD_STAGES)
@@ -156,23 +176,86 @@ export default function DashboardPage() {
     },
   ].filter(Boolean) as Array<{ icon: string; tone: string; title: string; note: string; action: string; cta: string }>;
 
-  // Stubbed sections (not in DB yet)
-  const activity = [
-    { icon: "rupee",  tone: "emerald", title: `Welcome to your workspace, ${customers ? "Pardeep" : "Pardeep"}`,                 time: "Just now" },
-    { icon: "users",  tone: "indigo",  title: `${totalCustomers} customer${totalCustomers === 1 ? "" : "s"} in your workspace`, time: "Today" },
-    { icon: "target", tone: "amber",   title: `${activeLeads.length} active lead${activeLeads.length === 1 ? "" : "s"}`,        time: "Today" },
-    { icon: "file",   tone: "slate",   title: `${quotes?.length ?? 0} quote${quotes?.length === 1 ? "" : "s"} created`,         time: "Today" },
-  ];
+  // Real recent activity feed — pulls from leads/quotes/payments tables.
+  // Prevents the dashboard from showing fake "Welcome to your workspace"
+  // placeholders that confused operators (they expected to see what THEY did,
+  // not generic welcome messages).
+  const activity = React.useMemo(() => {
+    const now = Date.now();
+    const HRS_24 = 24 * 60 * 60 * 1000;
+    const items: Array<{ icon: string; tone: string; title: string; time: string; ts: number }> = [];
+
+    // Recent leads (created in last 24h)
+    (leads ?? []).forEach((l) => {
+      const ts = new Date(l.created_at).getTime();
+      if (now - ts <= HRS_24) {
+        items.push({
+          icon:  "target",
+          tone:  l.stage === "won" ? "emerald" : l.plan ? "indigo" : "amber",
+          title: l.stage === "won"
+            ? `Lead won: ${l.company}${l.value ? ` · ${rupee(l.value, { compact: true })}` : ""}`
+            : `New lead: ${l.company}${l.plan ? ` · ${l.plan}` : ""}`,
+          time:  relativeTime(ts, now),
+          ts,
+        });
+      }
+    });
+
+    // Recent quotes (created in last 24h)
+    (quotes ?? []).forEach((q) => {
+      const ts = new Date(q.created_at).getTime();
+      if (now - ts <= HRS_24) {
+        items.push({
+          icon:  "file",
+          tone:  q.payment_status === "received" ? "emerald" : "slate",
+          title: q.payment_status === "received"
+            ? `Quote paid: ${q.id} · ${rupee(q.amount ?? 0, { compact: true })}`
+            : `Quote ${q.status === "sent" ? "sent" : "created"}: ${q.id} · ${q.customer_name}`,
+          time:  relativeTime(ts, now),
+          ts,
+        });
+      }
+    });
+
+    // Sort newest first, take top 6
+    return items.sort((a, b) => b.ts - a.ts).slice(0, 6);
+  }, [leads, quotes]);
 
   const leaderboard = [
     { rank: 1, name: "Pardeep Sharma (you)", amount: acceptedValue, deals: acceptedQuotes.length, color: "amber" },
   ];
 
-  const upcoming = [
-    { type: "Demo", who: "TechBrand Pvt Ltd",       time: "Today 2:30 PM",     icon: "users",     tone: "indigo" },
-    { type: "Call", who: "Cosmo Tech (renewal)",    time: "Today 4:00 PM",     icon: "phone",     tone: "amber" },
-    { type: "Demo", who: "Beta Industries",         time: "Tomorrow 11 AM",    icon: "users",     tone: "indigo" },
-  ];
+  // Real upcoming follow-ups — pulls from leads.follow_up_date in next 7 days
+  // (instead of hardcoded "TechBrand Pvt Ltd" / "Cosmo Tech" that confused
+  // operators who couldn't find these companies anywhere in the app).
+  const upcoming = React.useMemo(() => {
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const SEVEN_DAYS = 7 * 24 * 60 * 60 * 1000;
+    return (leads ?? [])
+      .filter((l) => l.follow_up_date && l.stage !== "won" && l.stage !== "lost")
+      .map((l) => {
+        const dueTs = new Date(l.follow_up_date!).getTime();
+        const dueDate = new Date(l.follow_up_date!);
+        const daysAway = Math.floor((dueTs - today.getTime()) / (24 * 60 * 60 * 1000));
+        const timeLabel =
+          daysAway < 0 ? `${Math.abs(daysAway)}d overdue` :
+          daysAway === 0 ? "Today" :
+          daysAway === 1 ? "Tomorrow" :
+          formatDate(dueDate);
+        return {
+          type: l.stage === "demo" ? "Demo" : l.stage === "trial" ? "Trial" : "Follow-up",
+          who:  l.company,
+          time: timeLabel,
+          icon: l.stage === "demo" ? "users" : l.stage === "trial" ? "rocket" : "phone",
+          tone: daysAway < 0 ? "rose" : daysAway === 0 ? "amber" : "indigo",
+          href: `/leads?lead=${l.id}` as const,
+          ts:   dueTs,
+        };
+      })
+      .filter((u) => u.ts - today.getTime() < SEVEN_DAYS)  // within next week
+      .sort((a, b) => a.ts - b.ts)
+      .slice(0, 5);
+  }, [leads]);
 
   const integrations = [
     { name: "Supabase Auth + DB",         status: "Live",       tone: "ok" as const },
@@ -299,17 +382,27 @@ export default function DashboardPage() {
             </div>
           </Card>
 
-          {/* Recent Activity */}
+          {/* Recent Activity — real events from leads + quotes tables in last 24h.
+              Previously stubbed with "Welcome to your workspace" placeholders
+              that didn't actually represent any work the user did. */}
           <Card
             title="Recent Activity"
             sub="Last 24 hours"
             actions={<Button size="sm" variant="ghost" iconRight="external">Full feed</Button>}
           >
-            <div className="space-y-3">
-              {activity.map((a, i) => (
-                <ActivityRow key={i} icon={a.icon} tone={a.tone} title={a.title} time={a.time} />
-              ))}
-            </div>
+            {activity.length === 0 ? (
+              <div className="py-6 text-center text-sm text-ink-3">
+                Nothing happened in the last 24 hours.
+                <br/>
+                <span className="text-[11px]">Add a lead or send a quote to see activity here.</span>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {activity.map((a, i) => (
+                  <ActivityRow key={i} icon={a.icon} tone={a.tone} title={a.title} time={a.time} />
+                ))}
+              </div>
+            )}
           </Card>
 
           {/* Pipeline by Stage */}
@@ -468,29 +561,49 @@ export default function DashboardPage() {
           {/* Trials expiring soon — auto-updates as cron fires */}
           <TrialsExpiringCard />
 
-          {/* Coming Up */}
-          <Card title="Coming Up" sub="Next 24 hours">
-            <div className="space-y-3">
-              {upcoming.map((u, i) => (
-                <div key={i} className="grid grid-cols-[auto_1fr_auto] items-center gap-3">
-                  <div className={cn(
-                    "w-8 h-8 rounded-md border border-hairline grid place-items-center",
-                    u.tone === "indigo" && "text-indigo",
-                    u.tone === "amber"  && "text-amber-ink",
-                  )}>
-                    <Icon name={u.icon} size={14} />
-                  </div>
-                  <div className="min-w-0">
-                    <div className="text-sm font-medium">{u.type}: <span className="font-normal">{u.who}</span></div>
-                    <div className="text-[11px] text-ink-3">{u.time}</div>
-                  </div>
-                  <IconButton icon="arrow_right" aria-label="Open" size="sm" />
-                </div>
-              ))}
-            </div>
-            <p className="text-[11px] text-ink-3 italic mt-3 pt-3 border-t border-hairline">
-              Stub data · Calendar integration coming in Phase 2.
-            </p>
+          {/* Coming Up — real follow-ups from leads.follow_up_date.
+              Previously hardcoded fake meetings (TechBrand / Cosmo Tech /
+              Beta Industries) confused operators who couldn't find those
+              companies anywhere. Now shows only actual scheduled work. */}
+          <Card title="Coming Up" sub="Next 7 days · scheduled follow-ups">
+            {upcoming.length === 0 ? (
+              <div className="py-6 text-center">
+                <p className="text-sm text-ink-3 mb-2">No follow-ups scheduled.</p>
+                <Link
+                  href={"/leads" as any}
+                  className="inline-flex items-center gap-1 text-xs text-amber-ink hover:underline"
+                >
+                  Schedule one from a lead →
+                </Link>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {upcoming.map((u, i) => (
+                  <button
+                    key={i}
+                    onClick={() => router.push(u.href as any)}
+                    className="w-full grid grid-cols-[auto_1fr_auto] items-center gap-3 text-left hover:bg-paper-2 -mx-2 px-2 py-1.5 rounded-md transition-colors"
+                  >
+                    <div className={cn(
+                      "w-8 h-8 rounded-md border border-hairline grid place-items-center",
+                      u.tone === "indigo" && "text-indigo",
+                      u.tone === "amber"  && "text-amber-ink",
+                      u.tone === "rose"   && "text-rose",
+                    )}>
+                      <Icon name={u.icon} size={14} />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium truncate">{u.type}: <span className="font-normal">{u.who}</span></div>
+                      <div className={cn(
+                        "text-[11px]",
+                        u.tone === "rose" ? "text-rose font-medium" : "text-ink-3",
+                      )}>{u.time}</div>
+                    </div>
+                    <Icon name="arrow_right" size={14} className="text-ink-3" />
+                  </button>
+                ))}
+              </div>
+            )}
           </Card>
 
           {/* Integration Health */}

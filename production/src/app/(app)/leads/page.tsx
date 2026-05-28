@@ -1051,6 +1051,98 @@ function LeadDetailSheet({
     onClose();
   };
 
+  // Smart "next action" suggestion — tells the rep THE one thing to do next
+  // instead of making them stare at 10 buttons trying to decide. Pattern from
+  // Linear / Notion: cut decision fatigue by surfacing the most likely next
+  // move, ranked by lead state + quote age + payment status.
+  // Must be declared AFTER handleSendQuote / handleReviseQuote since it
+  // closes over them.
+  const latestQuoteForAction = quotesForLead[0]; // sorted desc by created_date
+  const quoteAgeDays = latestQuoteForAction
+    ? Math.floor((Date.now() - new Date(latestQuoteForAction.created_date).getTime()) / (24 * 60 * 60 * 1000))
+    : null;
+
+  type NextAction = {
+    label: string;
+    icon: string;
+    tone: "amber" | "rose" | "emerald" | "indigo";
+    onClick: () => void;
+    hint?: string;
+  };
+  const nextAction: NextAction | null = (() => {
+    // 1. Paid quote → issue invoice / view invoice / record remainder
+    if (latestQuoteForAction?.payment_status === "received") {
+      return {
+        label: "Issue GST invoice",
+        icon: "receipt",
+        tone: "emerald",
+        onClick: () => { onClose(); router.push(`/quotes/${latestQuoteForAction.id}` as any); },
+        hint: `Paid · ₹${(latestQuoteForAction.payment_amount ?? 0).toLocaleString("en-IN")}`,
+      };
+    }
+    if (latestQuoteForAction?.payment_status === "invoiced") {
+      return {
+        label: "View invoice",
+        icon: "receipt",
+        tone: "emerald",
+        onClick: () => { onClose(); router.push(`/quotes/${latestQuoteForAction.id}` as any); },
+        hint: "Already invoiced",
+      };
+    }
+    if (latestQuoteForAction?.payment_status === "partial") {
+      return {
+        label: "Record remaining payment",
+        icon: "rupee",
+        tone: "amber",
+        onClick: () => { onClose(); router.push(`/quotes/${latestQuoteForAction.id}` as any); },
+        hint: "Partial received",
+      };
+    }
+    // 2. Quote sent → chase based on age
+    if (latestQuoteForAction && quoteAgeDays !== null) {
+      if (quoteAgeDays > 7) {
+        return {
+          label: "Chase quote (overdue)",
+          icon: "whatsapp",
+          tone: "rose",
+          onClick: handleSendQuote,
+          hint: `${quoteAgeDays} days since sent`,
+        };
+      }
+      if (quoteAgeDays > 3) {
+        return {
+          label: "Follow up on quote",
+          icon: "whatsapp",
+          tone: "amber",
+          onClick: handleSendQuote,
+          hint: `${quoteAgeDays} days since sent`,
+        };
+      }
+      return {
+        label: "Revise & resend quote",
+        icon: "copy",
+        tone: "indigo",
+        onClick: handleReviseQuote,
+        hint: `Sent ${quoteAgeDays === 0 ? "today" : `${quoteAgeDays}d ago`}`,
+      };
+    }
+    // 3. No quote yet → by stage
+    if (lead.stage === "lost") {
+      return { label: "Re-engage · send new quote", icon: "send", tone: "indigo", onClick: handleSendQuote };
+    }
+    if (lead.stage === "won") {
+      return { label: "Upsell · new quote", icon: "send", tone: "indigo", onClick: handleSendQuote };
+    }
+    if (lead.stage === "new" && lead.contact_phone) {
+      return { label: "Call now · first contact", icon: "mobile", tone: "amber", onClick: () => { window.location.href = `tel:${lead.contact_phone}`; }, hint: lead.contact_phone ?? undefined };
+    }
+    if (lead.stage === "trial") {
+      return { label: "Convert trial · send quote", icon: "send", tone: "amber", onClick: handleSendQuote };
+    }
+    // Default: send quote (covers contact/demo stages with no quote yet)
+    return { label: "Send Quote", icon: "send", tone: "amber", onClick: handleSendQuote };
+  })();
+
   const stageLabel = LEAD_STAGES.find((s) => s.id === lead.stage)?.label ?? lead.stage;
 
   return (
@@ -1152,24 +1244,31 @@ function LeadDetailSheet({
                 )}
               </div>
 
-              {/* Prominent "Send Quote" CTA — surfaced here (not just at the
-                  bottom of the drawer) because creating a quote is the most
-                  common natural next step from a qualified lead. Was a
-                  discoverability gap — operator had to scroll all the way
-                  down to the SheetFooter to find it. */}
-              {lead.stage !== "won" && lead.stage !== "lost" && (
+              {/* Smart Next-Action CTA — surfaces THE one thing to do based on
+                  lead state + quote age + payment status. Replaces decision
+                  fatigue ("which of these 10 buttons?") with a single ranked
+                  suggestion. Logic in `nextAction` above; color-coded by
+                  urgency (rose = overdue, amber = pending, emerald = success,
+                  indigo = informational). */}
+              {nextAction && (
                 <button
                   type="button"
-                  onClick={hasQuotes ? handleReviseQuote : handleSendQuote}
-                  className="w-full inline-flex items-center justify-center gap-2 py-2.5 rounded-md bg-amber text-white hover:bg-amber/90 text-sm font-semibold transition-colors"
+                  onClick={nextAction.onClick}
+                  className={cn(
+                    "w-full inline-flex items-center justify-center gap-2 py-2.5 rounded-md text-sm font-semibold transition-colors",
+                    nextAction.tone === "amber"   && "bg-amber text-white hover:bg-amber/90",
+                    nextAction.tone === "rose"    && "bg-rose text-white hover:bg-rose/90",
+                    nextAction.tone === "emerald" && "bg-emerald text-white hover:bg-emerald/90",
+                    nextAction.tone === "indigo"  && "bg-indigo text-white hover:bg-indigo/90",
+                  )}
                 >
-                  <Icon name="send" size={14} />
-                  {hasQuotes ? "Revise & resend quote" : "Send Quote"}
-                  {lead.value ? (
+                  <Icon name={nextAction.icon} size={14} />
+                  {nextAction.label}
+                  {nextAction.hint && (
                     <span className="text-[11px] opacity-90 ml-1">
-                      · {rupee(lead.value, { compact: true })}
+                      · {nextAction.hint}
                     </span>
-                  ) : null}
+                  )}
                 </button>
               )}
             </div>

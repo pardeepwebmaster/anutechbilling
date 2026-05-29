@@ -598,6 +598,8 @@ type QuoteRow = {
   extension_months: number;
   /** Migration 0021 — display-only flag set by the operator "Extend subscription" flow. */
   is_extension: boolean;
+  /** Migration 0052 — true for add-seats quotes; record_payment skips subscription handling so it does not create a duplicate sub. */
+  is_add_seats: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -632,6 +634,7 @@ type QuoteInsert = {
   domain?: string | null;
   extension_months?: number;
   is_extension?: boolean;
+  is_add_seats?: boolean;
 }
 type QuoteUpdate = Partial<QuoteInsert>;
 

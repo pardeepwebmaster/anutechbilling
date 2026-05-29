@@ -13,11 +13,13 @@
   - Regression test committed: `production/supabase/tests/record_payment_idempotency.test.sql`
   - Bug #2 (webhook): covered — webhook already passes Razorpay `payment.id` as reference, so RPC guard dedupes retries
 - [ ] **1b. Bug #5 — record_payment 8b clobbers sibling subs' outstanding** (split from #1) - needs `subscriptions.quote_id` FK to scope the UPDATE to the originating sub (RP-03)
-- [ ] **2. Add-seats / Extend duplicate-subscription fix** - tumne jo bug pakda (bugs #3,#4,#6,#16)
-  - Mark add-seats quotes (`is_add_seats`) + skip record_payment step 8a for them
-  - Fully-paid + annual + no-customer → raise (no silent no-sub)
-  - Extend: resolve renewal purely by `renewal_quote_id`
-  - SQL test: pay → exactly 1 correct subscription (AS-01/02/08, EX-05, RP-11/12)
+- [x] ~~**2. Add-seats duplicate-subscription fix**~~ ✅ DONE (30 May 2026) - bugs #3 & #4 (the bug Pardeep found in testing)
+  - Migration `0052`: added `quotes.is_add_seats`; record_payment skips ALL sub handling for add-seats quotes
+  - `add-seats.ts` now sets `is_add_seats: true`; `database.types.ts` updated; typecheck green
+  - Verified red→green on test DB: customer with 1 sub + add-seats pay → 1 sub (was 2); new sale still → 1 sub
+  - Regression test committed: `production/supabase/tests/add_seats_no_duplicate_subscription.test.sql`
+- [ ] **2b. Extend-on-already-renewed edge (#16) + silent-no-sub (#6)** (remaining from #2) - extend on a `renewed` sub still dup-creates (detection filter `renewal_state <> 'renewed'`); fully-paid+annual+no-customer should raise instead of silently making no sub
+- [ ] **🔴 NEW P0 — cross-tenant PO id collision (found 30 May)** - `purchase_orders.id` is a GLOBAL text PK but `next_document_number` is per-tenant, so two tenants both generate `PO-2026-27-0001` → the 2nd tenant's record_payment FAILS (`purchase_orders_pkey` violation). Latent now (1 active tenant), breaks with 2+. Same risk for quotes/invoices global ids. Fix: per-tenant composite key or tenant-prefixed ids (matches PROJECT-KNOWLEDGE §14 note).
 - [ ] **3. Pricing unify — one shared price engine** - charged price == shown price (bugs #10,#11,#12)
   - Extract single `buildWorkspaceLines()`; enquiry + checkout + calculator all read catalog
   - Decide catalog `msrp` = retail vs cost; model promo in catalog

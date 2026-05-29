@@ -13,10 +13,12 @@
  *      subscription.mrr is recomputed (proportional bump)
  *   2. quotes row created — sent, awaiting payment, NOT a renewal/extension
  *
- * No record_payment changes needed — pro-rata quote pays into outstanding
- * just like any other invoice. (Auto-PO doesn't fire because this isn't
- * a first-payment + sub-creation path; operator manually creates a PO for
- * the extra seats if needed.)
+ * The quote is marked `is_add_seats=true` so record_payment SKIPS all
+ * subscription handling for it (migration 0052). Without that flag record_payment
+ * step 8a would treat the annual pro-rata quote as a new sale and create a
+ * DUPLICATE subscription (audit bug #3/#4). The existing sub is already updated
+ * above; the pro-rata payment just records into the ledger. This flow creates
+ * its own draft PO below.
  *
  * Server-only (service-role client).
  */
@@ -139,6 +141,7 @@ export async function addSeats(input: AddSeatsInput): Promise<AddSeatsResult | A
     discount_pct:     0,
     tax_rate:         18,
     is_renewal:       false,
+    is_add_seats:     true,   // 0052: record_payment skips sub handling → no duplicate sub
     extension_months: 0,
     notes:            `Add-seats pro-rata for subscription ${input.subscriptionId}. ${days} days remaining (factor ${proRataFactor.toFixed(3)}).`,
   });

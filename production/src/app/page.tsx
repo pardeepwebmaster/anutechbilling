@@ -58,6 +58,9 @@ function TopNav() {
           <span className="font-serif text-xl tracking-tight">ResellerOS</span>
         </Link>
         <nav className="flex items-center gap-5 text-sm text-ink-2">
+          <Link href={"/pricing" as never} className="hidden sm:inline hover:text-ink transition-colors">
+            Pricing
+          </Link>
           <Link href={"/about" as never} className="hidden sm:inline hover:text-ink transition-colors">
             About
           </Link>
@@ -566,6 +569,7 @@ function Footer() {
             <span className="font-serif text-base tracking-tight">ResellerOS</span>
           </div>
           <nav className="flex flex-wrap gap-5 text-sm text-ink-2">
+            <Link href={"/pricing" as never} className="hover:text-ink transition-colors">Pricing</Link>
             <Link href={"/about" as never}   className="hover:text-ink transition-colors">About</Link>
             <Link href={"/privacy" as never} className="hover:text-ink transition-colors">Privacy</Link>
             <Link href={"/terms" as never}   className="hover:text-ink transition-colors">Terms</Link>

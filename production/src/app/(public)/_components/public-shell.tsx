@@ -38,7 +38,8 @@ export function PublicTopBar() {
           ResellerOS
         </Link>
         <nav className="flex gap-5 text-sm text-ink-3">
-          <Link href={"/about" as never} className="hover:text-ink">About</Link>
+          <Link href={"/pricing" as never} className="hover:text-ink">Pricing</Link>
+          <Link href={"/about" as never}   className="hover:text-ink">About</Link>
           <Link href="/login" className="hover:text-ink">Sign in</Link>
         </nav>
       </div>

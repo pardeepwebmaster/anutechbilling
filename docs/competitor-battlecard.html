@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>ResellerOS — Competitive Battlecard</title>
+<style>
+  :root{
+    --bg:#0a0d14; --elev:#0f131c; --surface:#161b28; --hover:#1e2536;
+    --tx:#fff; --tx2:rgba(255,255,255,.72); --tx3:rgba(255,255,255,.5);
+    --amber:#f97316; --amber2:#c2410c; --line:rgba(255,255,255,.09);
+    --win:#10b981; --lose:#ef4444; --tie:#f59e0b;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--tx);font-family:'Segoe UI',system-ui,-apple-system,sans-serif;line-height:1.55}
+  .wrap{max-width:1180px;margin:0 auto;padding:28px 18px 80px}
+  header{border-bottom:1px solid var(--line);padding-bottom:18px;margin-bottom:20px}
+  h1{font-size:30px;margin:0 0 6px}
+  h1 b{color:var(--amber)}
+  .meta{color:var(--tx3);font-size:13px}
+  nav{display:flex;flex-wrap:wrap;gap:8px;margin:18px 0 22px;position:sticky;top:0;background:var(--bg);padding:10px 0;z-index:5;border-bottom:1px solid var(--line)}
+  .tab{background:var(--surface);color:var(--tx2);border:1px solid var(--line);padding:8px 14px;border-radius:9px;cursor:pointer;font-size:13.5px;transition:.15s}
+  .tab:hover{background:var(--hover);color:var(--tx)}
+  .tab.active{background:var(--amber2);color:#fff;border-color:var(--amber)}
+  .content{display:none;animation:fade .2s}
+  .content.active{display:block}
+  @keyframes fade{from{opacity:0;transform:translateY(4px)}to{opacity:1}}
+  h2{font-size:21px;margin:26px 0 12px}
+  h3{font-size:16px;margin:18px 0 8px;color:var(--amber)}
+  table{width:100%;border-collapse:collapse;font-size:13px;margin:10px 0 18px;background:var(--elev);border-radius:10px;overflow:hidden}
+  th,td{padding:9px 11px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}
+  th{background:var(--surface);position:sticky;top:60px;font-size:12px;text-transform:uppercase;letter-spacing:.4px;color:var(--tx2)}
+  td:first-child{font-weight:600;color:var(--tx)}
+  .y{color:var(--win);font-weight:700}
+  .n{color:var(--lose);font-weight:700}
+  .p{color:var(--tie);font-weight:700}
+  .card{background:var(--elev);border:1px solid var(--line);border-radius:14px;padding:18px 20px;margin:14px 0}
+  .pill{display:inline-block;font-size:11px;padding:3px 9px;border-radius:999px;margin:0 5px 5px 0}
+  .pill.threat{background:rgba(239,68,68,.15);color:#fca5a5;border:1px solid rgba(239,68,68,.3)}
+  .pill.sub{background:rgba(245,158,11,.15);color:#fcd34d;border:1px solid rgba(245,158,11,.3)}
+  .pill.low{background:rgba(16,185,129,.13);color:#6ee7b7;border:1px solid rgba(16,185,129,.3)}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media(max-width:760px){.grid2{grid-template-columns:1fr}th{position:static}}
+  .box{background:var(--surface);border-radius:10px;padding:12px 14px}
+  .box.win{border-left:3px solid var(--win)}
+  .box.lose{border-left:3px solid var(--lose)}
+  ul{margin:6px 0 0;padding-left:18px}li{margin:4px 0;color:var(--tx2)}
+  .tt{background:rgba(249,115,22,.08);border:1px solid rgba(249,115,22,.25);border-radius:10px;padding:12px 14px;margin-top:10px;font-style:italic;color:var(--tx2)}
+  .tt b{color:var(--amber);font-style:normal}
+  a{color:var(--amber)}
+  .price{font-family:ui-monospace,monospace;color:#fcd34d}
+  .note{font-size:12px;color:var(--tx3);margin-top:8px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1><b>ResellerOS</b> — Competitive Battlecard</h1>
+    <div class="meta">Generated 30 May 2026 · Indian cloud-reseller SaaS (Google Workspace / M365 / Zoho) · Source: live web research</div>
+  </header>
+
+  <nav>
+    <button class="tab active" data-t="matrix">📊 Matrix</button>
+    <button class="tab" data-t="racknap">🎯 RackNap</button>
+    <button class="tab" data-t="zoho">🐘 Zoho</button>
+    <button class="tab" data-t="global">🌐 Global CSP</button>
+    <button class="tab" data-t="tally">📒 Tally + SMB</button>
+    <button class="tab" data-t="psa">🛠️ MSP/PSA</button>
+    <button class="tab" data-t="you">⭐ ResellerOS (You)</button>
+  </nav>
+
+  <!-- ===== MATRIX ===== -->
+  <section id="matrix" class="content active">
+    <h2>Head-to-head at a glance</h2>
+    <p class="note">✅ = native &nbsp; 🟡 = partial / needs setup &nbsp; ❌ = absent. The pattern: global tools do reseller-ops but miss India tax; Indian tools do GST but don't understand cloud seats. <b>The intersection is empty — that's the wedge.</b></p>
+    <table>
+      <tr><th>Capability</th><th>ResellerOS</th><th>RackNap</th><th>Zoho bundle</th><th>Global CSP (Pax8/CloudCockpit/AppXite)</th><th>TallyPrime</th><th>MSP/PSA (ConnectWise/Atera/SuperOps)</th></tr>
+      <tr><td>Reseller CRM (lead→deal)</td><td class="y">✅</td><td class="p">🟡</td><td class="y">✅</td><td class="p">🟡</td><td class="n">❌</td><td class="y">✅</td></tr>
+      <tr><td>GST invoice + IRP e-invoice (IRN/QR)</td><td class="y">✅</td><td class="y">✅</td><td class="y">✅</td><td class="n">❌</td><td class="y">✅</td><td class="n">❌</td></tr>
+      <tr><td>Subscription + renewal automation</td><td class="y">✅</td><td class="y">✅</td><td class="y">✅</td><td class="y">✅</td><td class="n">❌</td><td class="p">🟡</td></tr>
+      <tr><td>Per-seat Google/MS margin tracking</td><td class="y">✅</td><td class="y">✅</td><td class="n">❌</td><td class="y">✅</td><td class="n">❌</td><td class="n">❌</td></tr>
+      <tr><td>Auto provisioning (CSP/Workspace)</td><td class="n">❌ <span style="color:var(--tie)">(planned, not built)</span></td><td class="y">✅</td><td class="n">❌</td><td class="y">✅</td><td class="n">❌</td><td class="n">❌</td></tr>
+      <tr><td>Partner / distributor hierarchy</td><td class="y">✅</td><td class="y">✅</td><td class="n">❌</td><td class="y">✅</td><td class="n">❌</td><td class="p">🟡</td></tr>
+      <tr><td>Accounting: P&amp;L / GST returns / TDS / bank-rec</td><td class="y">✅</td><td class="p">🟡</td><td class="y">✅</td><td class="n">❌</td><td class="y">✅</td><td class="n">❌</td></tr>
+      <tr><td>Customer self-serve portal</td><td class="y">✅</td><td class="y">✅</td><td class="y">✅</td><td class="y">✅</td><td class="n">❌</td><td class="p">🟡</td></tr>
+      <tr><td>WhatsApp engagement</td><td class="y">✅</td><td class="p">🟡</td><td class="y">✅</td><td class="n">❌</td><td class="y">✅</td><td class="n">❌</td></tr>
+      <tr><td>Razorpay / UPI collection</td><td class="y">✅</td><td class="y">✅</td><td class="y">✅</td><td class="n">❌</td><td class="p">🟡</td><td class="n">❌</td></tr>
+      <tr><td>India SMB-affordable price</td><td class="y">✅</td><td class="n">❌ enterprise/quote</td><td class="y">✅</td><td class="n">❌</td><td class="y">✅</td><td class="n">❌ per-tech</td></tr>
+      <tr><td>Built for the Indian cloud reseller specifically</td><td class="y">✅</td><td class="p">🟡 enterprise</td><td class="n">❌ horizontal</td><td class="n">❌ global MSP</td><td class="n">❌ accounting</td><td class="n">❌ MSP IT</td></tr>
+    </table>
+
+    <p class="note">⚠️ <b>Honest note on provisioning:</b> ResellerOS does NOT auto-provision today — same as Zoho. On this one row ResellerOS = Zoho (both manual via Google Partner Console / distributor). It is a future item, <b>not a current advantage</b> — do not pitch it as a moat.</p>
+
+    <h3>Quick win / lose guide</h3>
+    <div class="grid2">
+      <div class="box win"><b>You WIN when the reseller…</b>
+        <ul>
+          <li>Wants ONE tool for lead→quote→GST invoice→renew→collect, not 4 stitched together</li>
+          <li>Is bleeding on manual per-seat margin reconciliation & missed renewals</li>
+          <li>Needs India GST/IRP/TDS/UPI/WhatsApp out-of-the-box at SMB price</li>
+          <li>Is an SMB that finds RackNap/global tools too enterprise/expensive</li>
+        </ul>
+      </div>
+      <div class="box lose"><b>You LOSE when the reseller…</b>
+        <ul>
+          <li>Already "copes fine" on Zoho/Tally + spreadsheets (the real enemy = inertia)</li>
+          <li>Is an enterprise/distributor who needs RackNap's depth & is fine with quote pricing</li>
+          <li>Needs deep auto-provisioning into Partner Center / Google today (your 🟡 gap)</li>
+          <li>Trusts an incumbent brand (Zoho/Tally) over a brand-new 0-customer product</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== RACKNAP ===== -->
+  <section id="racknap" class="content">
+    <h2>RackNap <span class="pill threat">Closest direct threat</span></h2>
+    <div class="card">
+      <b>Profile:</b> India-origin (ZNet Technologies, Jaipur; now under In Time Tec). Cloud service-delivery & business-automation platform: ordering → billing → provisioning → renewals. Multi-currency <b>INR + GST</b>, <b>2-tier reseller</b> model, covers M365/Azure + Google Workspace.
+      <div style="margin-top:8px"><b>Pricing:</b> <span class="price">Quote-only</span> — no public SMB self-serve tier.</div>
+      <div><b>Target:</b> Enterprises, distributors, telcos, large CSPs.</div>
+    </div>
+    <div class="grid2">
+      <div class="box lose"><b>Where they win</b><ul>
+        <li>Genuinely does GST + INR + renewals + 2-tier reseller + provisioning — the full stack</li>
+        <li>Mature, enterprise-grade, India-origin credibility</li>
+        <li>Deep provisioning you don't have yet</li>
+      </ul></div>
+      <div class="box win"><b>Where you win</b><ul>
+        <li>SMB self-serve & affordable — they're quote-only enterprise/telco</li>
+        <li>Built for the <i>small</i> reseller's daily workflow, not distributor scale</li>
+        <li>Faster, simpler onboarding; modern UX; WhatsApp-first India SMB feel</li>
+      </ul></div>
+    </div>
+    <div class="tt"><b>Talk track:</b> "RackNap is excellent if you're a distributor or telco running thousands of seats with a sales team to handle their quote-based onboarding. ResellerOS is built for <i>you</i> — the focused Indian reseller who wants to be live today at a price that fits SMB margins, without an enterprise contract."</div>
+    <h3>Landmine questions to ask a prospect</h3>
+    <ul><li>"Did you get a transparent monthly price, or a custom enterprise quote?"</li><li>"How long was onboarding — could you self-serve, or did it need their team?"</li></ul>
+  </section>
+
+  <!-- ===== ZOHO ===== -->
+  <section id="zoho" class="content">
+    <h2>Zoho <span class="pill sub">Biggest substitute (inertia)</span></h2>
+    <div class="card">
+      <b>Profile:</b> Chennai. The default India SMB suite, GST Suvidha Provider, 100M+ users. Not one product — a <i>stitched bundle</i>: CRM + Invoice/Billing + Books.
+      <div style="margin-top:8px"><b>Pricing (excl. GST):</b> Zoho CRM <span class="price">₹800–1,400/user/mo</span> · Invoice <span class="price">free</span> · Billing <span class="price">₹3,950–7,900/mo</span> · Books <span class="price">₹899–9,999/mo</span> · Zoho One <span class="price">₹1,250/emp or ₹3,500/user/mo</span>.</div>
+    </div>
+    <div class="grid2">
+      <div class="box lose"><b>Where they win</b><ul>
+        <li>Ticks every horizontal box: CRM, GST+IRP e-invoice, subscriptions, TDS, bank-rec, portal, WhatsApp</li>
+        <li>India-tax-perfect, trusted brand, cheap, single login (Zoho One)</li>
+        <li>Resellers can already "limp along" on it</li>
+      </ul></div>
+      <div class="box win"><b>Where you win</b><ul>
+        <li>Zoho <b>doesn't know what a Google/MS seat is</b> — no per-seat cost-vs-sell margin</li>
+        <li>No provisioning, no "lead→quote→provision→renew" as one cloud-seat lifecycle</li>
+        <li>No partner/distributor hierarchy; reseller re-keys seats & computes margin in spreadsheets</li>
+        <li>You = purpose-built; Zoho = horizontal glue the reseller must assemble & maintain</li>
+      </ul></div>
+    </div>
+    <div class="tt"><b>Talk track:</b> "Zoho is great horizontal software — but it treats a Google Workspace seat like any product line. You still re-key seat counts, track cost-vs-sell margin in Excel, and chase renewals manually. ResellerOS does that cloud-seat lifecycle automatically, with the same GST compliance Zoho gives you."</div>
+    <h3>Landmine questions</h3>
+    <ul><li>"How do you track margin per Google/M365 SKU today — is it a monthly spreadsheet?"</li><li>"How many tools/logins is your lead-to-renewal flow spread across?"</li><li>"How do you catch a renewal before the customer's service lapses?"</li></ul>
+  </section>
+
+  <!-- ===== GLOBAL CSP ===== -->
+  <section id="global" class="content">
+    <h2>Global CSP platforms — Pax8 · CloudCockpit · AppXite · AppDirect · CloudBlue · TD SYNNEX Stellr · Sherweb</h2>
+    <div class="card">
+      <b>Profile:</b> US/EU/Canada marketplace & CSP-billing engines for Western MSPs/distributors. Do reseller ops (catalog, provisioning, billing, renewals, white-label) very well.
+      <div style="margin-top:8px"><b>Pricing:</b> AppDirect <span class="price">$799–1,499/mo + GMV fees</span>; Pax8/Sherweb/CloudBlue margin-based, distributor-scale; CloudCockpit transaction-based. <b>All in USD/EUR economics.</b></div>
+      <div><b>India:</b> Pax8 not in India (ANZ-first for Google, 2026). None bill in INR.</div>
+    </div>
+    <div class="grid2">
+      <div class="box lose"><b>Where they win</b><ul>
+        <li>Best-in-class catalog breadth, provisioning automation, storefronts</li>
+        <li>Deep vendor alliances (Microsoft, Google, AWS)</li>
+      </ul></div>
+      <div class="box win"><b>Where you win</b><ul>
+        <li><b>Zero India compliance:</b> no GST invoice, no IRP/IRN/QR e-invoice, no INR, no Razorpay/UPI, no TDS, no WhatsApp</li>
+        <li>Priced for US/EU margins — prohibitive for an Indian SMB reseller</li>
+        <li>The reseller still bolts on Tally/Zoho → fragmented workflow you unify</li>
+      </ul></div>
+    </div>
+    <div class="tt"><b>Talk track:</b> "Pax8 and friends are world-class — for an American MSP. None of them issues an Indian GST tax invoice, pushes to the IRP for an IRN, bills in INR, or collects on UPI. You'd still need Tally on top. ResellerOS is that whole stack, India-native, in one tool."</div>
+    <p class="note">⚠️ Threat to watch: if the India cloud market grows, Pax8 / CloudCockpit could localise. Your moat = depth & speed of India GST/IRP/UPI/WhatsApp compliance they'd have to rebuild.</p>
+  </section>
+
+  <!-- ===== TALLY + SMB ===== -->
+  <section id="tally" class="content">
+    <h2>TallyPrime · Refrens · Vyapar · myBillBook · Chargebee</h2>
+    <div class="card"><b>TallyPrime</b> (Bengaluru) — the accounting/GST ledger every Indian SMB's CA already uses. <span class="price">₹22,500–67,500 perpetual</span> or ₹750–2,250/mo. Gold-standard accounting, GST returns, e-invoice, bank-rec, WhatsApp share. <b>No CRM, no subscriptions, no provisioning, no per-seat margin, no portal.</b> → <i>You feed Tally, you don't replace it.</i></div>
+    <div class="card"><b>Refrens</b> — cheap freelancer/agency all-in-one. <span class="price">Free–₹100/mo</span>. GST+IRN, light CRM, WhatsApp reminders. The low-end nipper — but service-generic, no reseller/seat/renewal model.</div>
+    <div class="card"><b>Vyapar / myBillBook</b> — mobile GST billing for kirana/retail/traders. <span class="price">₹217/mo–₹1,099/yr</span>. Not B2B-cloud-reseller suited. Not real substitutes.</div>
+    <div class="card"><b>Chargebee</b> (India-born, now global) — subscription billing for companies selling <i>their own SaaS</i>, not third-party seat reselling. <span class="price">Free→~$599/mo</span>. Wrong buyer. Not a competitor.</div>
+    <div class="tt"><b>Talk track:</b> "Keep Tally — it's your accountant's ledger. ResellerOS sits in front of it: it runs your reseller sales, GST invoicing, margin and renewals, then hands clean data to Tally. We're the front-of-house; Tally's the back office."</div>
+  </section>
+
+  <!-- ===== PSA ===== -->
+  <section id="psa" class="content">
+    <h2>MSP / PSA — ConnectWise · HaloPSA · Atera · Kaseya/Autotask · SuperOps · Syncro</h2>
+    <div class="card">
+      <b>Profile:</b> Platforms to run managed-services IT businesses (ticketing, RMM device-monitoring, contracts, billing). <b>SuperOps is India-founded (Chennai)</b> but targets global MSPs.
+      <div style="margin-top:8px"><b>Pricing:</b> <span class="price">$35–219 per technician/mo</span> (per-tech model). ConnectWise $9K–85K/yr.</div>
+    </div>
+    <div class="grid2">
+      <div class="box lose"><b>Where they win</b><ul>
+        <li>Mature ticketing, RMM, SLA, contract management for IT services firms</li>
+      </ul></div>
+      <div class="box win"><b>Where you win</b><ul>
+        <li>Wrong economics: they bill <b>per technician</b>; a license reseller's cost driver is <b>seats × upstream cost</b></li>
+        <li>RMM/device-monitoring is irrelevant — a Workspace reseller has no devices to monitor</li>
+        <li>No Indian GST/IRP/TDS/Razorpay/WhatsApp</li>
+      </ul></div>
+    </div>
+    <div class="tt"><b>Talk track:</b> "PSA tools are for IT services firms managing devices and tickets, priced per technician. You don't monitor servers — you resell cloud seats. ResellerOS is shaped around seats, margin, renewals and GST, not technicians and tickets."</div>
+  </section>
+
+  <!-- ===== YOU ===== -->
+  <section id="you" class="content">
+    <h2>⭐ ResellerOS — your position</h2>
+    <div class="card">
+      <b>The one-line moat:</b> the only tool aiming at the <b>intersection no one occupies</b> — the <i>Indian cloud-reseller lifecycle</i> (lead→quote→provision→renew, per-seat margin, partner hierarchy) <b>+</b> the full <i>Indian tax/payments stack</i> (GST, IRP e-invoice, TDS, Razorpay/UPI, WhatsApp) — at an <b>SMB-affordable INR price</b>.
+    </div>
+    <div class="grid2">
+      <div class="box win"><b>Differentiators (defend these)</b><ul>
+        <li>India-GST-native AND reseller-margin-aware AND renewal-automated — together</li>
+        <li>SMB self-serve & affordable (vs RackNap enterprise/quote, global tools' USD pricing)</li>
+        <li>Purpose-built workflow vs Zoho's horizontal glue</li>
+        <li>WhatsApp-first, UPI-first — built for how Indian SMBs actually operate</li>
+      </ul></div>
+      <div class="box lose"><b>Honest gaps to close</b><ul>
+        <li><b>0 paying customers</b> — biggest risk is adoption/inertia, not features</li>
+        <li>Auto-provisioning into Partner Center / Google = 🟡 not built (RackNap/global have it)</li>
+        <li>Money-spine not yet launch-ready (see MONEY-FLOW-TEST-MATRIX.md)</li>
+        <li>Brand-new vs trusted incumbents (Zoho/Tally)</li>
+      </ul></div>
+    </div>
+    <h3>Strategic read</h3>
+    <ul>
+      <li><b>Market shape:</b> genuine <span class="pill low">white space</span> at the SMB tier — no exact India-native direct competitor.</li>
+      <li><b>Real enemy = inertia,</b> not a rival. Resellers cope "well enough" on Zoho/Tally + spreadsheets. The battle is behaviour change.</li>
+      <li><b>Benchmark explicitly against:</b> RackNap (move-up-market risk) & Zoho Billing (move-adjacent risk).</li>
+      <li><b>Wedge message:</b> "Stop stitching Zoho + Tally + spreadsheets + reminders. One India-native tool from lead to renewal."</li>
+    </ul>
+  </section>
+
+  <p class="note" style="margin-top:30px;border-top:1px solid var(--line);padding-top:14px">
+    Sources: web research May 2026 — Pax8, AppDirect, CloudBlue, Sherweb, TD SYNNEX Stellr, CloudCockpit, AppXite, interworks.cloud; Zoho (Billing/Books/CRM/One), Chargebee, Vyapar, Refrens, myBillBook, TallyPrime; ConnectWise, HaloPSA, Atera, Kaseya/Autotask, SuperOps, Syncro; RackNap/ZNet; Indian Workspace resellers (Shivaami, Wroffy) & distributors (Redington, Ingram Micro India). Refresh monthly or before a key deal.
+  </p>
+</div>
+<script>
+  document.querySelectorAll('.tab').forEach(function(t){
+    t.addEventListener('click',function(){
+      document.querySelectorAll('.tab').forEach(function(x){x.classList.remove('active')});
+      document.querySelectorAll('.content').forEach(function(x){x.classList.remove('active')});
+      t.classList.add('active');
+      document.getElementById(t.dataset.t).classList.add('active');
+      window.scrollTo({top:0,behavior:'smooth'});
+    });
+  });
+</script>
+</body>
+</html>

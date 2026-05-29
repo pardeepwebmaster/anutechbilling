@@ -2,7 +2,7 @@
 
 > **Single source of truth** for what's shipped, what's in flight, and what's next.
 > Mark items `[x]` when done. Add new items as `[ ]`.
-> Last refreshed: **2026-05-28**
+> Last refreshed: **2026-05-29**
 
 ---
 
@@ -17,7 +17,7 @@
 | **Repo** | https://github.com/Pardeep-byte1/resellersos |
 | **Supabase project ID** | `ontpnqjoysjgrlsukecm` |
 | **Cloud Run region** | `asia-south1` (Mumbai) |
-| **Current revision** | `resellersos-00046-bvw` (banking + AA scaffold + CSV fix) |
+| **Current revision** | `resellersos-00049-xhf` (banking + AA + OAuth fix + UX polish + legal pages) |
 | **Paying customers** | **0** ← the real KPI to move |
 | **Modules built** | 50+ features across 17 modules |
 
@@ -27,15 +27,18 @@
 
 ### 🎯 Sprint goal: **World-class polish + first paying customer push**
 
-#### In progress
-- [ ] **Google OAuth fix** — code shipped (`2ea2a6d`), waiting on Pardeep's manual config:
-  - [ ] Google Cloud Console → Create OAuth Client (Web)
-  - [ ] Save Client ID + Secret
-  - [ ] Supabase Dashboard → Auth → Providers → Google → toggle ON + paste credentials
-  - [ ] Live test on `/login` "Sign in with Google" → land on `/setup?welcome=1`
+#### Recently completed (this session)
+- [x] **Google OAuth fix** — code shipped (`2ea2a6d`) + verified end-to-end:
+  - [x] Google Cloud Console → OAuth Client already configured (4 prior Google sign-ins worked)
+  - [x] Client ID + Secret already in Supabase
+  - [x] Supabase Auth Providers → Google already toggled ON
+  - [x] Live test confirmed: 4 users signed in via Google (pardeep×2, webmaster, hitesh)
+  - [x] **Hitesh's stranded account recovered** — Excel Tech + sales role manually provisioned
+  - [x] New users from now on: callback auto-provisions tenant + users row (live on revision 00047-rg6)
+- [x] **Day 1: Privacy + Terms + About pages** — DPDP Act 2023 compliant, shipped 2026-05-29 (commit `6158742`)
 
 #### Next 10-day priority (from world-class plan)
-- [ ] Day 1: Privacy policy + Terms pages publish
+- [x] Day 1: Privacy policy + Terms pages publish ← done 2026-05-29
 - [ ] Day 2: Buy custom domain `resellersos.in`
 - [ ] Day 3: Wire custom domain to Cloud Run (HTTPS auto)
 - [ ] Day 4: Sentry + BetterStack uptime monitoring setup
@@ -52,15 +55,15 @@
 
 | Task | Status | Why |
 |---|---|---|
-| Google Cloud OAuth Client setup | ⏳ pending | Enables Google Sign-In for new users |
-| Supabase Auth provider toggle | ⏳ pending | Same as above |
+| Google Cloud OAuth Client setup | ✅ done | Done before (4 Google sign-ins prove it works) |
+| Supabase Auth provider toggle | ✅ done | Google provider already ON |
 | Setu AA signup (email `hello@setu.co`) | ⏳ pending | Production AA bank fetch |
 | LinkedIn DM to Sahil Kini (Setu founder) | ⏳ pending | Backup faster AA route |
 | HDFC RM call — request API Banking | 🅿️ parked | Direct HDFC API for own account |
 | Domain purchase `resellersos.in` | ⏳ pending | Brand + custom URL |
 | Update GitHub PAT with `workflow` scope | ⏳ pending | Push `.github/workflows/ci.yml` |
 | GitHub PAT secret in Cloud Run env | ⏳ pending | CI workflow |
-| Privacy policy + Terms content (legal review) | ⏳ pending | Required for paying customers |
+| Privacy policy + Terms content (legal review) | ✅ done | DPDP Act 2023 compliant pages shipped 2026-05-29 |
 
 ---
 
@@ -143,10 +146,19 @@ Legend: ✅ shipped · 🟡 partial · 🔴 missing · 🅿️ parked
 | Module | Status | Notes |
 |---|---|---|
 | Email/password signup | ✅ | Server-side via `/api/auth/signup` |
-| Google OAuth signin (existing user) | 🟡 | Code shipped, needs OAuth Client config |
-| Google OAuth signup (new user) | 🟡 | Tenant + users row provisioning shipped (`2ea2a6d`), needs OAuth Client config |
+| Google OAuth signin (existing user) | ✅ | Working — 4 users have signed in via Google |
+| Google OAuth signup (new user) | ✅ | Callback auto-provisions tenant + users row (`2ea2a6d` in revision 00047-rg6) |
 | Restricted sales role (Darshan) | ✅ | |
 | Customer portal magic link | ✅ | |
+
+### Public marketing + legal pages
+| Module | Status | Notes |
+|---|---|---|
+| Marketing landing (`/`) | 🟡 | Basic — needs hero + value props redesign (Day 5) |
+| Privacy Policy (`/privacy`) | ✅ | DPDP Act 2023 compliant, 10 sections |
+| Terms of Service (`/terms`) | ✅ | Indian law, Mumbai jurisdiction, 13 sections |
+| About page (`/about`) | ✅ | Founder story, mission, company facts |
+| Pricing page (`/pricing`) | 🔴 | TBD (Day 6) |
 
 ### Mobile + PWA
 | Module | Status | Notes |

@@ -24,12 +24,11 @@
   - Extract single `buildWorkspaceLines()`; enquiry + checkout + calculator all read catalog
   - Decide catalog `msrp` = retail vs cost; model promo in catalog
   - Vitest price-parity test: same tier+seats → equal total across all 3 engines (PR-01..04)
-- [ ] **4. Atomic generate_invoice RPC** - ek supply = ek invoice (bugs #7,#8,#9,#25,#26)
-  - `SECURITY DEFINER generate_invoice(p_quote_id)` with `FOR UPDATE` + `UNIQUE(quote_id)`
-  - Freeze GST split (cgst/sgst/igst/place_of_supply) at generation (bug #24)
-  - SQL test: concurrent generate → 1 invoice, no orphan (INV-02/03/09)
-- [ ] **5. accept_quote RPC** - "Mark accepted" button abhi hard-error deta hai (bug #14)
-  - Author migration `accept_quote(p_quote_id)` (reuse lead→customer conversion) OR disable button until then
+- [~] **4. Invoice atomicity** - ek supply = ek invoice (bugs #7,#8,#9,#25,#26) — PARTIAL
+  - [x] ✅ DONE (30 May): `invoices(quote_id)` UNIQUE index (migration 0053) — duplicate invoice now impossible (bug #7). Verified red→green; regression test committed.
+  - [ ] Remaining: move generation into `SECURITY DEFINER generate_invoice(p_quote_id)` with `FOR UPDATE` (bugs #8 race, #9 orphan); freeze GST split (#24); client catches unique_violation gracefully
+- [x] ~~**5. accept_quote RPC**~~ ❌ FALSE ALARM (verified 30 May) - audit #14 was WRONG: `accept_quote(p_quote_id)` EXISTS in the DB (audit checked migration files, not live DB). "Mark accepted" does NOT crash.
+  - Real issue surfaced = **schema drift**: `accept_quote`, `redeem_coupon`, `create_site_promo` + `coupons`/`site_promos` tables exist in prod but NOT in committed migrations. Capture via `supabase db diff` (also unblocks CI). See bug #34.
 - [ ] **6. GST split + IST expiry fixes** - customer-visible correctness (bugs #18,#19,#20)
   - Derive inter-state in quote-send PDF + renewal PDF; end-of-day IST for quote expiry
   - Vitest: GST split + TZ-expiry (LQ-A5/Q5, RN-18, INV-04)

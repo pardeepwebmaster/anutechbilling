@@ -16,12 +16,12 @@ select set_config('request.jwt.claims', '{"role":"service_role"}', true);
 
 -- ── Fixtures ────────────────────────────────────────────────────────────────
 insert into public.tenants (id, name, email, state_code)
-  values ('eeeeeeee-0000-0000-0000-00000000test'::uuid, 'IDEMPOTENCY TEST CO', 'idemp-test@example.in', '07');
+  values ('eeeeeeee-0000-0000-0000-0000000000e1'::uuid, 'IDEMPOTENCY TEST CO', 'idemp-test@example.in', '07');
 
 insert into public.quotes (id, tenant_id, customer_name, amount, status, payment_status, line_items)
 values
-  ('Q-IDEMP-DUP',  'eeeeeeee-0000-0000-0000-00000000test'::uuid, 'Dup Test',  1000, 'sent', 'awaiting', '[]'::jsonb),
-  ('Q-IDEMP-PART', 'eeeeeeee-0000-0000-0000-00000000test'::uuid, 'Part Test', 1000, 'sent', 'awaiting', '[]'::jsonb);
+  ('Q-IDEMP-DUP',  'eeeeeeee-0000-0000-0000-0000000000e1'::uuid, 'Dup Test',  1000, 'sent', 'awaiting', '[]'::jsonb),
+  ('Q-IDEMP-PART', 'eeeeeeee-0000-0000-0000-0000000000e1'::uuid, 'Part Test', 1000, 'sent', 'awaiting', '[]'::jsonb);
 
 -- ── Test 1 + 2: duplicate reference is idempotent ────────────────────────────
 do $$

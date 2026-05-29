@@ -69,8 +69,8 @@ const checkoutSchema = z.object({
 // (The enquiry route shares src/lib/pricing/workspace.ts; this in-file copy is
 // kept catalog-aligned — TODO: adopt the shared module here too for full DRY.)
 const TIER_FALLBACK_MONTHLY: Record<string, number> = {
-  starter:    136,
-  standard:   736,
+  starter:    270,
+  standard:   864,
   plus:       1380,
   enterprise: 2400,
 };

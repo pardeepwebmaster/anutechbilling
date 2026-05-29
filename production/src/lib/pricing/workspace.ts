@@ -22,10 +22,14 @@ import type { Database } from "@/lib/supabase/database.types";
 
 export type WorkspaceTierId = "starter" | "standard" | "plus" | "enterprise";
 
-/** Last-resort ₹/user/month — matches the seeded catalog MSRP defaults. */
+/**
+ * Last-resort ₹/user/month — used only on catalog-miss. Kept in sync with the
+ * real Google India prices the customer pays (Standard = 864, the current 20%-off
+ * price of the ₹1080 list). Source of truth is still the catalog `items.msrp`.
+ */
 export const TIER_FALLBACK_MONTHLY: Record<WorkspaceTierId, number> = {
-  starter:    136,
-  standard:   736,
+  starter:    270,
+  standard:   864,
   plus:       1380,
   enterprise: 2400,
 };

@@ -9,6 +9,7 @@
  *   → 500, error appears in Sentry within ~10 seconds
  */
 import { NextResponse } from "next/server";
+import * as Sentry from "@sentry/nextjs";
 
 export const runtime = "nodejs";
 
@@ -19,5 +20,19 @@ export async function GET() {
       { status: 403 },
     );
   }
-  throw new Error("ResellerOS Sentry smoke test — this is intentional, no action needed");
+
+  // Belt + braces: explicitly capture via Sentry SDK AND throw. Either path
+  // should hit Sentry — explicit capture verifies SDK initialised + DSN
+  // reachable; the throw exercises the Next.js onRequestError auto-capture.
+  const err = new Error(
+    `ResellerOS Sentry smoke test ${new Date().toISOString()} — intentional, no action needed`,
+  );
+  Sentry.captureException(err, {
+    tags: { test: "sentry-smoke", source: "/api/sentry-test" },
+  });
+  // Flush ensures the event leaves the process before we throw (otherwise
+  // Cloud Run might kill the worker before the HTTP POST to Sentry completes).
+  await Sentry.flush(2000);
+
+  throw err;
 }

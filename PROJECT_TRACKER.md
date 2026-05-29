@@ -36,7 +36,7 @@
   - [x] **Hitesh's stranded account recovered** — Excel Tech + sales role manually provisioned
   - [x] New users from now on: callback auto-provisions tenant + users row (live on revision 00047-rg6)
 - [x] **Day 1: Privacy + Terms + About pages** — DPDP Act 2023 compliant, shipped 2026-05-29 (commit `6158742`)
-- [x] **Day 4 (server side): Sentry wired end-to-end** — instrumentation.ts + 3 configs (server/client/edge) + next.config.mjs `withSentryConfig` wrapper + smoke route with explicit `Sentry.captureException` + `flush(2000)`. Env vars live on Cloud Run (revision `00054-xz5`). DSN validated via direct envelope POST (event `a1b2c3d4...`). Awaiting visual confirmation in Sentry Issues dashboard.
+- [x] **Day 4 (server side): Sentry FULLY WORKING** — events landing in dashboard confirmed 2026-05-29 (Issue `JAVASCRIPT-NEXTJS-2`, 3 events, ₹0 spent). Root cause: Next.js 14.2 standalone on Cloud Run silently skips `instrumentation.ts register()` hook even with `experimental.instrumentationHook: true`. Workaround: `src/lib/sentry.ts` side-effect helper called via `import "@/lib/sentry"` from any server file that needs guaranteed init. `ALLOW_SENTRY_TEST` env var disabled — smoke route now 403 in prod.
 
 #### Next 10-day priority (from world-class plan)
 - [x] Day 1: Privacy policy + Terms pages publish ← done 2026-05-29
@@ -67,9 +67,9 @@
 | GitHub PAT secret in Cloud Run env | ⏳ pending | CI workflow |
 | Privacy policy + Terms content (legal review) | ✅ done | DPDP Act 2023 compliant pages shipped 2026-05-29 |
 | Sentry account + DSN | ✅ done | Org `excel-technologies`, project `javascript-nextjs`, DSN live on Cloud Run |
-| Sentry visual verification (open Issues page → see smoke event) | ⏳ pending | Refresh `https://excel-technologies.sentry.io/issues/` after deploy `00054-xz5` |
+| Sentry visual verification | ✅ done | Issue `JAVASCRIPT-NEXTJS-2` with 3 events confirmed in dashboard 2026-05-29 |
 | BetterStack signup + monitor | ⏳ pending | https://betterstack.com/users/sign-up, add HTTP monitor for live URL |
-| Disable `ALLOW_SENTRY_TEST` env var after verification | ⏳ pending | `gcloud run services update resellersos --region asia-south1 --remove-env-vars=ALLOW_SENTRY_TEST` |
+| `ALLOW_SENTRY_TEST` env var disabled | ✅ done | Removed from Cloud Run revision `00058-8wh` — smoke route now 403 in prod |
 
 ---
 
@@ -418,10 +418,11 @@ These represent **223+ completed tasks** rolled up into modules. Not exhaustive,
 - Sentry NextJS SDK 10.55 wired: `instrumentation.ts` + `sentry.{server,client,edge}.config.ts`
 - `next.config.mjs` wrapped with `withSentryConfig` (silent + hidden source maps)
 - Sentry env vars live on Cloud Run: `SENTRY_DSN`, `NEXT_PUBLIC_SENTRY_DSN`, `SENTRY_ORG=excel-technologies`, `SENTRY_PROJECT=javascript-nextjs`
-- `/api/sentry-test` smoke route (Node runtime) — explicit `Sentry.captureException` + `Sentry.flush(2000)` + throw for auto-capture
-- DSN validated via direct envelope POST (event ID `a1b2c3d4e5f60718293a4b5c6d7e8f90`)
+- **🐛 Bug found + worked around**: Next.js 14.2.15 + `output: "standalone"` + Cloud Run silently skips `instrumentation.ts register()` even with `experimental.instrumentationHook: true`. Diagnosed via boot-log instrumentation showing register never fires. Workaround: `src/lib/sentry.ts` side-effect helper with idempotent guard (`!Sentry.getClient()`) — imported via `import "@/lib/sentry"` from any server file that needs guaranteed init. When Next.js fixes this upstream, helper can be deleted.
 - Comprehensive setup doc at `docs/MONITORING_SETUP.md` (Sentry signup + BetterStack signup + troubleshooting)
-- Pending: BetterStack signup (manual, ~5 min) + visual Sentry verification
+- ✅ Visual verification: 3 events landed in Sentry dashboard (Issue `JAVASCRIPT-NEXTJS-2`)
+- ✅ `ALLOW_SENTRY_TEST` disabled in prod (smoke route 403)
+- ⏳ Pending: BetterStack signup (manual, ~5 min)
 
 ### Phase 17 — Banking AA scaffold (Week 18, **today**)
 - `bank_aa_connections` table

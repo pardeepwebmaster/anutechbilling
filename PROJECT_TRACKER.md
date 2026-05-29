@@ -17,7 +17,7 @@
 | **Repo** | https://github.com/Pardeep-byte1/resellersos |
 | **Supabase project ID** | `ontpnqjoysjgrlsukecm` |
 | **Cloud Run region** | `asia-south1` (Mumbai) |
-| **Current revision** | `resellersos-00049-xhf` (banking + AA + OAuth fix + UX polish + legal pages) |
+| **Current revision** | `resellersos-00054-xz5` (+ Sentry wired: instrumentation hook, server/client/edge configs, smoke route with explicit captureException + flush) |
 | **Paying customers** | **0** ← the real KPI to move |
 | **Modules built** | 50+ features across 17 modules |
 
@@ -36,12 +36,14 @@
   - [x] **Hitesh's stranded account recovered** — Excel Tech + sales role manually provisioned
   - [x] New users from now on: callback auto-provisions tenant + users row (live on revision 00047-rg6)
 - [x] **Day 1: Privacy + Terms + About pages** — DPDP Act 2023 compliant, shipped 2026-05-29 (commit `6158742`)
+- [x] **Day 4 (server side): Sentry wired end-to-end** — instrumentation.ts + 3 configs (server/client/edge) + next.config.mjs `withSentryConfig` wrapper + smoke route with explicit `Sentry.captureException` + `flush(2000)`. Env vars live on Cloud Run (revision `00054-xz5`). DSN validated via direct envelope POST (event `a1b2c3d4...`). Awaiting visual confirmation in Sentry Issues dashboard.
 
 #### Next 10-day priority (from world-class plan)
 - [x] Day 1: Privacy policy + Terms pages publish ← done 2026-05-29
 - [ ] Day 2: Buy custom domain `resellersos.in`
 - [ ] Day 3: Wire custom domain to Cloud Run (HTTPS auto)
-- [ ] Day 4: Sentry + BetterStack uptime monitoring setup
+- [x] Day 4a: Sentry monitoring — code + env wired, smoke errors triggered ← done 2026-05-29
+- [ ] Day 4b: BetterStack uptime — Pardeep signup at https://betterstack.com/users/sign-up, add HTTP monitor for live URL, configure email alerts
 - [ ] Day 5: Marketing landing page (replace current `/`)
 - [ ] Day 6: Pricing page (3 tiers — Starter/Growth/Pro)
 - [ ] Day 7: Setup wizard polish — onboarding flow
@@ -64,6 +66,10 @@
 | Update GitHub PAT with `workflow` scope | ⏳ pending | Push `.github/workflows/ci.yml` |
 | GitHub PAT secret in Cloud Run env | ⏳ pending | CI workflow |
 | Privacy policy + Terms content (legal review) | ✅ done | DPDP Act 2023 compliant pages shipped 2026-05-29 |
+| Sentry account + DSN | ✅ done | Org `excel-technologies`, project `javascript-nextjs`, DSN live on Cloud Run |
+| Sentry visual verification (open Issues page → see smoke event) | ⏳ pending | Refresh `https://excel-technologies.sentry.io/issues/` after deploy `00054-xz5` |
+| BetterStack signup + monitor | ⏳ pending | https://betterstack.com/users/sign-up, add HTTP monitor for live URL |
+| Disable `ALLOW_SENTRY_TEST` env var after verification | ⏳ pending | `gcloud run services update resellersos --region asia-south1 --remove-env-vars=ALLOW_SENTRY_TEST` |
 
 ---
 
@@ -189,8 +195,8 @@ Legend: ✅ shipped · 🟡 partial · 🔴 missing · 🅿️ parked
 - [ ] GST e-Invoice IRP integration (mandatory above ₹5cr turnover)
 
 ### Tier 2 — polish for world-class
-- [ ] Sentry error monitoring
-- [ ] BetterStack uptime monitoring
+- [x] Sentry error monitoring ← code + env shipped 2026-05-29 (revision `00054-xz5`)
+- [ ] BetterStack uptime monitoring ← pending signup
 - [ ] Lighthouse audit on all pages → fix anything <90
 - [ ] Privacy policy + Terms of Service pages
 - [ ] Marketing landing page (replace current `/`)
@@ -407,6 +413,15 @@ These represent **223+ completed tasks** rolled up into modules. Not exhaustive,
 - Reconcile drawer with exact/high/low match suggestions
 - Manual reconcile escape hatch
 - Fixed: HDFC "Withdrawal Amt." header parser bug
+
+### Phase 18 — Monitoring (Week 18, **today**)
+- Sentry NextJS SDK 10.55 wired: `instrumentation.ts` + `sentry.{server,client,edge}.config.ts`
+- `next.config.mjs` wrapped with `withSentryConfig` (silent + hidden source maps)
+- Sentry env vars live on Cloud Run: `SENTRY_DSN`, `NEXT_PUBLIC_SENTRY_DSN`, `SENTRY_ORG=excel-technologies`, `SENTRY_PROJECT=javascript-nextjs`
+- `/api/sentry-test` smoke route (Node runtime) — explicit `Sentry.captureException` + `Sentry.flush(2000)` + throw for auto-capture
+- DSN validated via direct envelope POST (event ID `a1b2c3d4e5f60718293a4b5c6d7e8f90`)
+- Comprehensive setup doc at `docs/MONITORING_SETUP.md` (Sentry signup + BetterStack signup + troubleshooting)
+- Pending: BetterStack signup (manual, ~5 min) + visual Sentry verification
 
 ### Phase 17 — Banking AA scaffold (Week 18, **today**)
 - `bank_aa_connections` table

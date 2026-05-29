@@ -64,12 +64,13 @@ const checkoutSchema = z.object({
 
 // Last-resort fallback ₹/user/month — used only when the catalog lookup
 // returns no row (e.g. SKU was disabled while a visitor was on the page).
-// Keep this here so the API can never crash, but the buy-page calculator's
-// price ALWAYS comes from the catalog — these constants should match the
-// catalog defaults too.
+// MUST match the seeded catalog MSRP (retail) defaults so a catalog-miss can
+// never charge a different price than enquiry/quote (audit fix #10).
+// (The enquiry route shares src/lib/pricing/workspace.ts; this in-file copy is
+// kept catalog-aligned — TODO: adopt the shared module here too for full DRY.)
 const TIER_FALLBACK_MONTHLY: Record<string, number> = {
-  starter:    270,
-  standard:   1080,
+  starter:    136,
+  standard:   736,
   plus:       1380,
   enterprise: 2400,
 };

@@ -17,6 +17,13 @@
  * at the pre-populated quote, hits Send. Customer gets a GST-compliant quote
  * email within minutes of clicking "Email me a quote" on the buy page.
  *
+ * PRICING (audit fix #10/#11, 2026-05-30): the auto-quote price now comes from
+ * the SHARED catalog-driven module (src/lib/pricing/workspace.ts) — the SAME one
+ * the public checkout uses. Previously this route hardcoded ₹270/₹864/₹1080 per
+ * user, which diverged wildly from the catalog (₹136/₹736), so "Get a quote"
+ * quoted a different price than "Buy now" for the same tier. Now both agree, and
+ * `items.msrp` (retail) is the single source of truth.
+ *
  * v1 limitation: single-tenant (routes leads to Excel Tech). When we add
  * subdomain-based multi-tenancy (excel.resellersos.app), we'll resolve
  * the tenant from the request host instead.
@@ -30,6 +37,11 @@ import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 import { createAdminClient } from "@/lib/supabase/server";
 import { sendEmail } from "@/lib/email/send";
+import {
+  fetchWorkspaceCatalogPrice,
+  buildWorkspaceLines,
+  TIER_DISPLAY_NAME,
+} from "@/lib/pricing/workspace";
 
 // Pardeep's inbox — the reseller owner who sees every new buy-page lead.
 // Hardcoded for v1 (single tenant); resolve per-tenant once we go multi-tenant.
@@ -55,112 +67,6 @@ const enquirySchema = z.object({
   message:     z.string().max(2000).optional(),
 });
 
-// ──────────────────────────────────────────────────────────────────────
-// Pricing — used for both the "lead value" ranking AND the auto-quote
-// annual amount. Numbers match the buy page (TIERS array in
-// buy-workspace-client.tsx). Standard has a 20% promo on the first 20
-// users only — handled below.
-// ──────────────────────────────────────────────────────────────────────
-const STARTER_PER_USER_MONTH      = 270;   // ₹ annual rate
-const STANDARD_PROMO_PER_USER     = 864;   // ₹ for first 20 users, 12 months
-const STANDARD_REGULAR_PER_USER   = 1080;  // ₹ for seats > 20 (or month 13+)
-const ENTERPRISE_EST_PER_USER_YR  = 24000; // rough ranking estimate only — never quoted
-
-// Catalog-aware rate lookup. Plus and any future tier are handled by the
-// catalog fetch below (annualAmount → 0 for tiers without a hardcoded rate
-// triggers Pardeep to set the price manually before sending).
-type TierId = "starter" | "standard" | "plus" | "enterprise";
-
-/** Annual base amount (₹, ex-GST) for `seats` of the given tier. */
-function annualAmount(tierId: TierId, seats: number): number {
-  if (tierId === "starter")    return STARTER_PER_USER_MONTH * 12 * seats;
-  if (tierId === "standard") {
-    const promo   = Math.min(seats, 20) * STANDARD_PROMO_PER_USER   * 12;
-    const regular = Math.max(seats - 20, 0) * STANDARD_REGULAR_PER_USER * 12;
-    return promo + regular;
-  }
-  // Plus and Enterprise — no hardcoded rate. Lead is captured; Pardeep
-  // hand-prices the quote (he has the catalog item ID in the API response).
-  return 0;
-}
-
-/**
- * Build the line_items array + derived totals for the quote.
- *
- * Each item carries the shape the rest of the app expects:
- *   { id, name, qty, rate (annual ₹/seat), cost, commitment }
- *
- * Standard tier with seats > 20 needs TWO line items because the first 20
- * seats get the promo rate (₹864/mo) and the rest pay the regular ₹1080/mo.
- * Splitting the lines keeps the maths honest in the PDF + accept page.
- *
- * `subtotal` = sum(qty × rate)         (₹, ex-GST)
- * `amount`   = subtotal + 18% GST      (₹, incl-GST — matches calc.total)
- */
-interface QuoteLine {
-  id:          string;
-  name:        string;
-  qty:         number;
-  rate:        number;
-  cost:        number;
-  commitment:  "annual_yearly";
-}
-
-function buildQuoteLines(
-  tierId: TierId,
-  seats:  number,
-): { items: QuoteLine[]; subtotal: number; amount: number } {
-  const uuid = () => globalThis.crypto?.randomUUID() ?? Math.random().toString(36).slice(2);
-  let items: QuoteLine[] = [];
-
-  if (tierId === "starter") {
-    items = [{
-      id:         uuid(),
-      name:       "Google Workspace · Business Starter (annual)",
-      qty:        seats,
-      rate:       STARTER_PER_USER_MONTH * 12,   // ₹3,240/seat/year
-      cost:       0,
-      commitment: "annual_yearly",
-    }];
-  } else if (tierId === "standard") {
-    const promoSeats   = Math.min(seats, 20);
-    const regularSeats = Math.max(seats - 20, 0);
-    if (promoSeats > 0) {
-      items.push({
-        id:         uuid(),
-        name:       `Business Standard · first ${promoSeats} user${promoSeats === 1 ? "" : "s"} (20% promo, 12 months)`,
-        qty:        promoSeats,
-        rate:       STANDARD_PROMO_PER_USER * 12,   // ₹10,368/seat/year
-        cost:       0,
-        commitment: "annual_yearly",
-      });
-    }
-    if (regularSeats > 0) {
-      items.push({
-        id:         uuid(),
-        name:       `Business Standard · additional users (annual)`,
-        qty:        regularSeats,
-        rate:       STANDARD_REGULAR_PER_USER * 12, // ₹12,960/seat/year
-        cost:       0,
-        commitment: "annual_yearly",
-      });
-    }
-  }
-  // Enterprise — return empty array; Pardeep will hand-price.
-
-  const subtotal = items.reduce((s, i) => s + i.qty * i.rate, 0);
-  const amount   = Math.round(subtotal * 1.18);   // 18% GST — quote display total
-
-  return { items, subtotal, amount };
-}
-
-/** Lead-pipeline "value" — used for sorting / ranking only. Always populated. */
-function leadValueEstimate(tierId: TierId, seats: number): number {
-  if (tierId === "enterprise") return ENTERPRISE_EST_PER_USER_YR * seats;
-  if (tierId === "plus")       return 1380 * 12 * seats;  // catalog MSRP fallback
-  return annualAmount(tierId, seats);
-}
-
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
@@ -183,10 +89,15 @@ export async function POST(request: NextRequest) {
     // leads landed in the wrong inbox. Use BUY_PAGE_TENANT_ID env var instead.
     const tenantId = BUY_PAGE_TENANT_ID;
 
+    // ── Price from the catalog (single source of truth, shared with checkout)
+    const catalogRow = await fetchWorkspaceCatalogPrice(admin, tenantId, tierId);
+    const lines      = buildWorkspaceLines(catalogRow, tierId, seats);
+    const tierName   = TIER_DISPLAY_NAME[tierId];
+
     // ── Insert lead ────────────────────────────────────────────────────────
     const leadId    = "L-" + Date.now().toString(36).toUpperCase();
     const planLabel = `google-workspace-${tierId}`;
-    const value     = leadValueEstimate(tierId, seats);
+    const value     = lines.subtotal;   // ₹ ex-GST annual, catalog-derived (ranking)
 
     const leadNotes = [
       `Submitted via /buy/workspace`,
@@ -218,15 +129,13 @@ export async function POST(request: NextRequest) {
     }
 
     // ── Auto-create draft quote — collapses pipeline stage 5 ──────────────
-    // Skip for Enterprise (custom pricing needed). Retry up to 3 times if
-    // the doc-number RPC returns a value that's already in `quotes` (counter
-    // drift from earlier seed data). The quote includes proper line_items
-    // + subtotal + tax_rate so the dashboard's Totals Breakdown shows real
-    // numbers instead of zeros.
+    // Skip for Enterprise (custom pricing — Pardeep hand-prices) and for any
+    // tier the catalog can't price. Retry up to 3 times if the doc-number RPC
+    // returns a value already in `quotes` (counter drift from earlier seed data).
     let draftQuoteId: string | null = null;
-    const lines = buildQuoteLines(tierId, seats);
+    const canAutoQuote = tierId !== "enterprise" && lines.items.length > 0;
 
-    if (lines.items.length > 0) {
+    if (canAutoQuote) {
       const today    = new Date();
       const expires  = new Date(today);
       expires.setDate(expires.getDate() + 7);
@@ -248,17 +157,17 @@ export async function POST(request: NextRequest) {
           lead_id:       leadId,
           plan:          planLabel,
           seats,
-          line_items:    lines.items,        // ← real product rows
+          line_items:    lines.items,        // ← real product rows (catalog-priced)
           subtotal:      lines.subtotal,     // ← ex-GST
-          total_cost:    0,                  // wholesale unknown from buy page
+          total_cost:    lines.items.reduce((s, i) => s + i.qty * i.cost, 0),
           discount_pct:  0,
           tax_rate:      18,                 // CGST 9 + SGST 9 (or IGST 18)
-          amount:        lines.amount,       // ← incl-GST total (matches calc)
+          amount:        lines.amount,       // ← incl-GST total (matches checkout)
           status:        "draft",
           owner_id:      null,
           created_date:  today.toISOString().slice(0, 10),
           expires_date:  expires.toISOString().slice(0, 10),
-          notes:         `Auto-generated from /buy/workspace enquiry. Customer wants ${seats} seat${seats === 1 ? "" : "s"} of Google Workspace ${tierId === "starter" ? "Business Starter" : tierId === "standard" ? "Business Standard" : "Enterprise"}.`,
+          notes:         `Auto-generated from /buy/workspace enquiry. Customer wants ${seats} seat${seats === 1 ? "" : "s"} of Google Workspace ${tierName}.`,
         });
 
         if (!quoteErr) {
@@ -299,10 +208,6 @@ export async function POST(request: NextRequest) {
     // fast (form-submit UX) — but we do `await` both so any errors get
     // logged. The user-facing response is unaffected if email fails (the
     // lead is already saved).
-    const tierName =
-      tierId === "starter"    ? "Business Starter"   :
-      tierId === "standard"   ? "Business Standard"  :
-                                "Enterprise";
     const valueFmt = `₹${value.toLocaleString("en-IN")}`;
     const draftUrl = draftQuoteId ? `${APP_URL}/quotes/${draftQuoteId}` : `${APP_URL}/leads`;
 

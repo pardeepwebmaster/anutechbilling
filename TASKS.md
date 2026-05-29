@@ -20,10 +20,10 @@
   - Regression test committed: `production/supabase/tests/add_seats_no_duplicate_subscription.test.sql`
 - [ ] **2b. Extend-on-already-renewed edge (#16) + silent-no-sub (#6)** (remaining from #2) - extend on a `renewed` sub still dup-creates (detection filter `renewal_state <> 'renewed'`); fully-paid+annual+no-customer should raise instead of silently making no sub
 - [ ] **🔴 NEW P0 — cross-tenant PO id collision (found 30 May)** - `purchase_orders.id` is a GLOBAL text PK but `next_document_number` is per-tenant, so two tenants both generate `PO-2026-27-0001` → the 2nd tenant's record_payment FAILS (`purchase_orders_pkey` violation). Latent now (1 active tenant), breaks with 2+. Same risk for quotes/invoices global ids. Fix: per-tenant composite key or tenant-prefixed ids (matches PROJECT-KNOWLEDGE §14 note).
-- [ ] **3. Pricing unify — one shared price engine** - charged price == shown price (bugs #10,#11,#12)
-  - Extract single `buildWorkspaceLines()`; enquiry + checkout + calculator all read catalog
-  - Decide catalog `msrp` = retail vs cost; model promo in catalog
-  - Vitest price-parity test: same tier+seats → equal total across all 3 engines (PR-01..04)
+- [~] **3. Pricing unify** - charged price == shown price (bugs #10,#11,#12) — PARTIAL
+  - [x] ✅ Architectural fix (30 May): shared `src/lib/pricing/workspace.ts`; enquiry + checkout both price from the catalog (single source of truth). Removed enquiry's hardcoded ₹270/₹864/₹1080 + first-20 promo. Checkout fallback aligned to catalog. 6 Vitest tests + typecheck green.
+  - [ ] ⚠️ **VALUE QUESTION (needs Pardeep) — possible LIVE revenue bug:** catalog says Starter **₹136** / Standard **₹736**, but marketing copy + old code + client fallback all say **₹270 / ₹1080**. If 270/1080 is the true retail, the storefront is selling at ~HALF price right now. Confirm real retail → update catalog values (single source; everything follows).
+  - [ ] After value confirmed: align client `FALLBACK_TIERS` + buy-page FAQ copy; drop hardcoded promo (discounts via coupons/site-promos).
 - [~] **4. Invoice atomicity** - ek supply = ek invoice (bugs #7,#8,#9,#25,#26) — PARTIAL
   - [x] ✅ DONE (30 May): `invoices(quote_id)` UNIQUE index (migration 0053) — duplicate invoice now impossible (bug #7). Verified red→green; regression test committed.
   - [ ] Remaining: move generation into `SECURITY DEFINER generate_invoice(p_quote_id)` with `FOR UPDATE` (bugs #8 race, #9 orphan); freeze GST split (#24); client catches unique_violation gracefully

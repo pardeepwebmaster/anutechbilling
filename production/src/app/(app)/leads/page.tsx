@@ -850,8 +850,12 @@ function LeadsPageInner() {
       )}
 
       {/* List view — sortable table, designed for scanning at 50+ leads.
-          Also the only view available on the Leads tab (triage queue). */}
-      {!isLoading && !error && leads && leads.length > 0 && effectiveView === "list" && (
+          Also the only view available on the Leads tab (triage queue).
+          Only render when there ARE rows to show — otherwise the table's
+          internal "No leads match." row appears AND the smart empty state
+          below also fires, creating a duplicate. Skipping the table here
+          lets the smart empty state below own the empty-screen real estate. */}
+      {!isLoading && !error && leads && leads.length > 0 && effectiveView === "list" && filtered.length > 0 && (
         <LeadListView
           leads={filtered}
           sortBy={sortBy}

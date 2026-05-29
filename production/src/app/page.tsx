@@ -12,12 +12,18 @@ import { Icon } from "@/components/ui/icon";
  * referrals. Loads fast (no client components, no images), reads top-to-
  * bottom, and links to existing public pages (/about, /privacy, /terms).
  *
- * If the visitor is already authenticated, kick them to /dashboard.
+ * If the visitor is already authenticated, kick them to /dashboard —
+ * UNLESS `?preview=1` is in the URL, which lets a signed-in operator
+ * see the landing without logging out (useful for demos + screenshots).
  */
-export default async function HomePage() {
+export default async function HomePage({
+  searchParams,
+}: {
+  searchParams: { preview?: string };
+}) {
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
-  if (user) redirect("/dashboard");
+  if (user && searchParams.preview !== "1") redirect("/dashboard");
 
   return (
     <main className="min-h-screen bg-paper text-ink">

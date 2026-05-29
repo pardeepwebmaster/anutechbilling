@@ -43,7 +43,7 @@
 - [ ] Day 2: Buy custom domain `resellersos.in`
 - [ ] Day 3: Wire custom domain to Cloud Run (HTTPS auto)
 - [x] Day 4a: Sentry monitoring — code + env wired, smoke errors triggered ← done 2026-05-29
-- [ ] Day 4b: BetterStack uptime — Pardeep signup at https://betterstack.com/users/sign-up, add HTTP monitor for live URL, configure email alerts
+- [x] Day 4b: BetterStack uptime — Pardeep signup + monitor for live URL configured ← done 2026-05-29
 - [ ] Day 5: Marketing landing page (replace current `/`)
 - [ ] Day 6: Pricing page (3 tiers — Starter/Growth/Pro)
 - [ ] Day 7: Setup wizard polish — onboarding flow
@@ -68,7 +68,7 @@
 | Privacy policy + Terms content (legal review) | ✅ done | DPDP Act 2023 compliant pages shipped 2026-05-29 |
 | Sentry account + DSN | ✅ done | Org `excel-technologies`, project `javascript-nextjs`, DSN live on Cloud Run |
 | Sentry visual verification | ✅ done | Issue `JAVASCRIPT-NEXTJS-2` with 3 events confirmed in dashboard 2026-05-29 |
-| BetterStack signup + monitor | ⏳ pending | https://betterstack.com/users/sign-up, add HTTP monitor for live URL |
+| BetterStack signup + monitor | ✅ done | Free tier · HTTP monitor for live URL · 3min interval · 10s timeout · email alerts · Mumbai region |
 | `ALLOW_SENTRY_TEST` env var disabled | ✅ done | Removed from Cloud Run revision `00058-8wh` — smoke route now 403 in prod |
 
 ---

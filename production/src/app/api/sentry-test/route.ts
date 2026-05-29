@@ -13,6 +13,25 @@ import * as Sentry from "@sentry/nextjs";
 
 export const runtime = "nodejs";
 
+// Module-level force-init fallback. The canonical init path is
+// `instrumentation.ts` → `sentry.server.config.ts`, but in Cloud Run +
+// Next.js 14.2 + standalone output we observed the instrumentation hook
+// never firing (boot logs proved register() didn't run). This guard runs
+// on first request, ensures Sentry has a client before captureException
+// is called. No-op if already initialised by the hook.
+const DSN = process.env.SENTRY_DSN;
+if (DSN && !Sentry.getClient()) {
+  // eslint-disable-next-line no-console
+  console.log("[sentry-test] no client found — force-initialising Sentry");
+  Sentry.init({
+    dsn:              DSN,
+    environment:      process.env.NODE_ENV,
+    tracesSampleRate: process.env.NODE_ENV === "production" ? 0.1 : 1.0,
+  });
+  // eslint-disable-next-line no-console
+  console.log("[sentry-test] force-init complete");
+}
+
 export async function GET() {
   if (process.env.NODE_ENV === "production" && !process.env.ALLOW_SENTRY_TEST) {
     return NextResponse.json(
@@ -21,9 +40,12 @@ export async function GET() {
     );
   }
 
-  // Belt + braces: explicitly capture via Sentry SDK AND throw. Either path
-  // should hit Sentry — explicit capture verifies SDK initialised + DSN
-  // reachable; the throw exercises the Next.js onRequestError auto-capture.
+  // Diagnostic — is Sentry actually initialised now?
+  // eslint-disable-next-line no-console
+  console.log(
+    `[sentry-test] handler entered, client=${Sentry.getClient() ? "present" : "MISSING"}`,
+  );
+
   const err = new Error(
     `ResellerOS Sentry smoke test ${new Date().toISOString()} — intentional, no action needed`,
   );

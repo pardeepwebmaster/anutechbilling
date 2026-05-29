@@ -9,6 +9,11 @@ const nextConfig = {
   output: "standalone",
   experimental: {
     typedRoutes: true,
+    // Force-enable instrumentation hook. Next 14.0.4+ enables it by default,
+    // but in standalone output mode on Cloud Run we observed register() never
+    // firing (boot logs proved it). Setting this explicitly makes 14.2.15
+    // load instrumentation.ts reliably. Required for Sentry server init.
+    instrumentationHook: true,
   },
   images: {
     formats: ["image/avif", "image/webp"],

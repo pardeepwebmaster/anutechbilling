@@ -323,7 +323,7 @@ function LeadsPageInner() {
   };
 
   return (
-    <div className="p-4 md:p-6 lg:p-8 xl:pr-[336px] max-w-[1800px] mx-auto h-[calc(100vh-3.5rem)] flex flex-col overflow-hidden bg-paper">
+    <div className="p-4 md:p-6 lg:p-8 lg:pr-[336px] max-w-[1800px] mx-auto h-[calc(100vh-3.5rem)] flex flex-col overflow-hidden bg-paper">
       {/* Header */}
       <div className="flex items-end justify-between gap-3 flex-wrap mb-6">
         <div>
@@ -940,31 +940,33 @@ function LeadsPageInner() {
       )}
 
       {/* Right rail (horizontal "below" mode) — fills empty vertical
-          space at md-lg viewports (768-1279px). Same component, same
+          space at md-lg viewports (768-1023px). Same component, same
           data — sections render as a horizontal grid instead of a
           stacked aside. Hidden on mobile (mobile already has its own
-          dense card stack) and at xl+ (vertical aside takes over). */}
+          dense card stack) and at lg+ (vertical aside takes over).
+          Breakpoint dropped from xl (1280) → lg (1024) on 2026-05-29
+          so users on standard laptop screens see the rail. */}
       <LeadsRightRail
         leads={leadsForTab}
         orientation="below"
-        className="hidden md:block xl:hidden"
+        className="hidden md:block lg:hidden"
         onOpenLead={(l) => setSelected(l)}
         onAddLead={() => setAddOpen(true)}
         onImportCsv={!isSales ? () => setCsvImportOpen(true) : undefined}
       />
         </div>{/* /flex-1 main column */}
 
-        {/* Right insight rail (vertical "side" mode) — xl+ only.
-            Renders sticky on the right at ≥1280px wide.
+        {/* Right insight rail (vertical "side" mode) — lg+ only.
+            Renders fixed on the right at ≥1024px wide (standard laptop).
             Uses leadsForTab (tab-scoped) so the rail's Top Hot Leads /
             Today's plan / Stale matches what the main table can actually
             show. Bug fix 2026-05-29: previously fed tenant-wide leads
-            which surfaced /deals data on /leads page (3 hot deals showed
-            while the leads table was empty). */}
+            which surfaced /deals data on /leads page; also breakpoint
+            dropped from xl → lg so it shows on standard laptops. */}
         <LeadsRightRail
           leads={leadsForTab}
           orientation="side"
-          className="hidden xl:block"
+          className="hidden lg:block"
           onOpenLead={(l) => setSelected(l)}
           onAddLead={() => setAddOpen(true)}
           onImportCsv={!isSales ? () => setCsvImportOpen(true) : undefined}

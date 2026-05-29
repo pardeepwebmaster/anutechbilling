@@ -323,7 +323,7 @@ function LeadsPageInner() {
   };
 
   return (
-    <div className="p-4 md:p-6 lg:p-8 lg:pr-[336px] max-w-[1800px] mx-auto h-[calc(100vh-3.5rem)] flex flex-col overflow-hidden bg-paper">
+    <div className="p-4 md:p-6 lg:p-8 lg:pr-[336px] max-w-[1800px] mx-auto min-h-[calc(100vh-3.5rem)] flex flex-col bg-paper">
       {/* Header */}
       <div className="flex items-end justify-between gap-3 flex-wrap mb-6">
         <div>

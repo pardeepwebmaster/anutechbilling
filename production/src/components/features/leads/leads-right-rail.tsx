@@ -105,12 +105,27 @@ export function LeadsRightRail({
             //    container bg/border — let cards float on page bg so
             //    empty space inside doesn't look like a "broken box".
             "mt-6 w-full"
-          : // ── Vertical sticky aside on the right — xl+ desktop.
+          : // ── Vertical aside on the right — xl+ desktop.
+            //    Positioned `fixed` to the right edge of the viewport from
+            //    top-14 (below the global top bar). This way the rail is
+            //    visible from page load — independent of how much content
+            //    sits above the flex split (KPI strip, pipeline pulse,
+            //    lead intelligence card, etc.). The page wrapper adds
+            //    `xl:pr-[336px]` so main content doesn't slide under.
+            //
+            //    Earlier approaches:
+            //    • sticky top-14 h-[calc(100vh-3.5rem)] — natural y was
+            //      ~516px (after KPI etc.), so rail clipped at viewport
+            //      bottom and never "stuck" because parent had no scroll.
+            //    • h-full — rail shrank to parent's leftover height
+            //      (~126px) because parent was tight from overflow-hidden.
+            //    Fixed-positioning is the only robust solution.
             cn(
-              "w-80 shrink-0",
+              "w-80",
+              "fixed right-0 top-14 z-10",
               "border-l border-hairline bg-paper-2/40",
               "p-5 overflow-y-auto",
-              "sticky top-14 h-[calc(100vh-3.5rem)]",
+              "h-[calc(100vh-3.5rem)]",
             ),
         // Section spacing — when below, sections are in a grid; when side,
         // they stack vertically.

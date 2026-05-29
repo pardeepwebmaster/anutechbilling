@@ -11,6 +11,7 @@ import { createClient } from "@/lib/supabase/client";
 
 interface NavBadges {
   leads?:        string;
+  deals?:        string;
   tasks?:        string;
   renewals?:     string;
   invoices?:     string;
@@ -32,13 +33,32 @@ async function fetchNavBadges(): Promise<NavBadges> {
   const startUTC = new Date(istMid.getTime() - (5.5 * 60 * 60 * 1000));
   const endOfTodayISO = new Date(startUTC.getTime() + 24 * 60 * 60 * 1000).toISOString();
 
-  // Run all counts in parallel
-  const [leadsRes, tasksRes, renewalsRes, invoicesRes, paymentsRes] = await Promise.all([
-    // Active leads (not won/lost)
+  // Run all counts in parallel.
+  //
+  // Leads vs Deals split (CRITICAL for badge↔page consistency):
+  // - /leads page shows only RAW inquiries (plan IS NULL / empty).
+  // - /deals page shows only QUALIFIED deals (plan set, stage active).
+  // Badges must mirror what the destination page renders, otherwise
+  // operator clicks "Leads 14" and sees an empty page (Pardeep dogfood
+  // 2026-05-29). So we count them as two separate buckets here.
+  const [leadsRes, dealsRes, tasksRes, renewalsRes, invoicesRes, paymentsRes] = await Promise.all([
+    // RAW leads = no plan picked yet, awaiting qualification.
+    // Treats both NULL and empty-string as "no plan" (matches client-side
+    // isRaw() in src/app/(app)/leads/page.tsx).
     supabase
       .from("leads")
       .select("id", { count: "exact", head: true })
-      .not("stage", "in", '("won","lost")'),
+      .not("stage", "in", '("won","lost")')
+      .or("plan.is.null,plan.eq."),
+
+    // QUALIFIED deals = plan set, stage still active (not won/lost).
+    // Matches the /deals page subtitle's "active deals" definition.
+    supabase
+      .from("leads")
+      .select("id", { count: "exact", head: true })
+      .not("stage", "in", '("won","lost")')
+      .not("plan", "is", null)
+      .not("plan", "eq", ""),
 
     // Pending tasks due by end of today (overdue + today combined — the
     // ones the rep needs to clear before EOD)
@@ -69,12 +89,14 @@ async function fetchNavBadges(): Promise<NavBadges> {
   ]);
 
   const leadsCount    = leadsRes.count    ?? 0;
+  const dealsCount    = dealsRes.count    ?? 0;
   const tasksCount    = tasksRes.count    ?? 0;
   const renewalsCount = renewalsRes.count ?? 0;
   const invoicesCount = invoicesRes.count ?? 0;
   const paymentsCount = paymentsRes.count ?? 0;
 
   if (leadsCount    > 0) badges.leads    = String(leadsCount);
+  if (dealsCount    > 0) badges.deals    = String(dealsCount);
   if (tasksCount    > 0) badges.tasks    = String(tasksCount);
   if (renewalsCount > 0) badges.renewals = String(renewalsCount);
   if (invoicesCount > 0) badges.invoices = String(invoicesCount);

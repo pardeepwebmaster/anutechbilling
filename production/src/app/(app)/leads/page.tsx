@@ -864,16 +864,59 @@ function LeadsPageInner() {
         />
       )}
 
-      {/* No results from search */}
-      {!isLoading && !error && leads && leads.length > 0 && filtered.length === 0 && (
+      {/* No results from search OR tab cross-over hint.
+          The /leads tab shows only raw inquiries (no plan picked); /deals
+          shows qualified opportunities (plan set). When tenant has plenty
+          of data but the current tab is empty, point the operator at the
+          right place instead of generic "no results". */}
+      {!isLoading && !error && leads && leads.length > 0 && filtered.length === 0 && smartView === "all" && (
         <div className="mt-6">
-          <EmptyState
-            icon="search"
-            title="No leads match"
-            body={`No results for "${search}". Try a different search term.`}
-            action={<Button icon="x" onClick={() => setSearch("")}>Clear search</Button>}
-            compact
-          />
+          {search.trim() ? (
+            <EmptyState
+              icon="search"
+              title="No leads match"
+              body={`No results for "${search}". Try a different search term.`}
+              action={<Button icon="x" onClick={() => setSearch("")}>Clear search</Button>}
+              compact
+            />
+          ) : tab === "leads" && qualifiedDeals.length > 0 ? (
+            <EmptyState
+              icon="trending_up"
+              title="All your leads have been qualified"
+              body={`No raw inquiries pending qualification. Your ${qualifiedDeals.length} qualified ${qualifiedDeals.length === 1 ? "lead is" : "leads are"} on the Deals page — drag them through stages there.`}
+              action={
+                <Button variant="primary" icon="arrow_right" onClick={() => router.push("/deals" as any)}>
+                  Go to Deals
+                </Button>
+              }
+              secondary={
+                <Button icon="plus" onClick={() => setAddOpen(true)}>
+                  Add a raw lead
+                </Button>
+              }
+              compact
+            />
+          ) : tab === "deals" && rawLeads.length > 0 ? (
+            <EmptyState
+              icon="inbox"
+              title="No qualified deals yet"
+              body={`You have ${rawLeads.length} raw ${rawLeads.length === 1 ? "lead" : "leads"} awaiting qualification on the Leads page. Pick a plan to qualify them into the pipeline.`}
+              action={
+                <Button variant="primary" icon="arrow_right" onClick={() => router.push("/leads" as any)}>
+                  Go to Leads
+                </Button>
+              }
+              compact
+            />
+          ) : (
+            <EmptyState
+              icon="search"
+              title="No leads match"
+              body="No results match the active filters. Try clearing filters or stage selection."
+              action={<Button icon="x" onClick={() => { setStageFilter([]); setPriorityFilter([]); setDueFilter("all"); }}>Clear filters</Button>}
+              compact
+            />
+          )}
         </div>
       )}
 
@@ -893,9 +936,14 @@ function LeadsPageInner() {
         </div>{/* /flex-1 main column */}
 
         {/* Right insight rail (vertical "side" mode) — xl+ only.
-            Renders sticky on the right at ≥1280px wide. */}
+            Renders sticky on the right at ≥1280px wide.
+            Uses leadsForTab (tab-scoped) so the rail's Top Hot Leads /
+            Today's plan / Stale matches what the main table can actually
+            show. Bug fix 2026-05-29: previously fed tenant-wide leads
+            which surfaced /deals data on /leads page (3 hot deals showed
+            while the leads table was empty). */}
         <LeadsRightRail
-          leads={leads ?? []}
+          leads={leadsForTab}
           orientation="side"
           className="hidden xl:block"
           onOpenLead={(l) => setSelected(l)}

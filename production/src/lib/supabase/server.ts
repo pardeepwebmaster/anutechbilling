@@ -8,6 +8,13 @@
  *   const supabase = createClient();
  *   const { data } = await supabase.from("leads").select("*");
  */
+// IMPORTANT: side-effect import — initialises Sentry on first server-side
+// import in the runtime. Workaround for the Next.js 14.2 standalone +
+// Cloud Run bug where instrumentation.ts register() doesn't fire at boot
+// (see src/lib/sentry.ts for details). Because every authenticated server
+// path goes through this module, this single import guarantees Sentry is
+// initialised before any error in the app can be captured.
+import "@/lib/sentry";
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import type { Database } from "./database.types";

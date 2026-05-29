@@ -27,12 +27,19 @@ export async function GET() {
   const err = new Error(
     `ResellerOS Sentry smoke test ${new Date().toISOString()} — intentional, no action needed`,
   );
-  Sentry.captureException(err, {
+  // eslint-disable-next-line no-console
+  console.log("[sentry-test] about to captureException");
+  const evtId = Sentry.captureException(err, {
     tags: { test: "sentry-smoke", source: "/api/sentry-test" },
   });
+  // eslint-disable-next-line no-console
+  console.log(`[sentry-test] captureException returned eventId=${evtId}`);
+
   // Flush ensures the event leaves the process before we throw (otherwise
   // Cloud Run might kill the worker before the HTTP POST to Sentry completes).
-  await Sentry.flush(2000);
+  const flushed = await Sentry.flush(2000);
+  // eslint-disable-next-line no-console
+  console.log(`[sentry-test] flush returned ${flushed}`);
 
   throw err;
 }

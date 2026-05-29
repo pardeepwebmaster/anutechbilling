@@ -19,6 +19,7 @@ This file is read by Claude Code on every session. It contains all conventions, 
 6. **Communicate in Hinglish, plain language** — Pardeep is the owner/seller, not a deep engineer.
 7. **Report launch-readiness honestly** — separate must-fix-to-launch from fast-follow; protect reputation (soft launch to a friendly cohort, never a buggy public launch).
 8. **Ask only when a decision is genuinely Pardeep's** (pricing, business, irreversible). Otherwise pick the sensible default and proceed.
+9. **UI / design work:** follow the project's existing design system FIRST — tokens in `globals.css`, `tailwind.config.ts`, primitives in `components/ui/`, responsive rules (§20). Don't invent new design or hardcode colors. After building any new screen/component, run the `design-critique` and `accessibility-review` skills; **"design done" = design-critique + a11y (WCAG AA) pass**, just as "code done" = test green.
 
 **The goal (compass):** make the money-spine **lead → quote → pay → subscription → invoice → renewal** provably correct (test-backed) → confident soft launch → first paying customer. *Correct first, beautiful second, big third.*
 

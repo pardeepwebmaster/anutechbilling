@@ -6,10 +6,13 @@
 ## Active
 
 ### 🚦 Launch blockers — fix order (audit Section 6)
-- [ ] **1. record_payment idempotency** - retry/duplicate payment double na ho (bugs #1,#2,#5)
-  - Unique index `payments(tenant_id, quote_id, reference) WHERE status='received'` + RPC guard
-  - Webhook dedupe on Razorpay `payment.id` (not quote status)
-  - SQL test: same reference 2x → 1 payment row, sibling subs untouched (RP-04/05/06/03)
+- [x] ~~**1. record_payment idempotency**~~ ✅ DONE (30 May 2026) - bugs #1 & #2 fixed
+  - Migration `0051_record_payment_idempotency.sql` applied to DB (project resellersos)
+  - Unique index `payments(tenant_id, quote_id, reference) WHERE status='received'` + early RPC guard + race backstop
+  - Verified red→green on test DB: same ref 2× → 1 row (was 2); distinct refs 2× → 2 rows (partial payments safe)
+  - Regression test committed: `production/supabase/tests/record_payment_idempotency.test.sql`
+  - Bug #2 (webhook): covered — webhook already passes Razorpay `payment.id` as reference, so RPC guard dedupes retries
+- [ ] **1b. Bug #5 — record_payment 8b clobbers sibling subs' outstanding** (split from #1) - needs `subscriptions.quote_id` FK to scope the UPDATE to the originating sub (RP-03)
 - [ ] **2. Add-seats / Extend duplicate-subscription fix** - tumne jo bug pakda (bugs #3,#4,#6,#16)
   - Mark add-seats quotes (`is_add_seats`) + skip record_payment step 8a for them
   - Fully-paid + annual + no-customer → raise (no silent no-sub)
@@ -29,6 +32,7 @@
   - Derive inter-state in quote-send PDF + renewal PDF; end-of-day IST for quote expiry
   - Vitest: GST split + TZ-expiry (LQ-A5/Q5, RN-18, INV-04)
 - [ ] **7. Playwright happy-path E2E** - build→send→accept→pay smoke, runs every deploy
+- [ ] **CI to auto-run money tests (GitHub Actions)** - ⚠️ BLOCKED on schema-drift first: a fresh DB built from git migrations is missing prod-only columns (`extension_months`, `trial_*`), so the SQL tests would fail in CI. Run `supabase db diff` to capture drift into a migration, THEN wire CI. Until then, run tests manually against the dev DB.
 
 ### 💰 Business-readiness (revenue unlock, parallel)
 - [ ] **Razorpay live mode + paywall (tier enforcement)** - pehla ₹1 lene ke liye
@@ -46,6 +50,7 @@
 - [ ] TDS atomic with payment (bug #22) · cadence catch-up (bug #21) · coupon units guard (#31)
 - [ ] e-Invoice IRP (ClearTax) · DPA template · data export (DPDP)
 - [ ] AI feature #1 (lead scoring / quote suggestion)
+- [ ] **Auto-provisioning helper (differentiator, validated by Pardeep)** — Pardeep provisions via Google Partner Sales Console, finds it "confusing." Scope FIRST: (A) guided in-app checklist/wizard (cheap, no API, kills most confusion) vs (B) full Google Workspace Reseller API automation (needs reseller API access). NOT a launch blocker — after money-spine + revenue.
 - [ ] All remaining P2 items from MONEY-FLOW-TEST-MATRIX.md Section 4
 
 ## Done

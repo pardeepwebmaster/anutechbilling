@@ -884,22 +884,37 @@ function LeadsPageInner() {
               compact
             />
           ) : tab === "leads" && qualifiedDeals.length > 0 ? (
-            <EmptyState
-              icon="trending_up"
-              title="All your leads have been qualified"
-              body={`No raw inquiries pending qualification. Your ${qualifiedDeals.length} qualified ${qualifiedDeals.length === 1 ? "lead is" : "leads are"} on the Deals page — drag them through stages there.`}
-              action={
-                <Button variant="primary" icon="arrow_right" onClick={() => router.push("/deals" as any)}>
-                  Go to Deals
-                </Button>
-              }
-              secondary={
-                <Button icon="plus" onClick={() => setAddOpen(true)}>
-                  Add a raw lead
-                </Button>
-              }
-              compact
-            />
+            (() => {
+              // Active count = qualified, NOT Won/Lost. Matches the sidebar
+              // badge logic so the two numbers reconcile (Pardeep dogfood:
+              // body said "18 qualified" while sidebar said "14" — that 4
+              // gap was Won + Lost. Show active count by default; mention
+              // closed only if meaningful (>0).
+              const activeDeals = qualifiedDeals.filter((l) => l.stage !== "won" && l.stage !== "lost").length;
+              const closedDeals = qualifiedDeals.length - activeDeals;
+              return (
+                <EmptyState
+                  icon="trending_up"
+                  title="All your leads have been qualified"
+                  body={
+                    closedDeals > 0
+                      ? `No raw inquiries pending qualification. You have ${activeDeals} active ${activeDeals === 1 ? "deal" : "deals"} in pipeline (+ ${closedDeals} closed). Drag them through stages on the Deals page.`
+                      : `No raw inquiries pending qualification. Your ${activeDeals} qualified ${activeDeals === 1 ? "deal is" : "deals are"} on the Deals page — drag them through stages there.`
+                  }
+                  action={
+                    <Button variant="primary" icon="arrow_right" onClick={() => router.push("/deals" as any)}>
+                      Go to Deals
+                    </Button>
+                  }
+                  secondary={
+                    <Button icon="plus" onClick={() => setAddOpen(true)}>
+                      Add a raw lead
+                    </Button>
+                  }
+                  compact
+                />
+              );
+            })()
           ) : tab === "deals" && rawLeads.length > 0 ? (
             <EmptyState
               icon="inbox"

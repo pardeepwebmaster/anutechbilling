@@ -17,7 +17,7 @@
 | **Repo** | https://github.com/Pardeep-byte1/resellersos |
 | **Supabase project ID** | `ontpnqjoysjgrlsukecm` |
 | **Cloud Run region** | `asia-south1` (Mumbai) |
-| **Current revision** | `resellersos-00054-xz5` (+ Sentry wired: instrumentation hook, server/client/edge configs, smoke route with explicit captureException + flush) |
+| **Current revision** | `resellersos-00060-w5d` (Sentry fully wired: lib/sentry chokepoint + supabase server import + global-error & (app)/error boundaries) |
 | **Paying customers** | **0** ← the real KPI to move |
 | **Modules built** | 50+ features across 17 modules |
 
@@ -422,6 +422,8 @@ These represent **223+ completed tasks** rolled up into modules. Not exhaustive,
 - Comprehensive setup doc at `docs/MONITORING_SETUP.md` (Sentry signup + BetterStack signup + troubleshooting)
 - ✅ Visual verification: 3 events landed in Sentry dashboard (Issue `JAVASCRIPT-NEXTJS-2`)
 - ✅ `ALLOW_SENTRY_TEST` disabled in prod (smoke route 403)
+- ✅ Universal coverage: `import "@/lib/sentry"` added to `src/lib/supabase/server.ts` chokepoint → all authenticated routes/server-components/server-actions covered
+- ✅ React error boundaries: `app/global-error.tsx` (root catch-all) + `app/(app)/error.tsx` (sidebar-preserved in-app errors) — both report to Sentry + show friendly UI with digest ref
 - ⏳ Pending: BetterStack signup (manual, ~5 min)
 
 ### Phase 17 — Banking AA scaffold (Week 18, **today**)

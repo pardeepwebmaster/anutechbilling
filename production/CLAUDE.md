@@ -556,9 +556,49 @@ in the repo root. It documents:
 
 ---
 
-## 22. Updates
+## 22. Monitoring — Sentry init chokepoint (2026-05-29)
 
-This file is updated whenever a new convention is established. Last updated: 2026-05-24.
+**Why this rule exists**: Next.js 14.2.15 + `output: "standalone"` + Cloud Run
+silently skips the canonical `instrumentation.ts register()` boot hook,
+even with `experimental.instrumentationHook: true` set. The Sentry SDK
+bundle loads (wrappers appear in stack traces) but `Sentry.init()` never
+runs, so `captureException()` creates event IDs locally and `flush()`
+returns `false` — every error silently drops.
+
+**The pattern**: `src/lib/sentry.ts` is a side-effect module with an
+idempotent guard (`if (DSN && !Sentry.getClient()) Sentry.init(...)`).
+It's imported once via `import "@/lib/sentry"` from a chokepoint module
+that every server-side code path already touches.
+
+**The chokepoint**: `src/lib/supabase/server.ts` — every authenticated
+route handler, Server Component, and Server Action uses `createClient()`
+from this module. That single side-effect import guarantees Sentry is
+initialised before any server error can be thrown.
+
+**For new server-only code that DOESN'T go through Supabase** (e.g.,
+standalone webhooks, edge functions, cron handlers that bypass auth):
+add `import "@/lib/sentry"` to the file directly. The guard is free —
+duplicate imports are no-ops.
+
+**React error boundaries** also report to Sentry:
+- `app/global-error.tsx` — catches errors in root layout (must have
+  `<html>`/`<body>` tags, no app shell available).
+- `app/(app)/error.tsx` — catches errors inside authenticated app
+  (sidebar + topbar stay rendered). Tags `boundary: "app-error"`.
+
+**When Next.js fixes the standalone instrumentation bug upstream**, the
+helper + chokepoint imports can be removed and we can revert to the
+canonical `instrumentation.ts` → `sentry.server.config.ts` flow.
+
+**Smoke test**: `GET /api/sentry-test` (disabled in prod unless
+`ALLOW_SENTRY_TEST=1`). Throws a tagged error, expect HTTP 500 and a
+new event in Sentry within ~10 seconds.
+
+---
+
+## 23. Updates
+
+This file is updated whenever a new convention is established. Last updated: 2026-05-29.
 
 **Major additions since 2026-05-20:**
 - Full renewal automation (Phase 1-4 + lifecycle pieces A/B/C) — schema, cadence engine, daily cron, email seam, auto-suspend with grace, record_payment roll-forward, on-demand "Generate quote" flow

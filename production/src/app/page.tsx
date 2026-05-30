@@ -141,6 +141,8 @@ function TrustRibbon() {
   return (
     <section className="border-y border-hairline bg-paper-2/60">
       <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-center gap-x-7 gap-y-2 px-6 py-5 font-mono text-[11px] uppercase tracking-wider text-ink-3">
+        <span className="text-amber-ink">★ Google Premier Partner · since 2014</span>
+        <Dot />
         <span>🇮🇳 Built in Mumbai</span>
         <Dot />
         <span>GST + HSN 998313</span>

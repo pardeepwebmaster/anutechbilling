@@ -26,7 +26,7 @@ const BUY_PAGE_TENANT_ID =
 
 export const metadata: Metadata = {
   title: "Buy Google Workspace · ResellerOS",
-  description: "Google Workspace pricing for India. Annual GST invoice, hand-held migration, Hindi + English support. Premier Partner since 2024.",
+  description: "Google Workspace pricing for India. Annual GST invoice, hand-held migration, Hindi + English support. Premier Partner since 2014.",
 };
 
 // Don't cache for the SSR — Pardeep needs price/enablement edits in the

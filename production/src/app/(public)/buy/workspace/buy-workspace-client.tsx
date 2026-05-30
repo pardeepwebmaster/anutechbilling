@@ -728,7 +728,7 @@ function FounderHero({ waMessage }: { waMessage: string }) {
             <div className="font-serif text-xl text-ink leading-tight">Pardeep Sharma</div>
             <div className="text-sm text-ink-3 mt-0.5">Founder, Excel Technologies</div>
             <div className="text-[11px] text-amber-ink mt-1 font-medium">
-              Google Premier Partner · since 2024
+              Google Premier Partner · since 2014
             </div>
           </div>
         </div>
@@ -1334,7 +1334,7 @@ export function BuyWorkspaceClient({
 
             <p className="text-base text-ink-3 leading-relaxed mb-7 max-w-xl">
               <b className="text-ink">1024 Indian SMEs</b> trust us with their email.
-              Google Premier Partner since 2024. GST invoice, Hindi support,
+              Google Premier Partner since 2014. GST invoice, Hindi support,
               <b className="text-ink"> one person who picks up the phone.</b>
             </p>
 

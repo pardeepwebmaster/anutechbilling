@@ -334,7 +334,7 @@ export function ThanksClient({
       <footer className="py-8 text-center text-xs text-ink-3">
         <div className="max-w-[800px] mx-auto px-6 space-y-1">
           <div>
-            Excel Technologies Pvt Ltd · Google Premier Partner since 2024 ·
+            Excel Technologies Pvt Ltd · Google Premier Partner since 2014 ·
             GSTIN registered · 1024 Indian SMEs trust us with their email.
           </div>
           <div>

@@ -34,7 +34,8 @@
   - Derive inter-state in quote-send PDF + renewal PDF; end-of-day IST for quote expiry
   - Vitest: GST split + TZ-expiry (LQ-A5/Q5, RN-18, INV-04)
 - [ ] **7. Playwright happy-path E2E** - build→send→accept→pay smoke, runs every deploy
-- [ ] **CI to auto-run money tests (GitHub Actions)** - ⚠️ BLOCKED on schema-drift first: a fresh DB built from git migrations is missing prod-only columns (`extension_months`, `trial_*`), so the SQL tests would fail in CI. Run `supabase db diff` to capture drift into a migration, THEN wire CI. Until then, run tests manually against the dev DB.
+- [x] ~~**CI (GitHub Actions)**~~ ✅ LIVE (30 May) - private GitHub repo `Pardeep-byte1/resellersos`; `.github/workflows/ci.yml` runs typecheck + Vitest + lint on every push/PR. GREEN. Already caught a real bug (vitest was globbing Playwright e2e specs → added vitest.config.ts). Working branch is now **master** (= GitHub).
+- [ ] **CI: add SQL money-RPC tests** - still pending: needs a Postgres in CI + full schema (blocked on schema-drift capture via `npx supabase`). Until then the SQL tests in `production/supabase/tests/` run manually.
 
 ### 💰 Business-readiness (revenue unlock, parallel)
 - [ ] **Razorpay live mode + paywall (tier enforcement)** - pehla ₹1 lene ke liye

@@ -54,7 +54,7 @@ const APP_URL       = process.env.NEXT_PUBLIC_APP_URL?.trim() || "https://resell
 // heuristic broke when seed data created an earlier Excel Tech tenant that
 // Pardeep wasn't logged in as). Falls back to the active Excel Tech tenant.
 const BUY_PAGE_TENANT_ID =
-  process.env.BUY_PAGE_TENANT_ID?.trim() || "8ff50dbf-e17e-4210-a580-0df7b1a6f71b";
+  process.env.BUY_PAGE_TENANT_ID?.trim() || "fbb976f1-9090-4f10-9726-0901bd144e42";
 
 const enquirySchema = z.object({
   fullName:    z.string().min(2).max(120),

@@ -18,7 +18,7 @@ import { createAdminClient } from "@/lib/supabase/server";
 import { ThanksClient, type ThanksOrder } from "./thanks-client";
 
 const BUY_PAGE_TENANT_ID =
-  process.env.BUY_PAGE_TENANT_ID?.trim() || "8ff50dbf-e17e-4210-a580-0df7b1a6f71b";
+  process.env.BUY_PAGE_TENANT_ID?.trim() || "fbb976f1-9090-4f10-9726-0901bd144e42";
 
 export const metadata: Metadata = {
   title: "Order confirmed · ResellerOS",

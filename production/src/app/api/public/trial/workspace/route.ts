@@ -26,7 +26,7 @@ const PARDEEP_EMAIL = "Pardeep@exceltechnologies.in";
 const FROM_EMAIL    = process.env.RESEND_FROM_DEFAULT?.trim() || "ResellerOS <onboarding@resend.dev>";
 const APP_URL       = process.env.NEXT_PUBLIC_APP_URL?.trim() || "https://resellersos.web.app";
 const BUY_PAGE_TENANT_ID =
-  process.env.BUY_PAGE_TENANT_ID?.trim() || "8ff50dbf-e17e-4210-a580-0df7b1a6f71b";
+  process.env.BUY_PAGE_TENANT_ID?.trim() || "fbb976f1-9090-4f10-9726-0901bd144e42";
 
 const TRIAL_DAYS = 14;
 

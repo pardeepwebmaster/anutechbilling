@@ -19,7 +19,7 @@ export const dynamic = "force-dynamic";
 export const runtime  = "nodejs";
 
 const BUY_PAGE_TENANT_ID =
-  process.env.BUY_PAGE_TENANT_ID?.trim() || "8ff50dbf-e17e-4210-a580-0df7b1a6f71b";
+  process.env.BUY_PAGE_TENANT_ID?.trim() || "fbb976f1-9090-4f10-9726-0901bd144e42";
 
 const schema = z.object({
   code:         z.string().min(2).max(50),

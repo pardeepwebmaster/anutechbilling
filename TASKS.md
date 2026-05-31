@@ -5,6 +5,12 @@
 
 ## Active
 
+### ✅ In-app E2E spine verification — PASSED in production (31 May 2026)
+- [x] ~~**Full money-spine walked through live app UI**~~ — lead `L-ZZTESTUI1` (buy-workspace, stage New) → quote `Q-ET-2026-27-0016` (draft → sent → accepted) → customer created → payment ₹1,22,342 (ref `ZZTEST-UPI-0001`) → subscription (10 seats, active) → invoice `INV-ET-2026-27-0006` (paid). DB cross-check: **exactly 1 of each — zero duplicates**. Confirms idempotency, no-dup-sub, one-invoice-per-quote, tenant-scoped doc IDs (the `ET` code in `INV-ET-...`) all working in PROD via real UI flow.
+- [x] ~~**UI copy nit:** lead drawer heading "QUOTES SENT" → "Quotes"~~ ✅ FIXED (31 May) — `leads/page.tsx`
+- [x] ~~**UI copy nit:** draft quote showed "Revise & resend · Sent today"~~ ✅ FIXED (31 May) — draft now shows "Send draft quote" (smart-CTA + footer button + helper text gated on `status === "draft"`). Typecheck green. Committed (not yet deployed).
+- [x] ~~**Cleanup:** QA test data removed from prod (31 May 2026)~~ — lead `L-ZZTESTUI1`, quote `Q-ET-2026-27-0016`, payment `ZZTEST-UPI-0001`, invoice `INV-ET-2026-27-0006`, subscription `567d6542…`, customer `f68384a1…` deleted FK-safe (child→parent, single txn). Verified all 6 = 0 rows.
+
 ### 🚦 Launch blockers — fix order (audit Section 6)
 - [x] ~~**1. record_payment idempotency**~~ ✅ DONE (30 May 2026) - bugs #1 & #2 fixed
   - Migration `0051_record_payment_idempotency.sql` applied to DB (project resellersos)

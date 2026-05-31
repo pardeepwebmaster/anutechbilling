@@ -1171,7 +1171,19 @@ function LeadDetailSheet({
         hint: "Partial received",
       };
     }
-    // 2. Quote sent → chase based on age
+    // 2. Draft quote exists but was never sent → prompt to SEND it (open the
+    //    draft), not "revise & resend / chase". A draft has no sent-date, so the
+    //    age-based "Sent today / Nd ago" copy below would be misleading.
+    if (latestQuoteForAction?.status === "draft") {
+      return {
+        label: "Send draft quote",
+        icon: "send",
+        tone: "amber",
+        onClick: () => { onClose(); router.push(`/quotes/${latestQuoteForAction.id}` as any); },
+        hint: "Not sent yet",
+      };
+    }
+    // 3. Quote sent → chase based on age
     if (latestQuoteForAction && quoteAgeDays !== null) {
       if (quoteAgeDays > 7) {
         return {
@@ -1199,7 +1211,7 @@ function LeadDetailSheet({
         hint: `Sent ${quoteAgeDays === 0 ? "today" : `${quoteAgeDays}d ago`}`,
       };
     }
-    // 3. No quote yet → by stage
+    // 4. No quote yet → by stage
     if (lead.stage === "lost") {
       return { label: "Re-engage · send new quote", icon: "send", tone: "indigo", onClick: handleSendQuote };
     }
@@ -1372,7 +1384,7 @@ function LeadDetailSheet({
             <div>
               <div className="flex items-center justify-between mb-2">
                 <div className="text-xs uppercase tracking-wider text-ink-3 font-semibold">
-                  Quotes sent ({quotesForLead.length})
+                  Quotes ({quotesForLead.length})
                 </div>
               </div>
               <div className="rounded-md border border-hairline divide-y divide-hairline overflow-hidden">
@@ -1421,6 +1433,8 @@ function LeadDetailSheet({
                   ? "Click any quote to view · upsell with a new quote below"
                   : lead.stage === "lost"
                   ? "Click any quote to view · re-engage with a fresh quote below"
+                  : latestQuote?.status === "draft"
+                  ? "Click the draft to review & send it below"
                   : "Click any quote to view · or send a revised quote below"}
               </p>
             </div>
@@ -1681,14 +1695,25 @@ function LeadDetailSheet({
                 </Button>
               </>
             ) : hasQuotes ? (
-              <>
-                <Button icon="send" onClick={handleSendQuote}>
-                  New quote
+              latestQuote?.status === "draft" ? (
+                /* Draft quote never sent → the one action is to open & send it. */
+                <Button
+                  variant="primary"
+                  icon="send"
+                  onClick={() => { onClose(); router.push(`/quotes/${latestQuote.id}` as any); }}
+                >
+                  Send draft quote
                 </Button>
-                <Button variant="primary" icon="copy" onClick={handleReviseQuote}>
-                  Revise & resend
-                </Button>
-              </>
+              ) : (
+                <>
+                  <Button icon="send" onClick={handleSendQuote}>
+                    New quote
+                  </Button>
+                  <Button variant="primary" icon="copy" onClick={handleReviseQuote}>
+                    Revise & resend
+                  </Button>
+                </>
+              )
             ) : (
               <Button variant="primary" icon="send" onClick={handleSendQuote}>
                 Send Quote

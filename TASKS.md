@@ -18,13 +18,15 @@
   - Verified red→green on test DB: same ref 2× → 1 row (was 2); distinct refs 2× → 2 rows (partial payments safe)
   - Regression test committed: `production/supabase/tests/record_payment_idempotency.test.sql`
   - Bug #2 (webhook): covered — webhook already passes Razorpay `payment.id` as reference, so RPC guard dedupes retries
-- [ ] **1b. Bug #5 — record_payment 8b clobbers sibling subs' outstanding** (split from #1) - needs `subscriptions.quote_id` FK to scope the UPDATE to the originating sub (RP-03)
+- [x] ~~**1b. Bug #5 — record_payment clobbers sibling subs' outstanding**~~ ✅ FIXED (31 May 2026, migration 0056) - proven red (sibling 3000→2000), then fixed: added `subscriptions.quote_id` (FK), stamped on sub creation, scoped the outstanding UPDATE to `quote_id = p_quote_id`. Red→green + regression test `record_payment_sibling_and_extend.test.sql`. No regression (add-seats/new-sale/idempotency all green).
 - [x] ~~**2. Add-seats duplicate-subscription fix**~~ ✅ DONE (30 May 2026) - bugs #3 & #4 (the bug Pardeep found in testing)
   - Migration `0052`: added `quotes.is_add_seats`; record_payment skips ALL sub handling for add-seats quotes
   - `add-seats.ts` now sets `is_add_seats: true`; `database.types.ts` updated; typecheck green
   - Verified red→green on test DB: customer with 1 sub + add-seats pay → 1 sub (was 2); new sale still → 1 sub
   - Regression test committed: `production/supabase/tests/add_seats_no_duplicate_subscription.test.sql`
-- [ ] **2b. Extend-on-already-renewed edge (#16) + silent-no-sub (#6)** (remaining from #2) - extend on a `renewed` sub still dup-creates (detection filter `renewal_state <> 'renewed'`); fully-paid+annual+no-customer should raise instead of silently making no sub
+- [~] **2b. Extend-on-already-renewed (#16) ✅ FIXED + silent-no-sub (#6) deferred** (migration 0056)
+  - [x] ✅ **#16 (31 May)** — proven red (extend-on-`renewed` sub → 2 subs), then fixed: dropped the `renewal_state <> 'renewed'` filter from the renewal-sub lookup so a quote that is a sub's `renewal_quote_id` ALWAYS rolls that sub forward (no duplicate). Idempotency unaffected (payment dedup returns first; `renewal_quote_id` nulled after completion). Regression test green; same dup-sub class as the bug Pardeep originally found.
+  - [ ] **#6 (deferred, low-risk):** fully-paid + annual + no-customer silently makes no sub. A defensive `raise` could block a legit edge; left as documented fast-follow (rare — quotes always have a customer or lead in practice).
 - [x] ~~**🔴 NEW P0 — cross-tenant global doc-id collision**~~ ✅ FIXED (30 May 2026) - `quotes`/`invoices`/`purchase_orders` ids are GLOBAL text PKs but numbered per-tenant → two tenants both made `Q-2026-27-0009` → collision (confirmed live: broke buy-page quote creation). Fix: migration 0054 — `tenants.doc_code` (ET/ANU) embedded in doc numbers → `Q-ET-2026-27-0012` vs `Q-ANU-2026-27-0012` (globally unique, no FK/PK change, existing ids untouched). Applied to prod + regression test committed. Storefront also re-pointed to Excel Tech (fbb976f1).
 - [~] **3. Pricing unify** - charged price == shown price (bugs #10,#11,#12) — PARTIAL
   - [x] ✅ Architectural fix (30 May): shared `src/lib/pricing/workspace.ts`; enquiry + checkout both price from the catalog (single source of truth). Removed enquiry's hardcoded ₹270/₹864/₹1080 + first-20 promo. Checkout fallback aligned to catalog. 6 Vitest tests + typecheck green.

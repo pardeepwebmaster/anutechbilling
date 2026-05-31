@@ -741,6 +741,8 @@ type SubscriptionRow = {
   last_reminder_sent_at_v2: string | null;
   /** Auto-generated renewal quote (created at T-15). */
   renewal_quote_id: string | null;
+  /** The quote whose payment created this sub. Scopes outstanding updates (bug #1b). */
+  quote_id:         string | null;
   /** When the auto-suspend trigger fired. NULL = never auto-suspended. */
   suspended_at:     string | null;
   /** Customer-controlled (migration 0017). When false, no renewal quote auto-generated. */
@@ -771,6 +773,7 @@ type SubscriptionInsert = {
   reminder_count?:   number;
   last_reminder_sent_at_v2?: string | null;
   renewal_quote_id?: string | null;
+  quote_id?:         string | null;
   suspended_at?:     string | null;
   auto_renew?:       boolean;
 }

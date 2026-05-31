@@ -62,6 +62,13 @@ export interface EmailSendResult {
 export async function sendEmail(msg: EmailMessage): Promise<EmailSendResult> {
   const apiKey = process.env.RESEND_API_KEY?.trim();
   const fromDefault = process.env.RESEND_FROM_DEFAULT?.trim() || "onboarding@resend.dev";
+  // INTERIM (until the tenant's sending domain is verified on Resend): when set,
+  // RESEND_FROM_OVERRIDE forces the From on EVERY email, ignoring the caller's
+  // `from` (which is the tenant's own @-domain and 403s on Resend until verified).
+  // Set it to e.g. "Excel Technologies <onboarding@resend.dev>" to unblock sends
+  // today; UNSET it the moment the real domain is verified to revert to per-tenant
+  // From. Reply-To stays the tenant's address, so customer replies still route right.
+  const fromOverride = process.env.RESEND_FROM_OVERRIDE?.trim();
 
   // ── Stub mode ─────────────────────────────────────────────────────
   if (!apiKey) {
@@ -95,7 +102,7 @@ export async function sendEmail(msg: EmailMessage): Promise<EmailSendResult> {
     }));
 
     const body = {
-      from:     msg.from ?? fromDefault,
+      from:     fromOverride || msg.from || fromDefault,
       to:       [msg.to],
       subject:  msg.subject,
       text:     msg.text,

@@ -37,6 +37,7 @@ import { renderTemplate } from "@/lib/renewals/templates";
 import { createOrGetRenewalQuote } from "@/lib/renewals/create-renewal-quote";
 import { sendEmail, isEmailConfigured } from "@/lib/email/send";
 import { renderQuotePDF } from "@/lib/pdf";
+import { isInterStateSupply } from "@/lib/gst/place-of-supply";
 import type { QuoteLineItem } from "@/lib/supabase/database.types";
 
 export const dynamic = "force-dynamic";
@@ -107,7 +108,7 @@ async function handle(req: Request): Promise<NextResponse<CronResult | { error: 
       // ── Per-tenant info: grace_period + tenant email (for from-address fallback) ──
       const { data: tenant } = await supabase
         .from("tenants")
-        .select("name, email, phone, gstin, address, grace_period_days")
+        .select("name, email, phone, gstin, address, grace_period_days, state_code")
         .eq("id", sub.tenant_id)
         .single();
       if (!tenant) continue;
@@ -116,7 +117,7 @@ async function handle(req: Request): Promise<NextResponse<CronResult | { error: 
       const { data: customer } = sub.customer_id
         ? await supabase
             .from("customers")
-            .select("name, contact_name, contact_email, gstin, contact_phone")
+            .select("name, contact_name, contact_email, gstin, contact_phone, state_code")
             .eq("id", sub.customer_id)
             .single()
         : { data: null };
@@ -271,7 +272,7 @@ async function handle(req: Request): Promise<NextResponse<CronResult | { error: 
               taxRate:       renewalQuote.tax_rate ?? 18,
               tax:           Math.round((renewalQuote.subtotal ?? renewalQuote.amount) * 0.18),
               total:         renewalQuote.amount,
-              interState:    false,
+              interState:    isInterStateSupply(customer?.state_code, tenant.state_code),
               validityDays:  30,
               notes:         "Renewal quote — auto-generated. Reply or call us with any questions.",
               isRenewal:     true,

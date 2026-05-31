@@ -37,6 +37,7 @@ import { useCreateQuote, useQuote } from "@/lib/queries/quotes";
 import { useUpdateLead, useLeads } from "@/lib/queries/leads";
 import { useItems } from "@/lib/queries/items";
 import { useCurrentUser } from "@/lib/hooks/useCurrentUser";
+import { isInterStateSupply } from "@/lib/gst/place-of-supply";
 import { rupee, formatDate } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 import type { QuoteLineItem, LineCommitment } from "@/lib/supabase/database.types";
@@ -315,7 +316,10 @@ export function QuoteBuilder() {
 
   // Derived customer fields
   const customer = customers?.find((c) => c.id === customerId);
-  const interState = customer ? customer.state_code !== "27" && customer.state_code !== null : false;
+  // GST head: compare the customer's state vs OUR (the seller/tenant's) state.
+  // Previously hardcoded a seller of "27" (Maharashtra), which was wrong for any
+  // other tenant. Now derived consistently via the shared helper. (audit #18-20)
+  const interState = isInterStateSupply(customer?.state_code, currentUser?.tenantStateCode);
 
   // Per-line gross before any discount (list price × qty)
   const grossSubtotal     = lineItems.reduce((s, it) => s + it.qty * it.rate, 0);

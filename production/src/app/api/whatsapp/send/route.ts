@@ -23,6 +23,7 @@ import { z } from "zod";
 import { createClient, createAdminClient } from "@/lib/supabase/server";
 import { sendWhatsApp } from "@/lib/whatsapp/client";
 import { renderQuotePDF } from "@/lib/pdf";
+import { isInterStateSupply } from "@/lib/gst/place-of-supply";
 import type { QuoteLineItem } from "@/lib/supabase/database.types";
 
 export const dynamic = "force-dynamic";
@@ -106,13 +107,13 @@ export async function POST(req: NextRequest) {
 
       const { data: tenant } = await admin
         .from("tenants")
-        .select("name, email, phone, gstin, address")
+        .select("name, email, phone, gstin, address, state_code")
         .eq("id", me.tenant_id)
         .single();
       const { data: customer } = quote.customer_id
         ? await admin
             .from("customers")
-            .select("contact_name, contact_email, contact_phone")
+            .select("contact_name, contact_email, contact_phone, state_code")
             .eq("id", quote.customer_id)
             .single()
         : { data: null };
@@ -145,7 +146,7 @@ export async function POST(req: NextRequest) {
         taxRate,
         tax,
         total,
-        interState:    false,
+        interState:    isInterStateSupply(customer?.state_code, tenant?.state_code),
         validityDays:  30,
         notes:         quote.notes ?? undefined,
         isRenewal:     quote.is_renewal,

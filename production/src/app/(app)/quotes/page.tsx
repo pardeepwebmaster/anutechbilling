@@ -671,6 +671,11 @@ export default function QuotesPage() {
           ? Math.max(1, daysBetween(new Date(q.created_at), q.expires_date))
           : 30;
 
+        // TODO(#18-20): this quick row-preview passes interState={false} because the
+        // lean list query doesn't load the customer's state_code, so the GST head
+        // can't be derived here. Authoritative surfaces (sent PDF, tax invoice, quote
+        // detail) now use isInterStateSupply(). Refactor into a fetching subcomponent
+        // (cf. InvoicePreviewContainer) to make this preview accurate too.
         return (
           <QuotePreviewDialog
             open={!!previewing}

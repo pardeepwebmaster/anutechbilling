@@ -25,6 +25,7 @@ import { createClient, createAdminClient } from "@/lib/supabase/server";
 import { sendEmail, isEmailConfigured } from "@/lib/email/send";
 import { renderQuotePDF } from "@/lib/pdf";
 import { rupee } from "@/lib/utils";
+import { isInterStateSupply } from "@/lib/gst/place-of-supply";
 import type { QuoteLineItem } from "@/lib/supabase/database.types";
 
 export const dynamic = "force-dynamic";
@@ -97,7 +98,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   const { data: customer } = quote.customer_id
     ? await supabase
         .from("customers")
-        .select("name, contact_name, contact_email, contact_phone, gstin")
+        .select("name, contact_name, contact_email, contact_phone, gstin, state_code")
         .eq("id", quote.customer_id)
         .single()
     : { data: null };
@@ -164,7 +165,8 @@ ${tenant.name}${tenant.phone ? `\n${tenant.phone}` : ""}${tenant.email ? `\n${te
       taxRate,
       tax,
       total,
-      interState:    false,        // shared CGST+SGST default; future: derive from tenant.state_code vs customer state
+      // GST head derived from seller (tenant) vs buyer (customer) state. (audit #18-20)
+      interState:    isInterStateSupply(customer?.state_code, tenant.state_code),
       validityDays:  30,
       notes:         quote.notes ?? undefined,
       isRenewal:     quote.is_renewal,

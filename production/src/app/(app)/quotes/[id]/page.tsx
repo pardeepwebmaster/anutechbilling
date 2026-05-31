@@ -11,6 +11,7 @@ import { toast } from "sonner";
 
 import { useQuote } from "@/lib/queries/quotes";
 import { useGenerateInvoice } from "@/lib/queries/invoices";
+import { isInterStateSupply } from "@/lib/gst/place-of-supply";
 import { createClient } from "@/lib/supabase/client";
 import { Card } from "@/components/ui/card";
 import { Button, IconButton } from "@/components/ui/button";
@@ -91,12 +92,8 @@ export default function QuoteDetailPage() {
 
   const totalReceivedSoFar = sumReceived(paymentHistory ?? []);
 
-  // Inter-state? Compare customer state code vs tenant state code.
-  const interState = Boolean(
-    customer?.state_code &&
-    me?.tenantStateCode &&
-    customer.state_code !== me.tenantStateCode,
-  );
+  // Inter-state? Compare customer state code vs tenant (seller) state code.
+  const interState = isInterStateSupply(customer?.state_code, me?.tenantStateCode);
 
   // ────────── Mutations ──────────
   const sendQuote = useMutation({
@@ -300,7 +297,7 @@ export default function QuoteDetailPage() {
                   taxRate:       quote.tax_rate,
                   tax,
                   total,
-                  interState:    false,
+                  interState,
                   notes:         quote.notes ?? "",
                 });
                 toast.success(`${quote.id}.pdf downloaded`);
@@ -706,7 +703,7 @@ export default function QuoteDetailPage() {
         taxRate={quote.tax_rate}
         tax={tax}
         total={total}
-        interState={false}
+        interState={interState}
         validityDays={
           quote.expires_date
             ? Math.max(1, daysBetween(new Date(quote.created_at), quote.expires_date))

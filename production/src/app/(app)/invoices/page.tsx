@@ -20,6 +20,7 @@ import { usePaymentsByQuote } from "@/lib/queries/payments";
 import { useCustomer } from "@/lib/queries/customers";
 import { useCurrentUser } from "@/lib/hooks/useCurrentUser";
 import { TaxInvoiceDialog } from "@/components/features/quotes/tax-invoice-dialog";
+import { isInterStateSupply } from "@/lib/gst/place-of-supply";
 import { Icon } from "@/components/ui/icon";
 import { toast } from "sonner";
 import { GeminiCard } from "@/components/shared/gemini-card";
@@ -703,9 +704,7 @@ function InvoicePreviewContainer({
   const tax       = Math.round(taxable * (taxRate / 100));
   const total     = quote?.amount ?? invoice.amount;
 
-  const interState = Boolean(
-    customer?.state_code && me?.tenantStateCode && customer.state_code !== me.tenantStateCode,
-  );
+  const interState = isInterStateSupply(customer?.state_code, me?.tenantStateCode);
 
   const receivedPayments = (payments ?? []).filter((p) => p.status === "received");
 

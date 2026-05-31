@@ -36,9 +36,12 @@
   - [ ] Remaining: move generation into `SECURITY DEFINER generate_invoice(p_quote_id)` with `FOR UPDATE` (bugs #8 race, #9 orphan); freeze GST split (#24); client catches unique_violation gracefully
 - [x] ~~**5. accept_quote RPC**~~ ❌ FALSE ALARM (verified 30 May) - audit #14 was WRONG: `accept_quote(p_quote_id)` EXISTS in the DB (audit checked migration files, not live DB). "Mark accepted" does NOT crash.
   - Real issue surfaced = **schema drift**: `accept_quote`, `redeem_coupon`, `create_site_promo` + `coupons`/`site_promos` tables exist in prod but NOT in committed migrations. Capture via `supabase db diff` (also unblocks CI). See bug #34.
-- [ ] **6. GST split + IST expiry fixes** - customer-visible correctness (bugs #18,#19,#20)
-  - Derive inter-state in quote-send PDF + renewal PDF; end-of-day IST for quote expiry
-  - Vitest: GST split + TZ-expiry (LQ-A5/Q5, RN-18, INV-04)
+- [~] **6. GST split + IST expiry fixes** - customer-visible correctness (bugs #18,#19,#20) — GST HEAD DONE, IST expiry pending
+  - [x] ✅ **GST head (IGST vs CGST/SGST) derivation unified (31 May)** — new `src/lib/gst/place-of-supply.ts` `isInterStateSupply(customerStateCode, sellerStateCode)` + 5 Vitest (green). Replaced hardcoded GST head in **all** authoritative surfaces: quote-builder (was seller="27"!), quote-send PDF route (was false), quote-detail preview+download, whatsapp-send PDF, cron-renewals PDF, renewals/send-now PDF. Tax-invoice view + receipt-voucher already derived → refactored to the shared helper. Typecheck green.
+  - [ ] **Pardeep: set Excel Tech GST profile** (`tenants.state_code` + `gstin`) via /setup — currently NULL, so the (now-correct) derivation still falls back to intra-state until the seller state is set. REQUIRED to actually produce IGST for inter-state customers + for live Journey 1/3 GST re-test.
+  - [ ] Quotes LIST quick-preview still passes `interState={false}` (lean query has no customer state_code) — TODO in code, refactor to a fetching subcomponent.
+  - [ ] IST end-of-day quote expiry still pending (bug #20 TZ part)
+  - [ ] Vitest: GST split + TZ-expiry (LQ-A5/Q5, RN-18, INV-04)
 - [ ] **7. Playwright happy-path E2E** - build→send→accept→pay smoke, runs every deploy
 - [x] ~~**CI (GitHub Actions)**~~ ✅ LIVE (30 May) - private GitHub repo `Pardeep-byte1/resellersos`; `.github/workflows/ci.yml` runs typecheck + Vitest + lint on every push/PR. GREEN. Already caught a real bug (vitest was globbing Playwright e2e specs → added vitest.config.ts). Working branch is now **master** (= GitHub).
 - [ ] **CI: add SQL money-RPC tests** - still pending: needs a Postgres in CI + full schema (blocked on schema-drift capture via `npx supabase`). Until then the SQL tests in `production/supabase/tests/` run manually.

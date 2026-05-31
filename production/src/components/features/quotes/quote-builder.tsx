@@ -38,6 +38,7 @@ import { useUpdateLead, useLeads } from "@/lib/queries/leads";
 import { useItems } from "@/lib/queries/items";
 import { useCurrentUser } from "@/lib/hooks/useCurrentUser";
 import { isInterStateSupply } from "@/lib/gst/place-of-supply";
+import { addOrMergeLine } from "@/lib/quotes/line-items";
 import { rupee, formatDate } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 import type { QuoteLineItem, LineCommitment } from "@/lib/supabase/database.types";
@@ -360,8 +361,15 @@ export function QuoteBuilder() {
 
   // Line item handlers
   const addLine = (line: QuoteLineItem) => {
-    setLineItems((s) => [...s, line]);
-    toast.success(`Added ${line.name}`);
+    // Merge into an economically-identical existing line instead of creating a
+    // duplicate row (which silently doubles the quote total). (audit: dup-line)
+    const { lines, merged, mergedQty } = addOrMergeLine(lineItems, line);
+    setLineItems(lines);
+    toast.success(
+      merged
+        ? `${line.name} already in this quote — quantity increased to ${mergedQty}`
+        : `Added ${line.name}`,
+    );
   };
   const updateQty = (id: string, qty: number) => {
     setLineItems((s) => s.map((l) => (l.id === id ? { ...l, qty: Math.max(1, qty) } : l)));

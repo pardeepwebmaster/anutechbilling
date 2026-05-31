@@ -382,7 +382,7 @@ export default function QuoteDetailPage() {
               {" "}
               <span className="text-ink-2">Payment can land later — record it when received.</span>
             </div>
-            <div className="flex gap-2">
+            <div className="flex gap-2 flex-wrap">
               <Button variant="ghost" loading={markRejected.isPending} onClick={() => markRejected.mutate()}>
                 Mark rejected
               </Button>

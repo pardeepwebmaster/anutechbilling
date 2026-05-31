@@ -65,6 +65,10 @@ const enquirySchema = z.object({
   tierId:      z.enum(["starter", "standard", "plus", "enterprise"]),
   billing:     z.enum(["monthly", "annual"]),
   message:     z.string().max(2000).optional(),
+  // Optional GST place-of-supply. Drives IGST vs CGST+SGST once the lead
+  // converts to a customer (state copied through accept_quote / record_payment).
+  stateCode:   z.string().regex(/^\d{2}$/, "state code must be 2 digits").optional(),
+  state:       z.string().max(60).optional(),
 });
 
 export async function POST(request: NextRequest) {
@@ -79,7 +83,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { fullName, companyName, email, phone, seats, tierId, billing, message } = parsed.data;
+    const { fullName, companyName, email, phone, seats, tierId, billing, message, stateCode, state } = parsed.data;
 
     const admin = createAdminClient();
 
@@ -118,6 +122,10 @@ export async function POST(request: NextRequest) {
       stage:         "new",
       source:        "buy-workspace",
       notes:         leadNotes,
+      // Place-of-supply for GST (copied to the customer on conversion). Optional —
+      // blank falls back to intra-state until set on the customer in-app.
+      state_code:    stateCode ?? null,
+      state:         state ?? null,
     });
 
     if (leadErr) {

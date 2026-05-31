@@ -503,6 +503,9 @@ type LeadRow = {
   priority: LeadPriority;
   /** B2B GSTIN captured at lead time (auto-fills legal name + address on conversion). */
   gstin: string | null;
+  /** GST place-of-supply, copied to the customer on conversion (drives IGST vs CGST+SGST). */
+  state_code: string | null;
+  state: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -528,6 +531,8 @@ type LeadInsert = {
   follow_up_date?:     string | null;
   priority?:           LeadPriority;
   gstin?:              string | null;
+  state_code?:         string | null;
+  state?:              string | null;
 }
 type LeadUpdate = Partial<LeadInsert>;
 

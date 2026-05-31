@@ -25,6 +25,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { FormField } from "@/components/ui/label";
 import { Icon } from "@/components/ui/icon";
+import { GST_STATE_BY_CODE } from "@/lib/utils";
 import type { SitePromoRow, SitePromoBannerStyle } from "@/lib/supabase/database.types";
 
 // ──────────────────────────────────────────────────────────────────────
@@ -574,6 +575,7 @@ const enquirySchema = z.object({
   tierId:      z.string(),
   billing:     z.enum(["monthly", "annual"]),
   message:     z.string().optional(),
+  stateCode:   z.string().optional(), // GST place-of-supply (drives IGST vs CGST+SGST)
 });
 type EnquiryForm = z.infer<typeof enquirySchema>;
 
@@ -2450,10 +2452,14 @@ function EnquiryDialog({
   });
 
   async function onSubmit(values: EnquiryForm) {
+    // Derive the human-readable state name from the GST code so the lead (and the
+    // customer it converts into) carries both — state_code drives IGST vs CGST+SGST.
+    const stateCode = values.stateCode || undefined;
+    const state     = stateCode ? `${GST_STATE_BY_CODE[stateCode]} (${stateCode})` : undefined;
     const res = await fetch("/api/public/enquiry/workspace", {
       method:  "POST",
       headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify(values),
+      body:    JSON.stringify({ ...values, stateCode, state }),
     });
     const json = await res.json() as { success?: boolean; error?: string };
     if (!res.ok || json.error) {
@@ -2513,6 +2519,21 @@ function EnquiryDialog({
 
             <FormField label="Phone" required htmlFor="phone">
               <Input id="phone" type="tel" placeholder="+91 98765 43210" error={errors.phone?.message} {...register("phone")} />
+            </FormField>
+
+            <FormField label="Your state (for GST invoice)" htmlFor="stateCode">
+              <select
+                id="stateCode"
+                {...register("stateCode")}
+                className="w-full rounded-md border border-hairline bg-paper px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-amber/40"
+              >
+                <option value="">Select your state (optional)</option>
+                {Object.entries(GST_STATE_BY_CODE)
+                  .sort((a, b) => a[1].localeCompare(b[1]))
+                  .map(([code, name]) => (
+                    <option key={code} value={code}>{name} ({code})</option>
+                  ))}
+              </select>
             </FormField>
 
             <FormField label="How many users?" required htmlFor="seats">

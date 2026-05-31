@@ -7,6 +7,7 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/server";
+import { isQuoteExpired } from "@/lib/utils";
 
 export async function POST(_request: NextRequest, { params }: { params: { id: string } }) {
   const supabase = createAdminClient();
@@ -32,7 +33,9 @@ export async function POST(_request: NextRequest, { params }: { params: { id: st
   if (quote.status === "rejected") {
     return NextResponse.json({ error: "This quote was rejected — please reach out to the reseller" }, { status: 400 });
   }
-  if (quote.expires_date && new Date(quote.expires_date) < new Date()) {
+  // Expiry judged at END OF DAY IST — a quote "valid until 30 Jun" must accept
+  // through all of 30 Jun in India, not lapse at 05:30 IST (UTC midnight). (#20)
+  if (isQuoteExpired(quote.expires_date)) {
     return NextResponse.json({ error: "This quote has expired — please ask the reseller for a fresh one" }, { status: 400 });
   }
 

@@ -7,7 +7,9 @@ import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useQuotes, useDeleteQuote } from "@/lib/queries/quotes";
+import { useCustomer } from "@/lib/queries/customers";
 import { useCurrentUser } from "@/lib/hooks/useCurrentUser";
+import { isInterStateSupply } from "@/lib/gst/place-of-supply";
 import { GeminiCard } from "@/components/shared/gemini-card";
 import { EmptyState } from "@/components/shared/empty-state";
 import { KPI } from "@/components/shared/kpi";
@@ -124,7 +126,6 @@ function PaymentBadge({
 export default function QuotesPage() {
   const router = useRouter();
   const { data: quotes, isLoading, error, refetch } = useQuotes();
-  const { data: currentUser } = useCurrentUser();
   const deleteQuote = useDeleteQuote();
   const [tab, setTab] = React.useState("all");
   const [search, setSearch] = React.useState("");
@@ -659,55 +660,71 @@ export default function QuotesPage() {
         </div>
       )}
 
-      {/* Quick preview dialog (driven by the row's eye/file icon button) */}
-      {previewing && (() => {
-        const q = previewing;
-        const items: QuoteLineItem[] = Array.isArray(q.line_items) ? (q.line_items as QuoteLineItem[]) : [];
-        const discount = Math.round(q.subtotal * (q.discount_pct / 100));
-        const taxable  = q.subtotal - discount;
-        const tax      = Math.round(taxable * (q.tax_rate / 100));
-        const total    = q.amount ?? taxable + tax;
-        const validity = q.expires_date
-          ? Math.max(1, daysBetween(new Date(q.created_at), q.expires_date))
-          : 30;
-
-        // TODO(#18-20): this quick row-preview passes interState={false} because the
-        // lean list query doesn't load the customer's state_code, so the GST head
-        // can't be derived here. Authoritative surfaces (sent PDF, tax invoice, quote
-        // detail) now use isInterStateSupply(). Refactor into a fetching subcomponent
-        // (cf. InvoicePreviewContainer) to make this preview accurate too.
-        return (
-          <QuotePreviewDialog
-            open={!!previewing}
-            onOpenChange={(o) => !o && setPreviewing(null)}
-            tenantName={currentUser?.tenantName    ?? "Workspace"}
-            tenantGstin={currentUser?.tenantGstin}
-            tenantEmail={currentUser?.tenantEmail}
-            tenantPhone={currentUser?.tenantPhone}
-            tenantAddress={currentUser?.tenantAddress}
-            quoteId={q.id}
-            customerName={q.customer_name}
-            contactName={null}
-            contactEmail={null}
-            contactPhone={null}
-            lineItems={items}
-            subtotal={q.subtotal}
-            discountPct={q.discount_pct}
-            discount={discount}
-            taxable={taxable}
-            taxRate={q.tax_rate}
-            tax={tax}
-            total={total}
-            interState={false}
-            validityDays={validity}
-            notes={q.notes ?? ""}
-            isProspect={!!q.lead_id}
-          />
-        );
-      })()}
+      {/* Quick preview dialog (driven by the row's eye/file icon button).
+          Rendered via a small fetching container so it can load the customer's
+          state_code and derive the GST head (IGST vs CGST+SGST) accurately —
+          the lean list query doesn't carry state_code. (audit #18-20) */}
+      {previewing && (
+        <QuotePreviewContainer
+          quote={previewing}
+          onClose={() => setPreviewing(null)}
+        />
+      )}
 
       {/* Mobile FAB — primary action in the thumb zone */}
       <FAB icon="plus" label="New quote" href="/quotes/new" />
     </div>
+  );
+}
+
+/**
+ * QuotePreviewContainer — renders the quick quote preview. Lives in its own
+ * component (not an inline IIFE) so it can use hooks: it fetches the quote's
+ * customer to read `state_code` and derive the GST head (IGST vs CGST+SGST)
+ * via the shared helper, matching the authoritative quote-detail / tax-invoice
+ * surfaces. The quotes list query is lean and omits customer state, so the
+ * lookup happens here, on demand, only when a preview is open. (audit #18-20)
+ */
+function QuotePreviewContainer({ quote, onClose }: { quote: Quote; onClose: () => void }) {
+  const { data: currentUser } = useCurrentUser();
+  const { data: customer }    = useCustomer(quote.customer_id ?? undefined);
+
+  const items: QuoteLineItem[] = Array.isArray(quote.line_items) ? (quote.line_items as QuoteLineItem[]) : [];
+  const discount = Math.round(quote.subtotal * (quote.discount_pct / 100));
+  const taxable  = quote.subtotal - discount;
+  const tax      = Math.round(taxable * (quote.tax_rate / 100));
+  const total    = quote.amount ?? taxable + tax;
+  const validity = quote.expires_date
+    ? Math.max(1, daysBetween(new Date(quote.created_at), quote.expires_date))
+    : 30;
+  const interState = isInterStateSupply(customer?.state_code, currentUser?.tenantStateCode);
+
+  return (
+    <QuotePreviewDialog
+      open
+      onOpenChange={(o) => !o && onClose()}
+      tenantName={currentUser?.tenantName    ?? "Workspace"}
+      tenantGstin={currentUser?.tenantGstin}
+      tenantEmail={currentUser?.tenantEmail}
+      tenantPhone={currentUser?.tenantPhone}
+      tenantAddress={currentUser?.tenantAddress}
+      quoteId={quote.id}
+      customerName={quote.customer_name}
+      contactName={null}
+      contactEmail={null}
+      contactPhone={null}
+      lineItems={items}
+      subtotal={quote.subtotal}
+      discountPct={quote.discount_pct}
+      discount={discount}
+      taxable={taxable}
+      taxRate={quote.tax_rate}
+      tax={tax}
+      total={total}
+      interState={interState}
+      validityDays={validity}
+      notes={quote.notes ?? ""}
+      isProspect={!!quote.lead_id}
+    />
   );
 }

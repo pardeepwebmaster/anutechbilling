@@ -144,6 +144,32 @@ export function daysBetween(from: Date | string, to: Date | string): number {
   return bIST - aIST;
 }
 
+/**
+ * End-of-day in IST for a `YYYY-MM-DD` (or ISO) date string, as a Date.
+ *
+ * A quote "valid until 30 Jun 2026" must stay valid through the WHOLE of
+ * 30 Jun in IST — i.e. until 23:59:59.999 IST. Since IST = UTC+5:30, that
+ * instant equals 18:29:59.999 UTC on the SAME calendar date. Comparing against
+ * a bare `new Date("2026-06-30")` (UTC midnight = 05:30 IST) wrongly expired
+ * the quote at dawn on its last valid day. (audit bug #20)
+ */
+export function endOfDayIST(dateStr: string): Date {
+  const ymd = dateStr.slice(0, 10); // tolerate full ISO timestamps too
+  return new Date(`${ymd}T18:29:59.999Z`);
+}
+
+/**
+ * Is a quote (or any dated document) expired, judged at end-of-day IST?
+ * Returns false when no expiry date is set. (audit bug #20)
+ */
+export function isQuoteExpired(
+  expiresDate: string | null | undefined,
+  now: Date = new Date(),
+): boolean {
+  if (!expiresDate) return false;
+  return now.getTime() > endOfDayIST(expiresDate).getTime();
+}
+
 // ──────────────────────────────────────────────────────────────────────
 // GSTIN
 //

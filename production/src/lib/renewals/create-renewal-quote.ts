@@ -22,6 +22,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database, QuoteLineItem } from "@/lib/supabase/database.types";
+import { grossAmount } from "@/lib/quotes/amounts";
 
 // The actual typed Supabase client. createAdminClient() returns this shape,
 // so the strict rpc/from overloads stay intact when callers pass it in.
@@ -89,7 +90,8 @@ export async function createOrGetRenewalQuote(
   const newQuoteId = nextNumber as unknown as string;
   if (!newQuoteId) return null;
 
-  const annualAmount = Math.max(0, Math.round((input.mrr ?? 0) * 12));
+  const annualAmount = Math.max(0, Math.round((input.mrr ?? 0) * 12)); // ex-GST subtotal
+  const grossAnnual  = grossAmount(annualAmount, 18);                  // GST-inclusive payable
   const perSeatRate  = Math.round(annualAmount / Math.max(1, input.seats));
   const perSeatCost  = Math.round((annualAmount * 0.83) / Math.max(1, input.seats));
 
@@ -112,7 +114,7 @@ export async function createOrGetRenewalQuote(
     customer_name:  input.customerName,
     plan:           input.plan,
     seats:          input.seats,
-    amount:         annualAmount,
+    amount:         grossAnnual,
     status:         "sent",
     payment_status: "awaiting",
     owner_id:       null,
@@ -138,7 +140,7 @@ export async function createOrGetRenewalQuote(
 
   return {
     quoteId:     newQuoteId,
-    amount:      annualAmount,
+    amount:      grossAnnual,
     subtotal:    annualAmount,
     discountPct: 0,
     taxRate:     18,

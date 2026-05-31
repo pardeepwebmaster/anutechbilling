@@ -27,6 +27,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database, QuoteLineItem } from "@/lib/supabase/database.types";
+import { grossAmount } from "@/lib/quotes/amounts";
 
 type SupabaseAdmin = SupabaseClient<Database>;
 
@@ -95,7 +96,8 @@ export async function createExtensionQuote(
   const newQuoteId = nextNumber as unknown as string;
 
   // Build line item — annual rate × N years
-  const annualAmount = Math.max(0, Math.round((input.mrr ?? 0) * 12 * input.years));
+  const annualAmount = Math.max(0, Math.round((input.mrr ?? 0) * 12 * input.years)); // ex-GST subtotal
+  const grossAnnual  = grossAmount(annualAmount, 18);                                // GST-inclusive payable
   const perSeatRate  = Math.round(annualAmount / Math.max(1, input.seats));
   const perSeatCost  = Math.round((annualAmount * 0.83) / Math.max(1, input.seats));
   const yearLabel    = input.years === 1 ? "1-year extension" : `${input.years}-year extension`;
@@ -119,7 +121,7 @@ export async function createExtensionQuote(
     customer_name:    input.customerName,
     plan:             input.plan,
     seats:            input.seats,
-    amount:           annualAmount,
+    amount:           grossAnnual,
     status:           "sent",
     payment_status:   "awaiting",
     owner_id:         null,
@@ -146,5 +148,5 @@ export async function createExtensionQuote(
     .update({ renewal_quote_id: newQuoteId })
     .eq("id", input.subscriptionId);
 
-  return { ok: true, quoteId: newQuoteId, amount: annualAmount, years: input.years };
+  return { ok: true, quoteId: newQuoteId, amount: grossAnnual, years: input.years };
 }

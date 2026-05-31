@@ -56,6 +56,7 @@
 - [ ] **Soft launch with 1-3 design-partner customers** - public launch nahi, friendly cohort first
 
 ## Waiting On
+- [ ] **🔴 Pardeep: Resend pe `exceltechnologies.in` domain VERIFY karo** - quote/enquiry emails abhi FAIL ho rahe hain (`Resend 403: domain is not verified`, confirmed in `quote_send_log` 30 May). Customer ko quote email + PDF nahi milega jab tak verify nahi hota (resend.com/domains). Journey 1 step 1 + step 4 ka email part isi pe blocked. [Interim: `RESEND_FROM_DEFAULT=onboarding@resend.dev` se bhej sakte ho test ke liye.]
 - [ ] **Pardeep: `resellersos.in` domain khareedo** - ~₹1000, 5 min (custom domain + email)
 - [ ] **Pardeep: Razorpay live KYC complete karo** - live keys ke liye
 - [ ] **Pardeep: decide karo — money unit ₹ ya paise?** - schema vs CLAUDE.md ambiguity (bug #36)

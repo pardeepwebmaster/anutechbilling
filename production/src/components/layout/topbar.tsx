@@ -100,10 +100,10 @@ export function TopBar({ onMobileMenuClick, crumb: crumbOverride }: TopBarProps)
       {/* ⌘K Search trigger */}
       <button
         onClick={cmdk.open}
-        className="flex items-center gap-2 px-3 py-1.5 rounded-md border border-hairline hover:border-hairline-strong bg-paper-2 text-ink-3 text-xs min-w-[200px] md:min-w-[280px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber focus-visible:ring-offset-2"
+        className="flex items-center gap-2 px-3 py-1.5 rounded-md border border-hairline hover:border-hairline-strong bg-paper-2 text-ink-3 text-xs min-w-0 shrink lg:min-w-[240px] xl:min-w-[280px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber focus-visible:ring-offset-2"
       >
-        <Icon name="search" size={13} />
-        <span className="flex-1 text-left">Search customers, leads, quotes…</span>
+        <Icon name="search" size={13} className="shrink-0" />
+        <span className="flex-1 text-left truncate">Search customers, leads, quotes…</span>
         <kbd className="hidden md:inline-block text-[10px] px-1.5 py-0.5 rounded bg-paper border border-hairline text-ink-3 font-mono">
           ⌘K
         </kbd>

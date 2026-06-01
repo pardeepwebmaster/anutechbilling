@@ -60,7 +60,6 @@ export default function PortalSubscriptionPage() {
   const [subs, setSubs]               = React.useState<Sub[] | null>(null);
   const [changeOpen, setChangeOpen]   = React.useState(false);
   const [activeForChange, setActiveForChange] = React.useState<Sub | null>(null);
-  const [toggling, setToggling]       = React.useState<string | null>(null);
 
   // Fetch on mount
   React.useEffect(() => {
@@ -78,25 +77,12 @@ export default function PortalSubscriptionPage() {
     })();
   }, []);
 
-  async function toggleAutoRenew(sub: Sub) {
-    setToggling(sub.id);
-    const newValue = !sub.auto_renew;
-    const supabase = createClient();
-    // Customer-scoped RPC (migration 0062): subscriptions has no customer
-    // UPDATE policy, so a raw .update() silently matched 0 rows here and the
-    // toast lied. The RPC updates ONLY auto_renew on a sub the caller owns
-    // (current_customer_id()) and raises otherwise.
-    const { error } = await supabase
-      .rpc("set_subscription_auto_renew", { p_sub_id: sub.id, p_value: newValue });
-    setToggling(null);
-    if (error) {
-      toast.error(error.message);
-      return;
-    }
-    toast.success(newValue ? "Auto-renewal turned ON" : "Auto-renewal turned OFF");
-    setSubs((prev) => prev?.map((s) => s.id === sub.id ? { ...s, auto_renew: newValue } : s) ?? null);
-  }
-
+  // NOTE: auto-renew is intentionally NOT a customer-facing toggle. In a
+  // manual-pay model (no stored-card autopay) "auto-renew" would falsely imply
+  // auto-charge, and a silent customer toggle to OFF = silent churn the reseller
+  // never sees. Renewal mode is shown read-only; stopping a renewal is an
+  // explicit request (ticket) so the operator is looped in. (See the matrix
+  // auto-renew analysis.)
   function openChange(sub: Sub) {
     setActiveForChange(sub);
     setChangeOpen(true);
@@ -174,24 +160,22 @@ export default function PortalSubscriptionPage() {
                     </div>
                   </div>
                   <div>
-                    <div className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold mb-0.5">Auto-renewal</div>
-                    <button
-                      type="button"
-                      disabled={toggling === sub.id}
-                      onClick={() => toggleAutoRenew(sub)}
-                      className={`inline-flex items-center gap-2 text-sm font-medium ${sub.auto_renew ? "text-emerald" : "text-ink-3"}`}
-                    >
-                      <span
-                        className={`inline-flex w-10 h-5 rounded-full transition-colors ${sub.auto_renew ? "bg-emerald" : "bg-paper-2 border border-hairline"} relative`}
-                      >
-                        <span
-                          className={`absolute top-0.5 ${sub.auto_renew ? "left-5" : "left-0.5"} w-4 h-4 rounded-full bg-paper transition-all`}
-                        />
-                      </span>
-                      {sub.auto_renew ? "On" : "Off"}
-                    </button>
-                    {!sub.auto_renew && (
-                      <div className="text-[10px] text-amber-ink mt-1">Subscription will expire on renewal date</div>
+                    <div className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold mb-0.5">Renewal</div>
+                    {sub.auto_renew ? (
+                      <>
+                        <div className="font-medium text-emerald">On track</div>
+                        <div className="text-[10px] text-ink-3 mt-0.5 leading-snug">
+                          We&apos;ll prepare your renewal quote + remind you before the date.
+                          You pay each renewal — <b className="text-ink-2">we never auto-charge</b>.
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="font-medium text-amber-ink">Not renewing</div>
+                        <div className="text-[10px] text-ink-3 mt-0.5 leading-snug">
+                          Will lapse on the renewal date. Want to continue? Raise a request below.
+                        </div>
+                      </>
                     )}
                   </div>
                 </div>
@@ -205,7 +189,7 @@ export default function PortalSubscriptionPage() {
                   <Button asChild variant="default">
                     <Link href="/portal/support/new">
                       <Icon name="ticket" size={14} className="mr-1.5" />
-                      Other request
+                      Cancel / other request
                     </Link>
                   </Button>
                 </div>
@@ -225,9 +209,10 @@ export default function PortalSubscriptionPage() {
 
       <div className="mt-6 p-4 bg-paper-2/40 rounded-md text-xs text-ink-3 leading-relaxed">
         <Icon name="info" size={12} className="text-indigo inline mr-1 align-text-bottom" />
-        <b className="text-ink">How requests work:</b> All seat / plan changes go through Pardeep
-        as a ticket. He&apos;ll WhatsApp / email a revised quote within 4 business hours.
-        Self-service auto-provisioning coming soon.
+        <b className="text-ink">How renewals &amp; changes work:</b> Renewals are manual — we prepare
+        your renewal quote and remind you before each cycle; you pay then (we never auto-charge a
+        card). Seat / plan changes and cancellations go through Pardeep as a ticket — he&apos;ll
+        WhatsApp / email within 4 business hours.
       </div>
     </div>
   );

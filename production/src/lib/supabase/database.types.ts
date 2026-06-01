@@ -1620,9 +1620,12 @@ export type Database = {
         }[];
       };
       /**
-       * Portal customer toggles auto-renew on a subscription they own
-       * (migration 0062). SECURITY DEFINER + scoped to current_customer_id();
-       * updates ONLY auto_renew and raises if the sub isn't the caller's.
+       * Scoped auto-renew setter (migration 0062). SECURITY DEFINER + scoped to
+       * current_customer_id(); updates ONLY auto_renew. NOTE (0063): execute was
+       * revoked from `authenticated` — auto-renew is not customer-facing in the
+       * manual-pay model, so this is operator/service-role only now (kept as a
+       * building block for a future real-autopay flow). The portal shows renewal
+       * mode read-only and routes cancellation through a ticket.
        */
       set_subscription_auto_renew: {
         Args: { p_sub_id: string; p_value: boolean };

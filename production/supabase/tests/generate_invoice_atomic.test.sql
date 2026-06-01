@@ -1,0 +1,88 @@
+-- Regression test: atomic generate_invoice RPC (migration 0058, bugs #8 race, #9 orphan).
+-- Run on a dev/test DB. Self-asserting; rolled back.
+--   psql "$DATABASE_URL" -f generate_invoice_atomic.test.sql
+--
+-- Proves:
+--   1. Full payment  → invoice status='paid', net_payable=0, advances frozen.
+--   2. Atomic + idempotent: 2nd call raises, still exactly 1 invoice, quote
+--      stays marked invoiced (no orphan, no duplicate).
+--   3. Partial payment → invoice status='pending', net_payable = balance owed.
+
+-- ── 1) Full payment → invoice paid + idempotent double-call ──────────────────
+begin;
+select set_config('request.jwt.claims', '{"role":"service_role"}', true);
+insert into public.tenants (id, name, email, state_code, doc_code)
+  values ('eeeeeeee-0000-0000-0000-0000000000a1','GI FULL','gi1@example.in','07','GIA1');
+insert into public.customers (id, tenant_id, name)
+  values ('cccccccc-0000-0000-0000-0000000000a1','eeeeeeee-0000-0000-0000-0000000000a1','Cust GI Full');
+insert into public.document_series (tenant_id, doc_type, fiscal_year, prefix, last_number)
+  values ('eeeeeeee-0000-0000-0000-0000000000a1','purchase_order', public.indian_fiscal_year(current_date), 'PO', 990000),
+         ('eeeeeeee-0000-0000-0000-0000000000a1','invoice',        public.indian_fiscal_year(current_date), 'INV', 0);
+insert into public.quotes (id, tenant_id, customer_id, customer_name, amount, subtotal, tax_rate, status, payment_status, line_items)
+  values ('Q-GI-FULL','eeeeeeee-0000-0000-0000-0000000000a1','cccccccc-0000-0000-0000-0000000000a1','Cust GI Full',122342,103680,18,'sent','awaiting',
+          '[{"name":"Google Workspace Standard","qty":10,"rate":10368,"commitment":"annual_yearly"}]'::jsonb);
+do $$
+declare
+  r_id text; r_net int; r_adv int;
+  v_cnt int; v_status text; v_qstatus text; v_qinv text; v_err boolean := false;
+begin
+  perform public.record_payment('Q-GI-FULL', 122342, 'upi', 'gi_full_ref');
+
+  select invoice_id, net_payable, total_advances into r_id, r_net, r_adv
+    from public.generate_invoice('Q-GI-FULL');
+  if r_net <> 0      then raise exception 'FAIL full: net_payable expected 0, got %', r_net; end if;
+  if r_adv <> 122342 then raise exception 'FAIL full: total_advances expected 122342, got %', r_adv; end if;
+
+  select count(*), max(status::text) into v_cnt, v_status
+    from public.invoices where quote_id='Q-GI-FULL';
+  if v_cnt <> 1        then raise exception 'FAIL full: expected 1 invoice, got %', v_cnt; end if;
+  if v_status <> 'paid' then raise exception 'FAIL full: status expected paid, got %', v_status; end if;
+
+  select payment_status::text, invoice_id into v_qstatus, v_qinv from public.quotes where id='Q-GI-FULL';
+  if v_qstatus <> 'invoiced' then raise exception 'FAIL full: quote payment_status expected invoiced, got %', v_qstatus; end if;
+  if v_qinv <> r_id          then raise exception 'FAIL full: quote.invoice_id (%) <> returned id (%)', v_qinv, r_id; end if;
+
+  -- Idempotency: 2nd call must raise and NOT create a duplicate.
+  begin
+    perform public.generate_invoice('Q-GI-FULL');
+  exception when others then v_err := true;
+  end;
+  if not v_err then raise exception 'FAIL full: 2nd generate_invoice did NOT raise'; end if;
+
+  select count(*) into v_cnt from public.invoices where quote_id='Q-GI-FULL';
+  if v_cnt <> 1 then raise exception 'FAIL full: after 2nd call expected 1 invoice, got %', v_cnt; end if;
+
+  raise notice 'PASS full-payment: invoice % paid, net 0, idempotent (1 invoice)', r_id;
+end $$;
+rollback;
+
+-- ── 2) Partial payment → invoice pending, net_payable = balance ──────────────
+begin;
+select set_config('request.jwt.claims', '{"role":"service_role"}', true);
+insert into public.tenants (id, name, email, state_code, doc_code)
+  values ('eeeeeeee-0000-0000-0000-0000000000a2','GI PART','gi2@example.in','07','GIA2');
+insert into public.customers (id, tenant_id, name)
+  values ('cccccccc-0000-0000-0000-0000000000a2','eeeeeeee-0000-0000-0000-0000000000a2','Cust GI Part');
+insert into public.document_series (tenant_id, doc_type, fiscal_year, prefix, last_number)
+  values ('eeeeeeee-0000-0000-0000-0000000000a2','purchase_order', public.indian_fiscal_year(current_date), 'PO', 990000),
+         ('eeeeeeee-0000-0000-0000-0000000000a2','invoice',        public.indian_fiscal_year(current_date), 'INV', 0);
+insert into public.quotes (id, tenant_id, customer_id, customer_name, amount, subtotal, tax_rate, status, payment_status, line_items)
+  values ('Q-GI-PART','eeeeeeee-0000-0000-0000-0000000000a2','cccccccc-0000-0000-0000-0000000000a2','Cust GI Part',122342,103680,18,'sent','awaiting',
+          '[{"name":"Google Workspace Standard","qty":10,"rate":10368,"commitment":"annual_yearly"}]'::jsonb);
+do $$
+declare
+  r_id text; r_net int; r_adv int; v_status text;
+begin
+  perform public.record_payment('Q-GI-PART', 50000, 'upi', 'gi_part_ref');
+
+  select invoice_id, net_payable, total_advances into r_id, r_net, r_adv
+    from public.generate_invoice('Q-GI-PART');
+  if r_adv <> 50000 then raise exception 'FAIL partial: total_advances expected 50000, got %', r_adv; end if;
+  if r_net <> 72342 then raise exception 'FAIL partial: net_payable expected 72342, got %', r_net; end if;
+
+  select status::text into v_status from public.invoices where quote_id='Q-GI-PART';
+  if v_status <> 'pending' then raise exception 'FAIL partial: status expected pending, got %', v_status; end if;
+
+  raise notice 'PASS partial-payment: invoice % pending, net 72342, advance 50000', r_id;
+end $$;
+rollback;

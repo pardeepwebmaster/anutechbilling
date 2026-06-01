@@ -125,72 +125,26 @@ export function useGenerateInvoice() {
     mutationFn: async (quoteId: string) => {
       const supabase = createClient();
 
-      // ── 1. Load quote + verify no existing invoice ──
-      const { data: quote, error: qErr } = await supabase
-        .from("quotes")
-        .select(
-          "id, tenant_id, customer_id, customer_name, amount, payment_method, payment_reference, invoice_id",
-        )
-        .eq("id", quoteId)
-        .single();
-      if (qErr || !quote) throw qErr ?? new Error("Quote not found");
-      if (quote.invoice_id) {
-        throw new Error(`Invoice ${quote.invoice_id} already exists for this quote`);
-      }
-
-      // ── 2. Compute advance adjustment snapshot from payments ──
-      const { data: adjData, error: adjErr } = await supabase
-        .rpc("compute_advance_adjustment", { p_quote_id: quoteId });
-      if (adjErr) throw adjErr;
-
-      // RPC returns an array — single row tuple. Defensive defaults if empty.
-      const adj = adjData?.[0] ?? { advances: [], total_paid: 0, first_at: null };
-      const advances      = adj.advances ?? [];
-      const totalAdvances = adj.total_paid ?? 0;
-      const firstAdvanceAt = adj.first_at;
-
-      const grossAmount = quote.amount ?? 0;
-      const netPayable  = Math.max(0, grossAmount - totalAdvances);
-
-      // ── 3. Allocate next sequential invoice number (atomic, GST-compliant) ──
-      const { data: invoiceId, error: seqErr } = await supabase
-        .rpc("next_document_number", { p_doc_type: "invoice" });
-      if (seqErr || !invoiceId) throw seqErr ?? new Error("Failed to issue invoice number");
-
-      const today   = new Date().toISOString().slice(0, 10);
-      const dueDate = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
-
-      // ── 4. Decide status — "paid" only if no balance left, else "pending" ──
-      // For partial-payment customers, invoice goes out as pending — they owe net_payable.
-      const status: "paid" | "pending" = netPayable === 0 ? "paid" : "pending";
-
-      // ── 5. Insert invoice with FROZEN adjustment snapshot ──
-      const { error: invErr } = await supabase.from("invoices").insert({
-        id:                 invoiceId,
-        tenant_id:          quote.tenant_id,
-        customer_id:        quote.customer_id,
-        customer_name:      quote.customer_name,
-        amount:             grossAmount,
-        status,
-        invoice_date:       today,
-        due_date:           dueDate,
-        paid_date:          status === "paid" ? today : null,
-        razorpay_id:        quote.payment_method === "razorpay" ? quote.payment_reference : null,
-        adjusted_advances:  advances,
-        net_payable:        netPayable,
-        first_advance_at:   firstAdvanceAt,
-        quote_id:           quote.id,
+      // Atomic, tenant-safe invoice generation — one SECURITY DEFINER
+      // transaction (migration 0058 `generate_invoice`). Replaces the old
+      // 6-step client chain (load quote → compute advances → allocate number
+      // → insert invoice → mark quote invoiced) which could race two
+      // concurrent clicks (#8) or leave the quote un-marked if a mid-flight
+      // write failed (#9). The RPC locks the quote (FOR UPDATE), freezes the
+      // advance snapshot, and commits the invoice + quote update together.
+      const { data, error } = await supabase.rpc("generate_invoice", {
+        p_quote_id: quoteId,
       });
-      if (invErr) throw invErr;
+      if (error) throw error;
 
-      // ── 6. Mark quote as invoiced (terminal state) ──
-      const { error: qUpdErr } = await supabase
-        .from("quotes")
-        .update({ payment_status: "invoiced", invoice_id: invoiceId })
-        .eq("id", quoteId);
-      if (qUpdErr) throw qUpdErr;
+      const row = data?.[0];
+      if (!row) throw new Error("Invoice generation returned no result");
 
-      return { invoiceId, netPayable, totalAdvances };
+      return {
+        invoiceId:     row.invoice_id,
+        netPayable:    row.net_payable,
+        totalAdvances: row.total_advances,
+      };
     },
     onSuccess: ({ invoiceId, netPayable, totalAdvances }) => {
       qc.invalidateQueries({ queryKey: ["invoices"] });

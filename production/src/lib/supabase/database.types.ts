@@ -1603,6 +1603,23 @@ export type Database = {
         }[];
       };
       /**
+       * Atomically generates a GST invoice from a paid/partially-paid quote
+       * (migration 0058). One SECURITY DEFINER transaction: locks the quote
+       * (FOR UPDATE), freezes the advance-adjustment snapshot, allocates the
+       * sequential invoice number, inserts the invoice, and marks the quote
+       * invoiced — closing the old client-side race (#8) + orphan (#9) windows.
+       * Tenant-guarded: an authenticated caller may only invoice their own
+       * tenant's quote. Raises if the quote already has an invoice.
+       */
+      generate_invoice: {
+        Args: { p_quote_id: string };
+        Returns: {
+          invoice_id:      string;
+          net_payable:     number;
+          total_advances:  number;
+        }[];
+      };
+      /**
        * Atomically records a payment against a quote. Runs as one transaction:
        * issues Receipt Voucher (if pre-invoice), inserts payment ledger row,
        * converts prospect→customer + promotes lead on first payment, creates

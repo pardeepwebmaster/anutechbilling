@@ -39,17 +39,19 @@ export async function POST(_request: NextRequest, { params }: { params: { id: st
     return NextResponse.json({ error: "This quote has expired — please ask the reseller for a fresh one" }, { status: 400 });
   }
 
-  // 3. Mark as accepted (DB trigger should auto-set payment_status to 'awaiting')
-  const { error: updateErr } = await supabase
-    .from("quotes")
-    .update({
-      status: "accepted",
-      payment_status: "awaiting",
-    })
-    .eq("id", params.id);
+  // 3. Accept + convert the linked lead → customer atomically via accept_quote
+  //    (migration 0059 made the RPC service-role safe — it derives the tenant
+  //    from the quote when there's no auth context). This is the SAME path the
+  //    operator's "Mark accepted" uses, so a customer self-accept now also
+  //    creates the customer record, advances the lead to 'won', and sets
+  //    payment_status='awaiting' — instead of only flipping the quote status
+  //    and leaving the deal un-converted until payment landed (#17).
+  const { error: acceptErr } = await supabase.rpc("accept_quote", {
+    p_quote_id: params.id,
+  });
 
-  if (updateErr) {
-    return NextResponse.json({ error: updateErr.message }, { status: 500 });
+  if (acceptErr) {
+    return NextResponse.json({ error: acceptErr.message }, { status: 500 });
   }
 
   // 4. TODO: send notification email to the reseller (P3 Resend integration)

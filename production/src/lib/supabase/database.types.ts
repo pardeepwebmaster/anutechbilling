@@ -1620,6 +1620,15 @@ export type Database = {
         }[];
       };
       /**
+       * Portal customer toggles auto-renew on a subscription they own
+       * (migration 0062). SECURITY DEFINER + scoped to current_customer_id();
+       * updates ONLY auto_renew and raises if the sub isn't the caller's.
+       */
+      set_subscription_auto_renew: {
+        Args: { p_sub_id: string; p_value: boolean };
+        Returns: boolean;
+      };
+      /**
        * Atomically records a payment against a quote. Runs as one transaction:
        * issues Receipt Voucher (if pre-invoice), inserts payment ledger row,
        * converts prospect→customer + promotes lead on first payment, creates

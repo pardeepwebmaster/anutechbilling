@@ -82,10 +82,12 @@ export default function PortalSubscriptionPage() {
     setToggling(sub.id);
     const newValue = !sub.auto_renew;
     const supabase = createClient();
+    // Customer-scoped RPC (migration 0062): subscriptions has no customer
+    // UPDATE policy, so a raw .update() silently matched 0 rows here and the
+    // toast lied. The RPC updates ONLY auto_renew on a sub the caller owns
+    // (current_customer_id()) and raises otherwise.
     const { error } = await supabase
-      .from("subscriptions")
-      .update({ auto_renew: newValue })
-      .eq("id", sub.id);
+      .rpc("set_subscription_auto_renew", { p_sub_id: sub.id, p_value: newValue });
     setToggling(null);
     if (error) {
       toast.error(error.message);

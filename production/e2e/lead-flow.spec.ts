@@ -98,15 +98,16 @@ test.describe("Sales Workspace v2 — Owner UI flows", () => {
   });
 
   test("Quick add lead — 4-field form creates a raw lead", async ({ page }) => {
-    // Hover-reveal Quick add popout (desktop) OR mini-FAB (mobile)
-    // — viewport here is Pixel 7 in our config so go via mobile FAB path.
+    // Quick add — split-button caret dropdown (desktop) OR mini-FAB (mobile).
+    // The "Add Lead" split-button is hidden on mobile (Pixel 7), where the FAB
+    // quick action is used instead.
     const quickFab = page.getByRole("button", { name: /Quick add lead.*4 fields/i });
     if (await quickFab.isVisible({ timeout: 1_000 }).catch(() => false)) {
       await quickFab.click();
     } else {
-      // Desktop — hover then click the popup
-      await page.getByRole("button", { name: /Add Lead/i }).hover();
-      await page.getByRole("button", { name: /Quick add/i }).click();
+      // Desktop — open the "Add Lead" split-button's caret menu, then Quick add.
+      await page.getByRole("button", { name: /More ways to add a lead/i }).click();
+      await page.getByRole("menuitem", { name: /Quick add/i }).click();
     }
     await expect(page.getByRole("heading", { name: /Quick add lead/i })).toBeVisible();
     const stamp = Date.now().toString().slice(-6);

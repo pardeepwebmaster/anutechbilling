@@ -24,14 +24,17 @@ Default: Playwright auto-starts `npm run dev` on port 3000 and runs tests agains
 e2e/
 ├── README.md                   # this file
 ├── smoke.spec.ts               # auth-free sanity check (login renders, redirects work)
-├── fixtures/
-│   ├── seed-auth.ts            # programmatically create test auth users via Admin API
-│   └── (planned) login.ts      # storageState helpers for each role
-└── (planned)
-    ├── lead-flow.spec.ts       # full lead → quote → payment → invoice journey
-    ├── cross-tenant.spec.ts    # RLS isolation — tenant A cannot see tenant B
-    └── role-permissions.spec.ts # sales role can't reach owner-only routes
+├── money-spine.spec.ts         # happy-path funnel smoke: lead→quote→pay→invoice→renewal
+│                               #   renders + quick-add + public buy page (no-auth part runs today)
+├── lead-flow.spec.ts           # Sales Workspace v2 UI flows (Smart Views, drawer, quick-add)
+├── cross-tenant.spec.ts        # RLS isolation — tenant A cannot see tenant B
+├── role-permissions.spec.ts    # sales role can't reach owner-only routes
+└── fixtures/
+    ├── auth.ts                 # loginViaSupabase (cookie session) + loginAs (UI) helpers
+    └── seed-auth.ts            # programmatically create test auth users via Admin API
 ```
+
+**Run status (2026-06-01):** the no-auth tests (`smoke.spec.ts`, `money-spine.spec.ts` › public buy page) pass against live prod today. The auth-gated specs `test.skip` until `.env.test` (with `NEXT_PUBLIC_SUPABASE_ANON_KEY`) exists AND the Tenant-A/B fixtures are seeded — see "Test data — seeding" below. That's the one remaining wiring step to light up the full spine regression net.
 
 ---
 

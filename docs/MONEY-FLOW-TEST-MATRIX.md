@@ -1,7 +1,7 @@
 # ResellerOS V3 — Money-Flow Test Matrix & Bug Report
 
 _Original audit assembled: 2026-05-29 (six segment trace audits: lead→quote, pricing, record_payment core, add-seats/extend, invoice generation, renewal cadence)._
-_**Revised: 2026-06-01** — re-verified against live DB + code after the fix wave (migrations 0051–0059 + code). Current per-bug status is in **§2.1**; Sections 3 & 4 are preserved as the original-audit snapshot. **Verification basis:** live `pg_proc`/`pg_indexes` inspection, the SQL regression suite in `production/supabase/tests/` (all green), and a full in-app E2E walk of the spine on prod (zero duplicates)._
+_**Revised: 2026-06-01** — re-verified against live DB + code after the fix wave (migrations 0051–0061 + code). Current per-bug status is in **§2.1**; Sections 3 & 4 are preserved as the original-audit snapshot. **Verification basis:** live `pg_proc`/`pg_indexes` inspection, the SQL regression suite in `production/supabase/tests/` (all green), and a full in-app E2E walk of the spine on prod (zero duplicates)._
 
 ---
 
@@ -22,12 +22,12 @@ _(arrows show the change since the 2026-05-29 audit)_
 | **Lead capture** | ✅ | Manual, enquiry, and trial lead creation all work; minor inconsistencies only. |
 | **Quote (build + send + accept)** | 🔴→✅ | `accept_quote` RPC exists (the "missing RPC" was a false alarm); customer self-accept now converts the lead → customer + `won` (#17, migration 0059); IST expiry fixed (#18); emailed PDF derives the correct GST head (#19). |
 | **Pricing of that quote** | 🔴→✅ | Enquiry and buy-page/checkout now price from **one catalog source** and yield identical totals (#10/#11); catalog re-seeded to confirmed retail (#12); place-of-supply captured for GST head (#23). |
-| **Pay (record_payment core)** | 🔴→✅ | Idempotent on `(tenant_id, quote_id, reference)` (#1/#2, migration 0051); sibling-sub balances no longer clobbered (#5, 0056); MRR stored ex-GST. Edge guards (#27 null-amount) are fast-follow. |
+| **Pay (record_payment core)** | 🔴→✅ | Idempotent on `(tenant_id, quote_id, reference)` (#1/#2, migration 0051); sibling-sub balances no longer clobbered (#5, 0056); MRR stored ex-GST; null/zero-amount quote rejected (#27, migration 0061). Seats=0 guard (#28) is fast-follow. |
 | **Subscription changes (add-seats / extend)** | 🔴→✅ | Add-seats no longer duplicates the subscription (#3/#4, 0052); extend-on-already-renewed no longer duplicates (#16, 0056). Concurrent-add lost-update (#33) is fast-follow. |
-| **Invoice generation** | 🔴→✅ | Atomic `generate_invoice` SECURITY DEFINER RPC (migration 0058): one invoice per quote (#7, unique index 0053), `FOR UPDATE` kills the race (#8), insert+quote-update in one txn kills orphans (#9), number allocated in-txn kills seq gaps (#25). GST-split freeze (#24) + ₹0 guard (#26) are fast-follow. |
+| **Invoice generation** | 🔴→✅ | Atomic `generate_invoice` SECURITY DEFINER RPC (migration 0058): one invoice per quote (#7, unique index 0053), `FOR UPDATE` kills the race (#8), insert+quote-update in one txn kills orphans (#9), number allocated in-txn kills seq gaps (#25); ₹0 invoice rejected (#26, migration 0060). GST-split freeze (#24) is fast-follow. |
 | **Renewal cadence + roll-forward** | ⚠️→✅ | Roll-forward correct; renewal PDF derives the right GST head (#20); extend-dup fixed (#16). Cadence catch-up (#21) + hard-suspend grace policy (#35) are fast-follow. |
 
-**Bottom line (2026-06-01): the money-spine is soft-launch-ready for an intra-state pilot.** Both architectural root causes from the May audit are **resolved**: (a) payment idempotency + **atomic money RPCs now exist** — `record_payment`, `accept_quote`, `generate_invoice` are all `SECURITY DEFINER` and verified live in `pg_proc`; and (b) the price engines now read **one catalog source** and produce identical totals. All seven stages were walked end-to-end on live prod with **zero duplicates**, and the SQL regression suite is green. The remaining items are narrower **P1/P2 fast-follows** (GST-split freeze on the invoice record, a few defensive amount/seat guards, cadence catch-up, monthly-flex unit, coupon-unit guard) — none silently lose money on the common path. The real launch gates are now **operational, not architectural**: Razorpay live KYC, Resend domain verification, and the production domain.
+**Bottom line (2026-06-01): the money-spine is soft-launch-ready for an intra-state pilot.** Both architectural root causes from the May audit are **resolved**: (a) payment idempotency + **atomic money RPCs now exist** — `record_payment`, `accept_quote`, `generate_invoice` are all `SECURITY DEFINER` and verified live in `pg_proc`; and (b) the price engines now read **one catalog source** and produce identical totals. All seven stages were walked end-to-end on live prod with **zero duplicates**, and the SQL regression suite is green. The remaining items are narrower **P1/P2 fast-follows** (GST-split freeze on the invoice record, a seats=0 guard, cadence catch-up, monthly-flex unit, coupon-unit guard, coupon/promo schema-drift capture) — none silently lose money on the common path. The real launch gates are now **operational, not architectural**: Razorpay live KYC, Resend domain verification, and the production domain.
 
 ---
 
@@ -62,15 +62,15 @@ Re-verified 2026-06-01 against live DB + code. ✅ = fixed & evidenced · 🟡 =
 | #25 Invoice sequence gaps | P1 | ✅ | Fixed by 0058 — the number is allocated **inside** the atomic txn, so a failed INSERT rolls back the increment too. |
 | #26 ₹0 "paid" tax invoice | P1 | ✅ | Migration 0060 — `generate_invoice` raises on `gross <= 0` (guard on gross only; advance-settled net 0 still invoices). Test `zero_amount_guards.test.sql`. |
 | #27 NULL amount → every payment "fully paid" | P1 | ✅ | Migration 0061 — `record_payment` raises when the quote's `amount <= 0` (placed after the idempotent-replay check). Verified by the full suite (mrr-ex-gst, replay, renewal, partial, sibling) + ₹0-reject. |
-| #28/#29/#30/#31/#32/#33/#34/#35/#36 | P1/P2 | 🟡 | Open fast-follows: seats=0 guard, monthly no-sub, monthly-flex ×12 unit, coupon-unit guard, extend clobber race, add-seats lost-update lock, coupon/promo schema-drift capture, hard-suspend grace policy, rupee/paise unit decision. None block an intra-state pilot. |
+| #28/#29/#30/#31/#32/#33/#34/#35/#36 | P1/P2 | 🟡 | Open fast-follows: seats=0 guard, monthly no-sub, monthly-flex ×12 unit, coupon-unit guard, extend clobber race, add-seats lost-update lock, coupon/promo schema-drift capture, hard-suspend grace policy, rupee/paise unit decision. None block an intra-state pilot. **#34 note:** the drift is wider than line 112 records — 3 tables (incl. `coupon_redemptions`) + 5 functions + 2 triggers; full inventory + the `supabase db diff` capture step are in `TASKS.md`. |
 
-**Score: of the 16 P0 / P0-edge items, 15 are resolved and 1 (#6) is a documented rare deferral. The two dominant root causes are closed.** Remaining work is P1/P2 hardening.
+**Score: of the 16 P0 / P0-edge items, 14 are fully resolved; #6 is a documented rare deferral and #13 is mitigated (the fallback table now equals catalog retail, so a catalog-miss no longer overcharges — only the explicit 400-on-miss refinement is pending). The two dominant root causes are closed.** Remaining work is P1/P2 hardening.
 
 ---
 
 ## 3. Prioritized BUG LIST
 
-> ⚠️ **This section is the original 2026-05-29 audit snapshot** (severities + root-cause file:line as first found). For current fix status see **§2.1**. Bugs marked ✅ there are fixed in migrations 0051–0059 + code.
+> ⚠️ **This section is the original 2026-05-29 audit snapshot** (severities + root-cause file:line as first found). For current fix status see **§2.1**. Bugs marked ✅ there are fixed in migrations 0051–0061 + code.
 
 Sorted P0 first. "Test that would catch it" names the scenario ID(s) in Section 4.
 
@@ -290,7 +290,7 @@ The single question this section answers: **which scenarios must be green before
 
 Ordered for maximum safety bought per hour of test-writing. Earlier items both catch the worst bugs and double as the regression net for the fixes you'll ship.
 
-> **Progress (2026-06-01):** steps 1, 2, 4 are **done and green** as SQL suites in `production/supabase/tests/` (`record_payment_idempotency`, `record_payment_sibling_and_extend`, `add_seats_no_duplicate_subscription`, `invoices_one_per_quote`, `generate_invoice_atomic`, `accept_quote_public_conversion`, `record_payment_mrr_ex_gst`, `lead_state_to_customer`, `tenant_scoped_document_ids`, `renewal_and_subscription_creation`). Step 3 (price-parity) + step 5 (GST/TZ) have Vitest coverage in `src/lib/pricing/` + `src/lib/gst/` + `src/lib/utils.test.ts`. **Step 6 (Playwright happy-path E2E) is the main remaining gap** — the spine has been walked manually on prod, but there's no automated browser smoke yet (TASKS.md #7). Step 7 (cadence catch-up) is pending the #21 fix.
+> **Progress (2026-06-01):** steps 1, 2, 4 are **done and green** as SQL suites in `production/supabase/tests/` (`record_payment_idempotency`, `record_payment_sibling_and_extend`, `add_seats_no_duplicate_subscription`, `invoices_one_per_quote`, `generate_invoice_atomic`, `accept_quote_public_conversion`, `record_payment_mrr_ex_gst`, `lead_state_to_customer`, `tenant_scoped_document_ids`, `renewal_and_subscription_creation`). Step 3 (price-parity) + step 5 (GST/TZ) have Vitest coverage in `src/lib/pricing/` + `src/lib/gst/` + `src/lib/utils.test.ts`. **Step 6 (Playwright happy-path E2E) is partially done** — `e2e/money-spine.spec.ts` exists; its no-auth funnel checks (every spine page renders in the app shell, public buy-page price) pass against prod and run in CI via a non-blocking `e2e-smoke` job. The authed full walk (build→send→accept→pay→invoice) self-skips until `.env.test` + seeded Tenant-A/B fixtures land (TASKS.md #7). Step 7 (cadence catch-up) is pending the #21 fix.
 
 1. **SQL idempotency suite for `record_payment` (RP-04, RP-05, RP-06, RP-03).** One test harness that calls the RPC twice with the same reference and asserts a single `received` row, unchanged totals, and untouched sibling subs. This is the highest-leverage hour: it locks bugs #1, #2, #5 and becomes the proof your fix works. *(SQL-on-test-DB)*
 

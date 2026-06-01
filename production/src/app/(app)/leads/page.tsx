@@ -157,6 +157,8 @@ function LeadsPageInner() {
   }, [searchParams]);
   const [selected, setSelected] = React.useState<Lead | null>(null);
   const [editingLead, setEditingLead] = React.useState<Lead | null>(null);
+  // "Follow-ups due today" banner — click to expand the list of due leads.
+  const [dueListOpen, setDueListOpen] = React.useState(false);
   // Kanban is great for stage flow; list view is needed once you have 50+ leads
   // and want to scan by value/age/owner. Persisted in localStorage so the user's
   // preferred view sticks across sessions.
@@ -472,35 +474,47 @@ function LeadsPageInner() {
               </Button>
             </>
           )}
-          {/* Add Lead / Deal button — hidden on mobile because the floating
-              FAB at the bottom-right already provides the same action in a
-              more thumb-friendly position. Showing both was duplicate UI.
+          {/* Add Lead / Deal split-button — hidden on mobile because the
+              floating FAB at the bottom-right already provides the same
+              action in a more thumb-friendly position.
 
-              Hover-reveal: when the cursor enters the button, a small
-              "Quick add" popup slides out from below. Click main button =
-              full lead form (12+ fields); click popup = 4-field quick form.
-              The `pt-1` on the popup wrapper creates an invisible bridge so
-              the hover state doesn't drop when moving the mouse from the
-              button into the popup. */}
-          <div className="relative group hidden md:inline-flex">
+              The primary button opens the full lead form (12+ fields). On the
+              Leads tab a caret opens a dropdown that ALSO offers "Quick add"
+              (4 fields). This replaced an earlier hover-reveal popup that was
+              undiscoverable, not keyboard-accessible, and impossible to
+              trigger on touch devices (no hover) — users reported clicking
+              "Quick add" did nothing because the popup vanished on mouse-move. */}
+          <div className="hidden md:inline-flex">
             <Button
               variant="primary"
               icon="plus"
               onClick={() => setAddOpen(true)}
+              className={tab === "leads" ? "rounded-r-none" : undefined}
             >
               {tab === "leads" ? "Add Lead" : "Add Deal"}
             </Button>
-            <div className="absolute top-full right-0 pt-1.5 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-opacity duration-150 z-20">
-              <button
-                type="button"
-                onClick={() => setQuickOpen(true)}
-                className="px-3 py-2 rounded-md bg-paper border border-hairline shadow-md text-xs text-ink hover:bg-paper-2 hover:border-hairline-strong whitespace-nowrap inline-flex items-center gap-1.5 transition-colors"
-                title="Just company + name + email + phone — qualify later"
-              >
-                <Icon name="zap" size={12} className="text-amber" />
-                Quick add <span className="text-ink-3">· 4 fields</span>
-              </button>
-            </div>
+            {tab === "leads" && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="primary"
+                    icon="chevron_down"
+                    aria-label="More ways to add a lead"
+                    className="rounded-l-none border-l border-white/25 px-2"
+                  />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-60">
+                  <DropdownMenuItem onSelect={() => setAddOpen(true)}>
+                    <Icon name="plus" size={14} className="mr-2 text-ink-3" />
+                    Full form · all fields
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => setQuickOpen(true)}>
+                    <Icon name="zap" size={14} className="mr-2 text-amber" />
+                    Quick add · 4 fields
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
           </div>
         </div>
       </div>
@@ -647,9 +661,9 @@ function LeadsPageInner() {
 
       {/* Today's follow-ups widget — sales rep ki morning worklist.
           Counts leads where follow_up_date is today OR earlier (overdue too).
-          Notification-style compact: single-row pill on mobile, slightly
-          taller card with company preview on desktop. Hidden if no leads
-          have follow_up_date set or none are due. */}
+          Click the header to expand the actual list of due leads; tap any
+          row to open that lead's detail drawer. Hidden if no leads have
+          follow_up_date set or none are due. */}
       {(() => {
         if (!leads || leads.length === 0) return null;
         const today      = new Date().toISOString().slice(0, 10);  // YYYY-MM-DD
@@ -658,22 +672,77 @@ function LeadsPageInner() {
         if (dueToday.length === 0) return null;
         const overdueCount = dueToday.filter((l) => (l.follow_up_date ?? "") < today).length;
         const totalValue   = dueToday.reduce((s, l) => s + (l.value ?? 0), 0);
+        // Most-overdue first (earliest follow_up_date), today's last.
+        const sortedDue = [...dueToday].sort(
+          (a, b) => (a.follow_up_date ?? "").localeCompare(b.follow_up_date ?? ""),
+        );
         return (
-          <div className="rounded-full md:rounded-lg border border-amber/30 bg-amber-soft/40 px-3 py-1.5 md:p-3 mb-3 md:mb-4 flex items-center gap-2 md:gap-3 min-w-0">
-            <Icon name="clock" size={13} className="text-amber-ink flex-shrink-0" />
-            <p className="text-[12px] md:text-sm text-ink truncate min-w-0 flex-1">
-              <b className="text-amber-ink">{dueToday.length}</b>
-              <span className="text-ink-2"> follow-up{dueToday.length === 1 ? "" : "s"} due today</span>
-              {overdueCount > 0 && (
-                <span className="text-rose text-[11px] md:text-xs ml-1.5">({overdueCount} overdue)</span>
-              )}
-              {/* Desktop-only preview line (companies + total value) */}
-              <span className="hidden md:inline text-[11px] text-ink-3 ml-2">
-                · {dueToday.slice(0, 3).map((l) => l.company).join(" · ")}
-                {dueToday.length > 3 && ` · +${dueToday.length - 3} more`}
-                {totalValue > 0 && ` · ${rupee(totalValue, { compact: true })} value`}
+          <div className="rounded-lg border border-amber/30 bg-amber-soft/40 mb-3 md:mb-4 overflow-hidden min-w-0">
+            {/* Header — click to expand/collapse the list */}
+            <button
+              type="button"
+              onClick={() => setDueListOpen((o) => !o)}
+              aria-expanded={dueListOpen}
+              className="w-full flex items-center gap-2 md:gap-3 px-3 py-2 md:p-3 text-left hover:bg-amber-soft/60 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber focus-visible:ring-inset"
+            >
+              <Icon name="clock" size={13} className="text-amber-ink flex-shrink-0" />
+              <p className="text-[12px] md:text-sm text-ink truncate min-w-0 flex-1">
+                <b className="text-amber-ink">{dueToday.length}</b>
+                <span className="text-ink-2"> follow-up{dueToday.length === 1 ? "" : "s"} due today</span>
+                {overdueCount > 0 && (
+                  <span className="text-rose text-[11px] md:text-xs ml-1.5">({overdueCount} overdue)</span>
+                )}
+                {/* Desktop-only preview line (companies + total value) */}
+                <span className="hidden md:inline text-[11px] text-ink-3 ml-2">
+                  · {dueToday.slice(0, 3).map((l) => l.company).join(" · ")}
+                  {dueToday.length > 3 && ` · +${dueToday.length - 3} more`}
+                  {totalValue > 0 && ` · ${rupee(totalValue, { compact: true })} value`}
+                </span>
+              </p>
+              <span className="text-[11px] text-amber-ink font-semibold hidden sm:inline flex-shrink-0">
+                {dueListOpen ? "Hide" : "View list"}
               </span>
-            </p>
+              <Icon
+                name="chevron_down"
+                size={16}
+                className={cn("text-amber-ink flex-shrink-0 transition-transform", dueListOpen && "rotate-180")}
+              />
+            </button>
+
+            {/* Expanded list — one tappable row per due lead */}
+            {dueListOpen && (
+              <div className="border-t border-amber/20 bg-paper/70 max-h-[320px] overflow-y-auto">
+                {sortedDue.map((l) => {
+                  const od = (l.follow_up_date ?? "") < today;
+                  const sub = [
+                    l.contact_name || l.contact_phone,
+                    l.plan,
+                    l.value ? rupee(l.value, { compact: true }) : null,
+                  ].filter(Boolean).join(" · ");
+                  return (
+                    <button
+                      key={l.id}
+                      type="button"
+                      onClick={() => setSelected(l)}
+                      className="w-full flex items-center gap-3 px-3 py-2 text-left border-b border-hairline/60 last:border-b-0 hover:bg-amber-soft/30 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber focus-visible:ring-inset"
+                    >
+                      <span className={cn("w-1.5 h-1.5 rounded-full flex-shrink-0", od ? "bg-rose" : "bg-amber")} />
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-sm text-ink font-medium truncate">{l.company}</span>
+                        <span className="block text-[11px] text-ink-3 truncate">{sub || "—"}</span>
+                      </span>
+                      <span className="flex-shrink-0 text-right">
+                        <span className={cn("block text-[11px] font-semibold", od ? "text-rose" : "text-amber-ink")}>
+                          {od ? "Overdue" : "Due today"}
+                        </span>
+                        <span className="block text-[10px] text-ink-3">{formatDate(l.follow_up_date!)}</span>
+                      </span>
+                      <Icon name="chevron_right" size={14} className="text-ink-3 flex-shrink-0" />
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
         );
       })()}

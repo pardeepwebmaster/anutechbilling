@@ -246,7 +246,7 @@ function InvoicesPageInner() {
             </div>
 
             {/* Table of pending quotes */}
-            <div className="rounded-md border border-hairline bg-paper overflow-hidden">
+            <div className="rounded-md border border-hairline bg-paper overflow-x-auto">
               <table className="w-full">
                 <thead className="bg-paper-2 border-b border-hairline">
                   <tr>

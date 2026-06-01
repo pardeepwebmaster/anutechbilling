@@ -1632,6 +1632,16 @@ export type Database = {
         Returns: boolean;
       };
       /**
+       * Stamp last_login_at on the calling portal customer's own customer_users
+       * row (migration 0064). Narrow SECURITY DEFINER replacement for the raw
+       * UPDATE that customers used to have — that path had no WITH CHECK and let
+       * a customer re-point their link's customer_id to another customer.
+       */
+      portal_touch_login: {
+        Args: Record<string, never>;
+        Returns: undefined;
+      };
+      /**
        * Atomically records a payment against a quote. Runs as one transaction:
        * issues Receipt Voucher (if pre-invoice), inserts payment ledger row,
        * converts prospect→customer + promotes lead on first payment, creates

@@ -36,12 +36,12 @@ export async function getPortalSession(): Promise<PortalSession | null> {
     .maybeSingle();
   if (!link) return null;
 
-  // Update last_login_at — best effort, ignore failure
-  void supabase
-    .from("customer_users")
-    .update({ last_login_at: new Date().toISOString() })
-    .eq("auth_user_id", user.id)
-    .then(() => {});
+  // Update last_login_at — best effort, ignore failure. Goes through a narrow
+  // SECURITY DEFINER RPC (migration 0064): customers no longer have a direct
+  // UPDATE path on customer_users, because a raw update with no WITH CHECK let
+  // a customer re-point their own row's customer_id to another customer and read
+  // that customer's data. The RPC stamps ONLY last_login_at on the caller's row.
+  void supabase.rpc("portal_touch_login").then(() => {});
 
   // Supabase returns related-table fields as nested objects (single) or arrays
   // depending on the FK direction. Both `customers` and `tenants` are

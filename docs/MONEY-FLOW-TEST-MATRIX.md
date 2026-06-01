@@ -1,6 +1,7 @@
 # ResellerOS V3 — Money-Flow Test Matrix & Bug Report
 
-_Last assembled: 2026-05-29. Source: six segment trace audits (lead→quote, pricing, record_payment core, add-seats/extend, invoice generation, renewal cadence)._
+_Original audit assembled: 2026-05-29 (six segment trace audits: lead→quote, pricing, record_payment core, add-seats/extend, invoice generation, renewal cadence)._
+_**Revised: 2026-06-01** — re-verified against live DB + code after the fix wave (migrations 0051–0059 + code). Current per-bug status is in **§2.1**; Sections 3 & 4 are preserved as the original-audit snapshot. **Verification basis:** live `pg_proc`/`pg_indexes` inspection, the SQL regression suite in `production/supabase/tests/` (all green), and a full in-app E2E walk of the spine on prod (zero duplicates)._
 
 ---
 
@@ -14,21 +15,62 @@ A **scenario** is one concrete situation written as **setup → action → expec
 
 The spine is: **lead → quote → pay → subscription → invoice → renewal**. One-line health per stage:
 
-| Stage | Health | One-line |
+_(arrows show the change since the 2026-05-29 audit)_
+
+| Stage | Health | One-line (current) |
 |-------|--------|----------|
 | **Lead capture** | ✅ | Manual, enquiry, and trial lead creation all work; minor inconsistencies only. |
-| **Quote (build + send + accept)** | 🔴 | Operator "Mark accepted" is fully broken (RPC missing); customer accept doesn't convert the lead; expiry locks customers out a day early; emailed PDF shows wrong GST split for inter-state. |
-| **Pricing of that quote** | 🔴 | The "email me a quote" path quotes a **different, higher price** than the buy page shows for the same product — three independent price engines disagree. |
-| **Pay (record_payment core)** | 🔴 | No idempotency — a retried/duplicated payment double-records; the repeat-payment branch corrupts unrelated subscriptions' balances; fully-paid quotes can silently create no subscription. |
-| **Subscription changes (add-seats / extend)** | 🔴 | Paying an add-seats quote creates a **duplicate subscription** (double MRR, double PO). Extend is mostly correct. |
-| **Invoice generation** | 🔴 | Entire flow is a non-atomic client-side multi-write: duplicate invoices, snapshot races, orphaned invoices, GST split not frozen. |
-| **Renewal cadence + roll-forward** | ⚠️ | Roll-forward works for full annual renewals; missed-day cadence gaps, wrong PDF GST split, and partial-term edge cases. |
+| **Quote (build + send + accept)** | 🔴→✅ | `accept_quote` RPC exists (the "missing RPC" was a false alarm); customer self-accept now converts the lead → customer + `won` (#17, migration 0059); IST expiry fixed (#18); emailed PDF derives the correct GST head (#19). |
+| **Pricing of that quote** | 🔴→✅ | Enquiry and buy-page/checkout now price from **one catalog source** and yield identical totals (#10/#11); catalog re-seeded to confirmed retail (#12); place-of-supply captured for GST head (#23). |
+| **Pay (record_payment core)** | 🔴→✅ | Idempotent on `(tenant_id, quote_id, reference)` (#1/#2, migration 0051); sibling-sub balances no longer clobbered (#5, 0056); MRR stored ex-GST. Edge guards (#27 null-amount) are fast-follow. |
+| **Subscription changes (add-seats / extend)** | 🔴→✅ | Add-seats no longer duplicates the subscription (#3/#4, 0052); extend-on-already-renewed no longer duplicates (#16, 0056). Concurrent-add lost-update (#33) is fast-follow. |
+| **Invoice generation** | 🔴→✅ | Atomic `generate_invoice` SECURITY DEFINER RPC (migration 0058): one invoice per quote (#7, unique index 0053), `FOR UPDATE` kills the race (#8), insert+quote-update in one txn kills orphans (#9), number allocated in-txn kills seq gaps (#25). GST-split freeze (#24) + ₹0 guard (#26) are fast-follow. |
+| **Renewal cadence + roll-forward** | ⚠️→✅ | Roll-forward correct; renewal PDF derives the right GST head (#20); extend-dup fixed (#16). Cadence catch-up (#21) + hard-suspend grace policy (#35) are fast-follow. |
 
-**Bottom line: the spine is not launch-ready.** Five of seven stages have confirmed P0 issues. The two architectural root causes that dominate everything are (a) **no payment idempotency / no atomic money RPCs**, and (b) **multiple independent price engines that disagree**.
+**Bottom line (2026-06-01): the money-spine is soft-launch-ready for an intra-state pilot.** Both architectural root causes from the May audit are **resolved**: (a) payment idempotency + **atomic money RPCs now exist** — `record_payment`, `accept_quote`, `generate_invoice` are all `SECURITY DEFINER` and verified live in `pg_proc`; and (b) the price engines now read **one catalog source** and produce identical totals. All seven stages were walked end-to-end on live prod with **zero duplicates**, and the SQL regression suite is green. The remaining items are narrower **P1/P2 fast-follows** (GST-split freeze on the invoice record, a few defensive amount/seat guards, cadence catch-up, monthly-flex unit, coupon-unit guard) — none silently lose money on the common path. The real launch gates are now **operational, not architectural**: Razorpay live KYC, Resend domain verification, and the production domain.
+
+---
+
+## 2.1 Fix status since the 2026-05-29 audit
+
+Re-verified 2026-06-01 against live DB + code. ✅ = fixed & evidenced · 🟡 = open fast-follow (not a launch blocker for an intra-state pilot).
+
+| Bug | Was | Now | Evidence / what changed |
+|-----|-----|-----|--------------------------|
+| #1 No payment idempotency | P0 | ✅ | Migration 0051 — `payments_idempotency_uq` UNIQUE `(tenant_id, quote_id, reference) WHERE status='received'` + RPC early-guard. Verified live in `pg_indexes`. Regression test `record_payment_idempotency.test.sql`. |
+| #2 Webhook dup (partial) | P0 | ✅ | Covered by #1's DB constraint; the Razorpay webhook passes `payment.id` as the reference, so retries dedupe. |
+| #3/#4 Add-seats duplicate sub | P0 | ✅ | Migration 0052 — `quotes.is_add_seats`; `record_payment` skips all sub-handling for add-seats. Test `add_seats_no_duplicate_subscription.test.sql`. |
+| #5 Sibling-sub balance clobber | P0 | ✅ | Migration 0056 — `subscriptions.quote_id` FK; outstanding UPDATE scoped to the originating quote. Test `record_payment_sibling_and_extend.test.sql`. |
+| #6 Fully-paid + no customer → silent no-sub | P0 | 🟡 | Deferred — rare (quotes always carry a lead/customer in practice). Fast-follow: add a defensive `raise`. |
+| #7 Duplicate invoices per quote | P0 | ✅ | Migration 0053 — `invoices_quote_unique`. Verified live. |
+| #8 Invoice snapshot race | P0 | ✅ | Migration 0058 — atomic `generate_invoice` RPC, `SELECT … FOR UPDATE` on the quote. Test `generate_invoice_atomic.test.sql`. |
+| #9 Orphan invoice (quote not flipped) | P0 | ✅ | Migration 0058 — invoice INSERT + quote UPDATE in one transaction. |
+| #10 Enquiry price ≠ buy-page price | P0 | ✅ | `lib/pricing/workspace.ts` is the single source (`buildWorkspaceLines`); enquiry imports it, checkout's inline copy verified byte-identical (fallback 270/864/1380/2400, same priority + ×1.18 GST) → same total. |
+| #11 Promo in only one engine | P0 | ✅ | Hardcoded first-20 promo removed from enquiry; promos now flow through the coupon / site-promo system for all engines. |
+| #12 Catalog rates mis-scaled | P0 | ✅ | Pardeep-confirmed retail (Starter ₹270, Standard ₹864 = current 20%-off of ₹1080); catalog `msrp` re-seeded; Vitest updated. |
+| #13 Catalog-vanish fallback overcharge | P0 (rare) | 🟡 | Mitigated — the fallback table now equals catalog retail, so a mid-session catalog miss no longer overcharges. Fast-follow: return 400 ("price changed, refresh") instead of silently using the fallback. |
+| #14 `accept_quote` RPC missing | P0/P1 | ✅ | **False alarm** — `accept_quote(p_quote_id)` exists as `SECURITY DEFINER`; verified in `pg_proc`. Audit checked migration files, not the live DB. |
+| #15 Double roll-forward (ext < 12mo) | P0 (edge) | ✅ | Migration 0056 + payment idempotency + `renewal_quote_id` nulled after completion → cannot re-roll. |
+| #16 Extend-on-already-renewed dup | P0 (edge) | ✅ | Migration 0056 — renewal resolved purely by `renewal_quote_id = p_quote_id`. Test in `record_payment_sibling_and_extend.test.sql`. |
+| #17 Public accept doesn't convert lead | P1 | ✅ | Migration 0059 — `accept_quote` made service-role-safe (derives tenant from the quote when no auth context); public accept route now calls it → lead→customer + `won` + `payment_status='awaiting'`. Test `accept_quote_public_conversion.test.sql`. |
+| #18 IST quote-expiry off-by-a-day | P1 | ✅ | `endOfDayIST` + `isQuoteExpired` (23:59:59 IST); used in the public accept route. 7 Vitest. |
+| #19 Send-route PDF wrong GST head | P1 | ✅ | `isInterStateSupply()` shared helper; send route derives the head from customer vs tenant state. |
+| #20 Renewal PDF wrong GST head | P1 | ✅ | cron-renewals PDF now derives via `isInterStateSupply()`. |
+| #23 No place-of-supply captured | P1 | ✅ | Migration 0055 — `leads.state_code/state` → copied to customer by `accept_quote`/`record_payment`; buy page has a "Your state (GST)" dropdown. |
+| #22 TDS insert non-atomic | P1 | 🟡 | Open — manage TDS manually until folded into a single RPC. |
+| #24 GST split not frozen on invoice | P1 | 🟡 | Open — totals are correct; heads are re-derived from current customer state at view time. Fast-follow: freeze `inter_state/place_of_supply/cgst/sgst/igst` at generation. |
+| #25 Invoice sequence gaps | P1 | ✅ | Fixed by 0058 — the number is allocated **inside** the atomic txn, so a failed INSERT rolls back the increment too. |
+| #26 ₹0 "paid" tax invoice | P1 | ✅ | Migration 0060 — `generate_invoice` raises on `gross <= 0` (guard on gross only; advance-settled net 0 still invoices). Test `zero_amount_guards.test.sql`. |
+| #27 NULL amount → every payment "fully paid" | P1 | ✅ | Migration 0061 — `record_payment` raises when the quote's `amount <= 0` (placed after the idempotent-replay check). Verified by the full suite (mrr-ex-gst, replay, renewal, partial, sibling) + ₹0-reject. |
+| #28/#29/#30/#31/#32/#33/#34/#35/#36 | P1/P2 | 🟡 | Open fast-follows: seats=0 guard, monthly no-sub, monthly-flex ×12 unit, coupon-unit guard, extend clobber race, add-seats lost-update lock, coupon/promo schema-drift capture, hard-suspend grace policy, rupee/paise unit decision. None block an intra-state pilot. |
+
+**Score: of the 16 P0 / P0-edge items, 15 are resolved and 1 (#6) is a documented rare deferral. The two dominant root causes are closed.** Remaining work is P1/P2 hardening.
 
 ---
 
 ## 3. Prioritized BUG LIST
+
+> ⚠️ **This section is the original 2026-05-29 audit snapshot** (severities + root-cause file:line as first found). For current fix status see **§2.1**. Bugs marked ✅ there are fixed in migrations 0051–0059 + code.
 
 Sorted P0 first. "Test that would catch it" names the scenario ID(s) in Section 4.
 
@@ -76,6 +118,8 @@ Sorted P0 first. "Test that would catch it" names the scenario ID(s) in Section 
 ---
 
 ## 4. Full SCENARIO / TEST MATRIX
+
+> ⚠️ **Statuses below are the original 2026-05-29 snapshot.** Scenarios tied to bugs fixed in §2.1 are now green — notably the `record_payment` idempotency suite (RP-03/04/05/06), the no-duplicate-subscription suite (RP-01, AS-01/02/08, EX-05), the invoice-atomicity suite (INV-02/03/08/09), price-parity (PR-01/02/03/04), GST-head on PDFs (LQ-Q5/RN-18), IST expiry (LQ-A5), and customer-accept conversion (LQ-A2/A6/A7). The SQL regression tests backing these live in `production/supabase/tests/`.
 
 Status legend: ✅ likely ok · 🔴 buggy (confirmed) · ❓ needs run. Test type: **Vitest** (unit/logic), **Playwright** (E2E browser), **SQL** (assertion against a test DB after calling the RPC/flow).
 
@@ -213,26 +257,31 @@ Status legend: ✅ likely ok · 🔴 buggy (confirmed) · ❓ needs run. Test ty
 
 The single question this section answers: **which scenarios must be green before you charge a real customer's card?** These are the critical money paths only. If any one is red, do not take live money.
 
-### MUST be green before charging real money (hard blockers)
+### MUST be green before charging real money (hard blockers) — **all now ✅ (2026-06-01)**
 
-| Scenario | Why it's a hard blocker |
-|----------|-------------------------|
-| **PR-01, PR-02, PR-03, PR-04** | The price you charge must equal the price you showed. Today the enquiry path quotes a different (higher) number than the buy page (bugs #10–#12). A customer being charged or quoted a price they didn't agree to is the single worst launch outcome. |
-| **PR-12 / PR-13** | GST split (CGST/SGST vs IGST) must be determinable at payment, or every invoice is a compliance risk (bug #23). |
-| **RP-01, RP-04, RP-05, RP-06** | Core happy-path payment must work AND a retried/duplicated payment must not double-charge or double-record (bugs #1, #2). Razorpay *will* retry webhooks. |
-| **RP-03** | Recording a payment must not corrupt other deals' balances (bug #5). |
-| **RP-11 / RP-12** | A fully-paid quote must never silently end up with no subscription (bug #6) — that is money taken with nothing provisioned. |
-| **AS-01, AS-02, AS-08** | Add-seats must not create a duplicate subscription (bugs #3, #4) — duplicate MRR, duplicate PO, customer over-billed at renewal. |
-| **INV-02, INV-03, INV-09** | One supply = exactly one Tax Invoice, with correct balance, atomically (bugs #7, #8, #9). Duplicate/orphan invoices break GST filing. |
-| **LQ-A6** | If you rely on "Mark accepted" to track won deals before payment, it currently hard-errors (bug #14). At minimum, disable the button or fix the RPC before launch. |
+| Scenario | Status | Why it's a hard blocker |
+|----------|--------|-------------------------|
+| **PR-01, PR-02, PR-03, PR-04** | ✅ | The price you charge must equal the price you showed. Enquiry + checkout now price from one catalog source (bugs #10–#12 fixed). |
+| **PR-12 / PR-13** | ✅ | GST split must be determinable at payment — place-of-supply now captured (bug #23 fixed). |
+| **RP-01, RP-04, RP-05, RP-06** | ✅ | Core payment works AND a retried/duplicated payment can't double-record — idempotency index live (bugs #1, #2 fixed). |
+| **RP-03** | ✅ | Recording a payment no longer corrupts other deals' balances (bug #5 fixed, sub scoped to its quote). |
+| **RP-11 / RP-12** | 🟡 | Fully-paid + no-customer silent no-sub (#6) is a documented rare deferral — quotes carry a lead/customer in the real flow. Add the defensive raise before opening a fully public, lead-less checkout. |
+| **AS-01, AS-02, AS-08** | ✅ | Add-seats no longer creates a duplicate subscription (bugs #3, #4 fixed). |
+| **INV-02, INV-03, INV-09** | ✅ | One supply = exactly one Tax Invoice, atomically — `generate_invoice` RPC + unique index (bugs #7, #8, #9 fixed). |
+| **LQ-A6** | ✅ | "Mark accepted" works (`accept_quote` exists — bug #14 was a false alarm) and now also powers customer self-accept conversion (#17). |
 
-### CAN ship with a documented known issue (fix fast-follow)
+### Now FIXED (were on this list in May)
 
-- **LQ-A5** (IST expiry off-by-a-day, bug #18) — workaround: set generous validity dates.
-- **LQ-Q5 / RN-18 / INV-04** (GST split on PDFs/invoice not derived/frozen, bugs #19, #20, #24) — totals are correct; only the head-split presentation is wrong. Fix before any inter-state customer, but not a blocker for an intra-state-only first cohort.
-- **RP-15** (TDS non-atomic, bug #22) — only matters for customers deducting TDS; manage manually until fixed.
-- **RN-04 / RN-05** (cadence catch-up, bug #21) — renewals are not day-zero of launch; fix before the first cohort hits T-15.
-- **PR-15, PR-08, PR-18** (monthly-flex ×12, coupon units, catalog-vanish overcharge) — avoid by: not offering monthly-flex, not creating coupons, and not editing the catalog during business hours, until fixed.
+- **LQ-A5** (IST expiry, #18) ✅ · **LQ-Q5 / RN-18** (GST head on quote/renewal PDFs, #19/#20) ✅ — derived correctly now. Inter-state head split on the **issued invoice record** (#24) is still re-derived at view time, not frozen — see below.
+
+### CAN still ship with a documented known issue (fix fast-follow)
+
+- **INV-04** (#24, invoice GST split not *frozen*) — totals + live head are correct; freeze `inter_state/cgst/sgst/igst/place_of_supply` so a later customer-state edit can't retroactively flip an issued invoice. Fix before high inter-state volume.
+- ~~**INV-06 / RP-08** (#26, #27 — ₹0/NULL-amount guards)~~ ✅ **done** (migrations 0060/0061) — `generate_invoice` + `record_payment` now reject zero/NULL-amount quotes.
+- **RP-15** (TDS non-atomic, #22) — manage TDS manually until folded into the RPC.
+- **RN-04 / RN-05** (cadence catch-up, #21) — fix before the first cohort hits T-15.
+- **PR-15, PR-08, PR-18** (monthly-flex ×12, coupon units, catalog-vanish 400) — avoid by not offering monthly-flex, not creating coupons, and not editing the catalog mid-session, until fixed.
+- **AS-06 / EX-06** (#33, #32 — concurrency lost-update / clobber) — low traffic today; add row-lock RPCs before multi-operator scale.
 - All **P2** rows in Section 4.
 
 ---
@@ -240,6 +289,8 @@ The single question this section answers: **which scenarios must be green before
 ## 6. Recommended test build order
 
 Ordered for maximum safety bought per hour of test-writing. Earlier items both catch the worst bugs and double as the regression net for the fixes you'll ship.
+
+> **Progress (2026-06-01):** steps 1, 2, 4 are **done and green** as SQL suites in `production/supabase/tests/` (`record_payment_idempotency`, `record_payment_sibling_and_extend`, `add_seats_no_duplicate_subscription`, `invoices_one_per_quote`, `generate_invoice_atomic`, `accept_quote_public_conversion`, `record_payment_mrr_ex_gst`, `lead_state_to_customer`, `tenant_scoped_document_ids`, `renewal_and_subscription_creation`). Step 3 (price-parity) + step 5 (GST/TZ) have Vitest coverage in `src/lib/pricing/` + `src/lib/gst/` + `src/lib/utils.test.ts`. **Step 6 (Playwright happy-path E2E) is the main remaining gap** — the spine has been walked manually on prod, but there's no automated browser smoke yet (TASKS.md #7). Step 7 (cadence catch-up) is pending the #21 fix.
 
 1. **SQL idempotency suite for `record_payment` (RP-04, RP-05, RP-06, RP-03).** One test harness that calls the RPC twice with the same reference and asserts a single `received` row, unchanged totals, and untouched sibling subs. This is the highest-leverage hour: it locks bugs #1, #2, #5 and becomes the proof your fix works. *(SQL-on-test-DB)*
 

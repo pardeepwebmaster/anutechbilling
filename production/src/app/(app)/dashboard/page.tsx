@@ -85,7 +85,9 @@ export default function DashboardPage() {
   const dateLabel = now.toLocaleString("en-IN", {
     weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "Asia/Kolkata",
   });
-  const firstName = currentUser?.fullName?.split(/\s+/)[0] ?? "there";
+  // null (not "there") while the user is loading or has no name — the headline
+  // then reads a clean "Good morning." instead of an impersonal "…, there."
+  const firstName = currentUser?.fullName?.split(/\s+/)[0] ?? null;
   const workspaceName = currentUser?.tenantName ?? "your workspace";
 
   // Aggregates from real data
@@ -274,7 +276,7 @@ export default function DashboardPage() {
             {dateLabel}
           </p>
           <h1 className="font-serif text-3xl md:text-4xl leading-tight">
-            {greeting}, {firstName}.
+            {greeting}{firstName ? `, ${firstName}` : ""}.
           </h1>
           <p className="text-sm text-ink-3 mt-1">
             Here's what's happening at <b className="text-ink">{workspaceName}</b> today.

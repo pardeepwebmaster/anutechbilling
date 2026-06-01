@@ -51,6 +51,8 @@ interface CronResult {
   emails_sent:      number;
   emails_skipped:   number;
   suspends:         number;
+  /** RN-24: subscriptions lapsed to 'expired' because they're not renewing and the term ended. */
+  lapsed:           number;
   errors:           { subscription_id: string; message: string }[];
   details:          { subscription_id: string; customer: string; step: string; daysUntil: number; emailStatus?: string }[];
 }
@@ -82,9 +84,31 @@ async function handle(req: Request): Promise<NextResponse<CronResult | { error: 
     emails_sent:   0,
     emails_skipped:0,
     suspends:      0,
+    lapsed:        0,
     errors:        [],
     details:       [],
   };
+
+  // ── RN-24: lapse NON-renewing subscriptions whose paid term has ended ──
+  // auto_renew=false subs are skipped by the renewal cadence below, so without
+  // this they'd sit 'active' forever past their renewal_date. Once the term has
+  // ended (renewal_date strictly in the past) and the customer/operator chose
+  // not to renew, the subscription lapses to 'expired'. Idempotent (only touches
+  // 'active' rows) and non-destructive — a later renewal payment still revives
+  // it via record_payment's roll-forward (which sets status='active').
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const { data: lapsedRows, error: lapseErr } = await supabase
+    .from("subscriptions")
+    .update({ status: "expired" })
+    .eq("status", "active")
+    .eq("auto_renew", false)
+    .lt("renewal_date", todayIso)
+    .select("id");
+  if (lapseErr) {
+    result.errors.push({ subscription_id: "(lapse-step)", message: lapseErr.message });
+  } else {
+    result.lapsed = lapsedRows?.length ?? 0;
+  }
 
   // ── Fetch all active subscriptions across tenants with a renewal_date ─
   // Filters out auto_renew=false — customer chose to let it expire.

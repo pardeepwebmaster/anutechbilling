@@ -21,3 +21,46 @@ jobs:
       - run: npm run test
       - run: npm run lint
         continue-on-error: true
+
+  # ── No-auth E2E smoke ──────────────────────────────────────────────
+  # Runs the auth-free Playwright specs (smoke.spec.ts + money-spine public
+  # buy page) against the deployed app. This is a funnel canary: it catches a
+  # 500'd login page, a broken auth redirect, or a buy page that stopped
+  # rendering a price — without needing any Supabase secret in CI.
+  #
+  # Base URL defaults to prod; override per-repo via the PLAYWRIGHT_BASE_URL
+  # repository variable (e.g. point it at a Cloud Run preview revision).
+  #
+  # The auth-gated specs (full lead→quote→pay→invoice funnel, RLS, roles)
+  # self-skip here because NEXT_PUBLIC_SUPABASE_ANON_KEY + seeded test users
+  # are absent. To light them up: add the anon key as a CI secret and seed the
+  # Tenant-A/B fixtures on a Supabase branch, then drop `continue-on-error`.
+  #
+  # Non-blocking for now (like lint) so a transient prod blip never blocks a
+  # merge; flip to required once it has proven stable.
+  e2e-smoke:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    defaults:
+      run:
+        working-directory: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: production/package-lock.json
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Run no-auth E2E smoke
+        env:
+          PLAYWRIGHT_BASE_URL: ${{ vars.PLAYWRIGHT_BASE_URL || 'https://resellersos-490252291080.asia-south1.run.app' }}
+        run: npx playwright test smoke.spec.ts money-spine.spec.ts --project=chromium
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: production/playwright-report/
+          retention-days: 7

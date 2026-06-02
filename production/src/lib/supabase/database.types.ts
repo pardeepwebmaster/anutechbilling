@@ -1632,6 +1632,15 @@ export type Database = {
         Returns: boolean;
       };
       /**
+       * Public (anon-callable) existence check used by the portal login page to
+       * tell a non-customer up front, before sending a magic link (migration 0066).
+       * True if any customer has this contact_email (case-insensitive).
+       */
+      portal_customer_exists: {
+        Args: { p_email: string };
+        Returns: boolean;
+      };
+      /**
        * Stamp last_login_at on the calling portal customer's own customer_users
        * row (migration 0064). Narrow SECURITY DEFINER replacement for the raw
        * UPDATE that customers used to have — that path had no WITH CHECK and let

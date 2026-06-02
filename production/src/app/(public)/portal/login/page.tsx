@@ -35,12 +35,29 @@ function PortalLoginInner() {
   const error  = params.get("error");
   const sent   = params.get("sent");
 
+  const [preNoCustomer, setPreNoCustomer] = React.useState(false);
+
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<FormData>({
     resolver: zodResolver(schema),
   });
 
   async function onSubmit({ email }: FormData) {
+    setPreNoCustomer(false);
     const supabase = createClient();
+    // Up-front check: only send a magic link if this email is actually a customer.
+    // Saves a non-customer the wasted email + the "open inbox, click link, THEN
+    // learn you're not a customer" dead end, and avoids creating an orphan
+    // auth.users row (signInWithOtp has shouldCreateUser:true).
+    const { data: exists, error: chkErr } = await supabase
+      .rpc("portal_customer_exists", { p_email: email });
+    if (chkErr) {
+      toast.error(chkErr.message);
+      return;
+    }
+    if (!exists) {
+      setPreNoCustomer(true);
+      return;
+    }
     const { error: err } = await supabase.auth.signInWithOtp({
       email,
       options: {
@@ -85,7 +102,7 @@ function PortalLoginInner() {
           <p className="text-sm text-ink-3">Access your orders, invoices and subscription</p>
         </div>
 
-        {error === "no_customer" && (
+        {(error === "no_customer" || preNoCustomer) && (
           <div className="mb-4 p-3 bg-rose-soft border border-rose/30 rounded-md text-xs text-rose">
             We couldn&apos;t find a customer account with that email. Please use the
             same email address you provided when ordering. If you&apos;re sure it&apos;s

@@ -37,9 +37,18 @@ function tenantNameFromEmail(email: string | undefined): string {
 }
 
 export async function GET(request: NextRequest) {
-  const { searchParams, origin } = new URL(request.url);
+  const { searchParams } = new URL(request.url);
   const code = searchParams.get("code");
   const next = searchParams.get("next") ?? "/dashboard";
+
+  // Public host for redirects — NEVER new URL(request.url).origin. On Cloud Run
+  // the container binds 0.0.0.0:3000, so that origin is the internal address and
+  // sends users to dead https://0.0.0.0:3000 links after Google sign-in.
+  const fwdHost = request.headers.get("x-forwarded-host") ?? request.headers.get("host");
+  const proto   = request.headers.get("x-forwarded-proto") ?? "https";
+  const origin  = fwdHost
+    ? `${proto}://${fwdHost}`
+    : (process.env.NEXT_PUBLIC_APP_URL?.replace(/\/+$/, "") ?? new URL(request.url).origin);
 
   if (!code) {
     return NextResponse.redirect(`${origin}/login?error=no_code`);

@@ -19,8 +19,19 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createClient, createAdminClient } from "@/lib/supabase/server";
 
 export async function GET(request: NextRequest) {
-  const { searchParams, origin } = new URL(request.url);
+  const { searchParams } = new URL(request.url);
   const code = searchParams.get("code");
+
+  // Build redirects from the PUBLIC host — NEVER new URL(request.url).origin.
+  // On Cloud Run the container binds 0.0.0.0:3000, so request.url's origin is the
+  // internal address and yields dead https://0.0.0.0:3000 links (broke every
+  // portal magic-link login). Prefer the forwarded host the customer actually
+  // used, then NEXT_PUBLIC_APP_URL, then (last resort) the raw origin.
+  const fwdHost = request.headers.get("x-forwarded-host") ?? request.headers.get("host");
+  const proto   = request.headers.get("x-forwarded-proto") ?? "https";
+  const origin  = fwdHost
+    ? `${proto}://${fwdHost}`
+    : (process.env.NEXT_PUBLIC_APP_URL?.replace(/\/+$/, "") ?? new URL(request.url).origin);
 
   if (!code) {
     return NextResponse.redirect(`${origin}/portal/login?error=auth_failed`);

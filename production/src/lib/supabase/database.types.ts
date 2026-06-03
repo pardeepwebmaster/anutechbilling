@@ -148,6 +148,33 @@ type TenantSecretsInsert = {
 type TenantSecretsUpdate = Partial<Omit<TenantSecretsInsert, "tenant_id">>;
 
 // ============================================================
+// inbound_emails — inbound-email → lead audit + idempotency (migration 0069)
+// ============================================================
+export type InboundEmailRow = {
+  id:         string;
+  tenant_id:  string;
+  message_id: string;
+  from_email: string | null;
+  from_name:  string | null;
+  subject:    string | null;
+  status:     string;
+  lead_id:    string | null;
+  created_at: string;
+};
+type InboundEmailInsert = {
+  id?:         string;
+  tenant_id:   string;
+  message_id:  string;
+  from_email?: string | null;
+  from_name?:  string | null;
+  subject?:    string | null;
+  status?:     string;
+  lead_id?:    string | null;
+  created_at?: string;
+};
+type InboundEmailUpdate = Partial<Omit<InboundEmailInsert, "tenant_id" | "message_id">>;
+
+// ============================================================
 // whatsapp_messages — conversation history (migration 0038)
 // ============================================================
 export type WhatsAppDirection = "inbound" | "outbound";
@@ -1471,6 +1498,7 @@ export type Database = {
       invoices:      { Row: InvoiceRow;      Insert: InvoiceInsert;      Update: InvoiceUpdate;      Relationships: [] };
       subscriptions: { Row: SubscriptionRow; Insert: SubscriptionInsert; Update: SubscriptionUpdate; Relationships: [] };
       payments:           { Row: PaymentRow;           Insert: PaymentInsert;           Update: PaymentUpdate;           Relationships: [] };
+      inbound_emails:     { Row: InboundEmailRow;      Insert: InboundEmailInsert;      Update: InboundEmailUpdate;      Relationships: [] };
       tasks:              { Row: TaskRow;              Insert: TaskInsert;              Update: TaskUpdate;              Relationships: [] };
       renewal_email_log:  { Row: RenewalEmailLogRow;   Insert: RenewalEmailLogInsert;   Update: RenewalEmailLogUpdate;   Relationships: [] };
       quote_send_log:     { Row: QuoteSendLogRow;      Insert: QuoteSendLogInsert;      Update: QuoteSendLogUpdate;      Relationships: [] };
@@ -1639,6 +1667,40 @@ export type Database = {
       portal_customer_exists: {
         Args: { p_email: string };
         Returns: boolean;
+      };
+      /**
+       * After a customer verifies their email OTP code, link the auth user to
+       * their customer row (migration 0067). SECURITY DEFINER, but only ever
+       * links auth.uid() to a customer matching that user's own email — no
+       * cross-user surface. Idempotent. Replaces the magic-link callback's
+       * linking step for the scanner-proof OTP-code login flow.
+       * Returns: 'linked' | 'already' | 'no_customer' | 'no_auth'.
+       */
+      portal_ensure_customer_link: {
+        Args: Record<string, never>;
+        Returns: string;
+      };
+      /**
+       * Customer-portal cross-sell catalog (migration 0068). Active "main" SKUs
+       * for the caller's tenant, customer-safe fields ONLY (no wholesale/margin).
+       */
+      portal_list_products: {
+        Args: Record<string, never>;
+        Returns: {
+          id: string;
+          name: string;
+          vendor: string;
+          price_per_seat_month: number;
+          hsn: string | null;
+        }[];
+      };
+      /**
+       * Customer requests a quote for a product → creates a lead in the
+       * reseller's pipeline (migration 0068). Returns the new lead id.
+       */
+      portal_request_quote: {
+        Args: { p_item_id: string; p_seats: number; p_note?: string };
+        Returns: string;
       };
       /**
        * Stamp last_login_at on the calling portal customer's own customer_users

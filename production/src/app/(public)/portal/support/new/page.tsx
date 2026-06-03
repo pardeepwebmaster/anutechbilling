@@ -77,7 +77,7 @@ export default function NewTicketPage() {
       .eq("auth_user_id", authData.user.id)
       .maybeSingle();
     if (!link) {
-      toast.error("Customer profile not found. Contact Pardeep.");
+      toast.error("Customer profile not found. Please sign in again.");
       return;
     }
     const customerName = ((link.customers as unknown) as { name?: string } | null)?.name ?? "Customer";
@@ -99,7 +99,7 @@ export default function NewTicketPage() {
       toast.error(error.message);
       return;
     }
-    toast.success("Ticket raised · Pardeep will respond within 4 business hours");
+    toast.success("Ticket raised · we'll respond within 4 business hours");
     router.push("/portal/support");
   }
 
@@ -111,7 +111,7 @@ export default function NewTicketPage() {
         </Link>
         <h1 className="font-serif text-3xl md:text-4xl tracking-tight mt-2">Raise a ticket</h1>
         <p className="text-sm text-ink-3 mt-1">
-          Pardeep responds within 4 business hours. For urgent items, also WhatsApp him.
+          We respond within 4 business hours. For urgent items, also WhatsApp us.
         </p>
       </div>
 

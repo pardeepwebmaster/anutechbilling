@@ -8,12 +8,15 @@ import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 
 export interface PortalSession {
-  userId:       string;
-  userEmail:    string;
-  customerId:   string;
-  customerName: string;
-  tenantId:     string;
-  tenantName:   string;
+  userId:            string;
+  userEmail:         string;
+  customerId:        string;
+  customerName:      string;
+  tenantId:          string;
+  tenantName:        string;
+  tenantPhone:       string | null;
+  tenantGstin:       string | null;
+  tenantContactName: string | null;
 }
 
 /**
@@ -31,7 +34,7 @@ export async function getPortalSession(): Promise<PortalSession | null> {
 
   const { data: link } = await supabase
     .from("customer_users")
-    .select("customer_id, tenant_id, email, customers ( name ), tenants ( name )")
+    .select("customer_id, tenant_id, email, customers ( name ), tenants ( name, phone, gstin, contact_name )")
     .eq("auth_user_id", user.id)
     .maybeSingle();
   if (!link) return null;
@@ -47,15 +50,20 @@ export async function getPortalSession(): Promise<PortalSession | null> {
   // depending on the FK direction. Both `customers` and `tenants` are
   // single-row joins so we coerce defensively.
   const customer = (link.customers as unknown) as { name?: string } | null;
-  const tenant   = (link.tenants   as unknown) as { name?: string } | null;
+  const tenant   = (link.tenants   as unknown) as {
+    name?: string; phone?: string | null; gstin?: string | null; contact_name?: string | null;
+  } | null;
 
   return {
-    userId:       user.id,
-    userEmail:    user.email ?? link.email ?? "",
-    customerId:   link.customer_id,
-    customerName: customer?.name ?? "Customer",
-    tenantId:     link.tenant_id,
-    tenantName:   tenant?.name   ?? "Reseller",
+    userId:            user.id,
+    userEmail:         user.email ?? link.email ?? "",
+    customerId:        link.customer_id,
+    customerName:      customer?.name ?? "Customer",
+    tenantId:          link.tenant_id,
+    tenantName:        tenant?.name   ?? "Reseller",
+    tenantPhone:       tenant?.phone        ?? null,
+    tenantGstin:       tenant?.gstin        ?? null,
+    tenantContactName: tenant?.contact_name ?? null,
   };
 }
 

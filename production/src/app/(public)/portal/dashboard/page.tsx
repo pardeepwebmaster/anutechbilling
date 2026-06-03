@@ -8,6 +8,8 @@ import { requirePortalSession } from "@/lib/portal/session";
 import { createClient } from "@/lib/supabase/server";
 import { Card } from "@/components/ui/card";
 import { rupee, formatDate, daysBetween } from "@/lib/utils";
+import { tenantWhatsAppLink, phoneDisplay } from "@/lib/portal/branding";
+import { SeatUsage } from "../_components/seat-usage";
 
 export const dynamic = "force-dynamic";
 
@@ -18,7 +20,7 @@ export default async function PortalDashboardPage() {
   // Active subscription (RLS gives us only ours)
   const { data: subs } = await supabase
     .from("subscriptions")
-    .select("id, plan, vendor, seats, mrr, start_date, renewal_date, status, outstanding_amount")
+    .select("id, plan, vendor, seats, used, mrr, start_date, renewal_date, status, outstanding_amount")
     .eq("status", "active")
     .order("renewal_date", { ascending: true });
 
@@ -86,11 +88,17 @@ export default async function PortalDashboardPage() {
               tone={primary.outstanding_amount > 0 ? "rose" : "emerald"}
             />
           </div>
+
+          {typeof primary.seats === "number" && primary.seats > 0 && (
+            <div className="mt-5 pt-4 border-t border-hairline">
+              <SeatUsage used={primary.used ?? 0} seats={primary.seats} />
+            </div>
+          )}
         </Card>
       ) : (
         <Card className="p-6 mb-6 text-center text-sm text-ink-3">
           No active subscription on file. If you&apos;ve recently ordered, it&apos;ll
-          appear here within 24 hours of provisioning. Otherwise WhatsApp Pardeep.
+          appear here within 24 hours of provisioning. Otherwise contact {session.tenantContactName ?? session.tenantName}.
         </Card>
       )}
 
@@ -106,7 +114,8 @@ export default async function PortalDashboardPage() {
       )}
 
       {/* Quick actions */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-6">
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-6">
+        <QuickLink href="/portal/shop"         title="Shop"         sub="Buy more products" />
         <QuickLink href="/portal/subscription" title="Subscription" sub="Manage plan + auto-renew" />
         <QuickLink href="/portal/orders"       title="Orders"       sub="Quote + order history" />
         <QuickLink href="/portal/invoices"     title="Invoices"     sub="GST tax invoices" />
@@ -114,23 +123,44 @@ export default async function PortalDashboardPage() {
         <QuickLink href="/portal/profile"      title="Profile"      sub="Company + GSTIN" />
       </div>
 
-      {/* Support */}
-      <Card className="p-6 text-center">
-        <div className="text-[11px] uppercase tracking-wider text-ink-3 font-semibold mb-2">
-          Need help right now?
-        </div>
-        <h2 className="font-serif text-xl mb-3">Pardeep picks up the phone.</h2>
-        <a
-          href="https://wa.me/919999930300?text=Hi%20Pardeep%2C%20question%20about%20my%20Excel%20Tech%20subscription..."
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center justify-center gap-2 px-6 h-11 rounded-lg font-medium text-paper text-sm"
-          style={{ background: "#25D366" }}
-        >
-          WhatsApp Pardeep · +91 99999 30300
-        </a>
-        <div className="mt-3 text-[11px] text-ink-3">Mon–Sat · 9am–7pm IST</div>
-      </Card>
+      {/* Support — reseller's own contact (per-tenant) */}
+      {(() => {
+        const waName    = session.tenantContactName ?? session.tenantName;
+        const waDisplay = phoneDisplay(session.tenantPhone);
+        const waLink    = tenantWhatsAppLink(
+          session.tenantPhone,
+          `Hi, I have a question about my ${session.tenantName} subscription.`,
+        );
+        return (
+          <Card className="p-6 text-center">
+            <div className="text-[11px] uppercase tracking-wider text-ink-3 font-semibold mb-2">
+              Need help right now?
+            </div>
+            <h2 className="font-serif text-xl mb-3">{waName} picks up the phone.</h2>
+            {waLink ? (
+              <>
+                <a
+                  href={waLink}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center justify-center gap-2 px-6 h-11 rounded-lg font-medium text-paper text-sm"
+                  style={{ background: "#25D366" }}
+                >
+                  WhatsApp {waName}{waDisplay ? ` · ${waDisplay}` : ""}
+                </a>
+                <div className="mt-3 text-[11px] text-ink-3">Mon–Sat · 9am–7pm IST</div>
+              </>
+            ) : (
+              <Link
+                href="/portal/support"
+                className="inline-flex items-center justify-center gap-2 px-6 h-11 rounded-lg font-medium text-paper text-sm bg-amber"
+              >
+                Raise a support ticket
+              </Link>
+            )}
+          </Card>
+        );
+      })()}
     </div>
   );
 }
@@ -156,10 +186,10 @@ function KV({
   );
 }
 
-function QuickLink({ href, title, sub }: { href: "/portal/orders" | "/portal/invoices" | "/portal/profile" | "/portal/subscription" | "/portal/support"; title: string; sub: string }) {
+function QuickLink({ href, title, sub }: { href: "/portal/shop" | "/portal/orders" | "/portal/invoices" | "/portal/profile" | "/portal/subscription" | "/portal/support"; title: string; sub: string }) {
   return (
-    <Link href={href} className="block">
-      <Card className="p-4 hover:bg-paper-2/40 transition-colors">
+    <Link href={href as never} className="block h-full">
+      <Card className="p-4 h-full hover:bg-paper-2/40 transition-colors">
         <div className="font-serif text-base text-ink">{title}</div>
         <div className="text-[11px] text-ink-3 mt-0.5">{sub}</div>
       </Card>

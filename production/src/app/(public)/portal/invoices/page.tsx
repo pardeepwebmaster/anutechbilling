@@ -10,6 +10,8 @@ import { createClient } from "@/lib/supabase/server";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { rupee, formatDate } from "@/lib/utils";
+import { tenantWhatsAppLink, phoneDisplay } from "@/lib/portal/branding";
+import { PayInvoiceButton } from "./_components/pay-invoice-button";
 
 export const dynamic = "force-dynamic";
 
@@ -22,7 +24,8 @@ const STATUS_COLOR: Record<string, "emerald" | "amber" | "rose" | "slate"> = {
 };
 
 export default async function PortalInvoicesPage() {
-  await requirePortalSession();
+  const session  = await requirePortalSession();
+  const reseller = session.tenantContactName ?? session.tenantName;
   const supabase = createClient();
 
   const { data: invoices } = await supabase
@@ -49,14 +52,14 @@ export default async function PortalInvoicesPage() {
         <Card className="p-4 mb-6 border-rose/40 bg-rose-soft/30">
           <div className="text-sm text-ink-2">
             <b>{rupee(totalOutstanding)}</b> outstanding across your unpaid invoices.
-            Pay via UPI / NEFT / Razorpay and Pardeep will mark them cleared.
+            Pay via UPI / NEFT / Razorpay and {reseller} will mark them cleared.
           </div>
         </Card>
       )}
 
       {rows.length === 0 ? (
         <Card className="p-8 text-center text-sm text-ink-3">
-          No invoices issued yet. They appear here once Pardeep raises a tax
+          No invoices issued yet. They appear here once {reseller} raises a tax
           invoice against your paid order.
         </Card>
       ) : (
@@ -70,7 +73,7 @@ export default async function PortalInvoicesPage() {
                 <th className="text-right px-4 py-3">Net payable</th>
                 <th className="text-left  px-4 py-3">IRN</th>
                 <th className="text-left  px-4 py-3">Status</th>
-                <th className="text-right px-4 py-3">Download</th>
+                <th className="text-right px-4 py-3">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-hairline">
@@ -88,15 +91,20 @@ export default async function PortalInvoicesPage() {
                   <td className="px-4 py-3">
                     <Badge color={STATUS_COLOR[inv.status] ?? "slate"}>{inv.status}</Badge>
                   </td>
-                  <td className="px-4 py-3 text-right">
-                    <a
-                      href={`/api/portal/invoice/${encodeURIComponent(inv.id)}/pdf`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-xs text-amber-ink hover:underline"
-                    >
-                      PDF ↓
-                    </a>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center justify-end gap-3">
+                      {(inv.status === "pending" || inv.status === "overdue") && (
+                        <PayInvoiceButton invoiceId={inv.id} email={session.userEmail} />
+                      )}
+                      <a
+                        href={`/api/portal/invoice/${encodeURIComponent(inv.id)}/pdf`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs text-amber-ink hover:underline whitespace-nowrap"
+                      >
+                        PDF ↓
+                      </a>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -105,12 +113,18 @@ export default async function PortalInvoicesPage() {
         </Card>
       )}
 
-      <div className="mt-6 text-[11px] text-ink-3 text-center">
-        Questions about an invoice? WhatsApp Pardeep on{" "}
-        <a href="https://wa.me/919999930300" target="_blank" rel="noopener noreferrer" className="text-amber-ink hover:underline">
-          +91 99999 30300
-        </a>
-      </div>
+      {tenantWhatsAppLink(session.tenantPhone, `Hi ${reseller}, I have a question about an invoice.`) && (
+        <div className="mt-6 text-[11px] text-ink-3 text-center">
+          Questions about an invoice? WhatsApp {reseller} on{" "}
+          <a
+            href={tenantWhatsAppLink(session.tenantPhone, `Hi ${reseller}, I have a question about an invoice.`)!}
+            target="_blank" rel="noopener noreferrer"
+            className="text-amber-ink hover:underline"
+          >
+            {phoneDisplay(session.tenantPhone)}
+          </a>
+        </div>
+      )}
     </div>
   );
 }

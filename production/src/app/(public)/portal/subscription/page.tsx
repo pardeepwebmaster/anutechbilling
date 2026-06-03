@@ -26,6 +26,7 @@ import { Icon } from "@/components/ui/icon";
 import { Skeleton } from "@/components/ui/skeleton";
 import { rupee, formatDate, daysBetween } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
+import { SeatUsage } from "../_components/seat-usage";
 
 interface Sub {
   id:                 string;
@@ -35,6 +36,7 @@ interface Sub {
   plan:               string;
   vendor:             string;
   seats:              number;
+  used:               number;
   mrr:                number;
   start_date:         string | null;
   renewal_date:       string | null;
@@ -67,7 +69,7 @@ export default function PortalSubscriptionPage() {
       const supabase = createClient();
       const { data, error } = await supabase
         .from("subscriptions")
-        .select("id, tenant_id, customer_id, customer_name, plan, vendor, seats, mrr, start_date, renewal_date, status, outstanding_amount, auto_renew")
+        .select("id, tenant_id, customer_id, customer_name, plan, vendor, seats, used, mrr, start_date, renewal_date, status, outstanding_amount, auto_renew")
         .order("renewal_date", { ascending: true });
       if (error) {
         toast.error(error.message);
@@ -110,8 +112,9 @@ export default function PortalSubscriptionPage() {
 
       {activeSubs.length === 0 ? (
         <Card className="p-8 text-center text-sm text-ink-3">
-          No active subscription on file. WhatsApp Pardeep on{" "}
-          <b className="text-ink">+91 99999 30300</b> if you expect one to be here.
+          No active subscription on file. Raise a request on the{" "}
+          <Link href="/portal/support" className="text-amber-ink underline">Support</Link>{" "}
+          tab if you expect one to be here.
         </Card>
       ) : (
         <div className="space-y-4">
@@ -180,6 +183,12 @@ export default function PortalSubscriptionPage() {
                   </div>
                 </div>
 
+                {sub.seats > 0 && (
+                  <div className="mb-5">
+                    <SeatUsage used={sub.used ?? 0} seats={sub.seats} />
+                  </div>
+                )}
+
                 {/* Actions */}
                 <div className="flex flex-wrap gap-2">
                   <Button variant="primary" onClick={() => openChange(sub)}>
@@ -211,7 +220,7 @@ export default function PortalSubscriptionPage() {
         <Icon name="info" size={12} className="text-indigo inline mr-1 align-text-bottom" />
         <b className="text-ink">How renewals &amp; changes work:</b> Renewals are manual — we prepare
         your renewal quote and remind you before each cycle; you pay then (we never auto-charge a
-        card). Seat / plan changes and cancellations go through Pardeep as a ticket — he&apos;ll
+        card). Seat / plan changes and cancellations go through us as a ticket — we&apos;ll
         WhatsApp / email within 4 business hours.
       </div>
     </div>
@@ -262,7 +271,7 @@ function SeatChangeForm({ sub, onClose }: { sub: Sub; onClose: () => void }) {
       toast.error(error.message);
       return;
     }
-    toast.success("Request raised · Pardeep will WhatsApp you with a revised quote");
+    toast.success("Request raised · we'll get back to you with a revised quote");
     onClose();
   }
 

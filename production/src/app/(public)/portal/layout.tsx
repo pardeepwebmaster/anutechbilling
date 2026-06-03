@@ -1,36 +1,88 @@
 /**
  * Customer Portal layout — shared chrome for /portal/* pages.
- * Lightweight nav. Reseller branding (Excel Tech for v1).
+ *
+ * Branding is now PER-TENANT (v1): the reseller's name + an auto initials
+ * logo + their GSTIN in the footer, derived from the logged-in customer's
+ * tenant via getPortalSession(). Before login (no session — e.g. /portal/login)
+ * we show a neutral "Customer Portal" brand, because the visitor's reseller
+ * isn't known until they authenticate. Accent stays the house amber (no
+ * per-tenant colours in v1).
  */
 import Link from "next/link";
+import { getPortalSession } from "@/lib/portal/session";
+import { initials } from "@/lib/utils";
+import { PortalAccountMenu } from "./_components/portal-account-menu";
 
-export default function PortalLayout({ children }: { children: React.ReactNode }) {
+const NAV: Array<{ href: string; label: string }> = [
+  { href: "/portal/dashboard",    label: "Dashboard" },
+  { href: "/portal/subscription", label: "Subscription" },
+  { href: "/portal/shop",         label: "Shop" },
+  { href: "/portal/orders",       label: "Orders" },
+  { href: "/portal/invoices",     label: "Invoices" },
+  { href: "/portal/support",      label: "Support" },
+  { href: "/portal/profile",      label: "Profile" },
+];
+
+export default async function PortalLayout({ children }: { children: React.ReactNode }) {
+  const session   = await getPortalSession();
+  const brandName = session?.tenantName ?? "Customer Portal";
+  const mark      = session ? initials(session.tenantName) : "•";
+  const gstin     = session?.tenantGstin ?? null;
+
   return (
     <div className="min-h-screen bg-paper-2/40 flex flex-col">
       <header className="border-b border-hairline bg-paper">
-        <div className="max-w-[1080px] mx-auto px-6 py-4 flex items-center justify-between">
-          <Link href="/portal" className="flex items-center gap-3">
-            <div className="w-9 h-9 bg-ink text-paper rounded-md grid place-items-center font-serif text-lg">
-              R
+        <div className="max-w-[1080px] mx-auto px-6 py-4 flex items-center justify-between gap-4">
+          <Link href={session ? "/portal/dashboard" : "/portal"} className="flex items-center gap-3 min-w-0">
+            <div className="w-9 h-9 bg-ink text-paper rounded-md grid place-items-center font-serif text-base flex-shrink-0">
+              {mark}
             </div>
-            <div>
-              <div className="font-serif text-base leading-none">Excel Technologies</div>
+            <div className="min-w-0">
+              <div className="font-serif text-base leading-none truncate">{brandName}</div>
               <div className="text-[10px] text-ink-3 mt-1">Customer Portal</div>
             </div>
           </Link>
-          <nav className="hidden sm:flex items-center gap-5 text-sm text-ink-3">
-            <Link href="/portal/dashboard"    className="hover:text-ink">Dashboard</Link>
-            <Link href="/portal/subscription" className="hover:text-ink">Subscription</Link>
-            <Link href="/portal/orders"       className="hover:text-ink">Orders</Link>
-            <Link href="/portal/invoices"     className="hover:text-ink">Invoices</Link>
-            <Link href="/portal/support"      className="hover:text-ink">Support</Link>
-            <Link href="/portal/profile"      className="hover:text-ink">Profile</Link>
-          </nav>
+          <div className="flex items-center gap-5">
+            {/* Desktop nav — inline */}
+            {session && (
+              <nav aria-label="Portal sections" className="hidden md:flex items-center gap-5 text-sm text-ink-3">
+                {NAV.map((n) => (
+                  <Link key={n.href} href={n.href as never} className="hover:text-ink whitespace-nowrap">
+                    {n.label}
+                  </Link>
+                ))}
+              </nav>
+            )}
+            {/* Account menu — always top-right when signed in (mobile + desktop) */}
+            {session && (
+              <PortalAccountMenu customerName={session.customerName} email={session.userEmail} />
+            )}
+          </div>
         </div>
+        {/* Mobile nav — horizontally scrollable strip so every section stays reachable */}
+        {session && (
+          <nav className="md:hidden border-t border-hairline overflow-x-auto" aria-label="Portal sections">
+            <div className="flex items-center gap-5 px-6 py-2.5 text-sm text-ink-3 whitespace-nowrap min-w-max">
+              {NAV.map((n) => (
+                <Link key={n.href} href={n.href as never} className="hover:text-ink">
+                  {n.label}
+                </Link>
+              ))}
+            </div>
+          </nav>
+        )}
       </header>
       <main className="flex-1">{children}</main>
-      <footer className="border-t border-hairline bg-paper py-6 text-center text-xs text-ink-3">
-        Excel Technologies Pvt Ltd · Google Premier Partner since 2014 · GSTIN registered
+      <footer className="border-t border-hairline bg-paper py-6 text-center text-xs text-ink-3 px-6">
+        {session ? (
+          <>
+            {brandName}
+            {gstin ? <> · GSTIN <span className="font-mono">{gstin}</span></> : null}
+            {" "}· Powered by ResellerOS
+          </>
+        ) : (
+          <>Customer Portal · Powered by ResellerOS</>
+        )}
       </footer>
     </div>
   );

@@ -4,11 +4,13 @@
  * For v1 customers cannot edit (would need a workflow for verification).
  * They can request changes via the WhatsApp link.
  */
+import Link from "next/link";
 import { requirePortalSession } from "@/lib/portal/session";
 import { createClient } from "@/lib/supabase/server";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
+import { tenantWhatsAppLink } from "@/lib/portal/branding";
 
 export const dynamic = "force-dynamic";
 
@@ -27,7 +29,7 @@ export default async function PortalProfilePage() {
       <div className="mb-6">
         <h1 className="font-serif text-3xl md:text-4xl tracking-tight">Profile</h1>
         <p className="text-sm text-ink-3 mt-1">
-          What we have on file. Changes? Message Pardeep — we&apos;ll update + acknowledge.
+          What we have on file. Changes? Message {session.tenantContactName ?? session.tenantName} — we&apos;ll update + acknowledge.
         </p>
       </div>
 
@@ -63,16 +65,28 @@ export default async function PortalProfilePage() {
         <div className="text-sm text-ink-2 mb-3">
           Need to update GSTIN, address, primary contact, or any other detail?
         </div>
-        <Button asChild variant="primary">
-          <a
-            href={`https://wa.me/919999930300?text=${encodeURIComponent(`Hi Pardeep, please update my profile (${customer?.name ?? "customer"}): ...`)}`}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Icon name="whatsapp" size={14} className="mr-1.5" />
-            WhatsApp Pardeep
-          </a>
-        </Button>
+        {(() => {
+          const reseller = session.tenantContactName ?? session.tenantName;
+          const waLink = tenantWhatsAppLink(
+            session.tenantPhone,
+            `Hi ${reseller}, please update my profile (${customer?.name ?? "customer"}): ...`,
+          );
+          return waLink ? (
+            <Button asChild variant="primary">
+              <a href={waLink} target="_blank" rel="noopener noreferrer">
+                <Icon name="whatsapp" size={14} className="mr-1.5" />
+                WhatsApp {reseller}
+              </a>
+            </Button>
+          ) : (
+            <Button asChild variant="primary">
+              <Link href="/portal/support">
+                <Icon name="ticket" size={14} className="mr-1.5" />
+                Raise a request
+              </Link>
+            </Button>
+          );
+        })()}
       </Card>
 
       <div className="mt-6 text-[11px] text-ink-3 text-center">

@@ -16,6 +16,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { formatDate } from "@/lib/utils";
+import { tenantWhatsAppLink, phoneDisplay } from "@/lib/portal/branding";
 
 export const dynamic = "force-dynamic";
 
@@ -28,7 +29,7 @@ const STATUS_COLOR: Record<string, "emerald" | "amber" | "rose" | "slate" | "ind
 };
 
 const STATUS_LABEL: Record<string, string> = {
-  open:              "Open · awaiting Pardeep",
+  open:              "Open · awaiting response",
   in_progress:       "In progress",
   awaiting_customer: "Awaiting your reply",
   resolved:          "Resolved",
@@ -36,7 +37,9 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 export default async function PortalSupportPage() {
-  await requirePortalSession();
+  const session  = await requirePortalSession();
+  const reseller = session.tenantContactName ?? session.tenantName;
+  const waLink   = tenantWhatsAppLink(session.tenantPhone, `Hi ${reseller}, I need urgent help.`);
   const supabase = createClient();
 
   const { data: tickets } = await supabase
@@ -53,8 +56,15 @@ export default async function PortalSupportPage() {
         <div>
           <h1 className="font-serif text-3xl md:text-4xl tracking-tight">Support</h1>
           <p className="text-sm text-ink-3 mt-1">
-            Raise issues here for a written trail. For urgent items, WhatsApp Pardeep on{" "}
-            <b className="text-ink">+91 99999 30300</b>.
+            Raise issues here for a written trail.
+            {waLink && (
+              <>
+                {" "}For urgent items, WhatsApp {reseller} on{" "}
+                <a href={waLink} target="_blank" rel="noopener noreferrer" className="text-amber-ink hover:underline">
+                  {phoneDisplay(session.tenantPhone)}
+                </a>.
+              </>
+            )}
           </p>
         </div>
         <Button asChild variant="primary">
@@ -73,7 +83,7 @@ export default async function PortalSupportPage() {
           <h2 className="font-serif text-xl mb-2">No tickets yet</h2>
           <p className="text-sm text-ink-3 mb-5 max-w-md mx-auto">
             Have a billing question, technical issue, or want to change your plan?
-            Raise a ticket — Pardeep responds within 4 business hours.
+            Raise a ticket — {reseller} responds within 4 business hours.
           </p>
           <Button asChild variant="primary">
             <Link href="/portal/support/new">
@@ -89,7 +99,7 @@ export default async function PortalSupportPage() {
               <div className="text-sm text-ink-2">
                 <Icon name="info" size={14} className="text-amber-ink inline mr-1 align-text-bottom" />
                 <b>{openCount} {openCount === 1 ? "ticket is" : "tickets are"}</b> open or in progress.
-                Pardeep responds within 4 business hours.
+                {" "}{reseller} responds within 4 business hours.
               </div>
             </Card>
           )}
@@ -124,7 +134,7 @@ export default async function PortalSupportPage() {
                 {t.resolution_note && (
                   <div className="mt-3 p-3 rounded-md bg-emerald-soft/40 border border-emerald/20 text-xs">
                     <div className="text-[10px] uppercase tracking-wider text-emerald font-semibold mb-1">
-                      Pardeep&apos;s response
+                      {reseller}&apos;s response
                     </div>
                     <p className="text-ink-2 leading-relaxed">{t.resolution_note}</p>
                   </div>

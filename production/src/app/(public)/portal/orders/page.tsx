@@ -21,7 +21,8 @@ const PAYMENT_STATUS_COLOR: Record<string, "emerald" | "amber" | "rose" | "slate
 };
 
 export default async function PortalOrdersPage() {
-  await requirePortalSession();
+  const session  = await requirePortalSession();
+  const reseller = session.tenantContactName ?? session.tenantName;
   const supabase = createClient();
 
   const { data: quotes } = await supabase
@@ -43,8 +44,8 @@ export default async function PortalOrdersPage() {
 
       {rows.length === 0 ? (
         <Card className="p-8 text-center text-sm text-ink-3">
-          No orders yet. New orders take a few minutes to appear after Pardeep
-          enters them in the system. WhatsApp him if you expect one to be here.
+          No orders yet. New orders take a few minutes to appear after {reseller}
+          enters them in the system. Message {reseller} if you expect one to be here.
         </Card>
       ) : (
         <Card className="overflow-hidden">

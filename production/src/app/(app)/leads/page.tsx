@@ -31,13 +31,11 @@ import { AddTaskDialog } from "@/components/features/tasks/add-task-dialog";
 import { LeadCard } from "@/components/features/leads/lead-card";
 import { AddLeadForm } from "@/components/features/leads/add-lead-form";
 import { QuickAddLeadForm } from "@/components/features/leads/quick-add-lead-form";
-import { LeadsInsightBand, type LeadsDueFilter } from "@/components/features/leads/leads-insight-band";
-import { LeadsTodayStrip } from "@/components/features/leads/leads-today-strip";
 import { LeadsSmartViews, type SmartView } from "@/components/features/leads/leads-smart-views";
 import { SwipeLeadCard } from "@/components/features/leads/swipe-lead-card";
 import { ImportCsvDialog } from "@/components/features/leads/import-csv-dialog";
-import { LeadsRightRail } from "@/components/features/leads/leads-right-rail";
 import StartTrialDialog from "@/components/features/leads/start-trial-dialog";
+import { LeadPanel } from "@/components/features/leads/lead-panel";
 import CampaignComposerDialog from "@/components/features/campaigns/campaign-composer-dialog";
 import GoogleContactsImportDialog from "@/components/features/contacts/google-contacts-import-dialog";
 import SendWhatsAppDialog from "@/components/features/whatsapp/send-whatsapp-dialog";
@@ -117,7 +115,6 @@ function LeadsPageInner() {
   //   overdue  → follow_up_date < today
   //   hot      → stage in [demo, trial, quote]
   //   all      → no constraint
-  const [dueFilter, setDueFilter] = React.useState<LeadsDueFilter>("all");
   // Smart view = saved filter combo (HubSpot/Close/Attio pattern). Each
   // chip in <LeadsSmartViews/> sets this. The `searched` memo below
   // applies the view as an additional filter cut.
@@ -156,6 +153,7 @@ function LeadsPageInner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
   const [selected, setSelected] = React.useState<Lead | null>(null);
+  const [panelLeadId, setPanelLeadId] = React.useState<string | null>(null);
   const [editingLead, setEditingLead] = React.useState<Lead | null>(null);
   // "Follow-ups due today" banner — click to expand the list of due leads.
   const [dueListOpen, setDueListOpen] = React.useState(false);
@@ -239,33 +237,21 @@ function LeadsPageInner() {
     if (priorityFilter.length > 0) {
       list = list.filter((l) => priorityFilter.includes(l.priority as "low"|"medium"|"high"));
     }
-    // 4. Due-bucket filter from the insight band's KPI pills.
-    if (dueFilter !== "all") {
-      const todayStr = new Date().toISOString().slice(0, 10);
-      if (dueFilter === "today") {
-        // KPI "Today" = leads created today (aaj aayi). Follow-up due-today
-        // is rare in the operator's mental model — overdue is the urgent one.
-        list = list.filter((l) => l.created_at?.slice(0, 10) === todayStr);
-      } else if (dueFilter === "overdue") {
-        list = list.filter((l) => l.follow_up_date && l.follow_up_date < todayStr && l.stage !== "won" && l.stage !== "lost");
-      } else if (dueFilter === "hot") {
-        list = list.filter((l) => l.stage === "demo" || l.stage === "trial" || l.stage === "quote");
-      }
-    }
-    // 5. Smart view filter (Close/Attio pattern). Sits on TOP of search +
-    //    stage + priority + dueFilter so users can stack a view with
-    //    free-text refinement.
+    // 4. Single unified view filter (one chip row — All / Today / Overdue /
+    //    Hot / New / Won MTD / Mine). Each chip maps to exactly one bucket, so
+    //    there's no overlap/duplication (the old separate due-bucket KPI row is
+    //    gone). Sits on top of search + stage + priority.
     if (smartView !== "all") {
       const todayStr = new Date().toISOString().slice(0, 10);
       const monthStart = new Date(); monthStart.setDate(1); monthStart.setHours(0, 0, 0, 0);
       if (smartView === "mine") {
         list = list.filter((l) => currentUser && l.owner_id === currentUser.userId);
       } else if (smartView === "today") {
-        // "Today" = leads that arrived TODAY (created today). Operator-friendly:
-        // when they ask "what came in today?" they mean new inbound, not
-        // follow-up reminders. Follow-up bucket is "Overdue" (a separate
-        // KPI in the insight band).
+        // Arrived today (new inbound).
         list = list.filter((l) => l.created_at?.slice(0, 10) === todayStr);
+      } else if (smartView === "overdue") {
+        // Follow-up overdue + still open — the rep's most actionable bucket.
+        list = list.filter((l) => l.follow_up_date && l.follow_up_date < todayStr && l.stage !== "won" && l.stage !== "lost");
       } else if (smartView === "hot") {
         list = list.filter((l) => l.stage === "demo" || l.stage === "trial" || l.stage === "quote");
       } else if (smartView === "new") {
@@ -275,8 +261,8 @@ function LeadsPageInner() {
       }
     }
     return list;
-  }, [leads, search, stageFilter, priorityFilter, dueFilter, smartView, currentUser]);
-  const activeFilterCount = stageFilter.length + priorityFilter.length + (dueFilter !== "all" ? 1 : 0);
+  }, [leads, search, stageFilter, priorityFilter, smartView, currentUser]);
+  const activeFilterCount = stageFilter.length + priorityFilter.length;
 
   const isRaw = (l: Lead) => !l.plan || l.plan.trim() === "";
   const rawLeads      = React.useMemo(() => searched.filter(isRaw),       [searched]);
@@ -325,7 +311,7 @@ function LeadsPageInner() {
   };
 
   return (
-    <div className="p-4 md:p-6 lg:p-8 lg:pr-[336px] max-w-[1800px] mx-auto min-h-[calc(100vh-3.5rem)] flex flex-col bg-paper">
+    <div className="p-4 md:p-6 lg:p-8 max-w-[1800px] mx-auto min-h-[calc(100vh-3.5rem)] flex flex-col bg-paper">
       {/* Header */}
       <div className="flex items-end justify-between gap-3 flex-wrap mb-6">
         <div>
@@ -530,35 +516,6 @@ function LeadsPageInner() {
         />
       )}
 
-      {/* Today strip — urgent actionables ABOVE the KPI band.
-          HubSpot Sales Workspace 2025 pattern: reps see "what's urgent
-          NOW" before any data. Each chip is a tap-to-filter pill. */}
-      {!isLoading && leads && leads.length > 0 && (
-        <LeadsTodayStrip
-          leads={leadsForTab}
-          dueFilter={dueFilter}
-          onFilterDue={setDueFilter}
-        />
-      )}
-
-      {/* Insight band — KPI pills + pipeline pulse. Shared across all
-          breakpoints. Pills are tappable and drive `dueFilter`; pulse
-          segments are tappable and drive `stageFilter`. Reads from the
-          full `leads` array (pre-filter) so KPIs stay accurate while
-          the user is searching / filtering. */}
-      {!isLoading && leads && leads.length > 0 && (
-        <LeadsInsightBand
-          leads={leadsForTab}
-          dueFilter={dueFilter}
-          activeStages={stageFilter}
-          onChangeDueFilter={setDueFilter}
-          onToggleStage={(s) => {
-            setStageFilter((prev) =>
-              prev.length === 1 && prev[0] === s ? [] : [s],
-            );
-          }}
-        />
-      )}
 
       {/* ─── Main content + right rail split.
           flex-1 + min-h-0 makes this section take up all remaining
@@ -924,7 +881,7 @@ function LeadsPageInner() {
           internal "No leads match." row appears AND the smart empty state
           below also fires, creating a duplicate. Skipping the table here
           lets the smart empty state below own the empty-screen real estate. */}
-      {!isLoading && !error && leads && leads.length > 0 && effectiveView === "list" && filtered.length > 0 && (
+      {!isLoading && !error && leads && leads.length > 0 && effectiveView === "list" && filtered.length > 0 && !panelLeadId && (
         <LeadListView
           leads={filtered}
           sortBy={sortBy}
@@ -933,9 +890,46 @@ function LeadsPageInner() {
             if (sortBy === col) setSortDir(sortDir === "asc" ? "desc" : "asc");
             else { setSortBy(col); setSortDir(col === "company" ? "asc" : "desc"); }
           }}
-          onRowClick={(l) => setSelected(l)}
+          onRowClick={(l) => { if (isMobile) setSelected(l); else setPanelLeadId(l.id); }}
         />
       )}
+
+      {/* List view — master-detail (desktop only; a lead is selected). Mobile
+          keeps the existing tap → detail drawer behaviour. */}
+      {!isLoading && !error && effectiveView === "list" && panelLeadId && (() => {
+        const panelLead = filtered.find((l) => l.id === panelLeadId)
+          ?? (leadsForTab.find((l) => l.id === panelLeadId) ?? null);
+        return (
+          <div className="hidden md:flex border border-hairline rounded-xl overflow-hidden bg-paper h-[calc(100vh-240px)] min-h-[460px]">
+            <div className="w-[320px] border-r border-hairline overflow-y-auto flex-shrink-0">
+              {filtered.map((l) => {
+                const active = l.id === panelLeadId;
+                return (
+                  <button
+                    key={l.id}
+                    type="button"
+                    onClick={() => setPanelLeadId(l.id)}
+                    className={cn(
+                      "w-full text-left px-3 py-2.5 border-b border-hairline/60 transition-colors",
+                      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber focus-visible:ring-inset",
+                      active ? "bg-amber-soft/50" : "hover:bg-paper-2/50",
+                    )}
+                  >
+                    <div className="font-medium text-sm text-ink truncate">{l.company}</div>
+                    <div className="flex items-center justify-between gap-2 text-[11px] text-ink-3 mt-0.5">
+                      <span className="truncate">{l.contact_name || l.contact_email || "—"}</span>
+                      {l.value ? <span className="tabular-nums flex-shrink-0">{rupee(l.value, { compact: true })}</span> : null}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+            <div className="flex-1 min-h-0">
+              {panelLead ? <LeadPanel lead={panelLead} onClose={() => setPanelLeadId(null)} /> : null}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* No results from search OR tab cross-over hint.
           The /leads tab shows only raw inquiries (no plan picked); /deals
@@ -1001,45 +995,15 @@ function LeadsPageInner() {
               icon="search"
               title="No leads match"
               body="No results match the active filters. Try clearing filters or stage selection."
-              action={<Button icon="x" onClick={() => { setStageFilter([]); setPriorityFilter([]); setDueFilter("all"); }}>Clear filters</Button>}
+              action={<Button icon="x" onClick={() => { setStageFilter([]); setPriorityFilter([]); }}>Clear filters</Button>}
               compact
             />
           )}
         </div>
       )}
 
-      {/* Right rail (horizontal "below" mode) — fills empty vertical
-          space at md-lg viewports (768-1023px). Same component, same
-          data — sections render as a horizontal grid instead of a
-          stacked aside. Hidden on mobile (mobile already has its own
-          dense card stack) and at lg+ (vertical aside takes over).
-          Breakpoint dropped from xl (1280) → lg (1024) on 2026-05-29
-          so users on standard laptop screens see the rail. */}
-      <LeadsRightRail
-        leads={leadsForTab}
-        orientation="below"
-        className="hidden md:block lg:hidden"
-        onOpenLead={(l) => setSelected(l)}
-        onAddLead={() => setAddOpen(true)}
-        onImportCsv={!isSales ? () => setCsvImportOpen(true) : undefined}
-      />
         </div>{/* /flex-1 main column */}
 
-        {/* Right insight rail (vertical "side" mode) — lg+ only.
-            Renders fixed on the right at ≥1024px wide (standard laptop).
-            Uses leadsForTab (tab-scoped) so the rail's Top Hot Leads /
-            Today's plan / Stale matches what the main table can actually
-            show. Bug fix 2026-05-29: previously fed tenant-wide leads
-            which surfaced /deals data on /leads page; also breakpoint
-            dropped from xl → lg so it shows on standard laptops. */}
-        <LeadsRightRail
-          leads={leadsForTab}
-          orientation="side"
-          className="hidden lg:block"
-          onOpenLead={(l) => setSelected(l)}
-          onAddLead={() => setAddOpen(true)}
-          onImportCsv={!isSales ? () => setCsvImportOpen(true) : undefined}
-        />
       </div>{/* /flex split */}
 
       {/* Detail drawer */}

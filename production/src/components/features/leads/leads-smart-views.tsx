@@ -33,7 +33,7 @@ import { Icon } from "@/components/ui/icon";
 import { rupee, cn } from "@/lib/utils";
 import type { Lead } from "@/lib/supabase/database.types";
 
-export type SmartView = "all" | "mine" | "today" | "hot" | "new" | "won-mtd";
+export type SmartView = "all" | "mine" | "today" | "overdue" | "hot" | "new" | "won-mtd";
 
 interface LeadsSmartViewsProps {
   leads: Lead[];
@@ -56,6 +56,9 @@ export function LeadsSmartViews({ leads, currentUserId, active, onChange }: Lead
   // operator's mental model of "what came in today?". Follow-up due
   // belongs to the Overdue KPI in the insight band, not here.
   const todayDue = leads.filter((l) => l.created_at?.slice(0, 10) === today).length;
+  // Overdue = follow-up date in the past, still open (not won/lost). The most
+  // actionable bucket for a rep — surfaced as its own chip (was a separate KPI row).
+  const overdue  = leads.filter((l) => l.follow_up_date && l.follow_up_date < today && l.stage !== "won" && l.stage !== "lost").length;
   const hot      = leads.filter((l) => l.stage === "demo" || l.stage === "trial" || l.stage === "quote").length;
   const newCt    = leads.filter((l) => l.stage === "new").length;
   const wonMtdValue = leads
@@ -75,6 +78,7 @@ export function LeadsSmartViews({ leads, currentUserId, active, onChange }: Lead
         <ViewChip label="Mine"     count={mine}     active={active === "mine"}     onClick={() => onChange("mine")} />
       )}
       <ViewChip label="Today"      count={todayDue} active={active === "today"}    onClick={() => onChange("today")} tone="amber" />
+      <ViewChip label="Overdue"    count={overdue}  active={active === "overdue"}  onClick={() => onChange("overdue")} tone="rose" />
       <ViewChip label="Hot"        count={hot}      active={active === "hot"}      onClick={() => onChange("hot")} />
       <ViewChip label="New"        count={newCt}    active={active === "new"}      onClick={() => onChange("new")} />
       <ViewChip
@@ -95,7 +99,7 @@ interface ViewChipProps {
   /** Pre-formatted value badge (e.g., "₹2.5 L"). Use for monetary views. */
   valueChip?: string;
   active?: boolean;
-  tone?: "default" | "amber" | "emerald";
+  tone?: "default" | "amber" | "emerald" | "rose";
   onClick: () => void;
 }
 
@@ -108,6 +112,8 @@ function ViewChip({ label, count, valueChip, active, tone = "default", onClick }
     ? "bg-amber-soft border-amber/30 text-amber-ink hover:bg-amber-soft/70"
     : tone === "emerald"
     ? "bg-emerald-soft border-emerald/30 text-emerald hover:bg-emerald-soft/70"
+    : tone === "rose"
+    ? "bg-rose-soft border-rose/30 text-rose hover:bg-rose-soft/70"
     : "bg-paper border-hairline text-ink-2 hover:bg-paper-2";
 
   return (

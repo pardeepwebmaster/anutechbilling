@@ -197,13 +197,16 @@ export const SCREEN_TITLES: Record<string, string[]> = {
   "/deals":           ["Workspace", "Deal Pipeline"],
   "/tasks":           ["Workspace", "Tasks"],
   "/customers":       ["Workspace", "Customers"],
+  "/customers/[id]":  ["Workspace", "Customers", "Profile"],
   "/contacts":        ["Workspace", "Contacts"],
   "/items":           ["Workspace", "Items Catalog"],
   "/online-orders":   ["Revenue", "Online Orders"],
   "/quotes":          ["Revenue", "Quotes"],
   "/quotes/new":      ["Revenue", "Quotes", "New"],
+  "/quotes/[id]":     ["Revenue", "Quotes", "Detail"],
   "/payments":        ["Revenue", "Payments"],
   "/invoices":        ["Revenue", "Invoices"],
+  "/invoices/[id]":   ["Revenue", "Invoices", "Detail"],
   "/subscriptions":   ["Revenue", "Subscriptions"],
   "/renewals":        ["Revenue", "Renewals"],
   "/purchase-orders": ["Procurement", "Purchase Orders"],
@@ -241,7 +244,18 @@ export const SCREEN_TITLES: Record<string, string[]> = {
  * Falls back to ["Workspace", "Dashboard"] if no match.
  */
 export function getCrumb(pathname: string): string[] {
-  return SCREEN_TITLES[pathname] ?? ["Workspace", "Dashboard"];
+  if (SCREEN_TITLES[pathname]) return SCREEN_TITLES[pathname];
+  // Dynamic detail route (e.g. /customers/<uuid>, /quotes/Q-ET-…, /accounting/banking/<id>):
+  // exact match fails, so walk up to the longest known parent — try the `[id]`
+  // placeholder first (nicer 3-level crumb), then the bare section path. This
+  // keeps the section correct instead of wrongly falling back to "Dashboard".
+  const segs = pathname.split("/").filter(Boolean);
+  for (let i = segs.length - 1; i >= 1; i--) {
+    const prefix = "/" + segs.slice(0, i).join("/");
+    if (SCREEN_TITLES[`${prefix}/[id]`]) return SCREEN_TITLES[`${prefix}/[id]`];
+    if (SCREEN_TITLES[prefix]) return SCREEN_TITLES[prefix];
+  }
+  return ["Workspace", "Dashboard"];
 }
 
 /**

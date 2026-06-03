@@ -224,7 +224,7 @@ export default function DashboardPage() {
   }, [leads, quotes]);
 
   const leaderboard = [
-    { rank: 1, name: "Pardeep Sharma (you)", amount: acceptedValue, deals: acceptedQuotes.length, color: "amber" },
+    { rank: 1, name: `${currentUser?.fullName ?? "You"} (you)`, amount: acceptedValue, deals: acceptedQuotes.length, color: "amber" },
   ];
 
   // Real upcoming follow-ups — pulls from leads.follow_up_date in next 7 days

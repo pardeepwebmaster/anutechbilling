@@ -5,12 +5,14 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useCustomers } from "@/lib/queries/customers";
 import { useSubscriptions } from "@/lib/queries/subscriptions";
 import { useOutstandingReceivables } from "@/lib/queries/payments";
 import { effectiveHealth } from "@/lib/utils";
 import { AddCustomerForm } from "@/components/features/customers/add-customer-form";
+import { ImportCustomersDialog } from "@/components/features/customers/import-customers-dialog";
+import { CustomerPanel } from "@/components/features/customers/customer-panel";
+import { toast } from "sonner";
 import { EmptyState } from "@/components/shared/empty-state";
 import { KPI } from "@/components/shared/kpi";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -23,7 +25,6 @@ import { Icon } from "@/components/ui/icon";
 import { rupee, formatDate, cn } from "@/lib/utils";
 
 export default function CustomersPage() {
-  const router = useRouter();
   const { data: customers, isLoading, error, refetch } = useCustomers();
   const { data: subscriptions } = useSubscriptions();
   const { data: outstanding } = useOutstandingReceivables();
@@ -43,20 +44,20 @@ export default function CustomersPage() {
 
   const [search, setSearch] = React.useState("");
   const [addOpen, setAddOpen] = React.useState(false);
+  const [importOpen, setImportOpen] = React.useState(false);
+  const [selectedId, setSelectedId] = React.useState<string | null>(null);
 
-  // Aggregate MRR + nearest renewal per customer from subscriptions
+  // Aggregate MRR/ARR per customer from active subscriptions. (No single
+  // "renewal" — a customer can have many subs with different dates; renewal is
+  // a subscription-level concern, shown on the Customer 360 / Subscriptions.)
   const subsByCustomer = React.useMemo(() => {
-    const map = new Map<string, { mrr: number; arr: number; renewal: string | null }>();
+    const map = new Map<string, { mrr: number; arr: number }>();
     for (const s of subscriptions ?? []) {
       if (!s.customer_id || s.status !== "active") continue;
-      const prev = map.get(s.customer_id) ?? { mrr: 0, arr: 0, renewal: null };
+      const prev = map.get(s.customer_id) ?? { mrr: 0, arr: 0 };
       map.set(s.customer_id, {
         mrr: prev.mrr + s.mrr,
         arr: prev.arr + s.mrr * 12,
-        renewal:
-          !prev.renewal || (s.renewal_date && s.renewal_date < prev.renewal)
-            ? s.renewal_date
-            : prev.renewal,
       });
     }
     return map;
@@ -92,6 +93,35 @@ export default function CustomersPage() {
     return effectiveHealth(c.health, out?.days) < 75;
   }).length;
 
+  // Export the current customer list to a CSV (round-trips with the importer:
+  // same column names, so an export can be re-imported / shared with the team).
+  function handleExport() {
+    const rows = customers ?? [];
+    if (rows.length === 0) {
+      toast.error("No customers to export yet.");
+      return;
+    }
+    const cols = ["name", "contact_name", "contact_email", "contact_phone", "gstin", "state", "domain", "since"] as const;
+    const esc = (v: unknown) => {
+      const s = v == null ? "" : String(v);
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const lines = [cols.join(",")];
+    for (const c of rows) {
+      lines.push(cols.map((k) => esc((c as Record<string, unknown>)[k])).join(","));
+    }
+    const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `customers-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    toast.success(`Exported ${rows.length} customer${rows.length === 1 ? "" : "s"} to CSV`);
+  }
+
   return (
     <div className="p-4 md:p-6 lg:p-8 max-w-[1800px] mx-auto">
       {/* Header */}
@@ -108,7 +138,8 @@ export default function CustomersPage() {
           )}
         </div>
         <div className="flex gap-2 flex-wrap">
-          <Button icon="download">Export</Button>
+          <Button icon="download" onClick={handleExport}>Export</Button>
+          <Button icon="upload" onClick={() => setImportOpen(true)}>Import</Button>
           <Button variant="primary" icon="plus" onClick={() => setAddOpen(true)}>
             Add customer
           </Button>
@@ -116,7 +147,7 @@ export default function CustomersPage() {
       </div>
 
       {/* KPIs */}
-      {!isLoading && customers && customers.length > 0 && (
+      {!isLoading && customers && customers.length > 0 && !selectedId && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
           <KPI label="Active customers" value={total} icon="users" />
           <KPI label="Total MRR"         value={rupee(totalMRR, { compact: true })} icon="rupee" />
@@ -133,7 +164,7 @@ export default function CustomersPage() {
       )}
 
       {/* Filter row */}
-      {!isLoading && customers && customers.length > 0 && (
+      {!isLoading && customers && customers.length > 0 && !selectedId && (
         <div className="flex justify-between items-center gap-3 flex-wrap mb-3">
           <div className="text-xs text-ink-3">
             Showing {filtered.length} of {total} customers
@@ -183,7 +214,7 @@ export default function CustomersPage() {
           title="No customers yet"
           body="Add your first customer to start tracking subscriptions, invoices, and renewals."
           action={<Button variant="primary" icon="plus" onClick={() => setAddOpen(true)}>Add your first customer</Button>}
-          secondary={<Button icon="download">Import CSV</Button>}
+          secondary={<Button icon="download" onClick={() => setImportOpen(true)}>Import CSV</Button>}
         />
       )}
 
@@ -238,8 +269,8 @@ export default function CustomersPage() {
         </ul>
       )}
 
-      {/* Desktop table */}
-      {!isLoading && !error && filtered.length > 0 && (
+      {/* Desktop table — full-width mode (no customer selected) */}
+      {!isLoading && !error && filtered.length > 0 && !selectedId && (
         <div className="hidden md:block">
           <Card flush>
             <table className="w-full">
@@ -251,7 +282,6 @@ export default function CustomersPage() {
                   <th className="text-right p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">MRR</th>
                   <th className="text-right p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">ARR</th>
                   <th className="text-right p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Health</th>
-                  <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Renewal</th>
                   <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Manager</th>
                   <th className="w-10"></th>
                 </tr>
@@ -262,7 +292,7 @@ export default function CustomersPage() {
                   return (
                     <tr
                       key={c.id}
-                      onClick={() => router.push(`/customers/${c.id}` as any)}
+                      onClick={() => setSelectedId(c.id)}
                       className="border-b border-hairline last:border-0 hover:bg-paper-2/40 cursor-pointer transition-colors"
                     >
                       <td className="p-3">
@@ -305,9 +335,6 @@ export default function CustomersPage() {
                           );
                         })()}
                       </td>
-                      <td className="p-3 text-sm text-ink-2">
-                        {sub?.renewal ? formatDate(sub.renewal) : <span className="text-ink-3">—</span>}
-                      </td>
                       <td className="p-3">
                         <div className="flex items-center gap-2">
                           <Avatar initials="PA" color="amber" size="sm" />
@@ -346,7 +373,52 @@ export default function CustomersPage() {
       )}
 
       {/* Add customer modal */}
+      {/* Master-detail mode — a customer is selected (desktop). Mobile keeps
+          the full list + navigates to the full 360 page. */}
+      {!isLoading && !error && selectedId && (
+        <div className="hidden md:flex border border-hairline rounded-xl overflow-hidden bg-paper h-[calc(100vh-200px)] min-h-[480px]">
+          <div className="w-[300px] border-r border-hairline flex flex-col min-h-0">
+            <div className="p-2 border-b border-hairline">
+              <Input
+                prefix={<Icon name="search" size={14} />}
+                placeholder="Search…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+            </div>
+            <div className="flex-1 overflow-y-auto">
+              {filtered.map((c) => {
+                const sub = subsByCustomer.get(c.id);
+                const active = c.id === selectedId;
+                return (
+                  <button
+                    key={c.id}
+                    type="button"
+                    onClick={() => setSelectedId(c.id)}
+                    className={cn(
+                      "w-full text-left px-3 py-2.5 border-b border-hairline/60 transition-colors",
+                      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber focus-visible:ring-inset",
+                      active ? "bg-amber-soft/50" : "hover:bg-paper-2/50",
+                    )}
+                  >
+                    <div className="font-medium text-sm text-ink truncate">{c.name}</div>
+                    <div className="flex items-center justify-between gap-2 text-[11px] text-ink-3 mt-0.5">
+                      <span className="truncate">{c.domain || c.contact_email || "—"}</span>
+                      {sub ? <span className="tabular-nums flex-shrink-0">{rupee(sub.mrr)}</span> : null}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          <div className="flex-1 min-h-0">
+            <CustomerPanel customerId={selectedId} onClose={() => setSelectedId(null)} />
+          </div>
+        </div>
+      )}
+
       <AddCustomerForm open={addOpen} onOpenChange={setAddOpen} />
+      <ImportCustomersDialog open={importOpen} onOpenChange={setImportOpen} onImportComplete={() => refetch()} />
     </div>
   );
 }

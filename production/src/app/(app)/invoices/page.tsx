@@ -25,7 +25,7 @@ import { Icon } from "@/components/ui/icon";
 import { toast } from "sonner";
 import { GeminiCard } from "@/components/shared/gemini-card";
 import { EmptyState } from "@/components/shared/empty-state";
-import { KPI } from "@/components/shared/kpi";
+import { StatStrip } from "@/components/shared/stat-strip";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -348,46 +348,18 @@ function InvoicesPageInner() {
         );
       })()}
 
-      {/* KPIs */}
+      {/* Compact metric strip (replaces the big KPI-card grid) */}
       {!isLoading && invoices && (
-        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3 mb-6">
-          <KPI
-            label="Outstanding"
-            value={rupee(outstanding, { compact: true })}
-            trend={`${(counts.pending ?? 0) + (counts.overdue ?? 0)} invoices`}
-            trendKind="down"
-            trendIcon="alert"
-            icon="receipt"
-          />
-          <KPI
-            label="Overdue"
-            value={rupee(overdueTotal, { compact: true })}
-            trend={`${overdueCount} aging`}
-            trendKind={overdueCount > 0 ? "down" : "up"}
-            trendIcon={overdueCount > 0 ? "alert" : "check_circle"}
-          />
-          <KPI
-            label="Collected · MTD"
-            value={rupee(collectedMTD, { compact: true })}
-            trend="This month"
-            trendKind="up"
-            trendIcon="trending_up"
-          />
-          <KPI
-            label="Margin · MTD"
-            value={rupee(marginMTD, { compact: true })}
-            trend="~17% avg"
-            trendKind="up"
-            icon="rupee"
-          />
-          <KPI
-            label="Avg collection"
-            value={avgCollection}
-            unit=" days"
-            trend={avgCollection > 0 ? "from paid invoices" : "No data"}
-            icon="clock"
-          />
-        </div>
+        <StatStrip
+          className="mb-5"
+          items={[
+            { label: "Outstanding",    value: rupee(outstanding, { compact: true }), tone: outstanding > 0 ? "rose" : "emerald" },
+            { label: "Overdue",        value: rupee(overdueTotal, { compact: true }), tone: overdueCount > 0 ? "rose" : "default" },
+            { label: "Collected · MTD",value: rupee(collectedMTD, { compact: true }), tone: "emerald" },
+            { label: "Margin · MTD",   value: rupee(marginMTD, { compact: true }) },
+            { label: "Avg collection", value: avgCollection > 0 ? `${avgCollection}d` : "—" },
+          ]}
+        />
       )}
 
       {/* AI suggestion */}

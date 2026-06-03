@@ -12,7 +12,7 @@ import { useCurrentUser } from "@/lib/hooks/useCurrentUser";
 import { isInterStateSupply } from "@/lib/gst/place-of-supply";
 import { GeminiCard } from "@/components/shared/gemini-card";
 import { EmptyState } from "@/components/shared/empty-state";
-import { KPI } from "@/components/shared/kpi";
+import { StatStrip } from "@/components/shared/stat-strip";
 import { computeMargin } from "@/components/features/margin-pill";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button, IconButton } from "@/components/ui/button";
@@ -234,16 +234,19 @@ export default function QuotesPage() {
         </div>
       </div>
 
-      {/* KPIs */}
+      {/* Compact metric strip (replaces the big KPI-card grid) */}
       {!isLoading && quotes && (
-        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 mb-6">
-          <KPI label="Total quotes"    value={quotes.length} trend="this quarter" />
-          <KPI label="Pipeline value"  value={rupee(totalValue, { compact: true })} trend={`${sentishCount} in motion`} trendKind="up" trendIcon="trending_up" />
-          <KPI label="Out for review"  value={rupee(sentValue, { compact: true })} trend={`${sentishCount} sent/viewed`} />
-          <KPI label="Pipeline Margin" value={rupee(pipelineMargin, { compact: true })} trend="Your edge" trendKind="up" icon="rupee" />
-          <KPI label="Accepted"        value={rupee(acceptedValue, { compact: true })} trend={`${acceptedCount} won`} trendKind="up" trendIcon="check" />
-          <KPI label="Win rate"        value={winRate} unit="%" trend="excl. drafts" trendKind="up" trendIcon="trending_up" />
-        </div>
+        <StatStrip
+          className="mb-5"
+          items={[
+            { label: "Total quotes",   value: quotes.length },
+            { label: "Pipeline",       value: rupee(totalValue, { compact: true }) },
+            { label: "Out for review", value: rupee(sentValue, { compact: true }) },
+            { label: "Pipeline margin",value: rupee(pipelineMargin, { compact: true }), tone: "emerald" },
+            { label: "Accepted",       value: rupee(acceptedValue, { compact: true }), tone: "emerald" },
+            { label: "Win rate",       value: `${winRate}%` },
+          ]}
+        />
       )}
 
       {/* AI suggestion */}

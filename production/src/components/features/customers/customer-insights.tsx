@@ -15,9 +15,11 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import type { Customer, Subscription, Invoice, Quote } from "@/lib/supabase/database.types";
+import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
+import { Textarea } from "@/components/ui/textarea";
 import { formatDate, rupee, daysBetween, cn } from "@/lib/utils";
 
 // ════════════════════════════════════════════════════════════════════════
@@ -28,7 +30,7 @@ export type Nba = {
   icon: string;
   title: string;
   body: string;
-  cta?: { label: string; kind: "wa" | "mail" | "profile" | "quote"; href?: string };
+  cta?: { label: string; kind: "draft" | "profile" | "quote"; channel?: "whatsapp" | "email"; purpose?: "followup" | "reminder" };
 };
 
 export type CustomerInsights = {
@@ -78,22 +80,16 @@ function computeNBA(args: {
   outstanding: number; overdueCount: number; renewalDays: number | null; subCount: number;
 }): Nba {
   const { customer, firstName, phone, outstanding, overdueCount, renewalDays, subCount } = args;
+  const canMessage = !!phone || !!customer.contact_email;
+  const channel: "whatsapp" | "email" = phone ? "whatsapp" : "email";
 
   if (outstanding > 0 || overdueCount > 0) {
-    const reminderText =
-      `Hi ${firstName}, gentle reminder — there's an outstanding balance of ${rupee(outstanding)} on your account with us. ` +
-      `Let me know if you'd like a payment link or have any questions. Thank you!`;
-    const cta: Nba["cta"] = phone
-      ? { label: "Send WhatsApp reminder", kind: "wa", href: `https://wa.me/${phone.replace(/^\+/, "")}?text=${encodeURIComponent(reminderText)}` }
-      : customer.contact_email
-        ? { label: "Email a reminder", kind: "mail", href: `mailto:${customer.contact_email}?subject=${encodeURIComponent("Payment reminder")}&body=${encodeURIComponent(reminderText)}` }
-        : undefined;
     return {
       tone: "danger",
       icon: "alert",
       title: `${rupee(outstanding)} outstanding${overdueCount > 0 ? ` · ${overdueCount} overdue invoice${overdueCount > 1 ? "s" : ""}` : ""}`,
-      body: "Collect this before it ages further — a friendly nudge usually works.",
-      cta,
+      body: "Collect this before it ages further — let AI draft a friendly reminder you can edit and send.",
+      cta: canMessage ? { label: "Draft reminder with AI", kind: "draft", channel, purpose: "reminder" } : undefined,
     };
   }
 
@@ -122,7 +118,7 @@ function computeNBA(args: {
     icon: "check_circle",
     title: `${firstName} is in good shape`,
     body: "Nothing needs action right now. A periodic check-in keeps the relationship warm.",
-    cta: phone ? { label: "Say hi on WhatsApp", kind: "wa", href: `https://wa.me/${phone.replace(/^\+/, "")}` } : undefined,
+    cta: canMessage ? { label: "Draft a check-in with AI", kind: "draft", channel, purpose: "followup" } : undefined,
   };
 }
 
@@ -182,10 +178,50 @@ const NBA_TONE: Record<Nba["tone"], { wrap: string; icon: string }> = {
   success: { wrap: "border-emerald/30 bg-emerald/5",   icon: "text-emerald" },
 };
 
-/** Next-best-action card — kills decision fatigue. */
-export function NextBestActionCard({ nba, customerId }: { nba: Nba; customerId: string }) {
+/** Next-best-action card — kills decision fatigue. Money/contact actions draft
+ *  a real, editable AI message (the genuine AI-native edge vs pre-AI tools). */
+export function NextBestActionCard({ nba, customer }: { nba: Nba; customer: Customer }) {
   const router = useRouter();
   const tone = NBA_TONE[nba.tone];
+  const cta = nba.cta;
+
+  const phone = customer.contact_phone?.replace(/\s+/g, "");
+  const channel = cta?.channel ?? "whatsapp";
+
+  const [draft, setDraft] = React.useState<{ subject: string; message: string; mode: string } | null>(null);
+  const [drafting, setDrafting] = React.useState(false);
+
+  // Reset the draft when the selected customer changes (panel reuses this instance).
+  React.useEffect(() => { setDraft(null); setDrafting(false); }, [customer.id]);
+
+  async function generate() {
+    if (!cta) return;
+    setDrafting(true);
+    setDraft(null);
+    try {
+      const res = await fetch("/api/ai/draft-followup", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ customerId: customer.id, channel: cta.channel ?? "whatsapp", purpose: cta.purpose ?? "followup" }),
+      });
+      const data = await res.json();
+      if (!res.ok) { toast.error(data.error ?? "Couldn't draft."); return; }
+      setDraft({ subject: data.subject ?? "", message: data.message ?? "", mode: data.mode ?? "stub" });
+    } catch {
+      toast.error("Something went wrong. Try again.");
+    } finally {
+      setDrafting(false);
+    }
+  }
+
+  const sendLink = draft
+    ? channel === "whatsapp" && phone
+      ? `https://wa.me/${phone.replace(/^\+/, "")}?text=${encodeURIComponent(draft.message)}`
+      : customer.contact_email
+        ? `mailto:${customer.contact_email}?subject=${encodeURIComponent(draft.subject || `Regarding ${customer.name}`)}&body=${encodeURIComponent(draft.message)}`
+        : null
+    : null;
+
   return (
     <div className={cn("rounded-lg border p-3.5 flex items-start gap-3", tone.wrap)}>
       <div className={cn("mt-0.5", tone.icon)}><Icon name={nba.icon} size={18} /></div>
@@ -195,19 +231,47 @@ export function NextBestActionCard({ nba, customerId }: { nba: Nba; customerId: 
         </div>
         <div className="text-sm font-medium text-ink leading-snug">{nba.title}</div>
         <p className="text-xs text-ink-2 mt-0.5 leading-relaxed">{nba.body}</p>
-        {nba.cta && (
+
+        {cta && (cta.kind === "profile" || cta.kind === "quote") && (
           <div className="mt-2.5">
-            {nba.cta.kind === "profile" ? (
-              <Button size="sm" variant="primary" onClick={() => router.push(`/customers/${customerId}` as never)}>{nba.cta.label}</Button>
-            ) : nba.cta.kind === "quote" ? (
-              <Button size="sm" variant="primary" onClick={() => router.push("/quotes/new" as never)}>{nba.cta.label}</Button>
-            ) : (
-              <Button asChild size="sm" variant="primary">
-                <a href={nba.cta.href} target={nba.cta.kind === "wa" ? "_blank" : undefined} rel="noopener noreferrer">
-                  <Icon name={nba.cta.kind === "wa" ? "whatsapp" : "mail"} size={13} className="mr-1.5" />
-                  {nba.cta.label}
-                </a>
+            <Button size="sm" variant="primary" onClick={() => router.push((cta.kind === "quote" ? "/quotes/new" : `/customers/${customer.id}`) as never)}>
+              {cta.label}
+            </Button>
+          </div>
+        )}
+
+        {cta && cta.kind === "draft" && (
+          <div className="mt-2.5">
+            {!draft && (
+              <Button size="sm" variant="primary" onClick={generate} disabled={drafting}>
+                <Icon name="sparkles" size={13} className="mr-1.5" />
+                {drafting ? "Drafting…" : cta.label}
               </Button>
+            )}
+            {draft && (
+              <div className="rounded-md border border-hairline bg-paper p-2.5">
+                <Textarea
+                  rows={channel === "email" ? 6 : 4}
+                  value={draft.message}
+                  onChange={(e) => setDraft({ ...draft, message: e.target.value })}
+                />
+                <div className="flex items-center justify-between gap-2 mt-2 flex-wrap">
+                  <span className="text-[10px] text-ink-3">
+                    {draft.mode === "gemini" ? "AI draft · verify the amount, then send" : "Template · set GEMINI_API_KEY for real AI"}
+                  </span>
+                  <div className="flex gap-1.5">
+                    <Button size="sm" variant="default" onClick={generate} disabled={drafting}>{drafting ? "…" : "Redraft"}</Button>
+                    <Button size="sm" variant="default" onClick={() => { navigator.clipboard?.writeText(draft.message); toast.success("Copied"); }}>Copy</Button>
+                    {sendLink && (
+                      <Button asChild size="sm" variant="primary">
+                        <a href={sendLink} target={channel === "whatsapp" ? "_blank" : undefined} rel="noopener noreferrer">
+                          <Icon name={channel === "whatsapp" ? "whatsapp" : "mail"} size={13} className="mr-1.5" />Send
+                        </a>
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </div>
             )}
           </div>
         )}

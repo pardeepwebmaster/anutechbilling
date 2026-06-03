@@ -137,7 +137,7 @@ export default function CustomerDetailPage() {
 
       {/* Next-best-action */}
       <div className="mb-6">
-        <NextBestActionCard nba={insights.nba} customerId={c.id} />
+        <NextBestActionCard nba={insights.nba} customer={c} />
       </div>
 
       {/* Body — relationship left, status/detail right */}

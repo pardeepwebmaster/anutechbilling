@@ -14,7 +14,13 @@ import { ImportCustomersDialog } from "@/components/features/customers/import-cu
 import { CustomerPanel } from "@/components/features/customers/customer-panel";
 import { toast } from "sonner";
 import { EmptyState } from "@/components/shared/empty-state";
-import { KPI } from "@/components/shared/kpi";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuItem,
+} from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -23,6 +29,18 @@ import { Avatar } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
 import { Icon } from "@/components/ui/icon";
 import { rupee, formatDate, cn } from "@/lib/utils";
+
+// Saved-view segments (Zoho-style) — compact filters that replace the big KPI
+// cards. Each computed from already-loaded data (health + outstanding + subs).
+type ViewCtx = { eff: number; amount: number; hasSub: boolean };
+const VIEW_DEFS: { id: string; label: string; test: (x: ViewCtx) => boolean }[] = [
+  { id: "all",        label: "All customers",      test: () => true },
+  { id: "atrisk",     label: "At-risk",            test: (x) => x.eff < 75 },
+  { id: "unpaid",     label: "Has outstanding",    test: (x) => x.amount > 0 },
+  { id: "subscribed", label: "With subscriptions", test: (x) => x.hasSub },
+  { id: "nosub",      label: "No subscription",    test: (x) => !x.hasSub },
+  { id: "healthy",    label: "Healthy",            test: (x) => x.eff >= 85 },
+];
 
 export default function CustomersPage() {
   const { data: customers, isLoading, error, refetch } = useCustomers();
@@ -46,6 +64,7 @@ export default function CustomersPage() {
   const [addOpen, setAddOpen] = React.useState(false);
   const [importOpen, setImportOpen] = React.useState(false);
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
+  const [view, setView] = React.useState("all");
 
   // Aggregate MRR/ARR per customer from active subscriptions. (No single
   // "renewal" — a customer can have many subs with different dates; renewal is
@@ -63,8 +82,24 @@ export default function CustomersPage() {
     return map;
   }, [subscriptions]);
 
-  // Filter
+  const activeView = VIEW_DEFS.find((v) => v.id === view) ?? VIEW_DEFS[0];
+
+  // Count per saved-view for the dropdown (so each segment shows its size).
+  const viewCounts = React.useMemo(() => {
+    const m: Record<string, number> = Object.fromEntries(VIEW_DEFS.map((v) => [v.id, 0]));
+    for (const c of customers ?? []) {
+      const out = outstandingByCustomer.get(c.id);
+      const ctx: ViewCtx = { eff: effectiveHealth(c.health, out?.days), amount: out?.amount ?? 0, hasSub: subsByCustomer.has(c.id) };
+      for (const v of VIEW_DEFS) if (v.test(ctx)) m[v.id]++;
+    }
+    return m;
+  }, [customers, outstandingByCustomer, subsByCustomer]);
+
+  // Filter — saved-view segment first, then the free-text search.
   const filtered = (customers ?? []).filter((c) => {
+    const out = outstandingByCustomer.get(c.id);
+    const ctx: ViewCtx = { eff: effectiveHealth(c.health, out?.days), amount: out?.amount ?? 0, hasSub: subsByCustomer.has(c.id) };
+    if (!activeView.test(ctx)) return false;
     if (!search.trim()) return true;
     const s = search.toLowerCase();
     return (
@@ -131,9 +166,11 @@ export default function CustomersPage() {
           <h1 className="font-serif text-3xl md:text-4xl leading-tight">Customers</h1>
           {!isLoading && customers && (
             <p className="text-sm text-ink-3 mt-1 tabular-nums">
-              <b>{total}</b> active customer{total === 1 ? "" : "s"}
-              {totalARR > 0 && <> · <b>{rupee(totalARR, { compact: true })}</b> ARR</>}
-              {customers.length > 0 && <> · Avg health <b>{avgHealth}</b>/100</>}
+              <b>{total}</b> customer{total === 1 ? "" : "s"}
+              {totalMRR > 0 && <> · <b className="text-ink">{rupee(totalMRR, { compact: true })}</b> MRR</>}
+              {totalARR > 0 && <> · <b className="text-ink">{rupee(totalARR, { compact: true })}</b> ARR</>}
+              {customers.length > 0 && <> · Avg health <b className="text-ink">{avgHealth}</b></>}
+              {atRisk > 0 && <> · <b className="text-rose">{atRisk}</b> at-risk</>}
             </p>
           )}
         </div>
@@ -146,30 +183,31 @@ export default function CustomersPage() {
         </div>
       </div>
 
-      {/* KPIs */}
-      {!isLoading && customers && customers.length > 0 && !selectedId && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-          <KPI label="Active customers" value={total} icon="users" />
-          <KPI label="Total MRR"         value={rupee(totalMRR, { compact: true })} icon="rupee" />
-          <KPI label="Total ARR"         value={rupee(totalARR, { compact: true })} icon="trending_up" />
-          <KPI
-            label="At-risk accounts"
-            value={atRisk}
-            trend={atRisk > 0 ? "needs attention" : "all healthy"}
-            trendKind={atRisk > 0 ? "down" : "up"}
-            trendIcon={atRisk > 0 ? "alert" : "check_circle"}
-            icon="alert"
-          />
-        </div>
-      )}
-
-      {/* Filter row */}
+      {/* Compact toolbar — Views dropdown (replaces the space-hungry KPI cards) + search */}
       {!isLoading && customers && customers.length > 0 && !selectedId && (
         <div className="flex justify-between items-center gap-3 flex-wrap mb-3">
-          <div className="text-xs text-ink-3">
-            Showing {filtered.length} of {total} customers
+          <div className="flex items-center gap-3 min-w-0">
+            <DropdownMenu>
+              <DropdownMenuTrigger className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md border border-hairline bg-paper text-sm font-medium hover:bg-paper-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber">
+                <Icon name="filter" size={13} className="text-ink-3" />
+                {activeView.label}
+                <span className="text-ink-3 tabular-nums">{viewCounts[activeView.id]}</span>
+                <Icon name="chevron_down" size={14} className="text-ink-3" />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-60">
+                <DropdownMenuLabel>Views</DropdownMenuLabel>
+                {VIEW_DEFS.map((v) => (
+                  <DropdownMenuItem key={v.id} onClick={() => setView(v.id)}>
+                    <Icon name={view === v.id ? "check" : "filter"} size={14} className={view === v.id ? "text-amber" : "text-ink-3"} />
+                    <span className="flex-1">{v.label}</span>
+                    <span className="text-ink-3 tabular-nums text-xs">{viewCounts[v.id]}</span>
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <span className="text-xs text-ink-3 tabular-nums">Showing {filtered.length} of {total}</span>
           </div>
-          <div className="w-72">
+          <div className="w-64">
             <Input
               prefix={<Icon name="search" size={14} />}
               placeholder="Customer or domain…"

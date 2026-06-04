@@ -17,7 +17,7 @@ import { createClient, createAdminClient } from "@/lib/supabase/server";
 export const dynamic = "force-dynamic";
 export const runtime  = "nodejs";
 
-const DEFAULT_MODEL = "gemini-2.0-flash";
+const DEFAULT_MODEL = "gemini-2.5-flash";
 
 const saveSchema = z
   .object({

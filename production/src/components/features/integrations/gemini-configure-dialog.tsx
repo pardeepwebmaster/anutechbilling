@@ -25,11 +25,12 @@ interface Props {
 
 // Current Gemini models on the Generative Language API (1.5 retired 2025–26).
 const MODEL_OPTIONS = [
+  "gemini-2.5-flash",
   "gemini-2.0-flash",
   "gemini-2.0-flash-lite",
-  "gemini-2.5-flash",
   "gemini-2.5-pro",
 ];
+const RECOMMENDED_MODEL = "gemini-2.5-flash";
 
 interface GeminiStatus {
   ok:           boolean;
@@ -175,17 +176,17 @@ export default function GeminiConfigureDialog({ open, onOpenChange }: Props) {
               <Label>Model</Label>
               <select
                 className="w-full rounded-md border border-hairline bg-paper px-3 py-2 text-sm font-mono text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber"
-                value={model || "gemini-2.0-flash"}
+                value={model || RECOMMENDED_MODEL}
                 onChange={(e) => setModel(e.target.value)}
               >
                 {model && !MODEL_OPTIONS.includes(model) && (
-                  <option value={model}>{model} (current · retired)</option>
+                  <option value={model}>{model} (current · unsupported)</option>
                 )}
                 {MODEL_OPTIONS.map((m) => (
-                  <option key={m} value={m}>{m}{m === "gemini-2.0-flash" ? " — recommended" : ""}</option>
+                  <option key={m} value={m}>{m}{m === RECOMMENDED_MODEL ? " — recommended" : ""}</option>
                 ))}
               </select>
-              <p className="text-[10px] text-ink-3 mt-1"><span className="font-mono">gemini-2.0-flash</span> — fast + cheap, good for Hinglish drafts. (1.5 models were retired by Google.)</p>
+              <p className="text-[10px] text-ink-3 mt-1"><span className="font-mono">gemini-2.5-flash</span> — current + reliable for Hinglish drafts. If a model fails, hit Test to see your key's available models.</p>
             </div>
 
             <div className="rounded-md bg-paper-2 p-3 text-xs text-ink-3 leading-relaxed break-words">

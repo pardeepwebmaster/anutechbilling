@@ -310,6 +310,16 @@ const VENDOR_COLOR: Record<string, "info" | "indigo" | "amber" | "slate"> = {
   google: "info", microsoft: "indigo", zoho: "amber", other: "slate",
 };
 
+/** Billing cycle / term, derived from the start↔renewal span. */
+function subTerm(start: string | null, renewal: string | null): string | null {
+  if (!start || !renewal) return null;
+  const m = Math.round(daysBetween(start, renewal) / 30.44);
+  if (m <= 1) return "Monthly";
+  if (m <= 4) return "Quarterly";
+  if (m <= 8) return "Half-yearly";
+  return "Annual";
+}
+
 /** Subscription cards — plan, seats(used/total), MRR, renewal + state, owed pill. */
 export function SubscriptionList({ subs }: { subs: Subscription[] }) {
   if (subs.length === 0) {
@@ -321,24 +331,30 @@ export function SubscriptionList({ subs }: { subs: Subscription[] }) {
         const active = s.status === "active";
         const owed = s.outstanding_amount ?? 0;
         const renewalDays = s.renewal_date ? daysBetween(new Date(), s.renewal_date) : null;
+        const term = subTerm(s.start_date, s.renewal_date);
         return (
           <div key={s.id} className="border border-hairline rounded-md px-3 py-2.5 flex items-center justify-between gap-3 hover:bg-paper-2/30">
             <div className="min-w-0">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-sm font-medium text-ink truncate">{s.plan}</span>
                 <Badge kind={active ? "success" : "muted"} color={VENDOR_COLOR[s.vendor] ?? "slate"} size="sm" dot>{s.status}</Badge>
+                {term && <Badge kind="muted" size="sm">{term}</Badge>}
               </div>
               <div className="text-[11px] text-ink-3 mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5">
                 <span>{s.used ?? 0}/{s.seats} seats</span>
-                {s.renewal_date && (
-                  <span className={cn(renewalDays != null && renewalDays <= 30 && "text-amber-ink")}>
-                    Renews {formatDate(s.renewal_date)}{renewalDays != null && renewalDays <= 30 ? ` · ${renewalDays}d` : ""}
-                  </span>
+                {s.start_date && s.renewal_date ? (
+                  <span>{formatDate(s.start_date)} → {formatDate(s.renewal_date)}</span>
+                ) : s.renewal_date ? (
+                  <span>Renews {formatDate(s.renewal_date)}</span>
+                ) : null}
+                {renewalDays != null && renewalDays <= 30 && (
+                  <span className="text-amber-ink font-medium">renews in {renewalDays}d</span>
                 )}
               </div>
             </div>
             <div className="text-right flex-shrink-0">
               <div className="text-sm font-medium text-ink tabular-nums">{rupee(s.mrr)}<span className="text-[10px] text-ink-3">/mo</span></div>
+              {term === "Annual" && <div className="text-[10px] text-ink-3 tabular-nums">{rupee(s.mrr * 12, { compact: true })}/yr</div>}
               {owed > 0 && <div className="text-[11px] text-rose mt-0.5">{rupee(owed)} due</div>}
             </div>
           </div>

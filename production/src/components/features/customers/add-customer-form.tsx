@@ -271,7 +271,7 @@ export function AddCustomerForm({ open, onOpenChange, customer }: AddCustomerFor
             />
           </FormField>
 
-          <FormField label="Domain (optional)" htmlFor="domain">
+          <FormField label="Company website (optional)" htmlFor="domain">
             <Input
               id="domain"
               placeholder="acmecorp.com"

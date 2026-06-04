@@ -737,7 +737,7 @@ export function QuoteBuilder() {
               </FormField>
 
               <div className="grid grid-cols-2 gap-3">
-                <FormField label="Domain" htmlFor="domain">
+                <FormField label="Company website" htmlFor="domain">
                   <Input
                     id="domain"
                     value={customer?.domain ?? ""}

@@ -53,6 +53,7 @@ export default function SubscriptionsPage() {
   const [extendSub,   setExtendSub]   = React.useState<Subscription | null>(null);
   const [addSeatsSub, setAddSeatsSub] = React.useState<Subscription | null>(null);
   const [importOpen,  setImportOpen]  = React.useState(false);
+  const [visible, setVisible] = React.useState(60);  // render cap — paginates large lists
 
   const today = new Date();
   const daysUntil = (renewal: string | null) =>
@@ -78,6 +79,11 @@ export default function SubscriptionsPage() {
     }
     return true;
   });
+
+  // Render only the first `visible` rows — avoids hanging on 800+ subscriptions.
+  const shown = filtered.slice(0, visible);
+  const hasMore = filtered.length > shown.length;
+  React.useEffect(() => { setVisible(60); }, [tab, vendor, search]);
 
   // Trial-specific filter (for the Trials tab)
   const filteredTrials = (trials ?? []).filter((t) => {
@@ -329,7 +335,7 @@ export default function SubscriptionsPage() {
       {/* Mobile card list — phones only */}
       {!isLoading && !error && filtered.length > 0 && (
         <ul className="md:hidden space-y-2 mb-3">
-          {filtered.map((s) => {
+          {shown.map((s) => {
             const dl = daysUntil(s.renewal_date);
             return (
               <li key={s.id} className="bg-paper border border-hairline rounded-lg p-3">
@@ -393,7 +399,7 @@ export default function SubscriptionsPage() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((s) => {
+                {shown.map((s) => {
                   const m = estimateMargin(s);
                   const dl = daysUntil(s.renewal_date);
                   const cycle = billingCycle(s.start_date, s.renewal_date);
@@ -475,6 +481,13 @@ export default function SubscriptionsPage() {
             </table>
           </div>
         </Card>
+      )}
+      {!isLoading && !error && tab !== "trials" && hasMore && (
+        <div className="flex justify-center py-3">
+          <Button variant="default" size="sm" onClick={() => setVisible((v) => v + 100)}>
+            Show more ({filtered.length - shown.length} left)
+          </Button>
+        </div>
       )}
 
       {/* Trials tab — same column layout, virtual-sub rows */}

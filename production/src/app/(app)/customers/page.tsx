@@ -65,6 +65,7 @@ export default function CustomersPage() {
   const [importOpen, setImportOpen] = React.useState(false);
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
   const [view, setView] = React.useState("all");
+  const [visible, setVisible] = React.useState(60);  // render cap — paginates large lists (1000+ rows would hang)
 
   // Aggregate MRR/ARR per customer from active subscriptions. (No single
   // "renewal" — a customer can have many subs with different dates; renewal is
@@ -109,6 +110,11 @@ export default function CustomersPage() {
       (c.contact_email?.toLowerCase().includes(s) ?? false)
     );
   });
+
+  // Only render the first `visible` rows — avoids hanging on 1000+ customers.
+  const shown = filtered.slice(0, visible);
+  const hasMore = filtered.length > shown.length;
+  React.useEffect(() => { setVisible(60); }, [search, view]);
 
   // KPIs
   const total = customers?.length ?? 0;
@@ -259,7 +265,7 @@ export default function CustomersPage() {
       {/* Mobile card list — phones only */}
       {!isLoading && !error && filtered.length > 0 && (
         <ul className="md:hidden space-y-2 mb-3">
-          {filtered.map((c) => {
+          {shown.map((c) => {
             const sub = subsByCustomer.get(c.id);
             return (
               <li key={c.id}>
@@ -304,6 +310,13 @@ export default function CustomersPage() {
               </li>
             );
           })}
+          {hasMore && (
+            <li className="pt-1 text-center">
+              <Button variant="default" size="sm" onClick={() => setVisible((v) => v + 100)}>
+                Show more ({filtered.length - shown.length} left)
+              </Button>
+            </li>
+          )}
         </ul>
       )}
 
@@ -325,7 +338,7 @@ export default function CustomersPage() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((c) => {
+                {shown.map((c) => {
                   const sub = subsByCustomer.get(c.id);
                   return (
                     <tr
@@ -394,6 +407,13 @@ export default function CustomersPage() {
             <Icon name="info" size={11} />
             Click any row to open the Customer 360 view with full activity timeline, subscriptions, and contacts.
           </div>
+          {hasMore && (
+            <div className="flex justify-center py-3">
+              <Button variant="default" size="sm" onClick={() => setVisible((v) => v + 100)}>
+                Show more ({filtered.length - shown.length} left)
+              </Button>
+            </div>
+          )}
         </div>
       )}
 
@@ -425,7 +445,7 @@ export default function CustomersPage() {
               />
             </div>
             <div className="flex-1 overflow-y-auto">
-              {filtered.map((c) => {
+              {shown.map((c) => {
                 const sub = subsByCustomer.get(c.id);
                 const active = c.id === selectedId;
                 return (
@@ -447,6 +467,15 @@ export default function CustomersPage() {
                   </button>
                 );
               })}
+              {hasMore && (
+                <button
+                  type="button"
+                  onClick={() => setVisible((v) => v + 100)}
+                  className="w-full text-center py-2 text-xs text-amber-ink hover:bg-paper-2/50"
+                >
+                  Show more ({filtered.length - shown.length} left)
+                </button>
+              )}
             </div>
           </div>
           <div className="flex-1 min-h-0">

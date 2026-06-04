@@ -60,6 +60,7 @@ interface ParsedRow {
   rowNum: number;
   customer_number?: string;
   name: string;
+  contact_name?: string;
   company?: string;
   contact_email?: string;
   contact_phone?: string;
@@ -156,13 +157,12 @@ export function ImportCustomersDialog({ open, onOpenChange, onImportComplete }: 
         tenant_id: me.tenantId,
         customer_number: r.customer_number || null,
         name: r.name,
-        contact_name: r.name || null,
+        contact_name: r.contact_name || null,
         contact_email: r.contact_email || null,
         contact_phone: r.contact_phone || null,
         gstin: r.gstin || null,
         state: r.state || null,
         state_code: r.state_code || null,
-        notes: r.company && r.company !== r.name ? `Company: ${r.company}` : null,
       }));
 
       // Chunked insert so 1000+ rows don't hit payload limits.
@@ -269,8 +269,8 @@ export function ImportCustomersDialog({ open, onOpenChange, onImportComplete }: 
                     <tr>
                       <th className="p-2 text-left font-semibold text-ink-3 w-8">#</th>
                       <th className="p-2 text-left font-semibold text-ink-3">Cust&nbsp;No</th>
-                      <th className="p-2 text-left font-semibold text-ink-3">Name</th>
-                      <th className="p-2 text-left font-semibold text-ink-3">Email</th>
+                      <th className="p-2 text-left font-semibold text-ink-3">Company (name)</th>
+                      <th className="p-2 text-left font-semibold text-ink-3">Contact</th>
                       <th className="p-2 text-left font-semibold text-ink-3">State</th>
                     </tr>
                   </thead>
@@ -295,7 +295,7 @@ export function ImportCustomersDialog({ open, onOpenChange, onImportComplete }: 
                             </span>
                           )}
                         </td>
-                        <td className="p-2 text-ink-2 font-mono">{r.contact_email || <span className="text-ink-3 font-sans">—</span>}</td>
+                        <td className="p-2 text-ink-2">{r.contact_name || <span className="text-ink-3">—</span>}</td>
                         <td className="p-2 text-ink-2">{r.state || <span className="text-ink-3">—</span>}</td>
                       </tr>
                     ))}
@@ -371,9 +371,10 @@ function parseCustomersCsv(text: string, existingNums: Set<string>, existingEmai
     const display = cell(idxDisplay);
     const contact = cell(idxContact);
 
-    // Name = First + Last (per migration spec); fall back to Company / Display.
+    // Customer name = Company (B2B standard); Primary Contact = person (First+Last).
     const person = [first, last].filter(Boolean).join(" ").trim();
-    const name = person || company || display || contact;
+    const name = company || person || display || contact;
+    const contact_name = person || contact || display || undefined;
     if (!name) {
       rows.push({ rowNum, name: "", error: "Missing name" });
       continue;
@@ -405,6 +406,7 @@ function parseCustomersCsv(text: string, existingNums: Set<string>, existingEmai
       rowNum,
       customer_number,
       name,
+      contact_name,
       company: company || undefined,
       contact_email: email && EMAIL_RE.test(email) ? email : (email || undefined),
       contact_phone: (cell(idxMobile) || cell(idxPhone)) || undefined,

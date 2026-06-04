@@ -366,6 +366,7 @@ type CustomerRow = {
   id: string;
   tenant_id: string;
   name: string;
+  customer_number: string | null;
   domain: string | null;
   gstin: string | null;
   state: string | null;
@@ -398,6 +399,7 @@ type CustomerInsert = {
   id?: string;
   tenant_id: string;
   name: string;
+  customer_number?: string | null;
   domain?: string | null;
   gstin?: string | null;
   state?: string | null;

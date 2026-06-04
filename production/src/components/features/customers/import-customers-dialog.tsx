@@ -1,22 +1,26 @@
 /**
  * ImportCustomersDialog — bulk-import customers from a .csv file.
  *
- * Built for migrating from Zoho Books (and similar): the column matcher
- * recognises both a simple ResellerOS header AND common Zoho export headers
- * (Display Name / Company Name / EmailID / MobilePhone / GST Identification
- * Number (GSTIN) / Billing State), so a Zoho "Contacts" CSV imports cleanly
- * without renaming columns.
+ * Built for migrating from Zoho (Books/Billing exports) and similar. The column
+ * matcher recognises a simple ResellerOS header AND common Zoho export headers
+ * (Customer Number / Company Name / Display Name / First Name / Last Name /
+ * Email / Mobile Phone / GST Identification Number (GSTIN) / Billing State /
+ * Place Of Supply).
  *
- * Fields mapped → customers: name (required), contact_name, contact_email,
- * contact_phone, gstin, state, state_code (derived from state name).
+ * Mapping → customers:
+ *   - customer_number  ← "Customer Number" (stable join key for subscriptions)
+ *   - name             ← First + Last (fallback: Company Name)
+ *   - contact_name     ← First + Last
+ *   - contact_email    ← Email      (Zoho "-No Value-" placeholders → blank)
+ *   - contact_phone    ← Mobile Phone (fallback Phone)
+ *   - gstin / state / state_code (state_code derived from GSTIN, else state name)
+ *   - notes            ← "Company: <Company Name>" so the company isn't lost
  *
- * Dedup: rows whose email already belongs to an existing customer in this
- * tenant are flagged "already exists" and skipped (also de-dupes within the
- * file). Mirrors the lead-import safeguards.
+ * Dedup: by customer_number (primary), else by email — within the file AND
+ * against existing customers in this tenant.
  *
- * Parser is the same hand-rolled CSV reader used by the lead importer
- * (quoted strings + escaped quotes + BOM strip). Export from Zoho as CSV,
- * or Save-As CSV from Excel.
+ * Inserts are chunked (500/batch) so large migrations (1000+ rows) don't hit
+ * payload limits.
  */
 "use client";
 
@@ -30,14 +34,13 @@ import { Icon } from "@/components/ui/icon";
 import { Badge } from "@/components/ui/badge";
 import { createClient } from "@/lib/supabase/client";
 import { useCurrentUser } from "@/lib/hooks/useCurrentUser";
-import { cn, GST_STATE_BY_CODE } from "@/lib/utils";
+import { cn, GST_STATE_BY_CODE, gstStateFromGstin } from "@/lib/utils";
 
-const CSV_HEADER = "name,contact_name,contact_email,contact_phone,gstin,state";
+const CSV_HEADER = "customer_number,first_name,last_name,company_name,email,mobile_phone,gstin,billing_state";
 const SAMPLE_CSV = [
   CSV_HEADER,
-  `TechFlow Solutions,Rajesh Verma,rajesh@techflow.in,+91 98765 43210,07AABFT1234R1ZP,Delhi`,
-  `CloudBridge Systems,Sunita Agarwal,sunita@cloudbridge.in,+91 98112 23344,07AACCS5678K1ZM,Delhi`,
-  `"Rajan Tech Solutions, LLP",Rajan Kumar,rajan@rajantech.com,+91 90000 11111,27AABCU9603R1ZX,Maharashtra`,
+  `CUS-00001,Aravinder,Singh,DELUX SPORTS INTERNATIONAL,arvinder@deluxsports.com,+917889077965,03AAFFD8232J1ZL,Punjab`,
+  `CUS-00002,Siddharth,Jain,PKS Developers Pvt Ltd.,info@pksdevelopers.com,9810562000,,Delhi`,
 ].join("\n");
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -46,18 +49,25 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const STATE_NAME_TO_CODE: Record<string, string> = Object.entries(GST_STATE_BY_CODE)
   .reduce((acc, [code, name]) => { acc[name.toLowerCase()] = code; return acc; }, {} as Record<string, string>);
 
+/** Zoho exports write "-No Value-" for empty cells — treat as blank. */
+function nv(v: string | undefined): string {
+  const t = (v ?? "").trim();
+  if (!t || t.toLowerCase() === "-no value-") return "";
+  return t;
+}
+
 interface ParsedRow {
   rowNum: number;
+  customer_number?: string;
   name: string;
-  contact_name?: string;
+  company?: string;
   contact_email?: string;
   contact_phone?: string;
   gstin?: string;
   state?: string;
   state_code?: string;
-  error?: string;     // blocks import
-  warning?: string;   // imports but flagged
-  dup?: boolean;      // already exists → skipped
+  error?: string;
+  dup?: boolean;
 }
 
 interface ImportCustomersDialogProps {
@@ -73,9 +83,10 @@ export function ImportCustomersDialog({ open, onOpenChange, onImportComplete }: 
   const [parsed, setParsed] = React.useState<ParsedRow[] | null>(null);
   const [fileName, setFileName] = React.useState<string | null>(null);
   const [importing, setImporting] = React.useState(false);
+  const [existingNums, setExistingNums] = React.useState<Set<string>>(new Set());
   const [existingEmails, setExistingEmails] = React.useState<Set<string>>(new Set());
 
-  // Load existing customer emails (this tenant, via RLS) so we can flag dupes.
+  // Load existing customer_numbers + emails (this tenant, via RLS) to flag dupes.
   React.useEffect(() => {
     if (!open) {
       setParsed(null);
@@ -86,12 +97,15 @@ export function ImportCustomersDialog({ open, onOpenChange, onImportComplete }: 
     }
     (async () => {
       const supabase = createClient();
-      const { data } = await supabase.from("customers").select("contact_email");
-      const set = new Set<string>();
+      const { data } = await supabase.from("customers").select("contact_email, customer_number");
+      const nums = new Set<string>();
+      const emails = new Set<string>();
       (data ?? []).forEach((c) => {
-        if (c.contact_email) set.add(c.contact_email.trim().toLowerCase());
+        if (c.customer_number) nums.add(c.customer_number.trim().toLowerCase());
+        if (c.contact_email) emails.add(c.contact_email.trim().toLowerCase());
       });
-      setExistingEmails(set);
+      setExistingNums(nums);
+      setExistingEmails(emails);
     })();
   }, [open]);
 
@@ -110,14 +124,14 @@ export function ImportCustomersDialog({ open, onOpenChange, onImportComplete }: 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (file.size > 2 * 1024 * 1024) {
-      toast.error("File too large (>2 MB). Split into smaller files.");
+    if (file.size > 8 * 1024 * 1024) {
+      toast.error("File too large (>8 MB). Split into smaller files.");
       return;
     }
     setFileName(file.name);
     try {
       const text = await file.text();
-      const rows = parseCustomersCsv(text, existingEmails);
+      const rows = parseCustomersCsv(text, existingNums, existingEmails);
       if (rows.length === 0) {
         toast.error("No rows found. Make sure the file has a header + data rows.");
         return;
@@ -140,20 +154,29 @@ export function ImportCustomersDialog({ open, onOpenChange, onImportComplete }: 
       const supabase = createClient();
       const payload = valid.map((r) => ({
         tenant_id: me.tenantId,
+        customer_number: r.customer_number || null,
         name: r.name,
-        contact_name: r.contact_name || null,
+        contact_name: r.name || null,
         contact_email: r.contact_email || null,
         contact_phone: r.contact_phone || null,
         gstin: r.gstin || null,
         state: r.state || null,
         state_code: r.state_code || null,
+        notes: r.company && r.company !== r.name ? `Company: ${r.company}` : null,
       }));
-      const { error } = await supabase.from("customers").insert(payload);
-      if (error) throw error;
+
+      // Chunked insert so 1000+ rows don't hit payload limits.
+      let inserted = 0;
+      for (let i = 0; i < payload.length; i += 500) {
+        const chunk = payload.slice(i, i + 500);
+        const { error } = await supabase.from("customers").insert(chunk);
+        if (error) throw error;
+        inserted += chunk.length;
+      }
 
       const skipped = parsed.length - valid.length;
       toast.success(
-        `Imported ${valid.length} customer${valid.length === 1 ? "" : "s"}` +
+        `Imported ${inserted} customer${inserted === 1 ? "" : "s"}` +
         (skipped > 0 ? ` · ${skipped} skipped` : ""),
       );
       onImportComplete?.();
@@ -178,8 +201,9 @@ export function ImportCustomersDialog({ open, onOpenChange, onImportComplete }: 
             Import customers
           </DialogTitle>
           <DialogDescription className="break-words">
-            Upload a CSV (export your contacts from Zoho Books as CSV, or Save-As CSV from Excel).
-            We map common Zoho columns automatically.
+            Upload a CSV (export from Zoho as CSV, or Save-As CSV from Excel). Zoho columns
+            (Customer Number, First/Last Name, Company Name, Email, Mobile Phone, GSTIN, Billing State)
+            map automatically; "-No Value-" cells are treated as blank.
           </DialogDescription>
         </DialogHeader>
 
@@ -188,9 +212,7 @@ export function ImportCustomersDialog({ open, onOpenChange, onImportComplete }: 
             <div className="rounded-md bg-amber-soft/60 border border-amber/30 px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
               <div className="text-sm text-amber-ink min-w-0">
                 <p className="font-semibold">Pehli baar? Sample file download karo.</p>
-                <p className="text-xs opacity-90 mt-0.5">
-                  Header + example rows. Zoho ka export bhi seedha chalega.
-                </p>
+                <p className="text-xs opacity-90 mt-0.5">Header + example rows. Zoho ka export bhi seedha chalega.</p>
               </div>
               <Button type="button" variant="default" size="sm" icon="download"
                 onClick={downloadSample} className="sm:shrink-0 w-full sm:w-auto justify-center">
@@ -205,7 +227,7 @@ export function ImportCustomersDialog({ open, onOpenChange, onImportComplete }: 
             )}>
               <Icon name="upload" size={28} className="text-ink-3 mx-auto mb-2" />
               <p className="text-sm font-medium text-ink">Choose a CSV file</p>
-              <p className="text-xs text-ink-3 mt-1">Up to 2 MB</p>
+              <p className="text-xs text-ink-3 mt-1">Up to 8 MB</p>
               <input ref={fileInputRef} id="cust-csv-file" type="file" accept=".csv,text/csv"
                 onChange={handleFileChange} className="sr-only" />
             </label>
@@ -216,8 +238,8 @@ export function ImportCustomersDialog({ open, onOpenChange, onImportComplete }: 
                 {CSV_HEADER}
               </code>
               <p className="mt-2">
-                Also accepts Zoho headers: Display Name / Company Name / EmailID / MobilePhone /
-                GST Identification Number (GSTIN) / Billing State. Only a <span className="font-semibold text-ink">name</span> is required.
+                Name = <span className="font-semibold text-ink">First + Last</span> (Company Name fallback). Customer Number
+                is the stable key used to attach subscriptions later.
               </p>
             </div>
           </div>
@@ -246,20 +268,21 @@ export function ImportCustomersDialog({ open, onOpenChange, onImportComplete }: 
                   <thead className="bg-paper-2 border-b border-hairline sticky top-0">
                     <tr>
                       <th className="p-2 text-left font-semibold text-ink-3 w-8">#</th>
+                      <th className="p-2 text-left font-semibold text-ink-3">Cust&nbsp;No</th>
                       <th className="p-2 text-left font-semibold text-ink-3">Name</th>
                       <th className="p-2 text-left font-semibold text-ink-3">Email</th>
-                      <th className="p-2 text-left font-semibold text-ink-3">GSTIN</th>
                       <th className="p-2 text-left font-semibold text-ink-3">State</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {parsed.map((r) => (
+                    {parsed.slice(0, 300).map((r) => (
                       <tr key={r.rowNum} className={cn(
                         "border-b border-hairline last:border-0",
                         r.error && "bg-rose/5",
                         r.dup && !r.error && "bg-amber-soft/40",
                       )}>
                         <td className="p-2 text-ink-3 tabular-nums">{r.rowNum}</td>
+                        <td className="p-2 text-ink-2 font-mono text-[10px]">{r.customer_number || "—"}</td>
                         <td className="p-2">
                           {r.error ? (
                             <span className="text-rose inline-flex items-center gap-1">
@@ -273,7 +296,6 @@ export function ImportCustomersDialog({ open, onOpenChange, onImportComplete }: 
                           )}
                         </td>
                         <td className="p-2 text-ink-2 font-mono">{r.contact_email || <span className="text-ink-3 font-sans">—</span>}</td>
-                        <td className="p-2 text-ink-2 font-mono text-[10px]">{r.gstin || <span className="text-ink-3 font-sans">—</span>}</td>
                         <td className="p-2 text-ink-2">{r.state || <span className="text-ink-3">—</span>}</td>
                       </tr>
                     ))}
@@ -284,7 +306,8 @@ export function ImportCustomersDialog({ open, onOpenChange, onImportComplete }: 
 
             <p className="text-xs text-ink-3">
               New customers import into <span className="font-semibold text-ink">{me?.tenantName ?? "your tenant"}</span>.
-              Rows whose email already exists are skipped (no duplicates).
+              Rows whose Customer Number (or email) already exists are skipped.
+              {parsed.length > 300 && <> Showing first 300 of {parsed.length} rows.</>}
             </p>
           </div>
         )}
@@ -305,10 +328,9 @@ export function ImportCustomersDialog({ open, onOpenChange, onImportComplete }: 
 }
 
 // ============================================================
-// CSV parsing — hand-rolled (same reader as the lead importer).
-// Recognises ResellerOS + Zoho Books column names.
+// CSV parsing — recognises ResellerOS + Zoho column names.
 // ============================================================
-function parseCustomersCsv(text: string, existingEmails: Set<string>): ParsedRow[] {
+function parseCustomersCsv(text: string, existingNums: Set<string>, existingEmails: Set<string>): ParsedRow[] {
   if (text.charCodeAt(0) === 0xfeff) text = text.slice(1);
   const lines = text.split(/\r?\n/).filter((l) => l.length > 0);
   if (lines.length < 2) throw new Error("CSV needs a header row + at least one data row.");
@@ -319,56 +341,77 @@ function parseCustomersCsv(text: string, existingEmails: Set<string>): ParsedRow
     return -1;
   };
 
+  const idxNum     = col(["customer_number", "customer number", "customer no", "customer id"]);
   const idxCompany = col(["company name", "company_name", "company"]);
-  const idxDisplay = col(["name", "display name", "display_name", "customer name", "customer_name"]);
-  const idxContact = col(["contact_name", "contact name", "primary contact", "contact person", "first name"]);
+  const idxDisplay = col(["display name", "display_name", "customer name", "customer_name", "name"]);
+  const idxFirst   = col(["first_name", "first name", "firstname"]);
+  const idxLast    = col(["last_name", "last name", "lastname"]);
+  const idxContact = col(["contact_name", "contact name", "primary contact", "contact person"]);
   const idxEmail   = col(["contact_email", "email", "emailid", "email id", "email address"]);
-  const idxPhone   = col(["contact_phone", "phone", "mobilephone", "mobile phone", "mobile"]);
+  const idxMobile  = col(["mobile_phone", "mobile phone", "mobilephone", "mobile"]);
+  const idxPhone   = col(["contact_phone", "phone"]);
   const idxGstin   = col(["gstin", "gst_no", "gst no", "gst identification number (gstin)", "gst identification number", "gst"]);
-  const idxState   = col(["state", "billing state", "place of supply", "place_of_contact", "shipping state"]);
+  const idxState   = col(["billing_state", "billing state", "state", "place of supply", "place_of_supply", "shipping state"]);
 
-  if (idxCompany === -1 && idxDisplay === -1 && idxContact === -1) {
-    throw new Error("Couldn't find a name column (name / Display Name / Company Name).");
+  if (idxFirst === -1 && idxCompany === -1 && idxDisplay === -1 && idxContact === -1) {
+    throw new Error("Couldn't find a name column (First Name / Company Name / Display Name).");
   }
 
-  const seen = new Set<string>();
+  const seenNum = new Set<string>();
+  const seenEmail = new Set<string>();
   const rows: ParsedRow[] = [];
   for (let i = 1; i < lines.length; i++) {
     const cols = parseLine(lines[i]);
     const rowNum = i + 1;
-    const cell = (idx: number) => (idx >= 0 ? (cols[idx] ?? "").trim() : "");
+    const cell = (idx: number) => (idx >= 0 ? nv(cols[idx]) : "");
 
+    const first = cell(idxFirst);
+    const last  = cell(idxLast);
     const company = cell(idxCompany);
     const display = cell(idxDisplay);
     const contact = cell(idxContact);
-    const name = company || display || contact;
+
+    // Name = First + Last (per migration spec); fall back to Company / Display.
+    const person = [first, last].filter(Boolean).join(" ").trim();
+    const name = person || company || display || contact;
     if (!name) {
       rows.push({ rowNum, name: "", error: "Missing name" });
       continue;
     }
 
+    const customer_number = cell(idxNum) || undefined;
     const email = cell(idxEmail);
-    const state = cell(idxState);
-    const stateCode = state ? (STATE_NAME_TO_CODE[state.toLowerCase()] ?? undefined) : undefined;
-    const emailKey = email.toLowerCase();
+    const gstin = cell(idxGstin);
+    const stateRaw = cell(idxState);
+    // State name: a 2-letter code like "PB"/"DL" isn't a GST state name, so prefer
+    // GSTIN-derived code, then a full state-name match.
+    const fromGstin = gstin ? gstStateFromGstin(gstin) : { code: null, name: null };
+    const stateName = stateRaw.length > 2 ? stateRaw : (fromGstin.name ?? stateRaw);
+    const stateCode = fromGstin.code ?? (stateName ? STATE_NAME_TO_CODE[stateName.toLowerCase()] : undefined) ?? undefined;
 
+    // Dedup: customer_number first (stable), else email.
     let dup = false;
-    if (email) {
-      if (existingEmails.has(emailKey) || seen.has(emailKey)) dup = true;
-      seen.add(emailKey);
+    const numKey = customer_number?.toLowerCase();
+    const emailKey = email.toLowerCase();
+    if (numKey) {
+      if (existingNums.has(numKey) || seenNum.has(numKey)) dup = true;
+      seenNum.add(numKey);
+    } else if (emailKey) {
+      if (existingEmails.has(emailKey) || seenEmail.has(emailKey)) dup = true;
+      seenEmail.add(emailKey);
     }
 
     rows.push({
       rowNum,
+      customer_number,
       name,
-      contact_name: (contact || display) || undefined,
-      contact_email: email || undefined,
-      contact_phone: cell(idxPhone) || undefined,
-      gstin: cell(idxGstin) || undefined,
-      state: state || undefined,
+      company: company || undefined,
+      contact_email: email && EMAIL_RE.test(email) ? email : (email || undefined),
+      contact_phone: (cell(idxMobile) || cell(idxPhone)) || undefined,
+      gstin: gstin || undefined,
+      state: stateName || undefined,
       state_code: stateCode,
       dup,
-      warning: email && !EMAIL_RE.test(email) ? "email looks malformed" : undefined,
     });
   }
   return rows;

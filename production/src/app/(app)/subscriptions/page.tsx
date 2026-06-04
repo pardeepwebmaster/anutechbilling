@@ -9,6 +9,7 @@ import { useSubscriptions, useSetSubscriptionDomain } from "@/lib/queries/subscr
 import { useActiveTrials } from "@/lib/queries/trials";
 import ExtendSubscriptionDialog from "@/components/features/subscriptions/extend-subscription-dialog";
 import AddSeatsDialog            from "@/components/features/subscriptions/add-seats-dialog";
+import { ImportSubscriptionsDialog } from "@/components/features/subscriptions/import-subscriptions-dialog";
 import Link from "next/link";
 import { toast } from "sonner";
 import { GeminiCard } from "@/components/shared/gemini-card";
@@ -41,6 +42,7 @@ export default function SubscriptionsPage() {
   const [search, setSearch] = React.useState("");
   const [extendSub,   setExtendSub]   = React.useState<Subscription | null>(null);
   const [addSeatsSub, setAddSeatsSub] = React.useState<Subscription | null>(null);
+  const [importOpen,  setImportOpen]  = React.useState(false);
 
   const today = new Date();
   const daysUntil = (renewal: string | null) =>
@@ -141,7 +143,7 @@ export default function SubscriptionsPage() {
         </div>
         <div className="flex gap-2 flex-wrap">
           <Button icon="refresh" onClick={() => toast.info("Vendor sync coming in Phase 2")}>Sync vendors</Button>
-          <Button icon="download">Export</Button>
+          <Button icon="upload" onClick={() => setImportOpen(true)}>Import</Button>
           <Button variant="primary" icon="plus" onClick={() => toast.info("Subscriptions are created from accepted quotes")}>
             Manual add
           </Button>
@@ -582,6 +584,13 @@ export default function SubscriptionsPage() {
           onOpenChange={(v) => { if (!v) setAddSeatsSub(null); }}
         />
       )}
+
+      {/* Import subscriptions (CSV migration) */}
+      <ImportSubscriptionsDialog
+        open={importOpen}
+        onOpenChange={setImportOpen}
+        onImportComplete={() => refetch()}
+      />
 
       {/* Bottom cards */}
       {!isLoading && subs && subs.length > 0 && (

@@ -145,15 +145,16 @@ export function ReconcileGoogleDialog({ open, onOpenChange }: Props) {
           <div className="space-y-3">
             {/* Summary */}
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-              <Stat label="Google active" value={String(report.googleActive)} />
-              <Stat label="In app" value={String(report.appCount)} />
-              <Stat label="Matched" value={String(report.buckets.matched.length)} tone="emerald" />
-              <Stat label="Only in Google" value={String(report.buckets.only_google.length)} tone="rose" />
+              <Stat label="Google subs (active)" value={String(report.googleActive)} />
+              <Stat label="App subs" value={String(report.appCount)} />
+              <Stat label="Matched domains" value={String(report.buckets.matched.length)} tone="emerald" />
+              <Stat label="Only in Google (subs)" value={String(report.buckets.only_google.length)} tone="rose" />
               <Stat label="Missing ARR (est.)" value={rupee(report.estMissingMrr * 12, { compact: true })} tone="rose" />
-              <Stat label="Suspended vs active" value={String(report.buckets.suspended.length)} tone="amber" />
+              <Stat label="Suspended (billing risk)" value={String(report.buckets.suspended.length)} tone="amber" />
             </div>
             <p className="text-[11px] text-ink-3">
-              "Only in Google" = provisioned on Google but not tracked in the app. <b>Missing ARR is an estimate</b> (catalog price × seats) — verify the real rate before relying on it.
+              <b>Matched = domains</b> in both. One domain can carry several Google line-items (Business Starter + Vault + Storage), so the Google <i>subs</i> count is higher than matched <i>domains</i> — that's why matched stays ≤ your app subs.
+              {" "}<b>"Only in Google"</b> = provisioned on Google but not tracked in the app. <b>Missing ARR is an estimate</b> (catalog price × seats) — verify the real rate before relying on it.
             </p>
 
             {/* Bucket selector */}
@@ -265,19 +266,23 @@ function buildReport(text: string, subs: { domain: string | null; status: string
   const iRenew  = col(["renewal date"], true);
   if (iDomain < 0 || iSku < 0) throw new Error("Couldn't find Customer/Sku columns — is this the Google customers export?");
 
-  // App subscriptions by domain (normalized).
-  const appActiveByDomain = new Map<string, number>();   // domain → count of active app subs
+  // App subscriptions by domain (normalized). Counts are per DOMAIN so the
+  // summary reconciles (one domain can carry several Google line-items).
   const appAnyDomains = new Set<string>();
+  const appActiveByDomain = new Map<string, number>();
+  const appCountByDomain = new Map<string, number>();
   for (const s of subs) {
     if (!s.domain) continue;
     const d = normDomain(s.domain);
     appAnyDomains.add(d);
+    appCountByDomain.set(d, (appCountByDomain.get(d) ?? 0) + 1);
     if (s.status === "active") appActiveByDomain.set(d, (appActiveByDomain.get(d) ?? 0) + 1);
   }
 
   const buckets: Record<Bucket, Row[]> = { only_google: [], matched: [], only_app: [], suspended: [] };
   let googleActive = 0, googleSuspended = 0, estMissingMrr = 0;
   const googlePaidDomains = new Set<string>();
+  const googleAggByDomain = new Map<string, { subs: number; seats: number }>();  // for the matched-domain summary
 
   for (let i = 1; i < lines.length; i++) {
     const cells = parseLine(lines[i]);
@@ -301,13 +306,26 @@ function buildReport(text: string, subs: { domain: string | null; status: string
       buckets.suspended.push(row);          // suspended on Google but active in app = billing risk
     }
     if (inApp) {
-      buckets.matched.push(row);
+      const agg = googleAggByDomain.get(domain) ?? { subs: 0, seats: 0 };
+      agg.subs += 1; agg.seats += seats;
+      googleAggByDomain.set(domain, agg);    // aggregate — matched counted per domain (below)
     } else {
       const est = (priceMap.get(sku.toLowerCase()) ?? 0) * seats;  // ₹/seat/mo × seats
       row.estMrr = est || undefined;
       if (isActive) estMissingMrr += est;
       buckets.only_google.push(row);
     }
+  }
+
+  // Matched = one row per DOMAIN in both (so matched ≤ app subs; numbers reconcile).
+  for (const [domain, agg] of googleAggByDomain) {
+    buckets.matched.push({
+      domain,
+      sku: `${agg.subs} Google · ${appCountByDomain.get(domain) ?? 0} app`,
+      seats: agg.seats,
+      status: "matched",
+      renewal: "",
+    });
   }
 
   // Only-in-app: app subs whose domain isn't a paid Google domain.

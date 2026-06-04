@@ -49,6 +49,8 @@ interface Report {
 interface Props {
   open: boolean;
   onOpenChange: (v: boolean) => void;
+  /** Opens Phase 2 — the "add missing subscriptions" matcher. */
+  onAddMissing?: () => void;
 }
 
 const BUCKET_META: { id: Bucket; label: string; tone: "danger" | "success" | "warning" | "muted" }[] = [
@@ -58,7 +60,7 @@ const BUCKET_META: { id: Bucket; label: string; tone: "danger" | "success" | "wa
   { id: "only_app",    label: "Only in app",    tone: "muted" },
 ];
 
-export function ReconcileGoogleDialog({ open, onOpenChange }: Props) {
+export function ReconcileGoogleDialog({ open, onOpenChange, onAddMissing }: Props) {
   const { data: subs } = useSubscriptions();
   const { data: items } = useItems();
   const fileRef = React.useRef<HTMLInputElement>(null);
@@ -220,9 +222,15 @@ export function ReconcileGoogleDialog({ open, onOpenChange }: Props) {
               <Button type="button" variant="default" icon="x" onClick={() => { setReport(null); setFileName(null); if (fileRef.current) fileRef.current.value = ""; }}>
                 Another file
               </Button>
-              <Button type="button" variant="primary" icon="download" onClick={downloadBucket} disabled={rows.length === 0}>
+              <Button type="button" variant="default" icon="download" onClick={downloadBucket} disabled={rows.length === 0}>
                 Download {BUCKET_META.find((b) => b.id === bucket)?.label} ({rows.length})
               </Button>
+              {onAddMissing && (
+                <Button type="button" variant="primary" icon="plus"
+                  onClick={() => { onOpenChange(false); onAddMissing(); }}>
+                  Add missing to app →
+                </Button>
+              )}
             </>
           )}
         </DialogFooter>

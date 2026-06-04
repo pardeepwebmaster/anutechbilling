@@ -11,6 +11,7 @@ import ExtendSubscriptionDialog from "@/components/features/subscriptions/extend
 import AddSeatsDialog            from "@/components/features/subscriptions/add-seats-dialog";
 import { ImportSubscriptionsDialog } from "@/components/features/subscriptions/import-subscriptions-dialog";
 import { ReconcileGoogleDialog } from "@/components/features/subscriptions/reconcile-google-dialog";
+import { ImportGoogleSubsDialog } from "@/components/features/subscriptions/import-google-subs-dialog";
 import Link from "next/link";
 import { toast } from "sonner";
 import { GeminiCard } from "@/components/shared/gemini-card";
@@ -55,6 +56,7 @@ export default function SubscriptionsPage() {
   const [addSeatsSub, setAddSeatsSub] = React.useState<Subscription | null>(null);
   const [importOpen,  setImportOpen]  = React.useState(false);
   const [reconcileOpen, setReconcileOpen] = React.useState(false);
+  const [addGoogleOpen, setAddGoogleOpen] = React.useState(false);
   const [visible, setVisible] = React.useState(60);  // render cap — paginates large lists
 
   const today = new Date();
@@ -621,8 +623,19 @@ export default function SubscriptionsPage() {
         onImportComplete={() => refetch()}
       />
 
-      {/* Reconcile vs Google reseller panel (read-only report) */}
-      <ReconcileGoogleDialog open={reconcileOpen} onOpenChange={setReconcileOpen} />
+      {/* Reconcile vs Google reseller panel (read-only report) → Phase 2 matcher */}
+      <ReconcileGoogleDialog
+        open={reconcileOpen}
+        onOpenChange={setReconcileOpen}
+        onAddMissing={() => setAddGoogleOpen(true)}
+      />
+
+      {/* Phase 2 — add the missing Google subscriptions (match by customer number) */}
+      <ImportGoogleSubsDialog
+        open={addGoogleOpen}
+        onOpenChange={setAddGoogleOpen}
+        onComplete={() => refetch()}
+      />
 
       {/* Bottom cards */}
       {!isLoading && subs && subs.length > 0 && (

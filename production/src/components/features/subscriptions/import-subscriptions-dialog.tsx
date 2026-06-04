@@ -271,15 +271,37 @@ function nv(v: string | undefined): string {
   return t;
 }
 
-/** Excel serial date (days since 1899-12-30) OR a parseable date string → ISO yyyy-mm-dd. */
+/**
+ * Parse a date cell → ISO yyyy-mm-dd. Handles:
+ *   - Excel serial (e.g. 46200)
+ *   - DD-MM-YYYY / DD/MM/YYYY (Indian, day-first) — with optional " HH:MM" time
+ *   - YYYY-MM-DD (ISO)
+ *   - 2-digit years (→ 20YY)
+ * Day-first is assumed for ambiguous dd/mm (Indian convention).
+ */
 function toISODate(v: string): string | null {
   const s = nv(v);
   if (!s) return null;
+
+  // Excel serial number
   const n = Number(s);
   if (Number.isFinite(n) && n > 20000 && n < 80000) {
     const ms = Date.UTC(1899, 11, 30) + Math.round(n) * 86400000;
     return new Date(ms).toISOString().slice(0, 10);
   }
+
+  // Strip any time component, then split d/m/y on -, / or .
+  const datePart = s.split(/[ T]/)[0];
+  const m = datePart.match(/^(\d{1,4})[-/.](\d{1,2})[-/.](\d{1,4})$/);
+  if (m) {
+    const a = m[1], b = m[2], c = m[3];
+    let yyyy: string, mm: string, dd: string;
+    if (a.length === 4) { yyyy = a; mm = b; dd = c; }          // YYYY-MM-DD
+    else { dd = a; mm = b; yyyy = c.length <= 2 ? `20${c.padStart(2, "0")}` : c; }  // DD-MM-YYYY (Indian)
+    const iso = `${yyyy}-${mm.padStart(2, "0")}-${dd.padStart(2, "0")}`;
+    if (!isNaN(new Date(`${iso}T00:00:00Z`).getTime())) return iso;
+  }
+
   const d = new Date(s);
   if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
   return null;

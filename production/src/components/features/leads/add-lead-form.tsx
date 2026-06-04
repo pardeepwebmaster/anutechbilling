@@ -79,7 +79,7 @@ const SOURCES = [
 ] as const;
 
 const PLANS = [
-  "Google Workspace Starter",
+  "Google Workspace Business Starter",
   "Google Workspace Standard",
   "Google Workspace Plus",
   "Google Workspace Enterprise",
@@ -98,7 +98,7 @@ const PLANS = [
  * Plans not in this map (e.g. Custom) skip auto-calculation.
  */
 const PLAN_PRICE_PER_SEAT_PM: Record<string, number> = {
-  "Google Workspace Starter":          136,
+  "Google Workspace Business Starter":          136,
   "Google Workspace Standard":         736,
   "Google Workspace Plus":            1380,
   "Google Workspace Enterprise":      2000,

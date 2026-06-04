@@ -137,7 +137,7 @@ type CatalogEntry = {
 const DEFAULT_CATALOG: CatalogEntry[] = [
   // ─── Main items (7 core plans) — pricing matrix per Indian reseller market norms ───
   {
-    id: "GW-STR", name: "Google Workspace Starter", vendor: "google", kind: "main",
+    id: "GW-STR", name: "Google Workspace Business Starter", vendor: "google", kind: "main",
     msrp: 136, wholesale: 110,
     prices: {
       monthly: { msrp: 170, wholesale: 138 },  // No commit, ~25% premium for flex

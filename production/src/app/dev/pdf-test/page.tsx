@@ -31,7 +31,7 @@ const nextId = () => `LI-${String(_idCounter++).padStart(3, "0")}`;
 
 function gwStarter(qty: number, commitment: QuoteLineItem["commitment"] = "annual_yearly"): QuoteLineItem {
   return {
-    id: nextId(), name: "Google Workspace Starter",
+    id: nextId(), name: "Google Workspace Business Starter",
     qty, rate: 1632, cost: 1320, commitment,
   };
 }

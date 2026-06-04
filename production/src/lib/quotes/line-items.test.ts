@@ -5,7 +5,7 @@ import type { QuoteLineItem } from "@/lib/supabase/database.types";
 function line(over: Partial<QuoteLineItem> = {}): QuoteLineItem {
   return {
     id: `line-${Math.round(Number(over.qty ?? 1)) }-${over.item_id ?? "x"}-${over.rate ?? 0}`,
-    name: "Google Workspace Starter",
+    name: "Google Workspace Business Starter",
     item_id: "GW-STR-fbb",
     qty: 10,
     rate: 3240,

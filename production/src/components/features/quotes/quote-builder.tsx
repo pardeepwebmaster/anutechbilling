@@ -72,7 +72,7 @@ function isAnnualCommit(c: LineCommitment): boolean {
 // Plan → monthly price per seat (same map used in Add Lead form).
 // Cost approximated at 70% of rate (≈30% reseller margin); user can edit per line.
 const PLAN_PRICE_PER_SEAT_PM: Record<string, number> = {
-  "Google Workspace Starter":          136,
+  "Google Workspace Business Starter": 136,
   "Google Workspace Standard":         736,
   "Google Workspace Plus":            1380,
   "Google Workspace Enterprise":      2000,
@@ -262,7 +262,7 @@ export function QuoteBuilder() {
         {
           id:         `line-${Date.now()}`,
           item_id:    catalogItem?.id,
-          // Use the full catalog name when matched (so "Starter" → "Google Workspace Starter")
+          // Use the full catalog name when matched (so "Starter" → "Google Workspace Business Starter")
           name:       catalogItem?.name ?? leadPlan,
           qty:        seatsNum,
           rate,

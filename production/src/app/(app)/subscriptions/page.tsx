@@ -33,6 +33,16 @@ function estimateMargin(s: Subscription) {
   return { margin: s.mrr - cost, marginPct: Math.round(((s.mrr - cost) / s.mrr) * 100), cost };
 }
 
+/** Billing cycle / term, derived from the start↔renewal span. */
+function billingCycle(start: string | null, renewal: string | null): string | null {
+  if (!start || !renewal) return null;
+  const m = Math.round(daysBetween(start, renewal) / 30.44);
+  if (m <= 1) return "Monthly";
+  if (m <= 4) return "Quarterly";
+  if (m <= 8) return "Half-yearly";
+  return "Annual";
+}
+
 export default function SubscriptionsPage() {
   const router = useRouter();
   const { data: subs, isLoading, error, refetch } = useSubscriptions();
@@ -386,6 +396,7 @@ export default function SubscriptionsPage() {
                 {filtered.map((s) => {
                   const m = estimateMargin(s);
                   const dl = daysUntil(s.renewal_date);
+                  const cycle = billingCycle(s.start_date, s.renewal_date);
                   const isUrgent = dl !== null && dl >= 0 && dl <= 30;
                   return (
                     <tr key={s.id} className="border-b border-hairline last:border-0 hover:bg-paper-2/40">
@@ -393,7 +404,10 @@ export default function SubscriptionsPage() {
                         <div className="font-medium text-sm text-ink">{s.customer_name}</div>
                         <DomainCell sub={s} />
                       </td>
-                      <td className="p-3 text-sm text-ink-2">{s.plan}</td>
+                      <td className="p-3 text-sm text-ink-2">
+                        <div>{s.plan}</div>
+                        {cycle && <Badge kind="muted" size="sm" className="mt-1">{cycle}</Badge>}
+                      </td>
                       <td className="p-3">
                         <Badge kind={s.vendor === "google" ? "info" : s.vendor === "microsoft" ? "info" : "success"}>
                           {s.vendor}

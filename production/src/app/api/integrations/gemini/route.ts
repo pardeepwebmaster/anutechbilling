@@ -19,10 +19,12 @@ export const runtime  = "nodejs";
 
 const DEFAULT_MODEL = "gemini-2.0-flash";
 
-const saveSchema = z.object({
-  api_key: z.string().trim().min(20, "That doesn't look like a valid Gemini API key").max(200),
-  model:   z.string().trim().max(60).optional(),
-});
+const saveSchema = z
+  .object({
+    api_key: z.string().trim().min(20, "That doesn't look like a valid Gemini API key").max(200).optional(),
+    model:   z.string().trim().max(60).optional(),
+  })
+  .refine((d) => d.api_key || d.model, { message: "Nothing to save" });
 
 function mask(s: string | null | undefined): string | null {
   if (!s) return null;
@@ -84,14 +86,16 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // Patch only the provided fields — so changing the model alone preserves the
+  // existing key (the UI never has the saved key to re-send).
+  const patch: { tenant_id: string; gemini_api_key?: string; gemini_model?: string } = { tenant_id: r.tenantId };
+  if (parsed.data.api_key) patch.gemini_api_key = parsed.data.api_key;
+  if (parsed.data.model)   patch.gemini_model   = parsed.data.model.trim();
+
   const admin = createAdminClient();
   const { error } = await admin
     .from("tenant_secrets")
-    .upsert({
-      tenant_id:      r.tenantId,
-      gemini_api_key: parsed.data.api_key,
-      gemini_model:   parsed.data.model?.trim() || DEFAULT_MODEL,
-    }, { onConflict: "tenant_id" });
+    .upsert(patch, { onConflict: "tenant_id" });
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
 
   return NextResponse.json({ ok: true });

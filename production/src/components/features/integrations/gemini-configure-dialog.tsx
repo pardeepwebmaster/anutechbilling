@@ -23,6 +23,14 @@ interface Props {
   onOpenChange: (v: boolean) => void;
 }
 
+// Current Gemini models on the Generative Language API (1.5 retired 2025–26).
+const MODEL_OPTIONS = [
+  "gemini-2.0-flash",
+  "gemini-2.0-flash-lite",
+  "gemini-2.5-flash",
+  "gemini-2.5-pro",
+];
+
 interface GeminiStatus {
   ok:           boolean;
   configured:   boolean;
@@ -59,11 +67,15 @@ export default function GeminiConfigureDialog({ open, onOpenChange }: Props) {
 
   const save = useMutation({
     mutationFn: async () => {
-      if (apiKey.trim().length < 20) throw new Error("Enter a valid Gemini API key");
+      const hasKey = apiKey.trim().length >= 20;
+      if (!hasKey && !status?.configured) throw new Error("Enter a valid Gemini API key");
+      const payload: { api_key?: string; model?: string } = {};
+      if (hasKey) payload.api_key = apiKey.trim();
+      if (model.trim()) payload.model = model.trim();
       const res = await fetch("/api/integrations/gemini", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({ api_key: apiKey.trim(), model: model.trim() || undefined }),
+        body:    JSON.stringify(payload),
       });
       const json = await res.json();
       if (!res.ok || !json.ok) throw new Error(json.error ?? "Save failed");
@@ -160,15 +172,20 @@ export default function GeminiConfigureDialog({ open, onOpenChange }: Props) {
             </div>
 
             <div className="min-w-0">
-              <Label>Model — optional</Label>
-              <Input
-                className="font-mono"
-                placeholder="gemini-2.0-flash"
-                value={model}
+              <Label>Model</Label>
+              <select
+                className="w-full rounded-md border border-hairline bg-paper px-3 py-2 text-sm font-mono text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber"
+                value={model || "gemini-2.0-flash"}
                 onChange={(e) => setModel(e.target.value)}
-                autoComplete="off"
-              />
-              <p className="text-[10px] text-ink-3 mt-1">Default <span className="font-mono">gemini-2.0-flash</span> — fast + cheap, good for Hinglish drafts. (1.5 models were retired by Google.)</p>
+              >
+                {model && !MODEL_OPTIONS.includes(model) && (
+                  <option value={model}>{model} (current · retired)</option>
+                )}
+                {MODEL_OPTIONS.map((m) => (
+                  <option key={m} value={m}>{m}{m === "gemini-2.0-flash" ? " — recommended" : ""}</option>
+                ))}
+              </select>
+              <p className="text-[10px] text-ink-3 mt-1"><span className="font-mono">gemini-2.0-flash</span> — fast + cheap, good for Hinglish drafts. (1.5 models were retired by Google.)</p>
             </div>
 
             <div className="rounded-md bg-paper-2 p-3 text-xs text-ink-3 leading-relaxed break-words">
@@ -212,7 +229,7 @@ export default function GeminiConfigureDialog({ open, onOpenChange }: Props) {
             icon="check"
             onClick={() => save.mutate()}
             loading={save.isPending}
-            disabled={apiKey.trim().length < 20}
+            disabled={apiKey.trim().length < 20 && !status?.configured}
           >
             Save
           </Button>

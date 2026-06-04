@@ -30,7 +30,7 @@ import { Input } from "@/components/ui/input";
 import { FormField } from "@/components/ui/label";
 import { Icon } from "@/components/ui/icon";
 import { Button } from "@/components/ui/button";
-import { useCreateCustomer } from "@/lib/queries/customers";
+import { useCreateCustomer, useUpdateCustomer } from "@/lib/queries/customers";
 import {
   isValidGstin,
   validateGstin,
@@ -38,7 +38,7 @@ import {
   GST_STATE_BY_CODE,
 } from "@/lib/utils";
 import GstinVerifyCard from "@/components/features/gstin/gstin-verify-card";
-import type { GstinVerification } from "@/lib/supabase/database.types";
+import type { GstinVerification, Customer } from "@/lib/supabase/database.types";
 
 // Schema — GSTIN optional but checksum-validated when present. State code
 // stays in the schema (it's needed for GST math) but the visible input
@@ -66,10 +66,14 @@ type FormData = z.infer<typeof schema>;
 interface AddCustomerFormProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** When provided, the form opens in EDIT mode (prefilled + updates this customer). */
+  customer?: Customer | null;
 }
 
-export function AddCustomerForm({ open, onOpenChange }: AddCustomerFormProps) {
+export function AddCustomerForm({ open, onOpenChange, customer }: AddCustomerFormProps) {
+  const isEdit = !!customer;
   const createCustomer = useCreateCustomer();
+  const updateCustomer = useUpdateCustomer();
   // Hold the live verification result so we can persist it with the
   // create call (no extra round-trip).
   const [verification, setVerification] = React.useState<GstinVerification | null>(null);
@@ -86,13 +90,34 @@ export function AddCustomerForm({ open, onOpenChange }: AddCustomerFormProps) {
     defaultValues: {},
   });
 
-  // Wipe form + verification on dialog close so reopening starts clean.
+  // On open: prefill from the customer (edit) or start blank (create).
+  // On close: wipe so reopening starts clean.
   React.useEffect(() => {
     if (!open) {
       reset();
       setVerification(null);
+      return;
     }
-  }, [open, reset]);
+    if (customer) {
+      reset({
+        name:          customer.name ?? "",
+        domain:        customer.domain ?? "",
+        gstin:         customer.gstin ?? "",
+        state:         customer.state ?? "",
+        state_code:    customer.state_code ?? "",
+        address:       customer.address ?? "",
+        pin_code:      customer.pin_code ?? "",
+        contact_name:  customer.contact_name ?? "",
+        contact_title: customer.contact_title ?? "",
+        contact_email: customer.contact_email ?? "",
+        contact_phone: customer.contact_phone ?? "",
+      });
+      setVerification(customer.gstin_verification ?? null);
+    } else {
+      reset({});
+      setVerification(null);
+    }
+  }, [open, customer, reset]);
 
   // Auto-derive state + state_code from GSTIN on every keystroke. Same
   // logic as Settings — first 2 digits of GSTIN = state code.
@@ -104,24 +129,30 @@ export function AddCustomerForm({ open, onOpenChange }: AddCustomerFormProps) {
   }, [watchedGstin, setValue]);
 
   const onSubmit = async (data: FormData) => {
+    const base = {
+      name:          data.name.trim(),
+      domain:        data.domain?.trim()        || null,
+      gstin:         data.gstin?.trim()         || null,
+      state:         data.state?.trim()         || null,
+      state_code:    data.state_code?.trim()    || null,
+      address:       data.address?.trim()       || null,
+      pin_code:      data.pin_code?.trim()      || null,
+      contact_name:  data.contact_name?.trim()  || null,
+      contact_title: data.contact_title?.trim() || null,
+      contact_email: data.contact_email?.trim() || null,
+      contact_phone: data.contact_phone?.trim() || null,
+    };
+    // Only stamp verification when newly verified this session — so editing an
+    // already-verified customer without re-verifying doesn't wipe its status.
+    const payload = verification
+      ? { ...base, gstin_verification: verification, gstin_verified_at: new Date().toISOString() }
+      : base;
     try {
-      await createCustomer.mutateAsync({
-        name:          data.name.trim(),
-        domain:        data.domain?.trim()        || null,
-        gstin:         data.gstin?.trim()         || null,
-        state:         data.state?.trim()         || null,
-        state_code:    data.state_code?.trim()    || null,
-        address:       data.address?.trim()       || null,
-        pin_code:      data.pin_code?.trim()      || null,
-        contact_name:  data.contact_name?.trim()  || null,
-        contact_title: data.contact_title?.trim() || null,
-        contact_email: data.contact_email?.trim() || null,
-        contact_phone: data.contact_phone?.trim() || null,
-        // If they verified during this session, ride the result along
-        // so the new customer is "verified" on creation.
-        gstin_verification: verification,
-        gstin_verified_at:  verification ? new Date().toISOString() : null,
-      });
+      if (isEdit && customer) {
+        await updateCustomer.mutateAsync({ id: customer.id, patch: payload });
+      } else {
+        await createCustomer.mutateAsync(payload);
+      }
       onOpenChange(false);
     } catch {
       // toast handled in hook
@@ -135,9 +166,11 @@ export function AddCustomerForm({ open, onOpenChange }: AddCustomerFormProps) {
         className="w-full sm:max-w-[520px] md:max-w-[600px] p-0 flex flex-col overflow-x-hidden"
       >
         <SheetHeader>
-          <SheetTitle>Add a customer</SheetTitle>
+          <SheetTitle>{isEdit ? "Edit customer" : "Add a customer"}</SheetTitle>
           <SheetDescription>
-            Type the GSTIN first — we&apos;ll verify with GSTN and auto-fill the rest.
+            {isEdit
+              ? "Update this customer's details. Company name = the customer; contact = the person."
+              : "Type the GSTIN first — we'll verify with GSTN and auto-fill the rest."}
           </SheetDescription>
         </SheetHeader>
 
@@ -293,9 +326,9 @@ export function AddCustomerForm({ open, onOpenChange }: AddCustomerFormProps) {
             <Button
               type="submit"
               variant="primary"
-              loading={isSubmitting || createCustomer.isPending}
+              loading={isSubmitting || createCustomer.isPending || updateCustomer.isPending}
             >
-              Add customer
+              {isEdit ? "Save changes" : "Add customer"}
             </Button>
           </SheetFooter>
         </form>

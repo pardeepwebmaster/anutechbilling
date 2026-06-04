@@ -33,6 +33,7 @@ import {
   CustomerActivity,
   CustomerDetailsGrid,
 } from "@/components/features/customers/customer-insights";
+import { AddCustomerForm } from "@/components/features/customers/add-customer-form";
 
 export default function CustomerDetailPage() {
   const params = useParams<{ id: string }>();
@@ -44,6 +45,7 @@ export default function CustomerDetailPage() {
   const { data: quotes }   = useCustomerQuotes(params.id);
 
   const [tab, setTab] = React.useState("activity");
+  const [editOpen, setEditOpen] = React.useState(false);
 
   if (isLoading) {
     return (
@@ -126,6 +128,7 @@ export default function CustomerDetailPage() {
         </div>
         <div className="flex gap-2 flex-wrap items-center">
           <CustomerContactActions customer={c} />
+          <Button icon="edit" onClick={() => setEditOpen(true)}>Edit</Button>
           <Button variant="primary" icon="plus" onClick={() => router.push("/quotes/new" as any)}>New quote</Button>
         </div>
       </div>
@@ -211,6 +214,8 @@ export default function CustomerDetailPage() {
           </Card>
         </div>
       </div>
+
+      <AddCustomerForm open={editOpen} onOpenChange={setEditOpen} customer={c} />
     </div>
   );
 }

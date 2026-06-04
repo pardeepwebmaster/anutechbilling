@@ -23,6 +23,7 @@ import { Avatar } from "@/components/ui/avatar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TabBar, type TabBarItem } from "@/components/ui/tabs";
 import { initials, formatDate, rupee, daysBetween } from "@/lib/utils";
+import { AddCustomerForm } from "./add-customer-form";
 import {
   deriveCustomerInsights,
   CustomerMetricBar,
@@ -41,6 +42,7 @@ export function CustomerPanel({ customerId, onClose }: { customerId: string; onC
   const { data: invoices } = useCustomerInvoices(customerId);
   const { data: quotes } = useCustomerQuotes(customerId);
   const [tab, setTab] = React.useState("activity");
+  const [editOpen, setEditOpen] = React.useState(false);
 
   React.useEffect(() => { setTab("activity"); }, [customerId]);
 
@@ -98,6 +100,7 @@ export function CustomerPanel({ customerId, onClose }: { customerId: string; onC
           </div>
         </div>
         <div className="flex items-center gap-1.5 flex-shrink-0">
+          <IconButton icon="edit" aria-label="Edit customer" onClick={() => setEditOpen(true)} />
           <Button size="sm" variant="default" icon="external" onClick={() => router.push(`/customers/${c.id}` as never)}>Open full</Button>
           {onClose && <IconButton icon="x" aria-label="Close" onClick={onClose} />}
         </div>
@@ -152,6 +155,8 @@ export function CustomerPanel({ customerId, onClose }: { customerId: string; onC
           </div>
         </section>
       </div>
+
+      <AddCustomerForm open={editOpen} onOpenChange={setEditOpen} customer={c} />
     </div>
   );
 }

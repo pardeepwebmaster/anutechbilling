@@ -23,7 +23,8 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/shared/empty-state";
 import { TabBar, type TabBarItem } from "@/components/ui/tabs";
-import { formatDate, rupee, daysBetween, cn } from "@/lib/utils";
+import { Icon } from "@/components/ui/icon";
+import { formatDate, formatPhone, rupee, daysBetween, cn } from "@/lib/utils";
 import {
   deriveCustomerInsights,
   CustomerMetricBar,
@@ -119,11 +120,40 @@ export default function CustomerDetailPage() {
               Customer · since {formatDate(c.since)} · {tenure}
             </p>
             <h1 className="font-serif text-3xl md:text-4xl leading-tight">{c.name}</h1>
-            <p className="text-sm text-ink-3 mt-1">
-              {c.domain && <span className="font-mono">{c.domain}</span>}
-              {c.domain && c.state && <span> · </span>}
-              {c.state && <span>{c.state}</span>}
-            </p>
+            {/* Contact line under the company name — person + mobile + email, tappable */}
+            <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+              {c.contact_name && (
+                <span className="inline-flex items-center gap-1.5 text-ink-2">
+                  <Icon name="user" size={13} className="text-ink-3" />
+                  {c.contact_name}
+                </span>
+              )}
+              {c.contact_phone && (
+                <a
+                  href={`tel:${c.contact_phone.replace(/\s+/g, "")}`}
+                  className="inline-flex items-center gap-1.5 text-ink-2 hover:text-amber-ink transition-colors"
+                >
+                  <Icon name="phone" size={13} className="text-ink-3" />
+                  <span className="tabular-nums">{formatPhone(c.contact_phone)}</span>
+                </a>
+              )}
+              {c.contact_email && (
+                <a
+                  href={`mailto:${c.contact_email}`}
+                  className="inline-flex items-center gap-1.5 text-ink-2 hover:text-amber-ink transition-colors"
+                >
+                  <Icon name="mail" size={13} className="text-ink-3" />
+                  <span className="font-mono text-xs">{c.contact_email}</span>
+                </a>
+              )}
+              {(c.domain || c.state) && (
+                <span className="inline-flex items-center gap-1.5 text-ink-3">
+                  {c.domain && <span className="font-mono text-xs">{c.domain}</span>}
+                  {c.domain && c.state && <span>·</span>}
+                  {c.state && <span>{c.state}</span>}
+                </span>
+              )}
+            </div>
           </div>
         </div>
         <div className="flex gap-2 flex-wrap items-center">

@@ -39,11 +39,30 @@ export async function POST() {
     );
     if (!res.ok) {
       const detail = await res.text().catch(() => "");
-      const msg = res.status === 400 || res.status === 403
-        ? "Key rejected by Google — check the key + that the Generative Language API is enabled."
-        : `Gemini returned ${res.status}.`;
       console.error("[integrations/gemini/test] failed:", res.status, detail.slice(0, 300));
-      return NextResponse.json({ ok: false, error: msg }, { status: 200 });
+
+      // Make the error actionable: list the key's available generateContent
+      // models (esp. for 404 = stale/invalid model name).
+      let suggest = "";
+      try {
+        const lm = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
+        if (lm.ok) {
+          const j = (await lm.json()) as { models?: Array<{ name?: string; supportedGenerationMethods?: string[] }> };
+          const names = (j.models ?? [])
+            .filter((m) => m.supportedGenerationMethods?.includes("generateContent"))
+            .map((m) => (m.name ?? "").replace(/^models\//, ""))
+            .filter((n) => n.startsWith("gemini"))
+            .slice(0, 8);
+          if (names.length) suggest = ` Available models: ${names.join(", ")}.`;
+        }
+      } catch { /* best-effort */ }
+
+      const base =
+        res.status === 400 ? "Key rejected by Google — check the key + that the Generative Language API is enabled."
+        : res.status === 403 ? "Access denied — enable the Generative Language API for this key."
+        : res.status === 404 ? `Model "${model}" not found for this key — set a valid model in the Model field.`
+        : `Gemini returned ${res.status}.`;
+      return NextResponse.json({ ok: false, error: base + suggest }, { status: 200 });
     }
     return NextResponse.json({ ok: true, model });
   } catch (e) {

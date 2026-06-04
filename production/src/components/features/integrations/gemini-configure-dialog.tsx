@@ -163,12 +163,12 @@ export default function GeminiConfigureDialog({ open, onOpenChange }: Props) {
               <Label>Model — optional</Label>
               <Input
                 className="font-mono"
-                placeholder="gemini-1.5-flash"
+                placeholder="gemini-2.0-flash"
                 value={model}
                 onChange={(e) => setModel(e.target.value)}
                 autoComplete="off"
               />
-              <p className="text-[10px] text-ink-3 mt-1">Default <span className="font-mono">gemini-1.5-flash</span> — fast + cheap, good for Hinglish drafts.</p>
+              <p className="text-[10px] text-ink-3 mt-1">Default <span className="font-mono">gemini-2.0-flash</span> — fast + cheap, good for Hinglish drafts. (1.5 models were retired by Google.)</p>
             </div>
 
             <div className="rounded-md bg-paper-2 p-3 text-xs text-ink-3 leading-relaxed break-words">

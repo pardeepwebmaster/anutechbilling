@@ -21,7 +21,9 @@ export interface GeminiConfig {
   model: string;
 }
 
-const DEFAULT_MODEL = "gemini-1.5-flash";
+// gemini-1.5-* were retired by Google (2025–26). gemini-2.0-flash is the
+// current widely-available fast model on the Generative Language API.
+const DEFAULT_MODEL = "gemini-2.0-flash";
 
 function valid(key: string | null | undefined): string | null {
   const k = key?.trim();

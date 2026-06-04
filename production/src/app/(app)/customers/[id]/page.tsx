@@ -159,7 +159,7 @@ export default function CustomerDetailPage() {
         <div className="flex gap-2 flex-wrap items-center">
           <CustomerContactActions customer={c} />
           <Button icon="edit" onClick={() => setEditOpen(true)}>Edit</Button>
-          <Button variant="primary" icon="plus" onClick={() => router.push("/quotes/new" as any)}>New quote</Button>
+          <Button variant="primary" icon="plus" onClick={() => router.push(`/quotes/new?customer=${c.id}` as any)}>New quote</Button>
         </div>
       </div>
 
@@ -177,7 +177,15 @@ export default function CustomerDetailPage() {
       <div className="grid grid-cols-1 lg:grid-cols-[1.5fr_1fr] gap-4">
         {/* LEFT */}
         <div className="space-y-4">
-          <Card title="Subscriptions" sub={allSubs.length > 0 ? `${insights.activeSubs.length} active` : undefined}>
+          <Card
+            title="Subscriptions"
+            sub={allSubs.length > 0 ? `${insights.activeSubs.length} active` : undefined}
+            actions={
+              <Button size="sm" variant="primary" icon="plus" onClick={() => router.push(`/quotes/new?customer=${c.id}` as any)}>
+                Add service
+              </Button>
+            }
+          >
             <SubscriptionList subs={allSubs} />
           </Card>
 
@@ -205,7 +213,7 @@ export default function CustomerDetailPage() {
                     }))}
                   />
                 ) : <EmptyState icon="file" title="No quotes yet" body="Create the first quote for this customer." compact
-                      action={<Button variant="primary" icon="plus" onClick={() => router.push("/quotes/new" as any)}>New quote</Button>} />
+                      action={<Button variant="primary" icon="plus" onClick={() => router.push(`/quotes/new?customer=${c.id}` as any)}>New quote</Button>} />
               )}
               {tab === "invoices" && (
                 allInvoices.length > 0 ? (

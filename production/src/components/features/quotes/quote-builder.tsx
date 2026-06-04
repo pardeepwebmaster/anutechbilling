@@ -112,6 +112,7 @@ export function QuoteBuilder() {
   const urlPhone    = searchParams.get("phone");
   // Duplicate / revise an existing quote ("edit & resend" workflow)
   const duplicateOf       = searchParams.get("duplicate");
+  const urlCustomer       = searchParams.get("customer");  // Customer 360 → "Add service"
   const { data: sourceQuote } = useQuote(duplicateOf ?? undefined);
 
   // Look up the lead from the cached useLeads() query so the operator can
@@ -314,6 +315,18 @@ export function QuoteBuilder() {
 
     toast.success(`Revising ${sourceQuote.id} — edit anything, then Save & send`);
   }, [duplicateOf, sourceQuote]);
+
+  // ── Pre-fill the customer from ?customer=<id> (Customer 360 → "Add service") ──
+  // Mirrors the ?lead= path but for an EXISTING customer (cross-sell / new service).
+  const presetCustRef = React.useRef(false);
+  React.useEffect(() => {
+    if (presetCustRef.current || !urlCustomer || !customers) return;
+    if (customers.some((c) => c.id === urlCustomer)) {
+      presetCustRef.current = true;
+      setCustomerId(urlCustomer);
+      setProspectName("");
+    }
+  }, [urlCustomer, customers]);
 
   // Derived customer fields
   const customer = customers?.find((c) => c.id === customerId);

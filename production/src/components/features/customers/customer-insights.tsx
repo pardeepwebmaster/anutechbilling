@@ -234,7 +234,7 @@ export function NextBestActionCard({ nba, customer }: { nba: Nba; customer: Cust
 
         {cta && (cta.kind === "profile" || cta.kind === "quote") && (
           <div className="mt-2.5">
-            <Button size="sm" variant="primary" onClick={() => router.push((cta.kind === "quote" ? "/quotes/new" : `/customers/${customer.id}`) as never)}>
+            <Button size="sm" variant="primary" onClick={() => router.push((cta.kind === "quote" ? `/quotes/new?customer=${customer.id}` : `/customers/${customer.id}`) as never)}>
               {cta.label}
             </Button>
           </div>

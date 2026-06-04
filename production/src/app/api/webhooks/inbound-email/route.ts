@@ -20,6 +20,7 @@
  */
 import { NextResponse, type NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/server";
+import { resolveGeminiConfig } from "@/lib/ai/gemini";
 import { sendEmail } from "@/lib/email/send";
 
 const INBOUND_SECRET = process.env.INBOUND_EMAIL_SECRET?.trim() || "";
@@ -48,11 +49,7 @@ function parseFrom(raw: string): { name: string; email: string } {
 }
 
 /** Ask Gemini to classify + extract. Returns null on any failure (caller stubs). */
-async function extractWithGemini(subject: string, from: string, body: string): Promise<ExtractedLead | null> {
-  const apiKey = process.env.GEMINI_API_KEY?.trim();
-  const model  = process.env.GEMINI_MODEL?.trim() || "gemini-1.5-flash";
-  if (!apiKey || apiKey === "..." || apiKey.length < 10) return null;
-
+async function extractWithGemini(apiKey: string, model: string, subject: string, from: string, body: string): Promise<ExtractedLead | null> {
   const system =
     "You triage forwarded B2B emails for a cloud-software reseller (Google Workspace, " +
     "Microsoft 365, Zoho). Decide if the email is a GENUINE sales/product enquiry from a " +
@@ -158,7 +155,8 @@ export async function POST(request: NextRequest) {
       .eq("tenant_id", tenantId).eq("message_id", messageId);
 
   // ── 4. Extract + classify (Gemini, or stub fallback) ───────────────────
-  const ai = await extractWithGemini(subject, rawFrom, text);
+  const gemini = await resolveGeminiConfig(admin, tenantId);
+  const ai = gemini.apiKey ? await extractWithGemini(gemini.apiKey, gemini.model, subject, rawFrom, text) : null;
   const extracted: ExtractedLead = ai ?? {
     isEnquiry:   true, // no AI → don't silently drop; let the operator triage
     company:     fromEmail.split("@")[1]?.split(".")[0] || fromName || "Email lead",

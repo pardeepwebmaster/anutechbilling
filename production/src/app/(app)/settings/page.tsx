@@ -32,6 +32,7 @@ import GstinVerifyCard from "@/components/features/gstin/gstin-verify-card";
 import SandboxConfigureDialog  from "@/components/features/integrations/sandbox-configure-dialog";
 import WhatsAppConfigureDialog from "@/components/features/integrations/whatsapp-configure-dialog";
 import RazorpayConfigureDialog from "@/components/features/integrations/razorpay-configure-dialog";
+import GeminiConfigureDialog from "@/components/features/integrations/gemini-configure-dialog";
 import { useQuery } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
 import type { TenantWithParent } from "@/lib/supabase/database.types";
@@ -544,11 +545,53 @@ function RazorpayIntegrationCard() {
   );
 }
 
+function GeminiIntegrationCard() {
+  const [open, setOpen] = React.useState(false);
+  const { data: status } = useQuery({
+    queryKey: ["integrations", "gemini"],
+    queryFn: async () => {
+      const res = await fetch("/api/integrations/gemini");
+      return res.ok ? res.json() : null;
+    },
+  });
+  const configured = Boolean(status?.configured);
+  const envFallback = Boolean(status?.env_fallback);
+  return (
+    <>
+      <div className="flex items-center justify-between rounded-lg border border-hairline p-3">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-paper-2 text-amber">
+            <Icon name="sparkles" size={16} />
+          </div>
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-ink inline-flex items-center gap-1.5">
+              AI assistant
+              {configured
+                ? <Badge size="sm" kind="success">Live</Badge>
+                : envFallback
+                  ? <Badge size="sm" kind="info">Shared</Badge>
+                  : <Badge size="sm" kind="muted">Stub</Badge>}
+            </p>
+            <p className="text-xs text-ink-3 truncate">
+              {configured ? "Real AI drafts + extraction" : envFallback ? "Using shared server key" : "Templates only — add a Gemini key"}
+            </p>
+          </div>
+        </div>
+        <Button variant={configured ? "ghost" : "primary"} size="sm" onClick={() => setOpen(true)}>
+          {configured ? "Manage" : "Setup"}
+        </Button>
+      </div>
+      {open && <GeminiConfigureDialog open={open} onOpenChange={setOpen} />}
+    </>
+  );
+}
+
 function IntegrationsTab() {
   return (
     <Card className="p-5">
       <p className="mb-4 text-sm font-semibold text-ink">Connected services</p>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <GeminiIntegrationCard />
         <RazorpayIntegrationCard />
         <SandboxIntegrationCard />
         <WhatsAppIntegrationCard />

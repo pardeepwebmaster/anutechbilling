@@ -257,7 +257,7 @@ export function NextBestActionCard({ nba, customer }: { nba: Nba; customer: Cust
                 />
                 <div className="flex items-center justify-between gap-2 mt-2 flex-wrap">
                   <span className="text-[10px] text-ink-3">
-                    {draft.mode === "gemini" ? "AI draft · verify the amount, then send" : "Template · set GEMINI_API_KEY for real AI"}
+                    {draft.mode === "gemini" ? "AI draft · verify the amount, then send" : "Template · add a Gemini key in Settings → Integrations for real AI"}
                   </span>
                   <div className="flex gap-1.5">
                     <Button size="sm" variant="default" onClick={generate} disabled={drafting}>{drafting ? "…" : "Redraft"}</Button>

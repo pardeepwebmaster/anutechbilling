@@ -166,7 +166,7 @@ export default function CampaignComposerDialog({ open, onOpenChange }: Props) {
       toast.success(
         json.mode === "gemini"
           ? "AI draft ready — review + tweak before sending"
-          : "Stub draft created — set GEMINI_API_KEY for real AI generation",
+          : "Stub draft created — add a Gemini key in Settings → Integrations for real AI",
       );
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Network error");

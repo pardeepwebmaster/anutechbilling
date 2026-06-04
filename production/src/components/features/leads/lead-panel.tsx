@@ -136,7 +136,7 @@ export function LeadPanel({ lead, onClose }: { lead: Lead; onClose?: () => void 
               />
               <div className="flex items-center justify-between gap-2 mt-2 flex-wrap">
                 <span className="text-[10px] text-ink-3">
-                  {draft.mode === "gemini" ? "AI draft · edit before sending" : "Template · set GEMINI_API_KEY for real AI"}
+                  {draft.mode === "gemini" ? "AI draft · edit before sending" : "Template · add a Gemini key in Settings → Integrations for real AI"}
                 </span>
                 <div className="flex gap-1.5">
                   <Button size="sm" variant="default" onClick={() => { navigator.clipboard?.writeText(draft.message); toast.success("Copied"); }}>

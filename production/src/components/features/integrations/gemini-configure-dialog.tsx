@@ -1,0 +1,223 @@
+/**
+ * GeminiConfigureDialog — per-tenant Google Gemini (AI) key editor.
+ *
+ * Turns on real AI (lead/customer follow-up drafts, inbound-email→lead,
+ * campaign copy) without touching Cloud Run. The key is stored server-side in
+ * tenant_secrets and never round-trips back to the browser — masked preview only.
+ */
+"use client";
+
+import * as React from "react";
+import { toast } from "sonner";
+import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
+import { Dialog, DialogContent, DialogFooter } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import { Icon } from "@/components/ui/icon";
+import { formatDate } from "@/lib/utils";
+
+interface Props {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+}
+
+interface GeminiStatus {
+  ok:           boolean;
+  configured:   boolean;
+  env_fallback: boolean;
+  key_mask:     string | null;
+  model:        string;
+  updated_at:   string | null;
+}
+
+function useGeminiStatus() {
+  return useQuery({
+    queryKey: ["integrations", "gemini"],
+    queryFn: async (): Promise<GeminiStatus> => {
+      const res = await fetch("/api/integrations/gemini");
+      const json = await res.json();
+      if (!res.ok || !json.ok) throw new Error(json.error ?? "Could not load AI status");
+      return json as GeminiStatus;
+    },
+  });
+}
+
+export default function GeminiConfigureDialog({ open, onOpenChange }: Props) {
+  const { data: status, isLoading } = useGeminiStatus();
+  const qc = useQueryClient();
+
+  const [apiKey, setApiKey]   = React.useState("");
+  const [model, setModel]     = React.useState("");
+  const [show, setShow]       = React.useState(false);
+  const [testing, setTesting] = React.useState(false);
+
+  React.useEffect(() => {
+    if (status?.model) setModel(status.model);
+  }, [status?.model]);
+
+  const save = useMutation({
+    mutationFn: async () => {
+      if (apiKey.trim().length < 20) throw new Error("Enter a valid Gemini API key");
+      const res = await fetch("/api/integrations/gemini", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ api_key: apiKey.trim(), model: model.trim() || undefined }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.ok) throw new Error(json.error ?? "Save failed");
+    },
+    onSuccess: () => {
+      toast.success("Gemini key saved — AI is now live for your workspace");
+      qc.invalidateQueries({ queryKey: ["integrations", "gemini"] });
+      setApiKey("");
+    },
+    onError: (err) => toast.error((err as Error).message),
+  });
+
+  const disconnect = useMutation({
+    mutationFn: async () => {
+      const res = await fetch("/api/integrations/gemini", { method: "DELETE" });
+      const json = await res.json();
+      if (!res.ok || !json.ok) throw new Error(json.error ?? "Disconnect failed");
+    },
+    onSuccess: () => {
+      toast.success("Gemini key cleared");
+      qc.invalidateQueries({ queryKey: ["integrations", "gemini"] });
+      setApiKey("");
+    },
+    onError: (err) => toast.error((err as Error).message),
+  });
+
+  async function testConnection() {
+    setTesting(true);
+    try {
+      const res = await fetch("/api/integrations/gemini/test", { method: "POST" });
+      const json = await res.json();
+      if (json.ok) toast.success(`Connected ✓ — model ${json.model} responded`);
+      else toast.error(json.error ?? "Test failed");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Network error");
+    } finally {
+      setTesting(false);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="md:!max-w-xl">
+        <header className="border-b border-hairline pb-3 mb-4">
+          <p className="text-[10px] uppercase tracking-wider font-semibold text-amber-ink mb-1 inline-flex items-center gap-1.5">
+            <Icon name="sparkles" size={11} /> Integration · AI (Google Gemini)
+          </p>
+          <h2 className="font-serif text-2xl text-ink">AI assistant</h2>
+          <p className="text-xs text-ink-3 mt-1">
+            Powers follow-up drafts, payment-reminder drafts, inbound-email → lead, and campaign copy. Without a key these run on plain templates.
+          </p>
+        </header>
+
+        {isLoading ? (
+          <p className="text-xs text-ink-3">Loading current status…</p>
+        ) : (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between rounded-md border border-hairline bg-paper-2/40 px-3 py-2">
+              <div className="min-w-0">
+                <p className="text-xs font-medium text-ink">Current state</p>
+                <p className="text-[11px] text-ink-3 truncate">
+                  {status?.configured
+                    ? <>Configured · key {status.key_mask} · model {status.model} · saved {status.updated_at ? formatDate(status.updated_at) : "—"}</>
+                    : status?.env_fallback
+                      ? "Using the shared server key (env). Add your own to override."
+                      : "Not configured — AI features run on plain templates (stub)."}
+                </p>
+              </div>
+              {status?.configured
+                ? <Badge kind="success" dot>Live</Badge>
+                : status?.env_fallback
+                  ? <Badge kind="info" dot>Shared</Badge>
+                  : <Badge kind="muted" dot>Stub</Badge>}
+            </div>
+
+            <div className="min-w-0">
+              <Label>Gemini API key *</Label>
+              <div className="flex gap-2 min-w-0">
+                <Input
+                  type={show ? "text" : "password"}
+                  className="font-mono min-w-0 flex-1"
+                  placeholder="AIza…"
+                  value={apiKey}
+                  onChange={(e) => setApiKey(e.target.value)}
+                  autoComplete="off"
+                />
+                <Button type="button" variant="ghost" size="sm" className="shrink-0" onClick={() => setShow((v) => !v)}>
+                  {show ? "Hide" : "Show"}
+                </Button>
+              </div>
+              <p className="text-[10px] text-ink-3 mt-1 break-words">
+                Get it free at <span className="font-mono">aistudio.google.com</span> → Get API key. Paid tier recommended (privacy). Never shown back after save.
+              </p>
+            </div>
+
+            <div className="min-w-0">
+              <Label>Model — optional</Label>
+              <Input
+                className="font-mono"
+                placeholder="gemini-1.5-flash"
+                value={model}
+                onChange={(e) => setModel(e.target.value)}
+                autoComplete="off"
+              />
+              <p className="text-[10px] text-ink-3 mt-1">Default <span className="font-mono">gemini-1.5-flash</span> — fast + cheap, good for Hinglish drafts.</p>
+            </div>
+
+            <div className="rounded-md bg-paper-2 p-3 text-xs text-ink-3 leading-relaxed break-words">
+              <p className="font-medium text-ink-2 mb-1 inline-flex items-center gap-1.5">
+                <Icon name="lock" size={11} /> Security
+              </p>
+              Stored in <span className="font-mono">tenant_secrets</span>, RLS-locked to your workspace owner role. The key never round-trips back to the browser. Money-safe: AI never invents a ₹ amount — it only uses figures the app passes it.
+            </div>
+          </div>
+        )}
+
+        <DialogFooter>
+          {status?.configured && (
+            <Button
+              type="button"
+              variant="ghost"
+              icon="trash"
+              onClick={() => disconnect.mutate()}
+              loading={disconnect.isPending}
+              className="text-rose hover:text-rose"
+            >
+              Disconnect
+            </Button>
+          )}
+          <span className="flex-1" />
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={testConnection}
+            loading={testing}
+            disabled={!status?.configured && !status?.env_fallback}
+          >
+            <Icon name="zap" size={14} /> Test
+          </Button>
+          <Button type="button" variant="default" onClick={() => onOpenChange(false)}>
+            Close
+          </Button>
+          <Button
+            type="button"
+            variant="primary"
+            icon="check"
+            onClick={() => save.mutate()}
+            loading={save.isPending}
+            disabled={apiKey.trim().length < 20}
+          >
+            Save
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}

@@ -22,6 +22,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
+import { resolveGeminiConfig } from "@/lib/ai/gemini";
 import { rupee } from "@/lib/utils";
 
 const bodySchema = z
@@ -40,11 +41,7 @@ interface Draft {
   message: string;
 }
 
-async function draftWithGemini(channel: "whatsapp" | "email", intent: string, ctx: string): Promise<Draft | null> {
-  const apiKey = process.env.GEMINI_API_KEY?.trim();
-  const model = process.env.GEMINI_MODEL?.trim() || "gemini-1.5-flash";
-  if (!apiKey || apiKey === "..." || apiKey.length < 10) return null;
-
+async function draftWithGemini(apiKey: string, model: string, channel: "whatsapp" | "email", intent: string, ctx: string): Promise<Draft | null> {
   const system =
     "You are the assistant for an Indian cloud-software reseller (Google Workspace, " +
     "Microsoft 365, Zoho). " +
@@ -138,6 +135,11 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid request." }, { status: 400 });
   }
 
+  // Resolve the tenant's Gemini config (tenant key → env → stub). RLS scopes
+  // the tenant_secrets read to this user's tenant.
+  const { data: me } = await supabase.from("users").select("tenant_id").eq("id", user.id).maybeSingle();
+  const gemini = await resolveGeminiConfig(supabase, me?.tenant_id ?? null);
+
   // ── Lead mode ───────────────────────────────────────────────────────────
   if (parsed.leadId) {
     const { data: lead, error } = await supabase
@@ -160,7 +162,7 @@ export async function POST(request: NextRequest) {
     ].filter(Boolean).join("\n");
 
     const intent = "Draft a SHORT, warm, professional sales follow-up to a prospect. Reference what we know about them.";
-    const ai = await draftWithGemini(parsed.channel, intent, ctx);
+    const ai = gemini.apiKey ? await draftWithGemini(gemini.apiKey, gemini.model, parsed.channel, intent, ctx) : null;
     const draft = ai ?? stubDraft({
       channel: parsed.channel,
       firstName: (lead.contact_name || lead.company).split(/\s+/)[0],
@@ -202,7 +204,7 @@ export async function POST(request: NextRequest) {
     ? "Draft a SHORT, polite, warm PAYMENT REMINDER. State the exact outstanding amount given, offer help/a payment link, and keep it friendly (not aggressive)."
     : "Draft a SHORT, warm relationship CHECK-IN with an existing customer. No selling pressure; offer help with seats/renewals/support.";
 
-  const ai = await draftWithGemini(parsed.channel, intent, ctx);
+  const ai = gemini.apiKey ? await draftWithGemini(gemini.apiKey, gemini.model, parsed.channel, intent, ctx) : null;
   const draft = ai ?? stubDraft({
     channel: parsed.channel,
     firstName: (customer.contact_name || customer.name).split(/\s+/)[0],

@@ -124,6 +124,9 @@ export type TenantSecretsRow = {
   razorpay_key_id:         string | null;
   razorpay_key_secret:     string | null;
   razorpay_webhook_secret: string | null;
+  // Gemini (AI) — migration 0070
+  gemini_api_key:          string | null;
+  gemini_model:            string | null;
   created_at:          string;
   updated_at:          string;
 };
@@ -142,6 +145,8 @@ type TenantSecretsInsert = {
   razorpay_key_id?:         string | null;
   razorpay_key_secret?:     string | null;
   razorpay_webhook_secret?: string | null;
+  gemini_api_key?:          string | null;
+  gemini_model?:            string | null;
   created_at?:         string;
   updated_at?:         string;
 };

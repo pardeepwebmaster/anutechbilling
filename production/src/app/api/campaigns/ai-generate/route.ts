@@ -18,6 +18,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
+import { resolveGeminiConfig } from "@/lib/ai/gemini";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -105,11 +106,7 @@ function escapeHtml(s: string): string {
     .replace(/"/g, "&quot;");
 }
 
-async function callGemini(prompt: string, category: string, includeOffer: boolean): Promise<GenResult | null> {
-  const apiKey = process.env.GEMINI_API_KEY?.trim();
-  const model  = process.env.GEMINI_MODEL?.trim() || "gemini-1.5-flash";
-  if (!apiKey || apiKey === "..." || apiKey.length < 10) return null;
-
+async function callGemini(apiKey: string, model: string, prompt: string, category: string, includeOffer: boolean): Promise<GenResult | null> {
   const userPrompt = `Category: ${category}
 Include offer block (use {{offer_code}}/{{discount}}/{{expires}}): ${includeOffer}
 
@@ -179,8 +176,12 @@ export async function POST(req: Request) {
 
   const { prompt, category, includeOffer } = parsed.data;
 
+  // Resolve tenant's Gemini config (tenant key → env → stub)
+  const { data: me } = await userClient.from("users").select("tenant_id").eq("id", authData.user.id).maybeSingle();
+  const gemini = await resolveGeminiConfig(userClient, me?.tenant_id ?? null);
+
   // Try Gemini; fall back to stub
-  const result = await callGemini(prompt, category, includeOffer);
+  const result = gemini.apiKey ? await callGemini(gemini.apiKey, gemini.model, prompt, category, includeOffer) : null;
   if (result) {
     return NextResponse.json({ ...result, mode: "gemini" });
   }

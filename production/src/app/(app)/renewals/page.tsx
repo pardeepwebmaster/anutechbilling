@@ -23,7 +23,7 @@ import { useSubscriptions } from "@/lib/queries/subscriptions";
 import { toast } from "sonner";
 import { GeminiCard } from "@/components/shared/gemini-card";
 import { EmptyState } from "@/components/shared/empty-state";
-import { KPI } from "@/components/shared/kpi";
+import { StatStrip } from "@/components/shared/stat-strip";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -682,45 +682,18 @@ export default function RenewalsPage() {
         </div>
       </div>
 
-      {/* ── KPIs ── */}
-      <div className="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-5">
-        <KPI
-          label="Urgent · ≤7 days"
-          value={urgent.length}
-          trend={`${rupee(urgentMrr, { compact: true })} MRR`}
-          trendKind="down"
-          icon="clock"
-        />
-        <KPI
-          label="Upcoming · 30 days"
-          value={upcoming.length}
-          trend={`${rupee(upcomingMrr, { compact: true })} MRR`}
-          trendKind="neutral"
-          icon="calendar"
-        />
-        <KPI
-          label="Future · 31–90 days"
-          value={future.length}
-          trend={`${rupee(futureMrr, { compact: true })} MRR`}
-          trendKind="up"
-          icon="trending_up"
-        />
-        <KPI
-          label="High-risk renewals"
-          value={highRiskSubs.length}
-          trend={`${rupee(highRiskArr, { compact: true })} ARR at risk`}
-          trendKind="down"
-          icon="alert"
-        />
-        <KPI
-          label="Renewal rate"
-          value="87"
-          unit="%"
-          trend="+5% YoY"
-          trendKind="up"
-          icon="check_circle"
-        />
-      </div>
+      {/* Compact metric strip (replaces the big KPI-card grid).
+          Note: the old hardcoded "Renewal rate 87%" was a placeholder, not a
+          real figure — dropped rather than surface a fabricated number. */}
+      <StatStrip
+        className="mb-6"
+        items={[
+          { label: "Urgent · ≤7d",       value: `${urgent.length} · ${rupee(urgentMrr, { compact: true })}`, tone: "rose" },
+          { label: "Upcoming · 30d",     value: `${upcoming.length} · ${rupee(upcomingMrr, { compact: true })}` },
+          { label: "Future · 31–90d",    value: `${future.length} · ${rupee(futureMrr, { compact: true })}`, tone: "emerald" },
+          { label: "High-risk · ARR",    value: `${highRiskSubs.length} · ${rupee(highRiskArr, { compact: true })}`, tone: "rose" },
+        ]}
+      />
 
       {/* ── Gemini AI next-best-actions ── */}
       {highRiskSubs.length > 0 && (

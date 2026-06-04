@@ -13,7 +13,7 @@ import Link from "next/link";
 import { toast } from "sonner";
 import { GeminiCard } from "@/components/shared/gemini-card";
 import { EmptyState } from "@/components/shared/empty-state";
-import { KPI } from "@/components/shared/kpi";
+import { StatStrip } from "@/components/shared/stat-strip";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button, IconButton } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -148,24 +148,19 @@ export default function SubscriptionsPage() {
         </div>
       </div>
 
-      {/* KPIs */}
+      {/* Compact metric strip (replaces the big KPI-card grid) */}
       {!isLoading && subs && (
-        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 mb-6">
-          <KPI label="Total subs"        value={counts.all} trend={`${counts.active} active`} trendKind="up" />
-          <KPI label="Active MRR"        value={rupee(activeMRR, { compact: true })} icon="rupee" />
-          <KPI label="Active ARR"        value={rupee(activeARR, { compact: true })} trendKind="up" trendIcon="trending_up" />
-          <KPI label="Your Margin (ARR)" value={rupee(annualMargin, { compact: true })} trend={`Avg ${avgMarginPct}%`} trendKind="up" icon="rupee" />
-          <KPI label="Total seats"       value={totalSeats} trend={`${usedSeats} used`} />
-          <KPI
-            label="Trials in progress"
-            value={trials?.length ?? 0}
-            trend={trials && trials.length > 0
-              ? `${trials.reduce((s, t) => s + (t.seats ?? 0), 0)} seats deployed`
-              : "no live trials"}
-            trendKind={trials && trials.length > 0 ? "up" : undefined}
-            icon="clock"
-          />
-        </div>
+        <StatStrip
+          className="mb-5"
+          items={[
+            { label: "Total subs",   value: `${counts.all} · ${counts.active} active` },
+            { label: "Active MRR",   value: rupee(activeMRR, { compact: true }) },
+            { label: "Active ARR",   value: rupee(activeARR, { compact: true }), tone: "emerald" },
+            { label: "Margin · ARR", value: `${rupee(annualMargin, { compact: true })} · ${avgMarginPct}%`, tone: "emerald" },
+            { label: "Seats",        value: `${usedSeats}/${totalSeats}` },
+            { label: "Trials",       value: trials?.length ?? 0 },
+          ]}
+        />
       )}
 
       {/* Trials in progress — virtual subs (deployed in Google CSP, not billed yet) */}

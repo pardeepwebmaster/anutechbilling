@@ -24,7 +24,7 @@ import { useCurrentUser } from "@/lib/hooks/useCurrentUser";
 import { ReceiptVoucherDialog } from "@/components/features/quotes/receipt-voucher-dialog";
 import { GeminiCard } from "@/components/shared/gemini-card";
 import { EmptyState } from "@/components/shared/empty-state";
-import { KPI } from "@/components/shared/kpi";
+import { StatStrip } from "@/components/shared/stat-strip";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -146,38 +146,16 @@ export default function PaymentsPage() {
         </div>
       </div>
 
-      {/* KPIs */}
+      {/* Compact metric strip (replaces the big KPI-card grid) */}
       {!isLoading && payments && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <KPI
-            label="Collected MTD"
-            value={rupee(mtdCollected, { compact: true })}
-            trend="this month"
-            trendKind="up"
-            icon="rupee"
-          />
-          <KPI
-            label="Partial quotes"
-            value={partialQuotes.length}
-            trend={`${rupee(partialQuotes.reduce((s, q) => s + ((q.amount ?? 0) - (q.payment_amount ?? 0)), 0), { compact: true })} pending`}
-            trendKind={partialQuotes.length > 0 ? "down" : "neutral"}
-            icon="clock"
-          />
-          <KPI
-            label="Awaiting invoice"
-            value={rupee(awaitingInvoiceTotal, { compact: true })}
-            trend={`${awaitingInvoiceQuotes.length} fully-paid quote${awaitingInvoiceQuotes.length === 1 ? "" : "s"}`}
-            trendKind={awaitingInvoiceQuotes.length > 0 ? "down" : "neutral"}
-            icon="alert"
-          />
-          <KPI
-            label="Top method"
-            value={topMethod ? METHOD_META[topMethod[0]]?.label ?? topMethod[0] : "—"}
-            trend={topMethod ? `${topMethod[1]} payment${topMethod[1] === 1 ? "" : "s"}` : "no data"}
-            trendKind="neutral"
-            icon={topMethod ? (METHOD_META[topMethod[0]]?.icon ?? "rupee") : "rupee"}
-          />
-        </div>
+        <StatStrip
+          items={[
+            { label: "Collected MTD",    value: rupee(mtdCollected, { compact: true }), tone: "emerald" },
+            { label: "Partial quotes",   value: partialQuotes.length, tone: partialQuotes.length > 0 ? "amber" : "default" },
+            { label: "Awaiting invoice", value: rupee(awaitingInvoiceTotal, { compact: true }), tone: awaitingInvoiceQuotes.length > 0 ? "amber" : "default" },
+            { label: "Top method",       value: topMethod ? METHOD_META[topMethod[0]]?.label ?? topMethod[0] : "—" },
+          ]}
+        />
       )}
 
       {/* ── Outstanding Receivables — actionable card ── */}

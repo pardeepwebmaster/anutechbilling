@@ -10,6 +10,7 @@ import { useActiveTrials } from "@/lib/queries/trials";
 import ExtendSubscriptionDialog from "@/components/features/subscriptions/extend-subscription-dialog";
 import AddSeatsDialog            from "@/components/features/subscriptions/add-seats-dialog";
 import { ImportSubscriptionsDialog } from "@/components/features/subscriptions/import-subscriptions-dialog";
+import { ReconcileGoogleDialog } from "@/components/features/subscriptions/reconcile-google-dialog";
 import Link from "next/link";
 import { toast } from "sonner";
 import { GeminiCard } from "@/components/shared/gemini-card";
@@ -53,6 +54,7 @@ export default function SubscriptionsPage() {
   const [extendSub,   setExtendSub]   = React.useState<Subscription | null>(null);
   const [addSeatsSub, setAddSeatsSub] = React.useState<Subscription | null>(null);
   const [importOpen,  setImportOpen]  = React.useState(false);
+  const [reconcileOpen, setReconcileOpen] = React.useState(false);
   const [visible, setVisible] = React.useState(60);  // render cap — paginates large lists
 
   const today = new Date();
@@ -158,7 +160,7 @@ export default function SubscriptionsPage() {
           <p className="text-sm text-ink-3 mt-1">All active + expired across vendors</p>
         </div>
         <div className="flex gap-2 flex-wrap">
-          <Button icon="refresh" onClick={() => toast.info("Vendor sync coming in Phase 2")}>Sync vendors</Button>
+          <Button icon="refresh" onClick={() => setReconcileOpen(true)}>Reconcile Google</Button>
           <Button icon="upload" onClick={() => setImportOpen(true)}>Import</Button>
           <Button variant="primary" icon="plus" onClick={() => toast.info("Subscriptions are created from accepted quotes")}>
             Manual add
@@ -618,6 +620,9 @@ export default function SubscriptionsPage() {
         onOpenChange={setImportOpen}
         onImportComplete={() => refetch()}
       />
+
+      {/* Reconcile vs Google reseller panel (read-only report) */}
+      <ReconcileGoogleDialog open={reconcileOpen} onOpenChange={setReconcileOpen} />
 
       {/* Bottom cards */}
       {!isLoading && subs && subs.length > 0 && (

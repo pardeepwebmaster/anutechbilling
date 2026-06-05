@@ -132,15 +132,39 @@ export function ReconcileGoogleDialog({ open, onOpenChange, onAddMissing }: Prop
         </DialogHeader>
 
         {!report && (
-          <label htmlFor="recon-file" className={cn(
-            "block border-2 border-dashed border-hairline-strong rounded-lg p-8 text-center cursor-pointer hover:bg-paper-2/40 transition-colors",
-            "focus-within:ring-2 focus-within:ring-amber",
-          )}>
-            <Icon name="upload" size={28} className="text-ink-3 mx-auto mb-2" />
-            <p className="text-sm font-medium text-ink">Choose the Google customers CSV</p>
-            <p className="text-xs text-ink-3 mt-1">Up to 8 MB · the file with a <span className="font-mono">Customer / Sku / Subscription status</span> header</p>
-            <input ref={fileRef} id="recon-file" type="file" accept=".csv,text/csv" onChange={handleFile} className="sr-only" />
-          </label>
+          <div className="space-y-3">
+            {/* Live path — add the missing subs straight from the Reseller API. */}
+            {onAddMissing && (
+              <div className="rounded-lg border border-hairline bg-paper-2/40 p-4 flex items-center justify-between gap-3 flex-wrap">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-ink inline-flex items-center gap-1.5">
+                    <Icon name="refresh" size={14} className="text-amber" /> Sync &amp; add live from Google
+                  </p>
+                  <p className="text-[11px] text-ink-3 mt-0.5">
+                    No file — pull every subscription via the Reseller API and add the missing ones (needs the API enabled + reseller scope).
+                  </p>
+                </div>
+                <Button type="button" variant="primary" icon="refresh"
+                  onClick={() => { onOpenChange(false); onAddMissing(); }}>
+                  Sync from Google →
+                </Button>
+              </div>
+            )}
+
+            <div className="flex items-center gap-3 text-[11px] text-ink-3">
+              <div className="h-px flex-1 bg-hairline" /> or get the read-only report from a CSV <div className="h-px flex-1 bg-hairline" />
+            </div>
+
+            <label htmlFor="recon-file" className={cn(
+              "block border-2 border-dashed border-hairline-strong rounded-lg p-6 text-center cursor-pointer hover:bg-paper-2/40 transition-colors",
+              "focus-within:ring-2 focus-within:ring-amber",
+            )}>
+              <Icon name="upload" size={24} className="text-ink-3 mx-auto mb-2" />
+              <p className="text-sm font-medium text-ink">Choose the Google customers CSV</p>
+              <p className="text-xs text-ink-3 mt-1">Up to 8 MB · the file with a <span className="font-mono">Customer / Sku / Subscription status</span> header</p>
+              <input ref={fileRef} id="recon-file" type="file" accept=".csv,text/csv" onChange={handleFile} className="sr-only" />
+            </label>
+          </div>
         )}
 
         {report && (

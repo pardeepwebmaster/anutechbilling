@@ -57,7 +57,10 @@ function msToISO(ms?: string): string | undefined {
   return new Date(n).toISOString().slice(0, 10);
 }
 
-export async function GET() {
+export async function GET(req: Request) {
+  // probe=1 → lightweight status check (1 row) for the Settings card; no full pull.
+  const probe = new URL(req.url).searchParams.get("probe") === "1";
+
   const supabase = createClient();
   const { data: { session } } = await supabase.auth.getSession();
   if (!session?.user) {
@@ -79,7 +82,7 @@ export async function GET() {
   try {
     do {
       const url = new URL("https://reseller.googleapis.com/apps/reseller/v1/subscriptions");
-      url.searchParams.set("maxResults", "100");
+      url.searchParams.set("maxResults", probe ? "1" : "100");
       if (pageToken) url.searchParams.set("pageToken", pageToken);
 
       const res = await fetch(url.toString(), {
@@ -117,6 +120,9 @@ export async function GET() {
       }
 
       const data = (await res.json()) as ResellerListResponse;
+      if (probe) {
+        return NextResponse.json({ connected: true, mode: "live" });
+      }
       for (const s of data.subscriptions ?? []) {
         const domain = (s.customerDomain ?? "").trim();
         const sku = (s.skuName ?? "").trim();

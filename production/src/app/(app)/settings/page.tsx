@@ -46,9 +46,6 @@ import type { TenantWithParent } from "@/lib/supabase/database.types";
 // roadmap to Pardeep. Functional cards (Sandbox, WhatsApp) live as
 // their own components above the placeholder list.
 const INTEGRATIONS = [
-  { name: "Gmail API",           sub: "Last synced 5 min ago",  status: "ok",   icon: "mail"     },
-  { name: "Zoho Books",          sub: "Auto-sync ON",            status: "ok",   icon: "receipt"  },
-  { name: "Google Reseller API", sub: "Auth valid",              status: "ok",   icon: "package"  },
   { name: "Microsoft Partner",   sub: "Not configured",          status: "warn", icon: "shield"   },
 ] as const;
 
@@ -586,6 +583,52 @@ function GeminiIntegrationCard() {
   );
 }
 
+/**
+ * Google Reseller API — REAL status. Probes the Reseller API (1 row) and shows
+ * the honest state: connected, API-not-enabled, or needs-relogin. No fake
+ * "Connected" badge — the truth, so Pardeep knows exactly what to fix.
+ */
+function GoogleResellerIntegrationCard() {
+  const { data: status, isLoading } = useQuery({
+    queryKey: ["integrations", "google-reseller"],
+    queryFn: async () => {
+      const res = await fetch("/api/integrations/google-reseller/subscriptions?probe=1");
+      const body = await res.json().catch(() => ({}));
+      return { ok: res.ok, code: body?.code as string | undefined, connected: Boolean(body?.connected) };
+    },
+    staleTime: 60_000,
+  });
+
+  const connected = Boolean(status?.connected);
+  const sub = isLoading ? "Checking…"
+    : connected ? "Connected · live sync ready"
+    : status?.code === "api_disabled" ? "Enable the Reseller API in Google Cloud"
+    : status?.code === "needs_reauth" ? "Re-login with reseller-admin Google account"
+    : "Not connected — set up to sync subscriptions";
+
+  return (
+    <div className="flex items-center justify-between rounded-lg border border-hairline p-3">
+      <div className="flex items-center gap-3 min-w-0">
+        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-paper-2 text-ink-3">
+          <Icon name="package" size={16} />
+        </div>
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-ink inline-flex items-center gap-1.5">
+            Google Reseller API
+            {!isLoading && (connected
+              ? <Badge size="sm" kind="success">Connected</Badge>
+              : <Badge size="sm" kind="warning">Setup</Badge>)}
+          </p>
+          <p className="text-xs text-ink-3 truncate">{sub}</p>
+        </div>
+      </div>
+      <Button asChild variant={connected ? "ghost" : "primary"} size="sm">
+        <a href="/subscriptions">{connected ? "Sync" : "Set up"}</a>
+      </Button>
+    </div>
+  );
+}
+
 function IntegrationsTab() {
   return (
     <Card className="p-5">
@@ -595,6 +638,7 @@ function IntegrationsTab() {
         <RazorpayIntegrationCard />
         <SandboxIntegrationCard />
         <WhatsAppIntegrationCard />
+        <GoogleResellerIntegrationCard />
         {INTEGRATIONS.map((it) => (
           <div
             key={it.name}
@@ -609,17 +653,13 @@ function IntegrationsTab() {
                 <p className="text-xs text-ink-3">{it.sub}</p>
               </div>
             </div>
-            {it.status === "ok" ? (
-              <Badge kind="success" dot>Connected</Badge>
-            ) : (
-              <Button
-                variant="default"
-                size="sm"
-                onClick={() => toast.info(`Setting up ${it.name}`)}
-              >
-                Setup
-              </Button>
-            )}
+            <Button
+              variant="default"
+              size="sm"
+              onClick={() => toast.info(`Setting up ${it.name}`)}
+            >
+              Setup
+            </Button>
           </div>
         ))}
       </div>

@@ -50,6 +50,7 @@ export function ImportGoogleSubsDialog({ open, onOpenChange, onComplete }: Props
   const [fileName, setFileName] = React.useState<string | null>(null);
   const [importing, setImporting] = React.useState(false);
   const [syncing, setSyncing] = React.useState(false);       // live Reseller-API pull
+  const [needsAuth, setNeedsAuth] = React.useState(false);   // token lacks the reseller scope
   const [createNew, setCreateNew] = React.useState(false);   // opt-in: also create new customers
   const [visible, setVisible] = React.useState(60);
 
@@ -107,8 +108,24 @@ export function ImportGoogleSubsDialog({ open, onOpenChange, onComplete }: Props
     }
   }
 
+  // Re-authenticate with the reseller scope (incremental consent), then return
+  // to /subscriptions so the user can hit Sync again with a scoped token.
+  async function connectGoogleReseller() {
+    const supabase = createClient();
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        scopes: "https://www.googleapis.com/auth/apps.order.readonly",
+        redirectTo: `${window.location.origin}/subscriptions`,
+        queryParams: { access_type: "offline", prompt: "consent" },
+      },
+    });
+    if (error) toast.error(error.message);
+  }
+
   async function handleSync() {
     setSyncing(true);
+    setNeedsAuth(false);
     try {
       const res = await fetch("/api/integrations/google-reseller/subscriptions");
       const data = await res.json();
@@ -117,7 +134,8 @@ export function ImportGoogleSubsDialog({ open, onOpenChange, onComplete }: Props
         if (data?.code === "api_disabled") {
           toast.error("Reseller API not enabled yet — enable it in Google Cloud Console, then retry.", { duration: 8000 });
         } else if (data?.code === "needs_reauth") {
-          toast.error("Log in with your reseller-admin Google account + grant the reseller scope, then retry.", { duration: 8000 });
+          setNeedsAuth(true);
+          toast.error("Grant Google reseller access to sync — click 'Connect Google'.", { duration: 8000 });
         } else {
           toast.error(data?.error ?? "Sync failed");
         }
@@ -244,10 +262,21 @@ export function ImportGoogleSubsDialog({ open, onOpenChange, onComplete }: Props
                   No file needed — pulls every subscription via the Reseller API (needs the API enabled + reseller scope).
                 </p>
               </div>
-              <Button type="button" variant="primary" icon="refresh" loading={syncing} onClick={handleSync}>
-                Sync from Google
-              </Button>
+              {needsAuth ? (
+                <Button type="button" variant="primary" icon="external" onClick={connectGoogleReseller}>
+                  Connect Google
+                </Button>
+              ) : (
+                <Button type="button" variant="primary" icon="refresh" loading={syncing} onClick={handleSync}>
+                  Sync from Google
+                </Button>
+              )}
             </div>
+            {needsAuth && (
+              <p className="text-[11px] text-amber-ink -mt-1">
+                Sign in with the reseller-admin Google account and approve the reseller permission, then click Sync again.
+              </p>
+            )}
 
             <div className="flex items-center gap-3 text-[11px] text-ink-3">
               <div className="h-px flex-1 bg-hairline" /> or upload the CSV <div className="h-px flex-1 bg-hairline" />

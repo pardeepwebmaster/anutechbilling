@@ -177,6 +177,25 @@ type TeamInviteInsert = {
 type TeamInviteUpdate = Partial<TeamInviteInsert>;
 
 // ============================================================
+// customer_domains — a customer can own many domains (migration 0074)
+// ============================================================
+export type CustomerDomainRow = {
+  id:          string;
+  tenant_id:   string;
+  customer_id: string;
+  domain:      string;
+  created_at:  string;
+};
+type CustomerDomainInsert = {
+  id?:          string;
+  tenant_id:    string;
+  customer_id:  string;
+  domain:       string;
+  created_at?:  string;
+};
+type CustomerDomainUpdate = Partial<CustomerDomainInsert>;
+
+// ============================================================
 // inbound_emails — inbound-email → lead audit + idempotency (migration 0069)
 // ============================================================
 export type InboundEmailRow = {
@@ -1549,6 +1568,7 @@ export type Database = {
       site_promos:        { Row: SitePromoRow;         Insert: SitePromoInsert;         Update: SitePromoUpdate;         Relationships: [] };
       tenant_secrets:     { Row: TenantSecretsRow;     Insert: TenantSecretsInsert;     Update: TenantSecretsUpdate;     Relationships: [] };
       team_invites:       { Row: TeamInviteRow;        Insert: TeamInviteInsert;        Update: TeamInviteUpdate;        Relationships: [] };
+      customer_domains:   { Row: CustomerDomainRow;     Insert: CustomerDomainInsert;    Update: CustomerDomainUpdate;    Relationships: [] };
       whatsapp_messages:  { Row: WhatsAppMessageRow;   Insert: WhatsAppMessageInsert;   Update: WhatsAppMessageUpdate;   Relationships: [] };
       bank_accounts:        { Row: BankAccountRow;       Insert: BankAccountInsert;       Update: BankAccountUpdate;       Relationships: [] };
       bank_transactions:    { Row: BankTransactionRow;   Insert: BankTransactionInsert;   Update: BankTransactionUpdate;   Relationships: [] };

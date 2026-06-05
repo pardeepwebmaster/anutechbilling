@@ -75,15 +75,23 @@ export function ImportGoogleSubsDialog({ open, onOpenChange, onComplete }: Props
     }
     (async () => {
       const supabase = createClient();
-      const [{ data: custs }, { data: subs }] = await Promise.all([
+      const [{ data: custs }, { data: subs }, { data: cdoms }] = await Promise.all([
         supabase.from("customers").select("id, name, customer_number, domain"),
         supabase.from("subscriptions").select("domain"),
+        supabase.from("customer_domains").select("domain, customer_id"),
       ]);
+      const nameById = new Map<string, string>();
       const byNumber = new Map<string, { id: string; name: string }>();
       const byDomain = new Map<string, { id: string; name: string }>();
       for (const c of custs ?? []) {
+        nameById.set(c.id, c.name);
         if (c.customer_number) byNumber.set(String(c.customer_number).trim().toLowerCase(), { id: c.id, name: c.name });
         if (c.domain) byDomain.set(normDomain(c.domain), { id: c.id, name: c.name });
+      }
+      // customer_domains is the authoritative many-domains-per-customer map.
+      for (const cd of cdoms ?? []) {
+        const name = nameById.get(cd.customer_id);
+        if (name) byDomain.set(normDomain(cd.domain), { id: cd.customer_id, name });
       }
       const appSubDomains = new Set<string>();
       for (const s of subs ?? []) if (s.domain) appSubDomains.add(normDomain(s.domain));

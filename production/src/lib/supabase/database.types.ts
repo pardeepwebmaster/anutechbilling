@@ -153,6 +153,30 @@ type TenantSecretsInsert = {
 type TenantSecretsUpdate = Partial<Omit<TenantSecretsInsert, "tenant_id">>;
 
 // ============================================================
+// team_invites — owner pre-authorizes an email to join the tenant (migration 0073)
+// ============================================================
+export type TeamInviteRole = "owner" | "sales" | "accountant" | "support";
+export type TeamInviteRow = {
+  id:          string;
+  tenant_id:   string;
+  email:       string;
+  role:        TeamInviteRole;
+  invited_by:  string | null;
+  created_at:  string;
+  accepted_at: string | null;
+};
+type TeamInviteInsert = {
+  id?:          string;
+  tenant_id:    string;
+  email:        string;
+  role?:        TeamInviteRole;
+  invited_by?:  string | null;
+  created_at?:  string;
+  accepted_at?: string | null;
+};
+type TeamInviteUpdate = Partial<TeamInviteInsert>;
+
+// ============================================================
 // inbound_emails — inbound-email → lead audit + idempotency (migration 0069)
 // ============================================================
 export type InboundEmailRow = {
@@ -1524,6 +1548,7 @@ export type Database = {
       coupon_redemptions: { Row: CouponRedemptionRow;  Insert: CouponRedemptionInsert;  Update: CouponRedemptionUpdate;  Relationships: [] };
       site_promos:        { Row: SitePromoRow;         Insert: SitePromoInsert;         Update: SitePromoUpdate;         Relationships: [] };
       tenant_secrets:     { Row: TenantSecretsRow;     Insert: TenantSecretsInsert;     Update: TenantSecretsUpdate;     Relationships: [] };
+      team_invites:       { Row: TeamInviteRow;        Insert: TeamInviteInsert;        Update: TeamInviteUpdate;        Relationships: [] };
       whatsapp_messages:  { Row: WhatsAppMessageRow;   Insert: WhatsAppMessageInsert;   Update: WhatsAppMessageUpdate;   Relationships: [] };
       bank_accounts:        { Row: BankAccountRow;       Insert: BankAccountInsert;       Update: BankAccountUpdate;       Relationships: [] };
       bank_transactions:    { Row: BankTransactionRow;   Insert: BankTransactionInsert;   Update: BankTransactionUpdate;   Relationships: [] };

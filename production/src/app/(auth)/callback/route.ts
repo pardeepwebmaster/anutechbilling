@@ -17,6 +17,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient, createAdminClient } from "@/lib/supabase/server";
 import { initials } from "@/lib/utils";
+import { decideMembership, normalizeEmail, type InviteMatch } from "@/lib/auth/membership";
 
 /** Derive a sensible default tenant name from the user's email domain. */
 function tenantNameFromEmail(email: string | undefined): string {
@@ -80,13 +81,47 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(`${origin}${next}`);
   }
 
-  // ─── First-time OAuth user — provision tenant + users row ────────────────
+  // ─── First-time sign-in ──────────────────────────────────────────────────
+  const email = authUser.email ?? "";
   const fullName =
     (authUser.user_metadata?.full_name as string | undefined) ||
     (authUser.user_metadata?.name as string | undefined) ||
     authUser.email?.split("@")[0] ||
     "New user";
 
+  // Was this email invited to an existing tenant by its owner? If so, JOIN that
+  // tenant instead of creating a new one. Matched case-insensitively; the unique
+  // index on lower(email) guarantees at most one match (no ambiguity).
+  const { data: inviteRow } = await admin
+    .from("team_invites")
+    .select("tenant_id, role")
+    .ilike("email", normalizeEmail(email))
+    .is("accepted_at", null)
+    .maybeSingle();
+
+  const decision = decideMembership((inviteRow as InviteMatch | null) ?? null);
+  if (decision.mode === "join") {
+    const { error: joinErr } = await admin.from("users").insert({
+      id:        authUser.id,
+      tenant_id: decision.tenantId,
+      email,
+      full_name: fullName,
+      initials:  initials(fullName),
+      role:      decision.role,
+      color:     "indigo",
+    });
+    if (joinErr) {
+      console.error("[oauth/callback] invite-join failed:", joinErr);
+      return NextResponse.redirect(`${origin}/login?error=provision_failed`);
+    }
+    // One-time: mark the invite accepted so it can't be reused.
+    await admin.from("team_invites").update({ accepted_at: new Date().toISOString() })
+      .ilike("email", normalizeEmail(email)).is("accepted_at", null);
+    // Joined an existing, set-up tenant — go straight to the app.
+    return NextResponse.redirect(`${origin}${next}`);
+  }
+
+  // ─── No invite → provision a brand-new tenant + owner users row ──────────
   const companyName = tenantNameFromEmail(authUser.email);
   const tenantId = crypto.randomUUID();
 

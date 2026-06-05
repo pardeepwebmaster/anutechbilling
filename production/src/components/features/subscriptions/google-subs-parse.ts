@@ -35,6 +35,51 @@ export interface Lookups {
   appSubDomains: Set<string>;
 }
 
+/** A normalized subscription from EITHER the CSV or the live Reseller API. */
+export interface RawSub {
+  domain: string;
+  sku: string;
+  seats: number;
+  status: "active" | "paused";
+  customer_number?: string;
+  start_date?: string;
+  renewal_date?: string;
+}
+
+/**
+ * Classify already-normalized rows against the app's customers/subscriptions
+ * and estimate MRR. Shared by the CSV parser and the Reseller-API sync so both
+ * produce identical buckets + money.
+ */
+export function classifyRows(raws: RawSub[], lk: Lookups, priceMap: Map<string, number>): GRow[] {
+  const rows: GRow[] = raws.map((r, i) => {
+    const domain = normDomain(r.domain);
+    const customer_number = (r.customer_number ?? "").trim();
+    const estMrr = Math.round((priceMap.get(r.sku.trim().toLowerCase()) ?? 0) * r.seats);
+
+    let category: Category;
+    let customer_id: string | undefined;
+    let customer_name: string | undefined;
+    if (lk.appSubDomains.has(domain)) {
+      category = "in_app";   // a subscription on this domain is already tracked
+    } else {
+      const byNum = customer_number ? lk.byNumber.get(customer_number.toLowerCase()) : undefined;
+      const match = byNum ?? lk.byDomain.get(domain);
+      if (match) { category = "link"; customer_id = match.id; customer_name = match.name; }
+      else category = "new";
+    }
+    return {
+      rowNum: i + 1, domain, customer_number, plan: r.sku.trim(), seats: r.seats, estMrr,
+      status: r.status, start_date: r.start_date, renewal_date: r.renewal_date,
+      category, customer_id, customer_name,
+    };
+  });
+  // Actionable first (link, then new), already-in-app last.
+  const order: Record<Category, number> = { link: 0, new: 1, in_app: 2 };
+  rows.sort((a, b) => order[a.category] - order[b.category]);
+  return rows;
+}
+
 export function normDomain(s: string): string {
   return (s || "").trim().toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/.*$/, "");
 }
@@ -70,7 +115,7 @@ export function parseGoogle(text: string, lk: Lookups, priceMap: Map<string, num
   if (iDomain === -1) throw new Error("Couldn't find the 'Customer' (domain) column.");
   if (iSku === -1) throw new Error("Couldn't find the 'Sku' column.");
 
-  const rows: GRow[] = [];
+  const raws: RawSub[] = [];
   let skippedFree = 0;
 
   for (let i = 1; i < lines.length; i++) {
@@ -80,37 +125,18 @@ export function parseGoogle(text: string, lk: Lookups, priceMap: Map<string, num
     const domain = normDomain(c[iDomain] ?? "");
     if (!domain) continue;
     const statusRaw = (c[iStatus] ?? "").trim();
-    const status: GRow["status"] = /suspend/i.test(statusRaw) ? "paused" : "active";
-    const seats = Math.max(0, Math.round(Number(c[iSeats] ?? 0) || 0));
-    const customer_number = iNum >= 0 ? (c[iNum] ?? "").trim() : "";
-    const estMrr = Math.round((priceMap.get(sku.toLowerCase()) ?? 0) * seats);
-
-    // Classify.
-    let category: Category;
-    let customer_id: string | undefined;
-    let customer_name: string | undefined;
-    if (lk.appSubDomains.has(domain)) {
-      category = "in_app";   // a subscription on this domain is already tracked
-    } else {
-      const byNum = customer_number ? lk.byNumber.get(customer_number.toLowerCase()) : undefined;
-      const match = byNum ?? lk.byDomain.get(domain);
-      if (match) { category = "link"; customer_id = match.id; customer_name = match.name; }
-      else category = "new";
-    }
-
-    rows.push({
-      rowNum: i + 1, domain, customer_number, plan: sku, seats, estMrr, status,
+    raws.push({
+      domain,
+      sku,
+      seats: Math.max(0, Math.round(Number(c[iSeats] ?? 0) || 0)),
+      status: /suspend/i.test(statusRaw) ? "paused" : "active",
+      customer_number: iNum >= 0 ? (c[iNum] ?? "").trim() : "",
       start_date: gDate(c[iCreate] ?? ""),
       renewal_date: gDate(c[iRenew] ?? ""),
-      category, customer_id, customer_name,
     });
   }
 
-  // Sort: actionable first (link, then new), already-in-app last.
-  const order: Record<Category, number> = { link: 0, new: 1, in_app: 2 };
-  rows.sort((a, b) => order[a.category] - order[b.category]);
-
-  return { rows, custNumHeader: iNum >= 0 ? rawHeader[iNum] : null, skippedFree };
+  return { rows: classifyRows(raws, lk, priceMap), custNumHeader: iNum >= 0 ? rawHeader[iNum] : null, skippedFree };
 }
 
 export function parseLine(line: string): string[] {

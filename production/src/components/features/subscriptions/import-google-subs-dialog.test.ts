@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseGoogle } from "./google-subs-parse";
+import { parseGoogle, classifyRows, type RawSub } from "./google-subs-parse";
 
 /**
  * The Google→app subscription matcher writes money rows, so its classification
@@ -83,5 +83,25 @@ describe("parseGoogle — Google reconciliation matcher", () => {
     expect(custNumHeader).toBeNull();
     expect(rows[0].category).toBe("link");     // matched via byDomain
     expect(rows[0].customer_id).toBe("cust-1");
+  });
+});
+
+describe("classifyRows — shared by the live Reseller-API sync", () => {
+  it("classifies API rows (no customer number) the same way as the CSV path", () => {
+    const raws: RawSub[] = [
+      { domain: "link.com",   sku: "Google Workspace Business Starter", seats: 4, status: "active" },           // → link via domain
+      { domain: "tracked.com", sku: "Google Workspace Business Starter", seats: 9, status: "active" },           // → already in app
+      { domain: "fresh.io",   sku: "Google Workspace Business Starter", seats: 3, status: "paused" },           // → new
+    ];
+    const rows = classifyRows(raws, lookups, priceMap);
+    const byDomain = Object.fromEntries(rows.map((r) => [r.domain, r]));
+    expect(byDomain["link.com"].category).toBe("link");
+    expect(byDomain["link.com"].customer_id).toBe("cust-1");
+    expect(byDomain["link.com"].estMrr).toBe(270 * 4);
+    expect(byDomain["tracked.com"].category).toBe("in_app");
+    expect(byDomain["fresh.io"].category).toBe("new");
+    expect(byDomain["fresh.io"].status).toBe("paused");
+    // Sorted: actionable (link, new) before already-in-app.
+    expect(rows[rows.length - 1].category).toBe("in_app");
   });
 });

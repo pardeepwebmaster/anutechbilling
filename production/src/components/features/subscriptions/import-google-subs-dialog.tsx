@@ -33,7 +33,7 @@ import { createClient } from "@/lib/supabase/client";
 import { useCurrentUser } from "@/lib/hooks/useCurrentUser";
 import { useItems } from "@/lib/queries/items";
 import { cn, rupee, formatDate } from "@/lib/utils";
-import { parseGoogle, normDomain, type GRow, type Parsed } from "./google-subs-parse";
+import { parseGoogle, classifyRows, normDomain, type GRow, type Parsed, type RawSub } from "./google-subs-parse";
 
 interface Props {
   open: boolean;
@@ -49,6 +49,7 @@ export function ImportGoogleSubsDialog({ open, onOpenChange, onComplete }: Props
   const [parsed, setParsed] = React.useState<Parsed | null>(null);
   const [fileName, setFileName] = React.useState<string | null>(null);
   const [importing, setImporting] = React.useState(false);
+  const [syncing, setSyncing] = React.useState(false);       // live Reseller-API pull
   const [createNew, setCreateNew] = React.useState(false);   // opt-in: also create new customers
   const [visible, setVisible] = React.useState(60);
 
@@ -103,6 +104,33 @@ export function ImportGoogleSubsDialog({ open, onOpenChange, onComplete }: Props
       setParsed(p);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Couldn't read the file");
+    }
+  }
+
+  async function handleSync() {
+    setSyncing(true);
+    try {
+      const res = await fetch("/api/integrations/google-reseller/subscriptions");
+      const data = await res.json();
+      if (!res.ok) {
+        // Distinct, actionable guidance for the two common setup gaps.
+        if (data?.code === "api_disabled") {
+          toast.error("Reseller API not enabled yet — enable it in Google Cloud Console, then retry.", { duration: 8000 });
+        } else if (data?.code === "needs_reauth") {
+          toast.error("Log in with your reseller-admin Google account + grant the reseller scope, then retry.", { duration: 8000 });
+        } else {
+          toast.error(data?.error ?? "Sync failed");
+        }
+        return;
+      }
+      const raws: RawSub[] = data.subscriptions ?? [];
+      if (raws.length === 0) { toast.error("Google returned no subscriptions."); return; }
+      setFileName(`Google Reseller API · ${raws.length} subscriptions (live)`);
+      setParsed({ rows: classifyRows(raws, lookups.current, priceMap), custNumHeader: "Google API (live)", skippedFree: data.skipped ?? 0 });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Sync failed");
+    } finally {
+      setSyncing(false);
     }
   }
 
@@ -206,17 +234,36 @@ export function ImportGoogleSubsDialog({ open, onOpenChange, onComplete }: Props
 
         {!parsed && (
           <div className="space-y-3">
+            {/* Live sync — preferred. Pulls straight from the Reseller API. */}
+            <div className="rounded-lg border border-hairline bg-paper-2/40 p-4 flex items-center justify-between gap-3 flex-wrap">
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-ink inline-flex items-center gap-1.5">
+                  <Icon name="refresh" size={14} className="text-amber" /> Sync live from Google
+                </p>
+                <p className="text-[11px] text-ink-3 mt-0.5">
+                  No file needed — pulls every subscription via the Reseller API (needs the API enabled + reseller scope).
+                </p>
+              </div>
+              <Button type="button" variant="primary" icon="refresh" loading={syncing} onClick={handleSync}>
+                Sync from Google
+              </Button>
+            </div>
+
+            <div className="flex items-center gap-3 text-[11px] text-ink-3">
+              <div className="h-px flex-1 bg-hairline" /> or upload the CSV <div className="h-px flex-1 bg-hairline" />
+            </div>
+
             <label htmlFor="gsub-file" className={cn(
-              "block border-2 border-dashed border-hairline-strong rounded-lg p-8 text-center cursor-pointer hover:bg-paper-2/40 transition-colors",
+              "block border-2 border-dashed border-hairline-strong rounded-lg p-6 text-center cursor-pointer hover:bg-paper-2/40 transition-colors",
               "focus-within:ring-2 focus-within:ring-amber focus-within:ring-offset-2",
             )}>
-              <Icon name="upload" size={28} className="text-ink-3 mx-auto mb-2" />
+              <Icon name="upload" size={24} className="text-ink-3 mx-auto mb-2" />
               <p className="text-sm font-medium text-ink">Choose the annotated Google CSV</p>
               <p className="text-xs text-ink-3 mt-1">Up to 8 MB · needs columns: Customer (domain), Sku, Purchased licenses, + your Customer Number</p>
               <input ref={fileRef} id="gsub-file" type="file" accept=".csv,text/csv" onChange={handleFile} className="sr-only" />
             </label>
             <p className="text-[11px] text-ink-3">
-              No <b>Customer Number</b> column? Matching falls back to <b>domain</b> only, so customers without a
+              No <b>Customer Number</b> column (or live sync)? Matching falls back to <b>domain</b> only, so customers without a
               backfilled domain won't link — most missing subs would then need new customers.
             </p>
           </div>

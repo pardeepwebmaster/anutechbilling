@@ -32,6 +32,7 @@ import { MarginPill, computeMargin } from "@/components/features/margin-pill";
 import { GeminiCard } from "@/components/shared/gemini-card";
 import { AddLineItemDialog } from "@/components/features/quotes/add-line-item-dialog";
 import { BulkDomainsDialog } from "@/components/features/quotes/bulk-domains-dialog";
+import { ViewDomainsDialog } from "@/components/features/quotes/view-domains-dialog";
 import { QuotePreviewDialog } from "@/components/features/quotes/quote-preview-dialog";
 import { useCustomers } from "@/lib/queries/customers";
 import { useCreateQuote, useQuote } from "@/lib/queries/quotes";
@@ -174,6 +175,7 @@ export function QuoteBuilder() {
   const [lineItems, setLineItems] = React.useState<QuoteLineItem[]>([]);
   const [addOpen, setAddOpen] = React.useState(false);
   const [bulkOpen, setBulkOpen] = React.useState(false);
+  const [viewDomains, setViewDomains] = React.useState<{ name: string; domains: Array<{ domain: string; seats: number }> } | null>(null);
   const [previewOpen, setPreviewOpen] = React.useState(false);
   // Quote ID is allocated at SAVE time via the central numbering RPC.
   // null = unassigned (shown as placeholder in header until save).
@@ -975,19 +977,13 @@ export function QuoteBuilder() {
                     <td className="p-3">
                       <div className="font-medium text-sm text-ink">{line.name}</div>
                       {line.bulk && line.domains && line.domains.length > 0 && (
-                        <details className="mt-1 group">
-                          <summary className="text-[11px] text-amber-ink cursor-pointer select-none">
-                            ▸ {line.domains.length} domains · {line.domains.reduce((s, d) => s + d.seats, 0)} seats — view
-                          </summary>
-                          <div className="mt-1 max-h-40 overflow-y-auto rounded border border-hairline bg-paper-2/40 p-2 text-[11px] text-ink-2 space-y-0.5">
-                            {line.domains.map((d) => (
-                              <div key={d.domain} className="flex justify-between gap-2">
-                                <span className="font-mono truncate">{d.domain}</span>
-                                <span className="tabular-nums text-ink-3 shrink-0">{d.seats} seats</span>
-                              </div>
-                            ))}
-                          </div>
-                        </details>
+                        <button
+                          type="button"
+                          onClick={() => setViewDomains({ name: line.name, domains: line.domains! })}
+                          className="mt-1 text-[11px] text-amber-ink hover:underline inline-flex items-center gap-1"
+                        >
+                          ▸ {line.domains.length} domains · {line.domains.reduce((s, d) => s + d.seats, 0)} seats — view
+                        </button>
                       )}
                       <div className="text-[11px] text-ink-3 mt-0.5 tabular-nums flex items-center gap-1.5 flex-wrap">
                         <span>Cost ₹</span>
@@ -1280,6 +1276,12 @@ export function QuoteBuilder() {
       {/* Add item modal */}
       <AddLineItemDialog open={addOpen} onOpenChange={setAddOpen} onAdd={addLine} />
       <BulkDomainsDialog open={bulkOpen} onOpenChange={setBulkOpen} catalog={catalog} customerId={customerId} onAdd={addLine} />
+      <ViewDomainsDialog
+        open={!!viewDomains}
+        onOpenChange={(o) => { if (!o) setViewDomains(null); }}
+        planName={viewDomains?.name ?? ""}
+        domains={viewDomains?.domains ?? []}
+      />
 
       {/* Customer-facing quote preview — shows placeholder ID before save */}
       <QuotePreviewDialog

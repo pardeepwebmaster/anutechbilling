@@ -31,6 +31,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { MarginPill, computeMargin } from "@/components/features/margin-pill";
 import { GeminiCard } from "@/components/shared/gemini-card";
 import { AddLineItemDialog } from "@/components/features/quotes/add-line-item-dialog";
+import { BulkDomainsDialog } from "@/components/features/quotes/bulk-domains-dialog";
 import { QuotePreviewDialog } from "@/components/features/quotes/quote-preview-dialog";
 import { useCustomers } from "@/lib/queries/customers";
 import { useCreateQuote, useQuote } from "@/lib/queries/quotes";
@@ -172,6 +173,7 @@ export function QuoteBuilder() {
   const [notes, setNotes] = React.useState("");
   const [lineItems, setLineItems] = React.useState<QuoteLineItem[]>([]);
   const [addOpen, setAddOpen] = React.useState(false);
+  const [bulkOpen, setBulkOpen] = React.useState(false);
   const [previewOpen, setPreviewOpen] = React.useState(false);
   // Quote ID is allocated at SAVE time via the central numbering RPC.
   // null = unassigned (shown as placeholder in header until save).
@@ -885,9 +887,14 @@ export function QuoteBuilder() {
             <div className="text-sm font-semibold">Line Items</div>
             <div className="text-xs text-ink-3 mt-0.5">{lineItems.length} item{lineItems.length === 1 ? "" : "s"}</div>
           </div>
-          <Button size="sm" icon="plus" onClick={() => setAddOpen(true)}>
-            Add item
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button size="sm" variant="default" icon="layers" onClick={() => setBulkOpen(true)}>
+              Bulk / many domains
+            </Button>
+            <Button size="sm" icon="plus" onClick={() => setAddOpen(true)}>
+              Add item
+            </Button>
+          </div>
         </div>
 
         {/* Table */}
@@ -1252,6 +1259,7 @@ export function QuoteBuilder() {
 
       {/* Add item modal */}
       <AddLineItemDialog open={addOpen} onOpenChange={setAddOpen} onAdd={addLine} />
+      <BulkDomainsDialog open={bulkOpen} onOpenChange={setBulkOpen} catalog={catalog} customerId={customerId} onAdd={addLine} />
 
       {/* Customer-facing quote preview — shows placeholder ID before save */}
       <QuotePreviewDialog

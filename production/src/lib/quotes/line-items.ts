@@ -26,6 +26,9 @@ export interface AddOrMergeResult {
 /** Should `candidate` merge into existing line `l`? (economically identical) */
 function isSameEconomicLine(l: QuoteLineItem, candidate: QuoteLineItem): boolean {
   return (
+    // Bulk lines carry a per-domain breakdown — never merge them (each is its own order).
+    !l.bulk &&
+    !candidate.bulk &&
     l.item_id != null &&
     candidate.item_id != null &&
     l.item_id === candidate.item_id &&

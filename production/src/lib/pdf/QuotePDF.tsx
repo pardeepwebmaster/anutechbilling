@@ -472,6 +472,11 @@ export function QuotePDF(props: QuotePDFProps) {
                         {line.discount_reason ? ` (${line.discount_reason})` : ""}
                       </Text>
                     )}
+                    {line.bulk && line.domains && line.domains.length > 0 && (
+                      <Text style={s.lineMeta}>
+                        Covering {line.domains.length} domains: {line.domains.map((d) => `${d.domain} (${d.seats})`).join(", ")}
+                      </Text>
+                    )}
                   </View>
                   <Text style={s.tdQty}>{line.qty}</Text>
                   <Text style={s.tdRate}>

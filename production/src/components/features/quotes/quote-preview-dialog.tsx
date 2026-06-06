@@ -260,6 +260,11 @@ export function QuotePreviewDialog({
                             <> · {billingScheduleLabel(line.commitment)}</>
                           )}
                         </p>
+                        {line.bulk && line.domains && line.domains.length > 0 && (
+                          <p className="text-[11px] text-ink-3 mt-0.5">
+                            Covering {line.domains.length} domains: {line.domains.map((d) => `${d.domain} (${d.seats})`).join(", ")}
+                          </p>
+                        )}
                       </td>
                       <td className="py-3 text-right text-sm tabular-nums">{line.qty}</td>
                       <td className="py-3 text-right text-sm tabular-nums">

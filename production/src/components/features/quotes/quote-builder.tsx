@@ -974,6 +974,21 @@ export function QuoteBuilder() {
                   <tr key={line.id} className="border-b border-hairline last:border-0">
                     <td className="p-3">
                       <div className="font-medium text-sm text-ink">{line.name}</div>
+                      {line.bulk && line.domains && line.domains.length > 0 && (
+                        <details className="mt-1 group">
+                          <summary className="text-[11px] text-amber-ink cursor-pointer select-none">
+                            ▸ {line.domains.length} domains · {line.domains.reduce((s, d) => s + d.seats, 0)} seats — view
+                          </summary>
+                          <div className="mt-1 max-h-40 overflow-y-auto rounded border border-hairline bg-paper-2/40 p-2 text-[11px] text-ink-2 space-y-0.5">
+                            {line.domains.map((d) => (
+                              <div key={d.domain} className="flex justify-between gap-2">
+                                <span className="font-mono truncate">{d.domain}</span>
+                                <span className="tabular-nums text-ink-3 shrink-0">{d.seats} seats</span>
+                              </div>
+                            ))}
+                          </div>
+                        </details>
+                      )}
                       <div className="text-[11px] text-ink-3 mt-0.5 tabular-nums flex items-center gap-1.5 flex-wrap">
                         <span>Cost ₹</span>
                         <input
@@ -1046,13 +1061,18 @@ export function QuoteBuilder() {
                     </td>
                     <td className="p-3 text-xs font-mono text-ink-3">998313</td>
                     <td className="p-2 text-right">
-                      <input
-                        type="number"
-                        min={1}
-                        value={line.qty}
-                        onChange={(e) => updateQty(line.id, parseInt(e.target.value) || 0)}
-                        className="w-20 px-2 py-1 text-sm text-right tabular-nums border border-hairline rounded bg-paper focus:outline-none focus:ring-2 focus:ring-amber focus:border-amber"
-                      />
+                      {line.bulk ? (
+                        // Bulk: qty = Σ domain seats (read-only — edit domains, not qty).
+                        <span className="inline-block w-20 px-2 py-1 text-sm text-right tabular-nums text-ink" title="Total seats across all domains">{line.qty}</span>
+                      ) : (
+                        <input
+                          type="number"
+                          min={1}
+                          value={line.qty}
+                          onChange={(e) => updateQty(line.id, parseInt(e.target.value) || 0)}
+                          className="w-20 px-2 py-1 text-sm text-right tabular-nums border border-hairline rounded bg-paper focus:outline-none focus:ring-2 focus:ring-amber focus:border-amber"
+                        />
+                      )}
                     </td>
                     <td className="p-2 text-right">
                       <div className="flex items-center justify-end gap-1">

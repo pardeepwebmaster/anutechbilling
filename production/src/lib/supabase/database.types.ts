@@ -643,6 +643,10 @@ export type QuoteLineItem = {
   discount_pct?: number;
   /** Optional reason shown on quote PDF + accept page (e.g., "Loyalty discount", "Volume offer"). */
   discount_reason?: string;
+  /** BULK ORDER: when true, this one line expands into one subscription PER domain on payment. */
+  bulk?: boolean;
+  /** Per-domain breakdown for a bulk line. `qty` must equal the sum of these seats. */
+  domains?: Array<{ domain: string; seats: number }>;
 };
 
 type QuoteRow = {

@@ -28,6 +28,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
+import { TabBar, type TabBarItem } from "@/components/ui/tabs";
 import { Icon } from "@/components/ui/icon";
 import { FAB } from "@/components/ui/fab";
 import { rupee, formatDate, daysBetween } from "@/lib/utils";
@@ -154,6 +155,8 @@ interface RenewalBucketProps {
   rows: Array<{ sub: Subscription; daysUntil: number }>;
   graceDays: number;
   defaultOpen?: boolean;
+  /** Rendered inside a tab — always open, no Show/Hide toggle. */
+  embedded?: boolean;
 }
 
 function RenewalBucket({
@@ -163,8 +166,10 @@ function RenewalBucket({
   rows,
   graceDays,
   defaultOpen = true,
+  embedded = false,
 }: RenewalBucketProps) {
   const [open, setOpen] = React.useState(defaultOpen);
+  const isOpen = embedded || open;
   const [sending, setSending] = React.useState<string | null>(null);
   const [generating, setGenerating] = React.useState<string | null>(null);
   const qc = useQueryClient();
@@ -233,7 +238,7 @@ function RenewalBucket({
       <div
         className={cn(
           "flex items-center justify-between px-5 py-4",
-          open && "border-b border-hairline",
+          isOpen && "border-b border-hairline",
         )}
       >
         <div className="flex items-center gap-3">
@@ -247,19 +252,21 @@ function RenewalBucket({
             </p>
           </div>
         </div>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => setOpen(!open)}
-          className="gap-1 text-xs"
-        >
-          {open ? "Hide" : "Show"}
-          <Icon name={open ? "chevron_up" : "chevron_down"} size={14} />
-        </Button>
+        {!embedded && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setOpen(!open)}
+            className="gap-1 text-xs"
+          >
+            {open ? "Hide" : "Show"}
+            <Icon name={open ? "chevron_up" : "chevron_down"} size={14} />
+          </Button>
+        )}
       </div>
 
       {/* Mobile card list — phones only */}
-      {open && rows.length > 0 && (
+      {isOpen && rows.length > 0 && (
         <ul className="md:hidden p-3 space-y-2">
           {rows.map(({ sub, daysUntil: days }) => {
             const risk = renewalRisk(sub);
@@ -350,7 +357,7 @@ function RenewalBucket({
       )}
 
       {/* Desktop table */}
-      {open && (
+      {isOpen && (
         <div className="hidden md:block">
           {rows.length === 0 ? (
             <div className="py-10 text-center text-sm text-ink-3">
@@ -572,6 +579,7 @@ function RenewalBucket({
 export default function RenewalsPage() {
   const { data: subs, isLoading, error } = useSubscriptions();
   const { data: me } = useCurrentUser();
+  const [bucketTab, setBucketTab] = React.useState("urgent");
   const graceDays = me?.tenantGracePeriodDays ?? 0;
   const today = new Date();
 
@@ -743,33 +751,38 @@ export default function RenewalsPage() {
         </div>
       )}
 
-      {/* ── Renewal buckets ── */}
-      <div className="space-y-5">
-        <RenewalBucket
-          kind="rose"
-          title="Urgent · Next 7 days"
-          subtitle="Call within 24 hours — every day of delay risks revenue"
-          rows={urgent}
-          graceDays={graceDays}
-          defaultOpen
-        />
-        <RenewalBucket
-          kind="amber"
-          title="Upcoming · Next 30 days"
-          subtitle="Send personalised email + one follow-up call"
-          rows={upcoming}
-          graceDays={graceDays}
-          defaultOpen
-        />
-        <RenewalBucket
-          kind="emerald"
-          title="Future · 31–90 days"
-          subtitle="Drip campaign + value-prop content"
-          rows={future}
-          graceDays={graceDays}
-          defaultOpen={false}
-        />
-      </div>
+      {/* ── Renewal buckets — tabbed (Urgent / Upcoming / Future) ── */}
+      <Card flush>
+        <div className="px-3 pt-3 sm:px-4">
+          <TabBar
+            value={bucketTab}
+            onChange={setBucketTab}
+            items={[
+              { id: "urgent",   label: "Urgent · ≤7d",      count: urgent.length   || undefined },
+              { id: "upcoming", label: "Upcoming · 30d",    count: upcoming.length || undefined },
+              { id: "future",   label: "Future · 31–90d",   count: future.length   || undefined },
+            ] satisfies TabBarItem[]}
+          />
+        </div>
+        {bucketTab === "urgent" && (
+          <RenewalBucket embedded kind="rose"
+            title="Urgent · Next 7 days"
+            subtitle="Call within 24 hours — every day of delay risks revenue"
+            rows={urgent} graceDays={graceDays} />
+        )}
+        {bucketTab === "upcoming" && (
+          <RenewalBucket embedded kind="amber"
+            title="Upcoming · Next 30 days"
+            subtitle="Send personalised email + one follow-up call"
+            rows={upcoming} graceDays={graceDays} />
+        )}
+        {bucketTab === "future" && (
+          <RenewalBucket embedded kind="emerald"
+            title="Future · 31–90 days"
+            subtitle="Drip campaign + value-prop content"
+            rows={future} graceDays={graceDays} />
+        )}
+      </Card>
 
       {/* Mobile FAB — Bulk reminder action (header buttons hidden on phone) */}
       <FAB

@@ -11,6 +11,7 @@ import { useOutstandingReceivables } from "@/lib/queries/payments";
 import { effectiveHealth } from "@/lib/utils";
 import { AddCustomerForm } from "@/components/features/customers/add-customer-form";
 import { ImportCustomersDialog } from "@/components/features/customers/import-customers-dialog";
+import { ImportDomainsDialog } from "@/components/features/customers/import-domains-dialog";
 import { CustomerPanel } from "@/components/features/customers/customer-panel";
 import { toast } from "sonner";
 import { EmptyState } from "@/components/shared/empty-state";
@@ -63,6 +64,7 @@ export default function CustomersPage() {
   const [search, setSearch] = React.useState("");
   const [addOpen, setAddOpen] = React.useState(false);
   const [importOpen, setImportOpen] = React.useState(false);
+  const [domainsOpen, setDomainsOpen] = React.useState(false);
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
   const [view, setView] = React.useState("all");
   const [visible, setVisible] = React.useState(60);  // render cap — paginates large lists (1000+ rows would hang)
@@ -182,6 +184,7 @@ export default function CustomersPage() {
         </div>
         <div className="flex gap-2 flex-wrap">
           <Button icon="download" onClick={handleExport}>Export</Button>
+          <Button icon="link" onClick={() => setDomainsOpen(true)}>Link domains</Button>
           <Button icon="upload" onClick={() => setImportOpen(true)}>Import</Button>
           <Button variant="primary" icon="plus" onClick={() => setAddOpen(true)}>
             Add customer
@@ -486,6 +489,7 @@ export default function CustomersPage() {
 
       <AddCustomerForm open={addOpen} onOpenChange={setAddOpen} />
       <ImportCustomersDialog open={importOpen} onOpenChange={setImportOpen} onImportComplete={() => refetch()} />
+      <ImportDomainsDialog open={domainsOpen} onOpenChange={setDomainsOpen} onComplete={() => refetch()} />
     </div>
   );
 }

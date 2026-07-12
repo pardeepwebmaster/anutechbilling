@@ -188,10 +188,15 @@ function SidebarContent({ onNavigate, collapsed = false, onToggle }: { onNavigat
             <DropdownMenuSeparator />
             <DropdownMenuItem
               destructive
-              onClick={async () => {
-                const { createClient } = await import("@/lib/supabase/client");
-                await createClient().auth.signOut();
-                window.location.href = "/login";
+              onClick={() => {
+                // POST to the server route — it clears the auth COOKIES (the
+                // browser-client signOut left them, so /login bounced back) and
+                // 303-redirects to /login. No client await = can't hang.
+                const form = document.createElement("form");
+                form.method = "POST";
+                form.action = "/auth/sign-out";
+                document.body.appendChild(form);
+                form.submit();
               }}
             >
               <Icon name="logout" size={14} /> Sign out

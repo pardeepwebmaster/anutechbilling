@@ -26,7 +26,7 @@ const STAGE_META: Record<string, { label: string; color: "slate" | "indigo" | "a
   lost:    { label: "Lost",       color: "rose" },
 };
 
-export function LeadPanel({ lead, onClose }: { lead: Lead; onClose?: () => void }) {
+export function LeadPanel({ lead, onClose, onEdit }: { lead: Lead; onClose?: () => void; onEdit?: (lead: Lead) => void }) {
   const stage = STAGE_META[lead.stage] ?? STAGE_META.new;
   const phone = lead.contact_phone?.replace(/\s+/g, "");
 
@@ -77,7 +77,12 @@ export function LeadPanel({ lead, onClose }: { lead: Lead; onClose?: () => void 
             <div className="mt-1"><Badge color={stage.color} dot>{stage.label}</Badge></div>
           </div>
         </div>
-        {onClose && <IconButton icon="x" aria-label="Close" onClick={onClose} />}
+        <div className="flex items-center gap-1.5 shrink-0">
+          {onEdit && (
+            <Button size="sm" variant="ghost" icon="edit" onClick={() => onEdit(lead)}>Edit</Button>
+          )}
+          {onClose && <IconButton icon="x" aria-label="Close" onClick={onClose} />}
+        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto px-5 py-4">

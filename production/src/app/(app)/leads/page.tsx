@@ -925,7 +925,13 @@ function LeadsPageInner() {
               })}
             </div>
             <div className="flex-1 min-h-0">
-              {panelLead ? <LeadPanel lead={panelLead} onClose={() => setPanelLeadId(null)} /> : null}
+              {panelLead ? (
+                <LeadPanel
+                  lead={panelLead}
+                  onClose={() => setPanelLeadId(null)}
+                  onEdit={(l) => { setEditingLead(l); setAddOpen(true); }}
+                />
+              ) : null}
             </div>
           </div>
         );

@@ -1268,7 +1268,7 @@ export function QuoteBuilder() {
             loading={createQuote.isPending}
             disabled={!isLeadMode && !customerId && !prospectName.trim()}
           >
-            Finalize quote
+            Send quote
           </Button>
         </div>
       )}

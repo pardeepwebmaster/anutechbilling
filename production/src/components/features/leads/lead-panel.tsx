@@ -7,6 +7,7 @@
  * + notes, with a close (X) to return the list to full-width.
  */
 import * as React from "react";
+import { useRouter } from "next/navigation";
 import type { Lead } from "@/lib/supabase/database.types";
 import { rupee, formatDate, initials, cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -27,8 +28,23 @@ const STAGE_META: Record<string, { label: string; color: "slate" | "indigo" | "a
 };
 
 export function LeadPanel({ lead, onClose, onEdit }: { lead: Lead; onClose?: () => void; onEdit?: (lead: Lead) => void }) {
+  const router = useRouter();
   const stage = STAGE_META[lead.stage] ?? STAGE_META.new;
   const phone = lead.contact_phone?.replace(/\s+/g, "");
+
+  // Send a quote to this lead — carries the prospect's details into the quote
+  // builder via URL params (lead mode); on payment the customer auto-creates.
+  function sendQuote() {
+    const params = new URLSearchParams();
+    params.set("leadId", lead.id);
+    params.set("company", lead.company);
+    if (lead.plan)          params.set("plan", lead.plan);
+    if (lead.seats != null) params.set("seats", String(lead.seats));
+    if (lead.contact_name)  params.set("contact", lead.contact_name);
+    if (lead.contact_email) params.set("email", lead.contact_email);
+    if (lead.contact_phone) params.set("phone", lead.contact_phone);
+    router.push(`/quotes/new?${params.toString()}` as never);
+  }
 
   // ── AI follow-up draft (Roadmap Step 1 — zero money-write) ──────────────
   const [channel, setChannel] = React.useState<"whatsapp" | "email">("whatsapp");
@@ -88,8 +104,11 @@ export function LeadPanel({ lead, onClose, onEdit }: { lead: Lead; onClose?: () 
       <div className="flex-1 overflow-y-auto px-5 py-4">
         {/* Quick actions */}
         <div className="flex flex-wrap gap-2 mb-6">
+          <Button size="sm" variant="primary" onClick={sendQuote}>
+            <Icon name="file" size={13} className="mr-1.5" />Send quote
+          </Button>
           {phone && (
-            <Button asChild size="sm" variant="primary">
+            <Button asChild size="sm" variant="default">
               <a href={`tel:${phone}`}><Icon name="phone" size={13} className="mr-1.5" />Call</a>
             </Button>
           )}

@@ -157,17 +157,26 @@ export function useCreateQuote() {
 }
 
 // ============================================================
-// Delete — permanently remove a quote (with a guard for accepted/invoiced quotes)
+// Delete — permanently remove a quote
 // ============================================================
+// The money-correctness guard lives in a pure, unit-tested module so it can be
+// tested without pulling in the Supabase client. See src/lib/quotes/deletable.ts.
+import { quoteDeleteBlockReason } from "@/lib/quotes/deletable";
+export { quoteDeleteBlockReason };
+
 export function useDeleteQuote() {
   const qc = useQueryClient();
 
   return useMutation({
-    mutationFn: async (id: string) => {
+    // Takes the whole quote (not just the id) so the guard can inspect
+    // payment_status before any destructive write.
+    mutationFn: async (quote: Pick<Quote, "id" | "payment_status">) => {
+      const blocked = quoteDeleteBlockReason(quote);
+      if (blocked) throw new Error(blocked);
       const supabase = createClient();
-      const { error } = await supabase.from("quotes").delete().eq("id", id);
+      const { error } = await supabase.from("quotes").delete().eq("id", quote.id);
       if (error) throw error;
-      return id;
+      return quote.id;
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["quotes"] });

@@ -603,7 +603,7 @@ export function QuoteBuilder() {
             loading={createQuote.isPending}
             disabled={(!isLeadMode && !customerId && !prospectName.trim()) || lineItems.length === 0}
           >
-            Save & send
+            Save &amp; send quote
           </Button>
         </div>
       </div>
@@ -1237,12 +1237,17 @@ export function QuoteBuilder() {
           until we wire a real duplicate flow. */}
       {lineItems.length > 0 && (
         <div className="flex justify-end gap-2 flex-wrap">
+          <Button variant="ghost" icon="copy" onClick={() => handleSubmit("draft")} loading={createQuote.isPending}>
+            Save draft
+          </Button>
           <Button
-            variant="ghost"
-            icon="copy"
-            onClick={() => toast.info("Duplicate is coming soon — for now use Quotes → New")}
+            icon="file"
+            onClick={() => {
+              if (lineItems.length === 0) { toast.error("Add at least one line item to preview"); return; }
+              setPreviewOpen(true);
+            }}
           >
-            Duplicate
+            Preview
           </Button>
           <Button
             icon="mail"
@@ -1263,12 +1268,12 @@ export function QuoteBuilder() {
           </Button>
           <Button
             variant="primary"
-            icon="check_circle"
+            icon="send"
             onClick={() => handleSubmit("sent")}
             loading={createQuote.isPending}
             disabled={!isLeadMode && !customerId && !prospectName.trim()}
           >
-            Send quote
+            Save &amp; send quote
           </Button>
         </div>
       )}

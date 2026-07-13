@@ -35,7 +35,6 @@ import { LeadsSmartViews, type SmartView } from "@/components/features/leads/lea
 import { SwipeLeadCard } from "@/components/features/leads/swipe-lead-card";
 import { ImportCsvDialog } from "@/components/features/leads/import-csv-dialog";
 import StartTrialDialog from "@/components/features/leads/start-trial-dialog";
-import { LeadPanel } from "@/components/features/leads/lead-panel";
 import CampaignComposerDialog from "@/components/features/campaigns/campaign-composer-dialog";
 import GoogleContactsImportDialog from "@/components/features/contacts/google-contacts-import-dialog";
 import SendWhatsAppDialog from "@/components/features/whatsapp/send-whatsapp-dialog";
@@ -153,7 +152,6 @@ function LeadsPageInner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
   const [selected, setSelected] = React.useState<Lead | null>(null);
-  const [panelLeadId, setPanelLeadId] = React.useState<string | null>(null);
   const [editingLead, setEditingLead] = React.useState<Lead | null>(null);
   // "Follow-ups due today" banner — click to expand the list of due leads.
   const [dueListOpen, setDueListOpen] = React.useState(false);
@@ -201,6 +199,37 @@ function LeadsPageInner() {
     // Clean the param from URL so refresh doesn't re-trigger
     router.replace("/leads" as any);
   }, [focusLeadId, leads, router]);
+
+  // ── Return focus: after "Send quote" (the detail drawer stores ros:returnLead),
+  // re-open that lead's drawer when we land back on /leads. One-shot (cleared on use).
+  const returnFocusHandledRef = React.useRef(false);
+  React.useEffect(() => {
+    if (returnFocusHandledRef.current || !leads) return;
+    let rid: string | null = null;
+    try { rid = sessionStorage.getItem("ros:returnLead"); } catch { /* ignore */ }
+    if (!rid) return;
+    returnFocusHandledRef.current = true;
+    try { sessionStorage.removeItem("ros:returnLead"); } catch { /* ignore */ }
+    const match = leads.find((l) => l.id === rid);
+    if (!match) return;
+    setSelected(match);
+  }, [leads]);
+
+  // Quick "Send quote" from a list row (mirrors the drawer's Send quote) —
+  // carries lead context into the quote builder + arms return-focus so we
+  // land back on this lead's drawer afterwards.
+  const goSendQuote = React.useCallback((lead: Lead) => {
+    const params = new URLSearchParams();
+    params.set("leadId",  lead.id);
+    params.set("company", lead.company);
+    if (lead.plan)          params.set("plan",  lead.plan);
+    if (lead.seats != null) params.set("seats", String(lead.seats));
+    if (lead.contact_name)  params.set("contact", lead.contact_name);
+    if (lead.contact_email) params.set("email", lead.contact_email);
+    if (lead.contact_phone) params.set("phone", lead.contact_phone);
+    try { sessionStorage.setItem("ros:returnLead", lead.id); } catch { /* ignore */ }
+    router.push(`/quotes/new?${params.toString()}` as never);
+  }, [router]);
 
   // ── Leads vs Deals split ────────────────────────────────────────────────
   // Leads = raw inquiries, no plan picked yet (NULL or empty). Awaiting
@@ -881,7 +910,7 @@ function LeadsPageInner() {
           internal "No leads match." row appears AND the smart empty state
           below also fires, creating a duplicate. Skipping the table here
           lets the smart empty state below own the empty-screen real estate. */}
-      {!isLoading && !error && leads && leads.length > 0 && effectiveView === "list" && filtered.length > 0 && !panelLeadId && (
+      {!isLoading && !error && leads && leads.length > 0 && effectiveView === "list" && filtered.length > 0 && (
         <LeadListView
           leads={filtered}
           sortBy={sortBy}
@@ -890,52 +919,10 @@ function LeadsPageInner() {
             if (sortBy === col) setSortDir(sortDir === "asc" ? "desc" : "asc");
             else { setSortBy(col); setSortDir(col === "company" ? "asc" : "desc"); }
           }}
-          onRowClick={(l) => { if (isMobile) setSelected(l); else setPanelLeadId(l.id); }}
+          onRowClick={(l) => setSelected(l)}
+          onSendQuote={goSendQuote}
         />
       )}
-
-      {/* List view — master-detail (desktop only; a lead is selected). Mobile
-          keeps the existing tap → detail drawer behaviour. */}
-      {!isLoading && !error && effectiveView === "list" && panelLeadId && (() => {
-        const panelLead = filtered.find((l) => l.id === panelLeadId)
-          ?? (leadsForTab.find((l) => l.id === panelLeadId) ?? null);
-        return (
-          <div className="hidden md:flex border border-hairline rounded-xl overflow-hidden bg-paper h-[calc(100vh-240px)] min-h-[460px]">
-            <div className="w-[320px] border-r border-hairline overflow-y-auto flex-shrink-0">
-              {filtered.map((l) => {
-                const active = l.id === panelLeadId;
-                return (
-                  <button
-                    key={l.id}
-                    type="button"
-                    onClick={() => setPanelLeadId(l.id)}
-                    className={cn(
-                      "w-full text-left px-3 py-2.5 border-b border-hairline/60 transition-colors",
-                      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber focus-visible:ring-inset",
-                      active ? "bg-amber-soft/50" : "hover:bg-paper-2/50",
-                    )}
-                  >
-                    <div className="font-medium text-sm text-ink truncate">{l.company}</div>
-                    <div className="flex items-center justify-between gap-2 text-[11px] text-ink-3 mt-0.5">
-                      <span className="truncate">{l.contact_name || l.contact_email || "—"}</span>
-                      {l.value ? <span className="tabular-nums flex-shrink-0">{rupee(l.value, { compact: true })}</span> : null}
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-            <div className="flex-1 min-h-0">
-              {panelLead ? (
-                <LeadPanel
-                  lead={panelLead}
-                  onClose={() => setPanelLeadId(null)}
-                  onEdit={(l) => { setEditingLead(l); setAddOpen(true); }}
-                />
-              ) : null}
-            </div>
-          </div>
-        );
-      })()}
 
       {/* No results from search OR tab cross-over hint.
           The /leads tab shows only raw inquiries (no plan picked); /deals
@@ -1125,6 +1112,8 @@ function LeadDetailSheet({
     if (lead.contact_name)    params.set("contact", lead.contact_name);
     if (lead.contact_email)   params.set("email", lead.contact_email);
     if (lead.contact_phone)   params.set("phone", lead.contact_phone);
+    // Remember this lead so returning to /leads re-opens its drawer (one-shot).
+    try { sessionStorage.setItem("ros:returnLead", lead.id); } catch { /* ignore */ }
     onClose();
     router.push(`/quotes/new?${params.toString()}` as any);
   };
@@ -1142,6 +1131,8 @@ function LeadDetailSheet({
     if (lead.contact_name)  params.set("contact", lead.contact_name);
     if (lead.contact_email) params.set("email",   lead.contact_email);
     if (lead.contact_phone) params.set("phone",   lead.contact_phone);
+    // Remember this lead so returning to /leads re-opens its drawer (one-shot).
+    try { sessionStorage.setItem("ros:returnLead", lead.id); } catch { /* ignore */ }
     onClose();
     router.push(`/quotes/new?${params.toString()}` as any);
   };
@@ -1825,12 +1816,14 @@ function LeadListView({
   sortDir,
   onSort,
   onRowClick,
+  onSendQuote,
 }: {
   leads: Lead[];
   sortBy: SortCol;
   sortDir: "asc" | "desc";
   onSort: (col: SortCol) => void;
   onRowClick: (l: Lead) => void;
+  onSendQuote: (l: Lead) => void;
 }) {
   // Stage-mutation hook for quick-change chips on cards. Tapping the stage
   // badge on a mobile card opens a dropdown to flip the stage without
@@ -2089,6 +2082,14 @@ function LeadListView({
                     Each icon stopsPropagation so they don't open the drawer. */}
                 <td className="p-3" onClick={(e) => e.stopPropagation()}>
                   <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); onSendQuote(lead); }}
+                      className="inline-flex items-center justify-center w-7 h-7 rounded-md text-amber hover:bg-amber-soft/40"
+                      title="Send quote"
+                    >
+                      <Icon name="send" size={14} />
+                    </button>
                     {hasPhone && (
                       <a
                         href={`tel:${lead.contact_phone}`}
@@ -2133,7 +2134,7 @@ function LeadListView({
       )}
       <div className="px-3 py-2 border-t border-hairline bg-paper-2/40 text-[11px] text-ink-3 flex items-center gap-2">
         <Icon name="info" size={11} />
-        Click any row to open the drawer · Tick a checkbox to enable bulk actions · Hover a row to reveal Call / WhatsApp / Email
+        Click any row to open the drawer · Tick a checkbox to enable bulk actions · Hover a row to reveal Send quote / Call / WhatsApp / Email
       </div>
     </div>
 

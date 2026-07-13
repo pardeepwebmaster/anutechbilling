@@ -9,7 +9,7 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 
-import { useQuote } from "@/lib/queries/quotes";
+import { useQuote, useDeleteQuote, quoteDeleteBlockReason } from "@/lib/queries/quotes";
 import { useGenerateInvoice } from "@/lib/queries/invoices";
 import { isInterStateSupply } from "@/lib/gst/place-of-supply";
 import { createClient } from "@/lib/supabase/client";
@@ -63,6 +63,7 @@ export default function QuoteDetailPage() {
   const { data: customer } = useCustomer(quote?.customer_id ?? undefined);
   const { data: me } = useCurrentUser();
   const qc = useQueryClient();
+  const deleteQuote = useDeleteQuote();
   const [paymentOpen, setPaymentOpen] = React.useState(false);
   const [previewOpen, setPreviewOpen] = React.useState(false);
   const [downloadingPdf, setDownloadingPdf] = React.useState(false);
@@ -94,6 +95,17 @@ export default function QuoteDetailPage() {
 
   // Inter-state? Compare customer state code vs tenant (seller) state code.
   const interState = isInterStateSupply(customer?.state_code, me?.tenantStateCode);
+
+  // Delete — blocked for quotes with a recorded payment (cascade would wipe the
+  // ledger). On success, navigate back to the list since this record is gone.
+  const deleteBlock = quote ? quoteDeleteBlockReason(quote) : null;
+  const handleDelete = () => {
+    if (!quote) return;
+    if (deleteBlock) { toast.error(deleteBlock); return; }
+    if (window.confirm(`Permanently delete quote ${quote.id}?\n\nThis cannot be undone.`)) {
+      deleteQuote.mutate(quote, { onSuccess: () => router.push("/quotes" as never) });
+    }
+  };
 
   // ────────── Mutations ──────────
   const sendQuote = useMutation({
@@ -352,6 +364,17 @@ export default function QuoteDetailPage() {
             {quote.status === "sent" || quote.status === "viewed"
               ? "Resend via WhatsApp"
               : "Send via WhatsApp"}
+          </Button>
+          <Button
+            icon="trash"
+            variant="ghost"
+            onClick={handleDelete}
+            loading={deleteQuote.isPending}
+            disabled={Boolean(deleteBlock)}
+            title={deleteBlock ?? "Permanently delete this quote"}
+            className="!text-rose hover:!bg-rose/10"
+          >
+            Delete
           </Button>
         </div>
       </div>

@@ -6,7 +6,8 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useQuotes, useDeleteQuote } from "@/lib/queries/quotes";
+import { toast } from "sonner";
+import { useQuotes, useDeleteQuote, quoteDeleteBlockReason } from "@/lib/queries/quotes";
 import { useCustomer } from "@/lib/queries/customers";
 import { useCurrentUser } from "@/lib/hooks/useCurrentUser";
 import { isInterStateSupply } from "@/lib/gst/place-of-supply";
@@ -132,11 +133,15 @@ export default function QuotesPage() {
   const [previewing, setPreviewing] = React.useState<Quote | null>(null);
 
   const handleDelete = (q: Quote) => {
-    const warn = q.status === "accepted" || q.payment_status === "received" || q.payment_status === "invoiced"
-      ? "\n\n⚠️ This quote is ACCEPTED/PAID — deleting may break audit trail."
-      : "";
-    if (window.confirm(`Permanently delete quote ${q.id}?${warn}\n\nThis cannot be undone.`)) {
-      deleteQuote.mutate(q.id);
+    // Hard-block quotes that already carry a payment (cascade would wipe the
+    // payment ledger). Same guard the mutation enforces — surfaced early here.
+    const blocked = quoteDeleteBlockReason(q);
+    if (blocked) {
+      toast.error(blocked);
+      return;
+    }
+    if (window.confirm(`Permanently delete quote ${q.id}?\n\nThis cannot be undone.`)) {
+      deleteQuote.mutate(q);
     }
   };
 

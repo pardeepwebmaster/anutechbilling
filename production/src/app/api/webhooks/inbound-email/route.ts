@@ -123,6 +123,7 @@ export async function POST(request: NextRequest) {
   const fromName  = str("fromName", "from_name", "sender_name") || parsedName;
   const subject   = str("subject", "Subject");
   const text      = str("text", "body-plain", "plain", "TextBody", "stripped-text", "body");
+  const html      = str("html", "body-html", "HtmlBody", "stripped-html");
   const messageId = str("messageId", "message_id", "Message-Id", "MessageID", "Message-ID")
     || `noid-${fromEmail}-${subject}`.slice(0, 200);
 
@@ -140,6 +141,8 @@ export async function POST(request: NextRequest) {
     from_email: fromEmail,
     from_name:  fromName || null,
     subject:    subject || null,
+    body_text:  text || null,
+    body_html:  html || null,
     status:     "received",
   });
   if (claimErr) {

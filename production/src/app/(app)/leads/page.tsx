@@ -282,8 +282,10 @@ function LeadsPageInner() {
   // no plan yet. The moment it advances (Demo / Trial / Quote) OR gets a plan,
   // it's an active opportunity and belongs in Deals. Won/Lost are deal outcomes,
   // so they're never raw either.
-  const isRaw = (l: Lead) =>
-    (!l.plan || l.plan.trim() === "") && (l.stage === "new" || l.stage === "contact");
+  // A lead stays in the Leads inbox until a quotation is sent. Sending a quote
+  // moves its stage to 'quote' (and only then can it go to demo/trial/won) —
+  // that's the single gate out of the inbox. So raw = still pre-quote (new/contact).
+  const isRaw = (l: Lead) => l.stage === "new" || l.stage === "contact";
   const rawLeads      = React.useMemo(() => searched.filter(isRaw),       [searched]);
   const qualifiedDeals = React.useMemo(() => searched.filter((l) => !isRaw(l)), [searched]);
 
@@ -1584,10 +1586,14 @@ function LeadDetailSheet({
               make sense. Show only the relevant chips + a hint to qualify
               first if the user wants to progress further. */}
           {(() => {
-            const isRawLead = !lead.plan || lead.plan.trim() === "";
-            const visibleStages = isRawLead
-              ? LEAD_STAGES.filter((s) => s.id === "new" || s.id === "contact")
-              : LEAD_STAGES;
+            // Quote-first funnel: pre-quote leads (new/contact) can only stay
+            // pre-quote or be Lost — Demo/Trial/Won unlock only after a quote is
+            // sent. Post-quote deals get the deal-stage chips (no going back to
+            // the inbox stages).
+            const isPreQuote = lead.stage === "new" || lead.stage === "contact";
+            const visibleStages = isPreQuote
+              ? LEAD_STAGES.filter((s) => s.id === "new" || s.id === "contact" || s.id === "lost")
+              : LEAD_STAGES.filter((s) => s.id !== "new" && s.id !== "contact");
             return (
               <div>
                 <div className="text-xs uppercase tracking-wider text-ink-3 font-semibold mb-2">Move to stage</div>
@@ -1615,14 +1621,13 @@ function LeadDetailSheet({
                     </button>
                   ))}
                 </div>
-                {isRawLead && (
-                  // Actionable in place of explanatory text — one click takes
-                  // the rep into the Edit form where they pick the plan; once
-                  // saved, the lead leaves the Leads tab and lands in Deals
-                  // with all six stages unlocked.
+                {isPreQuote && (
+                  // Quote-first funnel: the only way forward from a pre-quote
+                  // lead is to send a quote — that moves it into Deals and
+                  // unlocks Demo / Trial / Won. One click starts the quote.
                   <button
                     type="button"
-                    onClick={() => onEdit(lead)}
+                    onClick={handleSendQuote}
                     className={cn(
                       "mt-3 w-full text-left text-xs px-3 py-2 rounded-md",
                       "bg-amber-soft hover:bg-amber/15 border border-amber/40",
@@ -1631,8 +1636,8 @@ function LeadDetailSheet({
                     )}
                   >
                     <span className="inline-flex items-center gap-1.5">
-                      <Icon name="sparkles" size={13} />
-                      Qualify lead · pick plan + value to unlock later stages
+                      <Icon name="send" size={13} />
+                      Send a quote to move into Deals · unlocks Demo / Trial / Won
                     </span>
                     <Icon name="arrow_right" size={13} />
                   </button>
@@ -1835,12 +1840,14 @@ function LeadListView({
   onFollowUp: (l: Lead) => void;
   isDealsPage: boolean;
 }) {
-  // Stage options in the inline dropdown. On the Leads inbox, Won/Lost aren't
-  // offered — a lead is never won/lost (that's a deal outcome). Picking an
-  // advanced stage (Demo/Trial/Quote) moves the lead into Deals.
+  // Stage options in the inline dropdown, gated by the quote-first funnel:
+  //  • Leads inbox (pre-quote): only New / Contacted / Lost. Demo/Trial/Quote
+  //    are NOT offered — you must Send a quote (📄) to advance, which is what
+  //    moves the lead into Deals.
+  //  • Deals (post-quote): Quote Sent → Demo Done → Trial Active → Won / Lost.
   const ROW_STAGE_OPTIONS: Lead["stage"][] = isDealsPage
-    ? ["new", "contact", "demo", "trial", "quote", "won", "lost"]
-    : ["new", "contact", "demo", "trial", "quote"];
+    ? ["quote", "demo", "trial", "won", "lost"]
+    : ["new", "contact", "lost"];
   // Stage-mutation hook for quick-change chips on cards. Tapping the stage
   // badge on a mobile card opens a dropdown to flip the stage without
   // needing to open the full detail drawer.
@@ -2088,10 +2095,10 @@ function LeadListView({
                       onChange={(e) => {
                         const stage = e.target.value as Lead["stage"];
                         updateStage.mutate({ id: lead.id, stage });
-                        // On the Leads inbox, advancing to Demo/Trial/Quote turns
-                        // the lead into a deal — it leaves this list for Deals.
-                        if (!isDealsPage && (stage === "demo" || stage === "trial" || stage === "quote")) {
-                          toast.success(`${lead.company} → moved to Deals (${STAGE_LABEL[stage]})`);
+                        // On the Leads inbox, marking Lost closes the lead — it
+                        // leaves the inbox. (To advance forward, Send a quote.)
+                        if (!isDealsPage && stage === "lost") {
+                          toast.success(`${lead.company} marked Lost`);
                         }
                       }}
                       title="Change stage"

@@ -11,6 +11,7 @@ import { createClient } from "@/lib/supabase/client";
 
 interface NavBadges {
   leads?:        string;
+  enquiries?:    string;
   deals?:        string;
   tasks?:        string;
   renewals?:     string;
@@ -41,23 +42,29 @@ async function fetchNavBadges(): Promise<NavBadges> {
   // Badges must mirror what the destination page renders, otherwise
   // operator clicks "Leads 14" and sees an empty page (Pardeep dogfood
   // 2026-05-29). So we count them as two separate buckets here.
-  const [leadsRes, dealsRes, tasksRes, renewalsRes, invoicesRes, paymentsRes] = await Promise.all([
-    // RAW leads = still early (stage new/contact) AND no plan yet. Mirrors
-    // isRaw() in src/app/(app)/leads/page.tsx: a lead leaves the inbox once it
-    // advances (Demo/Trial/Quote) OR gets a plan. Treats NULL + empty as "no plan".
+  const [leadsRes, enquiriesRes, dealsRes, tasksRes, renewalsRes, invoicesRes, paymentsRes] = await Promise.all([
+    // RAW leads = pre-quote inbox (stage new/contact). Mirrors isRaw() in
+    // src/app/(app)/leads/page.tsx: a lead leaves the inbox only when a quote
+    // is sent (stage → quote), which is what makes it a deal.
     supabase
       .from("leads")
       .select("id", { count: "exact", head: true })
-      .in("stage", ["new", "contact"])
-      .or("plan.is.null,plan.eq."),
+      .in("stage", ["new", "contact"]),
 
-    // ACTIVE deals = not won/lost, and NOT raw — i.e. a plan is set OR the stage
-    // has advanced (demo/trial/quote). Matches the /deals "active deals" count.
+    // Untriaged inbound emails — received but not yet turned into / attached to
+    // a lead. Mirrors the Enquiries Inbox "New to triage" count.
+    supabase
+      .from("inbound_emails")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "received")
+      .is("lead_id", null),
+
+    // ACTIVE deals = post-quote, still open (quote sent / demo / trial). Won and
+    // lost are terminal, so excluded. Matches the /deals "active deals" count.
     supabase
       .from("leads")
       .select("id", { count: "exact", head: true })
-      .not("stage", "in", '("won","lost")')
-      .or("and(plan.not.is.null,plan.neq.),stage.in.(demo,trial,quote)"),
+      .in("stage", ["quote", "demo", "trial"]),
 
     // Pending tasks due by end of today (overdue + today combined — the
     // ones the rep needs to clear before EOD)
@@ -87,15 +94,17 @@ async function fetchNavBadges(): Promise<NavBadges> {
       .eq("payment_status", "received"),
   ]);
 
-  const leadsCount    = leadsRes.count    ?? 0;
-  const dealsCount    = dealsRes.count    ?? 0;
+  const leadsCount     = leadsRes.count     ?? 0;
+  const enquiriesCount = enquiriesRes.count ?? 0;
+  const dealsCount     = dealsRes.count     ?? 0;
   const tasksCount    = tasksRes.count    ?? 0;
   const renewalsCount = renewalsRes.count ?? 0;
   const invoicesCount = invoicesRes.count ?? 0;
   const paymentsCount = paymentsRes.count ?? 0;
 
-  if (leadsCount    > 0) badges.leads    = String(leadsCount);
-  if (dealsCount    > 0) badges.deals    = String(dealsCount);
+  if (leadsCount     > 0) badges.leads     = String(leadsCount);
+  if (enquiriesCount > 0) badges.enquiries = String(enquiriesCount);
+  if (dealsCount     > 0) badges.deals     = String(dealsCount);
   if (tasksCount    > 0) badges.tasks    = String(tasksCount);
   if (renewalsCount > 0) badges.renewals = String(renewalsCount);
   if (invoicesCount > 0) badges.invoices = String(invoicesCount);

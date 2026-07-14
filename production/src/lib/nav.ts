@@ -23,6 +23,8 @@ export interface NavItem {
    * Use to lock down sales-only or owner-only entries. Filtered in Sidebar.tsx.
    */
   roles?: UserRole[];
+  /** Sub-links rendered as an accordion under this item (e.g. Reports → sub-reports). */
+  children?: NavItem[];
 }
 
 export interface NavSection {
@@ -92,6 +94,9 @@ export const APP_NAV: NavSection[] = [
       // Lead inbox — raw inquiries. Sales always sees this; deals page is a
       // separate entry below (gated by can_view_deals for sales).
       { id: "leads",      href: "/leads",      label: "Leads",         icon: "inbox",   roles: ["owner", "manager", "sales"] },
+      // Inbound-email triage inbox. Feeds Leads (genuine enquiries auto-convert;
+      // the rest are triaged by hand here), so it sits right after Leads.
+      { id: "enquiries",  href: "/enquiries",  label: "Enquiries",     icon: "mail",    roles: ["owner", "manager", "sales"] },
       { id: "deals",      href: "/deals",      label: "Deal Pipeline", icon: "target",  roles: ["owner", "manager", "sales"] },
       { id: "tasks",      href: "/tasks",      label: "Tasks",         icon: "clock",   roles: ["owner", "manager", "sales"] },
       { id: "customers",  href: "/customers",  label: "Customers",     icon: "users",   roles: ["owner", "manager"] },
@@ -142,7 +147,12 @@ export const APP_NAV: NavSection[] = [
       { id: "campaigns",     href: "/campaigns",     label: "Campaigns",     icon: "send" },
       { id: "online-promos", href: "/online-promos", label: "Online Promos", icon: "zap" },
       { id: "coupons",       href: "/coupons",       label: "Coupons",       icon: "rupee" },
-      { id: "reports",       href: "/reports",       label: "Reports",       icon: "chart" },
+      { id: "reports",       href: "/reports",       label: "Reports",       icon: "chart",
+        children: [
+          { id: "reports-profit",   href: "/reports/profit",          label: "Profit by product/service", icon: "package" },
+          { id: "reports-customer", href: "/accounting/profitability", label: "Profit by customer",        icon: "users" },
+        ],
+      },
       { id: "support",     href: "/support",     label: "Support",        icon: "ticket" },
     ],
   },
@@ -194,6 +204,7 @@ export const SCREEN_TITLES: Record<string, string[]> = {
   "/dashboard":       ["Workspace", "Dashboard"],
   "/lead-gen":        ["Workspace", "Lead Sources"],
   "/leads":           ["Workspace", "Leads"],
+  "/enquiries":       ["Workspace", "Enquiries"],
   "/deals":           ["Workspace", "Deal Pipeline"],
   "/tasks":           ["Workspace", "Tasks"],
   "/customers":       ["Workspace", "Customers"],
@@ -231,6 +242,7 @@ export const SCREEN_TITLES: Record<string, string[]> = {
   "/coupons":         ["Engage", "Coupons"],
 
   "/reports":         ["Engage", "Reports"],
+  "/reports/profit":  ["Engage", "Reports", "Profit by product/service"],
   "/support":         ["Engage", "Support"],
   "/setup":           ["System", "Setup Wizard"],
   "/settings":        ["System", "Settings"],

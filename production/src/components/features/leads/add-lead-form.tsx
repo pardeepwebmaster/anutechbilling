@@ -60,14 +60,12 @@ const STAGES = [
   { value: "lost",    label: "Lost" },
 ] as const;
 
-// Stages that REQUIRE a plan to be selected — they only make sense once
-// the lead has been qualified into a deal. A raw lead with stage "Quote
-// Sent" is inconsistent (quote of what?), so we gate these in the UI.
-//
-// Raw-lead stages (no plan needed): new, contact, lost (qualification-track)
-// Deal-track stages (plan required): demo, trial, quote, won
-const PLAN_ONLY_STAGES = ["demo", "trial", "quote", "won"] as const;
-const RAW_LEAD_STAGE_VALUES = ["new", "contact", "lost"] as const;
+// Quote-first funnel. A lead lives in the Leads inbox (pre-quote) until a
+// quotation is sent; only then does it become a deal and unlock Demo/Trial/Won.
+//   Pre-quote (Leads):  New, Contacted, Lost
+//   Post-quote (Deals): Quote Sent, Demo Done, Trial Active, Won, Lost
+const RAW_LEAD_STAGE_VALUES   = ["new", "contact", "lost"] as const;
+const POST_QUOTE_STAGE_VALUES = ["quote", "demo", "trial", "won", "lost"] as const;
 
 const SOURCES = [
   { value: "manual",            label: "Added manually" },
@@ -289,26 +287,26 @@ export function AddLeadForm({ open, onOpenChange, editingLead }: AddLeadFormProp
     setValue("value", annualValue, { shouldValidate: true });
   }, [plan, watchedSeats, setValue]);
 
-  // Stage options gate by plan: raw lead (no plan) → qualification-track only;
-  // qualified lead (plan picked) → full 7-stage pipeline.
+  // Quote-first funnel: Demo/Trial/Quote/Won are reachable ONLY after a quote
+  // is sent. So a pre-quote lead (New/Contacted, or a brand-new one) may only
+  // be set to New / Contacted / Lost here — sending a quote (not this form) is
+  // what crosses the gate into the deal stages. A lead already past the gate
+  // (stage quote/demo/trial/won/lost) gets the deal-stage set.
   const availableStages = React.useMemo(() => {
-    if (!plan) {
-      return STAGES.filter((s) =>
-        (RAW_LEAD_STAGE_VALUES as readonly string[]).includes(s.value),
-      );
-    }
-    return STAGES;
-  }, [plan]);
+    const postQuote = !!editingLead && (POST_QUOTE_STAGE_VALUES as readonly string[]).includes(editingLead.stage);
+    const allowed = postQuote ? POST_QUOTE_STAGE_VALUES : RAW_LEAD_STAGE_VALUES;
+    return STAGES.filter((s) => (allowed as readonly string[]).includes(s.value));
+  }, [editingLead]);
 
-  // If the plan gets cleared while a plan-only stage is selected, snap the
-  // stage back to "new". Without this, a user can pick Quote Sent → clear the
-  // plan → save an inconsistent lead (stage=quote, plan=null).
+  // Keep the selected stage within the allowed set (e.g. if it drifted out of
+  // range for this lead's funnel position).
   React.useEffect(() => {
-    if (!plan && (PLAN_ONLY_STAGES as readonly string[]).includes(stage)) {
-      setStage("new");
-      setValue("stage", "new", { shouldDirty: true });
+    if (!availableStages.some((s) => s.value === stage)) {
+      const fallback = (availableStages[0]?.value ?? "new") as FormData["stage"];
+      setStage(fallback);
+      setValue("stage", fallback, { shouldDirty: true });
     }
-  }, [plan, stage, setValue]);
+  }, [availableStages, stage, setValue]);
 
   // Seats / value gate on plan, same conceptual pattern as stage gating:
   //   • Plan empty (raw lead) → keep seats / value blank. Sales rep is just

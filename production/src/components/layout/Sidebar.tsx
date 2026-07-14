@@ -35,6 +35,9 @@ function SidebarContent({ onNavigate, collapsed = false, onToggle }: { onNavigat
   const pathname    = usePathname();
   const navBadges   = useNavBadges();
   const { data: me } = useCurrentUser();
+  // Which accordion parents (items with children) are expanded. Defaults to
+  // open when the current route is the parent or one of its children.
+  const [openMenus, setOpenMenus] = React.useState<Record<string, boolean>>({});
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -72,45 +75,79 @@ function SidebarContent({ onNavigate, collapsed = false, onToggle }: { onNavigat
                 .filter((item) => item.id !== "setup" || !me?.tenantSetupCompletedAt)
                 .map((item) => {
                 const active = pathname === item.href;
-                return (
-                  <Link
-                    key={item.id}
-                    href={item.href as any}
-                    onClick={onNavigate}
-                    title={collapsed ? item.label : undefined}
-                    className={cn(
-                      "group relative flex items-center rounded-md text-sm transition-colors",
-                      collapsed ? "justify-center px-0 py-2" : "gap-2.5 px-3 py-1.5",
-                      active
-                        ? "bg-amber-soft text-amber-ink font-medium"
-                        : "text-ink-2 hover:bg-paper-2 hover:text-ink"
-                    )}
-                    aria-current={active ? "page" : undefined}
-                  >
-                    <Icon
-                      name={item.icon}
-                      size={15}
+
+                // Reusable link (used for plain items + accordion children).
+                const renderLink = (it: typeof item, child = false) => {
+                  const isActive = pathname === it.href;
+                  const b = it.badge ?? navBadges[it.id as keyof typeof navBadges];
+                  return (
+                    <Link
+                      key={it.id}
+                      href={it.href as any}
+                      onClick={onNavigate}
+                      title={collapsed ? it.label : undefined}
                       className={cn(
-                        "flex-shrink-0",
-                        active ? "text-amber" : "text-ink-3 group-hover:text-ink-2"
+                        "group relative flex items-center rounded-md text-sm transition-colors",
+                        collapsed ? "justify-center px-0 py-2" : child ? "gap-2 pl-9 pr-3 py-1.5 text-[13px]" : "gap-2.5 px-3 py-1.5",
+                        isActive
+                          ? "bg-amber-soft text-amber-ink font-medium"
+                          : "text-ink-2 hover:bg-paper-2 hover:text-ink"
                       )}
-                    />
-                    {!collapsed && <span className="flex-1 truncate">{item.label}</span>}
-                    {(item.badge ?? navBadges[item.id as keyof typeof navBadges]) &&
-                      (collapsed ? (
+                      aria-current={isActive ? "page" : undefined}
+                    >
+                      {child
+                        ? <span className={cn("w-1.5 h-1.5 rounded-full flex-shrink-0", isActive ? "bg-amber" : "bg-ink-3/40")} />
+                        : <Icon name={it.icon} size={15} className={cn("flex-shrink-0", isActive ? "text-amber" : "text-ink-3 group-hover:text-ink-2")} />}
+                      {!collapsed && <span className="flex-1 truncate">{it.label}</span>}
+                      {b && (collapsed ? (
                         <span className="absolute top-1 right-2 w-1.5 h-1.5 rounded-full bg-amber" />
                       ) : (
-                        <span
-                          className={cn(
-                            "text-[10px] px-1.5 py-0.5 rounded-full tabular-nums flex-shrink-0",
-                            active ? "bg-amber/15 text-amber" : "bg-paper-2 text-ink-3"
-                          )}
-                        >
-                          {item.badge ?? navBadges[item.id as keyof typeof navBadges]}
+                        <span className={cn("text-[10px] px-1.5 py-0.5 rounded-full tabular-nums flex-shrink-0", isActive ? "bg-amber/15 text-amber" : "bg-paper-2 text-ink-3")}>
+                          {b}
                         </span>
                       ))}
-                  </Link>
-                );
+                    </Link>
+                  );
+                };
+
+                // Accordion parent (has children) — expandable in the full sidebar.
+                if (item.children?.length && !collapsed) {
+                  const isOpen = openMenus[item.id] ?? (active || item.children.some((c) => pathname === c.href));
+                  return (
+                    <div key={item.id}>
+                      <div className="flex items-center">
+                        <Link
+                          href={item.href as any}
+                          onClick={onNavigate}
+                          className={cn(
+                            "group flex items-center gap-2.5 rounded-md text-sm transition-colors flex-1 px-3 py-1.5",
+                            active ? "bg-amber-soft text-amber-ink font-medium" : "text-ink-2 hover:bg-paper-2 hover:text-ink"
+                          )}
+                          aria-current={active ? "page" : undefined}
+                        >
+                          <Icon name={item.icon} size={15} className={cn("flex-shrink-0", active ? "text-amber" : "text-ink-3 group-hover:text-ink-2")} />
+                          <span className="flex-1 truncate">{item.label}</span>
+                        </Link>
+                        <button
+                          type="button"
+                          onClick={() => setOpenMenus((m) => ({ ...m, [item.id]: !isOpen }))}
+                          aria-label={isOpen ? `Collapse ${item.label}` : `Expand ${item.label}`}
+                          aria-expanded={isOpen}
+                          className="p-1.5 rounded-md text-ink-3 hover:bg-paper-2 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber"
+                        >
+                          <Icon name={isOpen ? "chevron_up" : "chevron_down"} size={14} />
+                        </button>
+                      </div>
+                      {isOpen && (
+                        <div className="mt-0.5 space-y-0.5">
+                          {item.children.map((c) => renderLink(c, true))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                }
+
+                return renderLink(item);
               })}
             </div>
           </div>

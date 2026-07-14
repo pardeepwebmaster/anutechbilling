@@ -207,6 +207,8 @@ export type InboundEmailRow = {
   subject:    string | null;
   status:     string;
   lead_id:    string | null;
+  body_text:  string | null;
+  body_html:  string | null;
   created_at: string;
 };
 type InboundEmailInsert = {
@@ -218,6 +220,8 @@ type InboundEmailInsert = {
   subject?:    string | null;
   status?:     string;
   lead_id?:    string | null;
+  body_text?:  string | null;
+  body_html?:  string | null;
   created_at?: string;
 };
 type InboundEmailUpdate = Partial<Omit<InboundEmailInsert, "tenant_id" | "message_id">>;
@@ -1673,6 +1677,16 @@ export type Database = {
       delete_customer: {
         Args: { p_customer_id: string };
         Returns: { deleted: boolean; customer_id: string };
+      };
+      /**
+       * Atomic convert-to-lead for an inbound email (0079). Creates a lead from
+       * the email + stamps the inbound_emails row (status/lead_id) in one
+       * transaction. Tenant-scoped, idempotent — returns the new/existing
+       * lead id. Used by the Enquiries Inbox "Convert to lead" action.
+       */
+      convert_inbound_email_to_lead: {
+        Args: { p_id: string };
+        Returns: string;
       };
       /**
        * Owner-only escape hatch — sets a sequence's last_number directly.

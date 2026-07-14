@@ -33,6 +33,7 @@ import SandboxConfigureDialog  from "@/components/features/integrations/sandbox-
 import WhatsAppConfigureDialog from "@/components/features/integrations/whatsapp-configure-dialog";
 import RazorpayConfigureDialog from "@/components/features/integrations/razorpay-configure-dialog";
 import GeminiConfigureDialog from "@/components/features/integrations/gemini-configure-dialog";
+import ApiKeysCard from "@/components/features/integrations/api-keys-card";
 import { useQuery } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
 import type { TenantWithParent } from "@/lib/supabase/database.types";
@@ -631,6 +632,7 @@ function GoogleResellerIntegrationCard() {
 
 function IntegrationsTab() {
   return (
+    <>
     <Card className="p-5">
       <p className="mb-4 text-sm font-semibold text-ink">Connected services</p>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -664,6 +666,8 @@ function IntegrationsTab() {
         ))}
       </div>
     </Card>
+    <ApiKeysCard />
+    </>
   );
 }
 

@@ -1,0 +1,88 @@
+import { describe, it, expect } from "vitest";
+import {
+  billingCustomerId, mapCustomer, mapSubscription, mapInvoice, mapQuote, mapPayment,
+} from "./v1-mappers";
+import type {
+  Customer as CustomerRow,
+  Subscription as SubscriptionRow,
+  Invoice as InvoiceRow,
+  Quote as QuoteRow,
+  Payment as PaymentRow,
+} from "@/lib/supabase/database.types";
+
+describe("billingCustomerId", () => {
+  it("prefers customer_number, falls back to uuid", () => {
+    expect(billingCustomerId({ id: "uuid-1", customer_number: "C-00001" })).toBe("C-00001");
+    expect(billingCustomerId({ id: "uuid-1", customer_number: null })).toBe("uuid-1");
+    expect(billingCustomerId({ id: "uuid-1", customer_number: "" })).toBe("uuid-1");
+  });
+});
+
+describe("mapCustomer", () => {
+  const c = { id: "u1", customer_number: "C-00007", name: "Acme", contact_email: "a@acme.com", domain: "acme.com" } as CustomerRow;
+  it("maps fields + derives active status from subscription flag", () => {
+    expect(mapCustomer(c, true)).toEqual({
+      billing_customer_id: "C-00007", name: "Acme", email: "a@acme.com", domain: "acme.com", status: "active",
+    });
+    expect(mapCustomer(c, false).status).toBe("inactive");
+  });
+});
+
+describe("mapSubscription", () => {
+  const base = { id: "SUB-1", plan: "Google Workspace Business Standard", seats: 25, mrr: 25000,
+    start_date: "2026-01-01", renewal_date: "2027-01-01", status: "active" } as SubscriptionRow;
+
+  it("annualises mrr and keeps annual term", () => {
+    const m = mapSubscription(base);
+    expect(m.amount).toBe(300000);       // 25000 * 12
+    expect(m.plan).toBe("annual");
+    expect(m.status).toBe("active");
+    expect(m.currency).toBe("INR");
+  });
+  it("maps paused → suspended", () => {
+    expect(mapSubscription({ ...base, status: "paused" }).status).toBe("suspended");
+  });
+  it("detects a monthly term from a short date span", () => {
+    expect(mapSubscription({ ...base, renewal_date: "2026-02-01" }).plan).toBe("monthly");
+  });
+});
+
+describe("mapInvoice", () => {
+  const base = { id: "INV-2026-27-0001", amount: 300000, status: "paid",
+    invoice_date: "2026-01-01", due_date: "2026-01-15", pdf_url: "https://x/inv.pdf" } as InvoiceRow;
+  it("uses id as number and maps status", () => {
+    const m = mapInvoice(base);
+    expect(m.number).toBe("INV-2026-27-0001");
+    expect(m.status).toBe("paid");
+    expect(m.issue_date).toBe("2026-01-01");
+  });
+  it("maps void → cancelled, pending/draft → unpaid", () => {
+    expect(mapInvoice({ ...base, status: "void" }).status).toBe("cancelled");
+    expect(mapInvoice({ ...base, status: "pending" }).status).toBe("unpaid");
+    expect(mapInvoice({ ...base, status: "draft" }).status).toBe("unpaid");
+  });
+});
+
+describe("mapQuote", () => {
+  const base = { id: "Q-2026-0042", amount: 300000, status: "sent", pdf_url: null } as QuoteRow;
+  it("builds payment_url and maps status buckets", () => {
+    const m = mapQuote(base, "https://app.example.com/");
+    expect(m.payment_url).toBe("https://app.example.com/quote/Q-2026-0042/accept");
+    expect(m.status).toBe("pending"); // sent → pending
+    expect(mapQuote({ ...base, status: "accepted" }, "x").status).toBe("accepted");
+    expect(mapQuote({ ...base, status: "rejected" }, "x").status).toBe("expired");
+    expect(mapQuote({ ...base, status: "expired" }, "x").status).toBe("expired");
+  });
+});
+
+describe("mapPayment", () => {
+  const base = { id: "PAY-1", amount: 300000, reference: "razorpay_pay_abc", method: "upi",
+    received_at: "2026-01-02T10:15:00Z" } as PaymentRow;
+  it("maps received_at → paid_at and injects derived invoice_id", () => {
+    const m = mapPayment(base, "INV-9001");
+    expect(m.paid_at).toBe("2026-01-02T10:15:00Z");
+    expect(m.invoice_id).toBe("INV-9001");
+    expect(m.method).toBe("upi");
+    expect(mapPayment(base, null).invoice_id).toBeNull();
+  });
+});

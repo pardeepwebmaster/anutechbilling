@@ -227,6 +227,36 @@ type InboundEmailInsert = {
 type InboundEmailUpdate = Partial<Omit<InboundEmailInsert, "tenant_id" | "message_id">>;
 
 // ============================================================
+// api_keys — per-tenant keys for the public integration API (migration 0081)
+// key_hash is NEVER selected client-side.
+// ============================================================
+export type ApiKeyRow = {
+  id:           string;
+  tenant_id:    string;
+  label:        string;
+  key_prefix:   string;
+  key_hash:     string;
+  scopes:       string[];
+  last_used_at: string | null;
+  revoked_at:   string | null;
+  created_by:   string | null;
+  created_at:   string;
+};
+type ApiKeyInsert = {
+  id?:           string;
+  tenant_id:     string;
+  label:         string;
+  key_prefix:    string;
+  key_hash:      string;
+  scopes?:       string[];
+  last_used_at?: string | null;
+  revoked_at?:   string | null;
+  created_by?:   string | null;
+  created_at?:   string;
+};
+type ApiKeyUpdate = Partial<Omit<ApiKeyInsert, "tenant_id">>;
+
+// ============================================================
 // whatsapp_messages — conversation history (migration 0038)
 // ============================================================
 export type WhatsAppDirection = "inbound" | "outbound";
@@ -1564,6 +1594,7 @@ export type Database = {
       subscriptions: { Row: SubscriptionRow; Insert: SubscriptionInsert; Update: SubscriptionUpdate; Relationships: [] };
       payments:           { Row: PaymentRow;           Insert: PaymentInsert;           Update: PaymentUpdate;           Relationships: [] };
       inbound_emails:     { Row: InboundEmailRow;      Insert: InboundEmailInsert;      Update: InboundEmailUpdate;      Relationships: [] };
+      api_keys:           { Row: ApiKeyRow;            Insert: ApiKeyInsert;            Update: ApiKeyUpdate;            Relationships: [] };
       tasks:              { Row: TaskRow;              Insert: TaskInsert;              Update: TaskUpdate;              Relationships: [] };
       renewal_email_log:  { Row: RenewalEmailLogRow;   Insert: RenewalEmailLogInsert;   Update: RenewalEmailLogUpdate;   Relationships: [] };
       quote_send_log:     { Row: QuoteSendLogRow;      Insert: QuoteSendLogInsert;      Update: QuoteSendLogUpdate;      Relationships: [] };

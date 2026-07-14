@@ -66,6 +66,14 @@ export function createAdminClient() {
           /* no-op — admin client doesn't manage session */
         },
       },
+      // Force fresh reads. Next.js App Router caches GET fetch() calls by
+      // default, which would serve STALE admin data (e.g. a revoked API key
+      // or an out-of-date payment/subscription status on /api/v1). Admin
+      // queries must always hit the DB — never cache them.
+      global: {
+        fetch: (input: RequestInfo | URL, init?: RequestInit) =>
+          fetch(input, { ...init, cache: "no-store" }),
+      },
     },
   );
 }

@@ -22,7 +22,14 @@ import type { QuoteLineItem } from "@/lib/supabase/database.types";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Avatar } from "@/components/ui/avatar";
-import { TabBar, type TabBarItem } from "@/components/ui/tabs";
+import { type TabBarItem } from "@/components/ui/tabs";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -175,12 +182,19 @@ export default function QuotesPage() {
   // Accepted-but-not-yet-invoiced count for the tab badge
   const acceptedActive = (counts.accepted ?? 0) - (counts.invoiced ?? 0);
 
+  // Awaiting payment = money expected but not yet fully received (awaiting or
+  // partial). The reseller's "chase the cash" worklist.
+  const awaitingPayment = (quotes ?? []).filter(
+    (q) => q.payment_status === "awaiting" || q.payment_status === "partial",
+  ).length;
+
   const tabs: TabBarItem[] = [
     { id: "all",      label: "All",      count: counts.all ?? 0 },
     { id: "draft",    label: "Draft",    count: counts.draft ?? 0, dot: "slate" },
     { id: "sent",     label: "Sent",     count: counts.sent ?? 0, dot: "amber" },
     { id: "viewed",   label: "Viewed",   count: counts.viewed ?? 0, dot: "indigo" },
     { id: "accepted", label: "Accepted", count: acceptedActive,        dot: "emerald" },
+    { id: "awaiting", label: "Awaiting payment", count: awaitingPayment, dot: "amber" },
     { id: "invoiced", label: "Invoiced", count: counts.invoiced ?? 0,  dot: "emerald" },
     { id: "expired",  label: "Expired",  count: (counts.expired ?? 0) + (counts.rejected ?? 0), dot: "rose" },
   ];
@@ -189,6 +203,9 @@ export default function QuotesPage() {
   const filtered = (quotes ?? []).filter((q) => {
     if (tab === "expired") {
       if (q.status !== "expired" && q.status !== "rejected") return false;
+    } else if (tab === "awaiting") {
+      // Awaiting-payment bucket: money expected but not fully received.
+      if (q.payment_status !== "awaiting" && q.payment_status !== "partial") return false;
     } else if (tab === "invoiced") {
       // Invoiced bucket is defined by payment_status, not quote.status
       if (q.payment_status !== "invoiced") return false;
@@ -276,7 +293,19 @@ export default function QuotesPage() {
       {!isLoading && quotes && quotes.length > 0 && (
         <>
           <div className="mb-3">
-            <TabBar value={tab} onChange={setTab} items={tabs} />
+            <label className="text-[11px] uppercase tracking-wider text-ink-3 font-semibold block mb-1">Status</label>
+            <Select value={tab} onValueChange={setTab}>
+              <SelectTrigger className="w-full sm:w-72">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {tabs.map((t) => (
+                  <SelectItem key={t.id} value={t.id}>
+                    {t.label} ({t.count ?? 0})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
           <div className="flex justify-between items-center gap-3 flex-wrap mb-3">
             <div className="text-xs text-ink-3">

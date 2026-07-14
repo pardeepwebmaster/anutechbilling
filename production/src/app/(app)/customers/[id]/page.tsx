@@ -13,8 +13,9 @@
 import * as React from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
+import { toast } from "sonner";
 
-import { useCustomer } from "@/lib/queries/customers";
+import { useCustomer, useDeleteCustomer, customerDeleteBlockReason } from "@/lib/queries/customers";
 import { useCustomerSubscriptions } from "@/lib/queries/subscriptions";
 import { useCustomerInvoices, useCustomerQuotes } from "@/lib/queries/invoices";
 import { Card } from "@/components/ui/card";
@@ -47,6 +48,7 @@ export default function CustomerDetailPage() {
 
   const [tab, setTab] = React.useState("activity");
   const [editOpen, setEditOpen] = React.useState(false);
+  const deleteCustomer = useDeleteCustomer();
 
   if (isLoading) {
     return (
@@ -91,6 +93,21 @@ export default function CustomerDetailPage() {
   const allInvoices = invoices ?? [];
   const allQuotes = quotes ?? [];
   const insights = deriveCustomerInsights(c, allSubs, allInvoices);
+
+  // Guarded delete — only an "empty" customer (no money history) can be removed.
+  // Client check disables the button; the delete_customer RPC enforces it too
+  // (and additionally checks payments, which aren't loaded here).
+  const deleteBlock = customerDeleteBlockReason({
+    subscriptions: allSubs.length,
+    payments: 0,
+    invoices: allInvoices.length,
+  });
+  const handleDelete = () => {
+    if (deleteBlock) { toast.error(deleteBlock); return; }
+    if (window.confirm(`Permanently delete customer "${c.name}"?\n\nThis cannot be undone.`)) {
+      deleteCustomer.mutate(c.id, { onSuccess: () => router.push("/customers" as never) });
+    }
+  };
 
   const tenureDays = daysBetween(c.since, new Date());
   const tenure =
@@ -160,6 +177,17 @@ export default function CustomerDetailPage() {
           <CustomerContactActions customer={c} />
           <Button icon="edit" onClick={() => setEditOpen(true)}>Edit</Button>
           <Button variant="primary" icon="plus" onClick={() => router.push(`/quotes/new?customer=${c.id}` as any)}>New quote</Button>
+          <Button
+            icon="trash"
+            variant="ghost"
+            onClick={handleDelete}
+            loading={deleteCustomer.isPending}
+            disabled={Boolean(deleteBlock)}
+            title={deleteBlock ?? "Delete this customer"}
+            className="!text-rose hover:!bg-rose/10"
+          >
+            Delete
+          </Button>
         </div>
       </div>
 

@@ -636,9 +636,16 @@ export type QuoteLineItem = {
   name: string;
   description?: string;
   qty: number;
-  rate: number;          // ₹ per seat — annual amount regardless of billing frequency (LIST price before discount)
+  rate: number;          // ₹ per seat — annual amount regardless of billing frequency (the negotiated SELLING price)
+  /** ₹ per seat/yr — the LIST price captured when the line was added (catalog MSRP,
+   *  or the first rate entered for a custom item). Frozen; editing `rate` below this
+   *  surfaces the difference as the customer's discount. Falls back to `rate` if unset. */
+  list_rate?: number;
   cost: number;          // ₹ per seat — annual wholesale (for margin calc)
   commitment?: LineCommitment;  // billing/commitment tier (default "annual_yearly")
+  /** Service start date (YYYY-MM-DD). Blank ⇒ subscription starts on payment date.
+   *  When set, record_payment uses it as the subscription start (renewal = start + term). */
+  start_date?: string;
   /** Reseller-given discount on THIS line (0–50%). Comes out of reseller margin, NOT Google wholesale. */
   discount_pct?: number;
   /** Optional reason shown on quote PDF + accept page (e.g., "Loyalty discount", "Volume offer"). */
@@ -1657,6 +1664,15 @@ export type Database = {
           p_tenant_id?: string;
         };
         Returns: string;
+      };
+      /**
+       * Guarded customer delete (0077). Refuses to delete a customer that still
+       * has subscriptions / payments / invoices (subscriptions cascade). Only
+       * "empty" customers can be removed. Raises on money history.
+       */
+      delete_customer: {
+        Args: { p_customer_id: string };
+        Returns: { deleted: boolean; customer_id: string };
       };
       /**
        * Owner-only escape hatch — sets a sequence's last_number directly.

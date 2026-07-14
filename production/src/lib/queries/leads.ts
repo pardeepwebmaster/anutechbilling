@@ -62,6 +62,7 @@ export function useUpdateLeadStage() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["leads"] });
+      qc.invalidateQueries({ queryKey: ["nav-badges"] });
     },
   });
 }
@@ -101,6 +102,7 @@ export function useCreateLead() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["leads"] });
+      qc.invalidateQueries({ queryKey: ["nav-badges"] });
       toast.success("Lead created");
     },
     onError: (err) => toast.error((err as Error).message),
@@ -127,6 +129,7 @@ export function useUpdateLead() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["leads"] });
+      qc.invalidateQueries({ queryKey: ["nav-badges"] });
       toast.success("Lead updated");
     },
     onError: (err) => toast.error((err as Error).message),
@@ -148,6 +151,7 @@ export function useDeleteLead() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["leads"] });
+      qc.invalidateQueries({ queryKey: ["nav-badges"] });
       toast.success("Lead deleted");
     },
     onError: (err) => toast.error((err as Error).message),

@@ -291,7 +291,9 @@ export function SwipeLeadCard({ lead, onTap, onChangeStage, stale }: SwipeLeadCa
               )}
               {hasEmail && (
                 <a
-                  href={`mailto:${lead.contact_email}`}
+                  href={`https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(lead.contact_email ?? "")}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
                   onClick={(e) => e.stopPropagation()}
                   onPointerDown={(e) => e.stopPropagation()}
                   className="inline-flex items-center justify-center w-8 h-8 rounded-md text-indigo hover:bg-indigo-50 active:bg-indigo/10"

@@ -153,6 +153,8 @@ function LeadsPageInner() {
   }, [searchParams]);
   const [selected, setSelected] = React.useState<Lead | null>(null);
   const [editingLead, setEditingLead] = React.useState<Lead | null>(null);
+  // Row "Follow-up" quick action → opens AddTaskDialog scoped to this lead.
+  const [followUpLead, setFollowUpLead] = React.useState<Lead | null>(null);
   // "Follow-ups due today" banner — click to expand the list of due leads.
   const [dueListOpen, setDueListOpen] = React.useState(false);
   // Kanban is great for stage flow; list view is needed once you have 50+ leads
@@ -200,24 +202,8 @@ function LeadsPageInner() {
     router.replace("/leads" as any);
   }, [focusLeadId, leads, router]);
 
-  // ── Return focus: after "Send quote" (the detail drawer stores ros:returnLead),
-  // re-open that lead's drawer when we land back on /leads. One-shot (cleared on use).
-  const returnFocusHandledRef = React.useRef(false);
-  React.useEffect(() => {
-    if (returnFocusHandledRef.current || !leads) return;
-    let rid: string | null = null;
-    try { rid = sessionStorage.getItem("ros:returnLead"); } catch { /* ignore */ }
-    if (!rid) return;
-    returnFocusHandledRef.current = true;
-    try { sessionStorage.removeItem("ros:returnLead"); } catch { /* ignore */ }
-    const match = leads.find((l) => l.id === rid);
-    if (!match) return;
-    setSelected(match);
-  }, [leads]);
-
-  // Quick "Send quote" from a list row (mirrors the drawer's Send quote) —
-  // carries lead context into the quote builder + arms return-focus so we
-  // land back on this lead's drawer afterwards.
+  // Quick "Send quote" from a list row — carries the lead's context into the
+  // quote builder. Returning to /leads lands on the list (no auto-opened drawer).
   const goSendQuote = React.useCallback((lead: Lead) => {
     const params = new URLSearchParams();
     params.set("leadId",  lead.id);
@@ -227,7 +213,6 @@ function LeadsPageInner() {
     if (lead.contact_name)  params.set("contact", lead.contact_name);
     if (lead.contact_email) params.set("email", lead.contact_email);
     if (lead.contact_phone) params.set("phone", lead.contact_phone);
-    try { sessionStorage.setItem("ros:returnLead", lead.id); } catch { /* ignore */ }
     router.push(`/quotes/new?${params.toString()}` as never);
   }, [router]);
 
@@ -293,7 +278,12 @@ function LeadsPageInner() {
   }, [leads, search, stageFilter, priorityFilter, smartView, currentUser]);
   const activeFilterCount = stageFilter.length + priorityFilter.length;
 
-  const isRaw = (l: Lead) => !l.plan || l.plan.trim() === "";
+  // A lead is "raw" (Leads inbox) only while it's early — New or Contacted with
+  // no plan yet. The moment it advances (Demo / Trial / Quote) OR gets a plan,
+  // it's an active opportunity and belongs in Deals. Won/Lost are deal outcomes,
+  // so they're never raw either.
+  const isRaw = (l: Lead) =>
+    (!l.plan || l.plan.trim() === "") && (l.stage === "new" || l.stage === "contact");
   const rawLeads      = React.useMemo(() => searched.filter(isRaw),       [searched]);
   const qualifiedDeals = React.useMemo(() => searched.filter((l) => !isRaw(l)), [searched]);
 
@@ -919,8 +909,15 @@ function LeadsPageInner() {
             if (sortBy === col) setSortDir(sortDir === "asc" ? "desc" : "asc");
             else { setSortBy(col); setSortDir(col === "company" ? "asc" : "desc"); }
           }}
-          onRowClick={(l) => setSelected(l)}
+          onRowClick={(l) => {
+            // Raw leads open the Edit form (quick qualify: contact/plan/value).
+            // Deals open the rich drawer (quotes, revise & resend, activity).
+            if (isDealsPage) setSelected(l);
+            else { setEditingLead(l); setAddOpen(true); }
+          }}
           onSendQuote={goSendQuote}
+          onFollowUp={setFollowUpLead}
+          isDealsPage={isDealsPage}
         />
       )}
 
@@ -1009,6 +1006,16 @@ function LeadsPageInner() {
           setAddOpen(true);
         }}
       />
+
+      {/* Row "Follow-up" quick action → schedule a task linked to this lead */}
+      {followUpLead && (
+        <AddTaskDialog
+          open
+          onOpenChange={(o) => { if (!o) setFollowUpLead(null); }}
+          linkLabel={followUpLead.company}
+          linkTo={{ lead_id: followUpLead.id }}
+        />
+      )}
 
       {/* Add / Edit lead modal */}
       <AddLeadForm
@@ -1112,8 +1119,6 @@ function LeadDetailSheet({
     if (lead.contact_name)    params.set("contact", lead.contact_name);
     if (lead.contact_email)   params.set("email", lead.contact_email);
     if (lead.contact_phone)   params.set("phone", lead.contact_phone);
-    // Remember this lead so returning to /leads re-opens its drawer (one-shot).
-    try { sessionStorage.setItem("ros:returnLead", lead.id); } catch { /* ignore */ }
     onClose();
     router.push(`/quotes/new?${params.toString()}` as any);
   };
@@ -1131,8 +1136,6 @@ function LeadDetailSheet({
     if (lead.contact_name)  params.set("contact", lead.contact_name);
     if (lead.contact_email) params.set("email",   lead.contact_email);
     if (lead.contact_phone) params.set("phone",   lead.contact_phone);
-    // Remember this lead so returning to /leads re-opens its drawer (one-shot).
-    try { sessionStorage.setItem("ros:returnLead", lead.id); } catch { /* ignore */ }
     onClose();
     router.push(`/quotes/new?${params.toString()}` as any);
   };
@@ -1145,7 +1148,10 @@ function LeadDetailSheet({
     const subject = `About your inquiry · ${lead.company}`;
     const signoff = currentUser?.tenantName ?? "your team";
     const body    = `Hi ${lead.contact_name ?? "there"},\n\nThanks for your interest in ${lead.plan ?? "our services"}. Let me know a good time to connect.\n\n— ${signoff}`;
-    window.location.href = `mailto:${lead.contact_email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    // Open Gmail compose in a new tab — reliable across machines (a raw mailto:
+    // does nothing when no desktop mail client is configured).
+    const url = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(lead.contact_email)}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    window.open(url, "_blank", "noopener,noreferrer");
   };
 
   const handleArchive = () => {
@@ -1817,6 +1823,8 @@ function LeadListView({
   onSort,
   onRowClick,
   onSendQuote,
+  onFollowUp,
+  isDealsPage,
 }: {
   leads: Lead[];
   sortBy: SortCol;
@@ -1824,7 +1832,15 @@ function LeadListView({
   onSort: (col: SortCol) => void;
   onRowClick: (l: Lead) => void;
   onSendQuote: (l: Lead) => void;
+  onFollowUp: (l: Lead) => void;
+  isDealsPage: boolean;
 }) {
+  // Stage options in the inline dropdown. On the Leads inbox, Won/Lost aren't
+  // offered — a lead is never won/lost (that's a deal outcome). Picking an
+  // advanced stage (Demo/Trial/Quote) moves the lead into Deals.
+  const ROW_STAGE_OPTIONS: Lead["stage"][] = isDealsPage
+    ? ["new", "contact", "demo", "trial", "quote", "won", "lost"]
+    : ["new", "contact", "demo", "trial", "quote"];
   // Stage-mutation hook for quick-change chips on cards. Tapping the stage
   // badge on a mobile card opens a dropdown to flip the stage without
   // needing to open the full detail drawer.
@@ -2062,11 +2078,31 @@ function LeadListView({
                 <td className="px-3 py-2 text-right tabular-nums text-sm font-medium">
                   {lead.value ? rupee(lead.value) : <span className="text-ink-3">—</span>}
                 </td>
-                <td className="p-3">
-                  <span className="inline-flex items-center gap-1.5 text-xs">
-                    <span className={cn("w-1.5 h-1.5 rounded-full", STAGE_DOT[lead.stage])} />
-                    {STAGE_LABEL[lead.stage]}
-                  </span>
+                {/* Stage is editable inline — change it without opening the lead.
+                    stopPropagation so the select doesn't trigger the row click. */}
+                <td className="p-3" onClick={(e) => e.stopPropagation()}>
+                  <div className="inline-flex items-center gap-1.5">
+                    <span className={cn("w-1.5 h-1.5 rounded-full flex-shrink-0", STAGE_DOT[lead.stage])} />
+                    <select
+                      value={lead.stage}
+                      onChange={(e) => {
+                        const stage = e.target.value as Lead["stage"];
+                        updateStage.mutate({ id: lead.id, stage });
+                        // On the Leads inbox, advancing to Demo/Trial/Quote turns
+                        // the lead into a deal — it leaves this list for Deals.
+                        if (!isDealsPage && (stage === "demo" || stage === "trial" || stage === "quote")) {
+                          toast.success(`${lead.company} → moved to Deals (${STAGE_LABEL[stage]})`);
+                        }
+                      }}
+                      title="Change stage"
+                      aria-label={`Stage for ${lead.company}`}
+                      className="text-xs bg-transparent -ml-1 px-1 py-0.5 rounded border border-transparent hover:border-hairline cursor-pointer focus:outline-none focus:ring-1 focus:ring-amber focus:border-amber"
+                    >
+                      {ROW_STAGE_OPTIONS.map((s) => (
+                        <option key={s} value={s}>{STAGE_LABEL[s]}</option>
+                      ))}
+                    </select>
+                  </div>
                 </td>
                 <td className="px-3 py-2 text-sm text-ink-2">{formatDate(lead.created_at)}</td>
                 <td className="px-3 py-2 text-sm">
@@ -2088,7 +2124,15 @@ function LeadListView({
                       className="inline-flex items-center justify-center w-7 h-7 rounded-md text-amber hover:bg-amber-soft/40"
                       title="Send quote"
                     >
-                      <Icon name="send" size={14} />
+                      <Icon name="file" size={14} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); onFollowUp(lead); }}
+                      className="inline-flex items-center justify-center w-7 h-7 rounded-md text-indigo hover:bg-indigo-50"
+                      title="Schedule follow-up"
+                    >
+                      <Icon name="clock" size={14} />
                     </button>
                     {hasPhone && (
                       <a
@@ -2114,10 +2158,12 @@ function LeadListView({
                     )}
                     {hasEmail && (
                       <a
-                        href={`mailto:${lead.contact_email}`}
+                        href={`https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(lead.contact_email ?? "")}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
                         onClick={(e) => e.stopPropagation()}
                         className="inline-flex items-center justify-center w-7 h-7 rounded-md text-indigo hover:bg-indigo-50"
-                        title="Email"
+                        title="Email (opens Gmail)"
                       >
                         <Icon name="mail" size={14} />
                       </a>
@@ -2134,7 +2180,7 @@ function LeadListView({
       )}
       <div className="px-3 py-2 border-t border-hairline bg-paper-2/40 text-[11px] text-ink-3 flex items-center gap-2">
         <Icon name="info" size={11} />
-        Click any row to open the drawer · Tick a checkbox to enable bulk actions · Hover a row to reveal Send quote / Call / WhatsApp / Email
+        Click any row to open the drawer · Tick a checkbox to enable bulk actions · Hover a row to reveal Send quote / Follow-up / Call / WhatsApp / Email
       </div>
     </div>
 

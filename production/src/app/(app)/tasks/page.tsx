@@ -22,6 +22,7 @@ import {
   useSnoozeTask,
   useDeleteTask,
   type TaskBucket,
+  type TaskWithLink,
 } from "@/lib/queries/tasks";
 import { AddTaskDialog } from "@/components/features/tasks/add-task-dialog";
 import { Card } from "@/components/ui/card";
@@ -32,7 +33,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/shared/empty-state";
 import { Icon } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
-import type { Task, TaskKind } from "@/lib/supabase/database.types";
+import type { TaskKind } from "@/lib/supabase/database.types";
 
 // ─── Icon + label per kind ────────────────────────────────────────────────
 const KIND_META: Record<TaskKind, { icon: string; label: string }> = {
@@ -47,6 +48,7 @@ const KIND_META: Record<TaskKind, { icon: string; label: string }> = {
 export default function TasksPage() {
   const [tab, setTab] = React.useState<TaskBucket>("today");
   const [addOpen, setAddOpen] = React.useState(false);
+  const [editingTask, setEditingTask] = React.useState<TaskWithLink | null>(null);
 
   // We pull each bucket independently for accurate counts on the tab badges.
   // For a typical SMB tenant (<200 active tasks) this is fine. Could
@@ -131,18 +133,29 @@ export default function TasksPage() {
       ) : (
         <Card>
           <ul className="divide-y divide-hairline">
-            {visibleTasks.map((t) => <TaskRow key={t.id} task={t} />)}
+            {visibleTasks.map((t) => <TaskRow key={t.id} task={t} onEdit={setEditingTask} />)}
           </ul>
         </Card>
       )}
 
       <AddTaskDialog open={addOpen} onOpenChange={setAddOpen} linkTo={null} />
+
+      {/* Edit an existing task (title / type / due / notes). The link stays as-is. */}
+      {editingTask && (
+        <AddTaskDialog
+          open
+          onOpenChange={(o) => { if (!o) setEditingTask(null); }}
+          linkTo={null}
+          linkLabel={editingTask.leads?.company ?? editingTask.customers?.name ?? editingTask.quotes?.customer_name ?? undefined}
+          task={editingTask}
+        />
+      )}
     </div>
   );
 }
 
 // ─── Row ──────────────────────────────────────────────────────────────────
-function TaskRow({ task }: { task: Task }) {
+function TaskRow({ task, onEdit }: { task: TaskWithLink; onEdit: (t: TaskWithLink) => void }) {
   const completeTask = useCompleteTask();
   const snoozeTask   = useSnoozeTask();
   const deleteTask   = useDeleteTask();
@@ -160,12 +173,19 @@ function TaskRow({ task }: { task: Task }) {
     : task.customer_id     ? `/customers/${task.customer_id}`
     : task.subscription_id ? `/subscriptions`
     : null;
+  // Who the task is about — pulled from the linked lead / customer / quote.
+  const relatedName =
+      task.leads?.company        ?? task.customers?.name
+    ?? task.quotes?.customer_name ?? null;
+  // Show the related name (clickable); fall back to a generic label if the
+  // linked row has no name or the task is linked only to a subscription.
   const linkLabel =
-      task.lead_id         ? "Open lead"
-    : task.quote_id        ? "Open quote"
-    : task.customer_id     ? "Open customer"
-    : task.subscription_id ? "Open subscription"
-    : null;
+      relatedName
+    ?? (task.lead_id         ? "Open lead"
+      : task.quote_id        ? "Open quote"
+      : task.customer_id     ? "Open customer"
+      : task.subscription_id ? "Open subscription"
+      : null);
 
   return (
     <li
@@ -232,6 +252,14 @@ function TaskRow({ task }: { task: Task }) {
       {/* Actions */}
       {!isDone && (
         <div className="flex gap-0.5 shrink-0">
+          <IconButton
+            icon="edit"
+            size="sm"
+            variant="ghost"
+            aria-label="Edit task"
+            title="Edit task"
+            onClick={() => onEdit(task)}
+          />
           <IconButton
             icon="clock"
             size="sm"

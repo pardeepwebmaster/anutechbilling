@@ -42,23 +42,22 @@ async function fetchNavBadges(): Promise<NavBadges> {
   // operator clicks "Leads 14" and sees an empty page (Pardeep dogfood
   // 2026-05-29). So we count them as two separate buckets here.
   const [leadsRes, dealsRes, tasksRes, renewalsRes, invoicesRes, paymentsRes] = await Promise.all([
-    // RAW leads = no plan picked yet, awaiting qualification.
-    // Treats both NULL and empty-string as "no plan" (matches client-side
-    // isRaw() in src/app/(app)/leads/page.tsx).
+    // RAW leads = still early (stage new/contact) AND no plan yet. Mirrors
+    // isRaw() in src/app/(app)/leads/page.tsx: a lead leaves the inbox once it
+    // advances (Demo/Trial/Quote) OR gets a plan. Treats NULL + empty as "no plan".
     supabase
       .from("leads")
       .select("id", { count: "exact", head: true })
-      .not("stage", "in", '("won","lost")')
+      .in("stage", ["new", "contact"])
       .or("plan.is.null,plan.eq."),
 
-    // QUALIFIED deals = plan set, stage still active (not won/lost).
-    // Matches the /deals page subtitle's "active deals" definition.
+    // ACTIVE deals = not won/lost, and NOT raw — i.e. a plan is set OR the stage
+    // has advanced (demo/trial/quote). Matches the /deals "active deals" count.
     supabase
       .from("leads")
       .select("id", { count: "exact", head: true })
       .not("stage", "in", '("won","lost")')
-      .not("plan", "is", null)
-      .not("plan", "eq", ""),
+      .or("and(plan.not.is.null,plan.neq.),stage.in.(demo,trial,quote)"),
 
     // Pending tasks due by end of today (overdue + today combined — the
     // ones the rep needs to clear before EOD)

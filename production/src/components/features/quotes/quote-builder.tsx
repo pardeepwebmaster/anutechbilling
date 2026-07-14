@@ -61,11 +61,6 @@ function billingUnitLabel(c: LineCommitment): string {
   return "/mo";
 }
 
-/** Whether this commitment is part of an annual contract (true for all except flex monthly) */
-function isAnnualCommit(c: LineCommitment): boolean {
-  return c !== "monthly";
-}
-
 // Quote IDs are allocated at SAVE time via the central document-numbering RPC
 // (see migration 0004_document_series.sql) — this guarantees sequential per-tenant
 // per-fiscal-year numbering, race-safe, and no wasted numbers from abandoned drafts.
@@ -169,7 +164,6 @@ export function QuoteBuilder() {
   // This unblocks the "no customers yet" dead-end the picker had.
   const [prospectName, setProspectName] = React.useState<string>("");
   const [validityDays, setValidityDays] = React.useState(30);
-  const [discountPct, setDiscountPct] = React.useState(0);
   const [taxRate, setTaxRate] = React.useState(18);
   const [notes, setNotes] = React.useState("");
   const [lineItems, setLineItems] = React.useState<QuoteLineItem[]>([]);
@@ -271,6 +265,7 @@ export function QuoteBuilder() {
           name:       catalogItem?.name ?? leadPlan,
           qty:        seatsNum,
           rate,
+          list_rate:  rate,
           cost,
           commitment: "annual_yearly",
         },
@@ -310,10 +305,10 @@ export function QuoteBuilder() {
       const items = (sourceQuote.line_items as QuoteLineItem[]).map((l, i) => ({
         ...l,
         id: `line-${Date.now()}-${i}`,
+        list_rate: l.list_rate ?? l.rate,
       }));
       setLineItems(items);
     }
-    if (sourceQuote.discount_pct != null) setDiscountPct(sourceQuote.discount_pct);
     if (sourceQuote.tax_rate     != null) setTaxRate(sourceQuote.tax_rate);
     if (sourceQuote.notes)                setNotes(sourceQuote.notes);
 
@@ -339,16 +334,21 @@ export function QuoteBuilder() {
   // other tenant. Now derived consistently via the shared helper. (audit #18-20)
   const interState = isInterStateSupply(customer?.state_code, currentUser?.tenantStateCode);
 
-  // Per-line gross before any discount (list price × qty)
+  // Selling gross = the (negotiated) rate × qty. This is the actual revenue and
+  // what gets billed / drives MRR — so it stays the subtotal.
   const grossSubtotal     = lineItems.reduce((s, it) => s + it.qty * it.rate, 0);
-  // Per-line discount sum (each line's discount_pct applied to its gross)
+  // Legacy per-line discount (UI removed; still honoured for old/imported quotes).
   const lineDiscountTotal = lineItems.reduce((s, it) => s + Math.round(it.qty * it.rate * ((it.discount_pct ?? 0) / 100)), 0);
-  // Subtotal = gross minus per-line discounts (this is what quote-level discount applies on)
   const subtotal          = grossSubtotal - lineDiscountTotal;
   const totalCost         = lineItems.reduce((s, it) => s + it.qty * it.cost, 0);
-  // Quote-level discount on top of per-line discounts
-  const discount          = Math.round(subtotal * (discountPct / 100));
-  const taxable           = subtotal - discount;
+  // Customer discount is DERIVED, not applied: it's the gap between the LIST
+  // price (list_rate) and what we're actually charging (rate). The rate is
+  // already the discounted price, so taxable = subtotal (no further deduction —
+  // deducting again would double-count and break the billed amount / MRR).
+  const listGross         = lineItems.reduce((s, it) => s + it.qty * (it.list_rate ?? it.rate), 0);
+  const customerDiscount    = Math.max(0, listGross - subtotal);
+  const customerDiscountPct = listGross > 0 ? Math.round((customerDiscount / listGross) * 100) : 0;
+  const taxable           = subtotal;
   const tax               = Math.round(taxable * (taxRate / 100));
   const total             = taxable + tax;
   const margin            = computeMargin(totalCost, taxable);
@@ -378,9 +378,12 @@ export function QuoteBuilder() {
 
   // Line item handlers
   const addLine = (line: QuoteLineItem) => {
+    // Freeze the LIST price at add time (= the rate we start from). Lowering the
+    // rate later surfaces the gap as the customer's discount. (see totals)
+    const withList: QuoteLineItem = { ...line, list_rate: line.list_rate ?? line.rate };
     // Merge into an economically-identical existing line instead of creating a
     // duplicate row (which silently doubles the quote total). (audit: dup-line)
-    const { lines, merged, mergedQty } = addOrMergeLine(lineItems, line);
+    const { lines, merged, mergedQty } = addOrMergeLine(lineItems, withList);
     setLineItems(lines);
     toast.success(
       merged
@@ -397,13 +400,8 @@ export function QuoteBuilder() {
   const updateCost = (id: string, cost: number) => {
     setLineItems((s) => s.map((l) => (l.id === id ? { ...l, cost: Math.max(0, cost) } : l)));
   };
-  /** Per-line reseller discount (0–50%). Comes out of margin, not from Google wholesale. */
-  const updateDiscount = (id: string, pct: number) => {
-    const clamped = Math.max(0, Math.min(50, pct));
-    setLineItems((s) => s.map((l) => (l.id === id ? { ...l, discount_pct: clamped || undefined } : l)));
-  };
-  const updateDiscountReason = (id: string, reason: string) => {
-    setLineItems((s) => s.map((l) => (l.id === id ? { ...l, discount_reason: reason.trim() || undefined } : l)));
+  const updateStartDate = (id: string, date: string) => {
+    setLineItems((s) => s.map((l) => (l.id === id ? { ...l, start_date: date || undefined } : l)));
   };
   const updateCommitment = (id: string, commitment: LineCommitment) => {
     setLineItems((s) =>
@@ -491,7 +489,8 @@ export function QuoteBuilder() {
         line_items:    lineItems,
         subtotal,
         total_cost:    totalCost,
-        discount_pct:  discountPct,
+        // Discount is baked into each line's rate (see totals) — nothing applied on top.
+        discount_pct:  0,
         tax_rate:      taxRate,
         amount:        total,
         status,
@@ -793,26 +792,36 @@ export function QuoteBuilder() {
                 override still works inside the line items table. */}
             <div>
               <label className="text-xs font-medium text-ink-3 mb-1.5 block">Billing cycle</label>
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-2 gap-2">
                 {[
-                  { id: "yearly",     label: "Annual",    sub: "1 invoice/yr",   pop: true },
-                  { id: "quarterly",  label: "Quarterly", sub: "4 invoices/yr",  pop: false },
-                  { id: "monthly",    label: "Monthly",   sub: "12 invoices",    pop: false },
+                  { id: "yearly",      label: "Annual",      sub: "1 invoice/yr",   pop: true },
+                  { id: "half_yearly", label: "Half-yearly", sub: "2 invoices/yr",  pop: false },
+                  { id: "quarterly",   label: "Quarterly",   sub: "4 invoices/yr",  pop: false },
+                  { id: "monthly",     label: "Monthly",     sub: "12 invoices",    pop: false },
                 ].map((opt) => {
-                  // Determine if this option matches all current line items
-                  const matches = lineItems.length > 0 && lineItems.every((l) => {
+                  // Determine if this option matches all ANNUAL line items (flex-
+                  // monthly lines keep their own billing and are excluded).
+                  const annualLines = lineItems.filter((l) => (l.commitment ?? "annual_yearly") !== "monthly");
+                  const matches = annualLines.length > 0 && annualLines.every((l) => {
                     const c = l.commitment ?? "annual_yearly";
-                    if (opt.id === "yearly")    return c === "annual_yearly";
-                    if (opt.id === "quarterly") return c === "annual_quarterly";
-                    if (opt.id === "monthly")   return c === "annual_monthly" || c === "monthly";
+                    if (opt.id === "yearly")      return c === "annual_yearly";
+                    if (opt.id === "half_yearly") return c === "annual_half_yearly";
+                    if (opt.id === "quarterly")   return c === "annual_quarterly";
+                    if (opt.id === "monthly")     return c === "annual_monthly";
                     return false;
                   });
                   const applyToAll = () => {
                     const target: LineCommitment =
-                      opt.id === "yearly"    ? "annual_yearly"   :
-                      opt.id === "quarterly" ? "annual_quarterly":
+                      opt.id === "yearly"      ? "annual_yearly"      :
+                      opt.id === "half_yearly" ? "annual_half_yearly" :
+                      opt.id === "quarterly"   ? "annual_quarterly"   :
                       "annual_monthly";
-                    setLineItems((prev) => prev.map((l) => ({ ...l, commitment: target })));
+                    // Only reprice the BILLING of annual lines. Flex-monthly lines
+                    // (a different price tier — GW pricing depends on commitment)
+                    // are left untouched; commitment stays a per-line choice.
+                    setLineItems((prev) => prev.map((l) =>
+                      (l.commitment ?? "annual_yearly") === "monthly" ? l : { ...l, commitment: target },
+                    ));
                   };
                   return (
                     <button
@@ -840,7 +849,7 @@ export function QuoteBuilder() {
                 })}
               </div>
               <p className="mt-1.5 text-[11px] text-ink-3">
-                Most Indian customers prefer annual upfront. Per-line override available in the items table.
+                Applies to the whole quote. Most Indian customers prefer annual upfront. Each line’s Annual vs Monthly-flex commitment is set in the items table.
               </p>
             </div>
 
@@ -935,7 +944,6 @@ export function QuoteBuilder() {
                 // Display unit depends on commitment + billing term.
                 // Storage is always ₹/seat/YEAR — divide by invoicesPerYear for display.
                 const commitment  = line.commitment ?? "annual_yearly";
-                const annualCommit = isAnnualCommit(commitment);
                 const billingN    = invoicesPerYear(commitment);
                 const unitLabel   = billingUnitLabel(commitment);
                 const displayRate = Math.round(line.rate / billingN);
@@ -949,27 +957,12 @@ export function QuoteBuilder() {
                 const handleRateChange = (raw: number) => updateRate(line.id, raw * billingN);
                 const handleCostChange = (raw: number) => updateCost(line.id, raw * billingN);
 
-                // For commitment+billing two-dropdown UI:
-                //   Top-level type: "monthly" (flex) OR "annual" — derived from current
+                // Commitment selector: "monthly" (flex) OR "annual". Flipping to
+                // flex → "monthly"; flipping to annual → default annual_yearly
+                // (the quote-level picker then sets the billing frequency).
                 const commitType: "monthly" | "annual" = commitment === "monthly" ? "monthly" : "annual";
-                // Billing cycle (only relevant when annual)
-                const billingCycle =
-                  commitment === "annual_monthly"     ? "monthly"     :
-                  commitment === "annual_quarterly"   ? "quarterly"   :
-                  commitment === "annual_half_yearly" ? "half_yearly" :
-                  "yearly";
-
                 const handleCommitTypeChange = (t: "monthly" | "annual") => {
-                  // Flipping to flex → "monthly"; flipping to annual → keep default annual_yearly
                   updateCommitment(line.id, t === "monthly" ? "monthly" : "annual_yearly");
-                };
-                const handleBillingChange = (b: string) => {
-                  const next: LineCommitment =
-                    b === "monthly"     ? "annual_monthly"     :
-                    b === "quarterly"   ? "annual_quarterly"   :
-                    b === "half_yearly" ? "annual_half_yearly" :
-                    "annual_yearly";
-                  updateCommitment(line.id, next);
                 };
 
                 return (
@@ -996,36 +989,13 @@ export function QuoteBuilder() {
                         />
                         <span>/seat{unitLabel} · Margin {lineMargin.marginPct}%</span>
                       </div>
-                      {/* Per-line reseller discount (B2B special pricing) — comes out of MY margin */}
-                      <div className="mt-1.5 flex items-center gap-1.5 flex-wrap text-[11px]">
-                        <span className="text-ink-3 font-medium">Disc</span>
-                        <input
-                          type="number"
-                          min={0}
-                          max={50}
-                          step={1}
-                          value={lineDiscountPct || ""}
-                          placeholder="0"
-                          onChange={(e) => updateDiscount(line.id, parseInt(e.target.value) || 0)}
-                          className="w-12 px-1 py-0.5 text-[11px] text-right tabular-nums border border-hairline rounded bg-paper focus:outline-none focus:ring-1 focus:ring-amber focus:border-amber"
-                        />
-                        <span className="text-ink-3">%</span>
-                        {lineDiscountPct > 0 && (
-                          <>
-                            <input
-                              type="text"
-                              value={line.discount_reason ?? ""}
-                              placeholder="Reason (e.g., Loyalty)"
-                              onChange={(e) => updateDiscountReason(line.id, e.target.value)}
-                              className="flex-1 min-w-[100px] px-1.5 py-0.5 text-[11px] border border-hairline rounded bg-paper focus:outline-none focus:ring-1 focus:ring-amber focus:border-amber"
-                            />
-                            <span className="text-emerald font-medium tabular-nums">
-                              −{rupee(lineDiscount)}
-                            </span>
-                          </>
-                        )}
-                      </div>
-                      {/* Commitment + billing-term selectors */}
+                      {/* Discounting is quote-level only (see totals sidebar). Any
+                          per-line discount stored on legacy/imported quotes is still
+                          honoured in the totals below, but there is no per-line editor. */}
+                      {/* Commitment selector — annual vs monthly flex. This drives
+                          the PRICE tier (Google Workspace pricing depends on the
+                          commitment), so it stays a per-line choice. Billing cycle
+                          (how often invoiced) is set once at the quote level. */}
                       <div className="mt-1.5 flex items-center gap-2 flex-wrap">
                         <div className="flex items-center gap-1">
                           <span className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold">Commit</span>
@@ -1038,21 +1008,16 @@ export function QuoteBuilder() {
                             <option value="annual">Annual (1-yr)</option>
                           </select>
                         </div>
-                        {annualCommit && (
-                          <div className="flex items-center gap-1">
-                            <span className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold">Bill</span>
-                            <select
-                              value={billingCycle}
-                              onChange={(e) => handleBillingChange(e.target.value)}
-                              className="text-[11px] px-1.5 py-0.5 border border-hairline rounded bg-paper focus:outline-none focus:ring-1 focus:ring-amber focus:border-amber"
-                            >
-                              <option value="monthly">Monthly</option>
-                              <option value="quarterly">Quarterly</option>
-                              <option value="half_yearly">Half-yearly</option>
-                              <option value="yearly">Yearly</option>
-                            </select>
-                          </div>
-                        )}
+                        <div className="flex items-center gap-1">
+                          <span className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold">Starts</span>
+                          <input
+                            type="date"
+                            value={line.start_date ?? ""}
+                            onChange={(e) => updateStartDate(line.id, e.target.value)}
+                            title="Service start date — leave blank to start on the payment date"
+                            className="text-[11px] px-1.5 py-0.5 border border-hairline rounded bg-paper text-ink focus:outline-none focus:ring-1 focus:ring-amber focus:border-amber"
+                          />
+                        </div>
                       </div>
                     </td>
                     <td className="p-3 text-xs font-mono text-ink-3">998313</td>
@@ -1139,38 +1104,21 @@ export function QuoteBuilder() {
 
             {/* Totals (right) */}
             <div className="bg-paper-2 rounded-lg p-4 space-y-2.5 self-start">
-              {/* Show gross + line-level discount aggregate when any line has discount */}
-              {lineDiscountTotal > 0 && (
+              {/* Customer discount is DERIVED from the rate: whenever a line's rate
+                  is below its list price, the gap shows here as ₹ + %. There is no
+                  separate discount input — you discount by lowering the rate. */}
+              {customerDiscount > 0 && (
                 <>
-                  <TotalRow label="Gross (list price)" value={fmtTotal(grossSubtotal)} />
+                  <TotalRow label="List price" value={fmtTotal(listGross)} />
                   <div className="flex items-center justify-between text-sm text-emerald">
-                    <span>Line discounts</span>
-                    <span className="tabular-nums">−{fmtTotal(lineDiscountTotal)}</span>
+                    <span>Quote discount ({customerDiscountPct}%)</span>
+                    <span className="tabular-nums">
+                      −{showPerInvoice ? rupee(Math.round(customerDiscount / sharedBillingN)) + sharedBillingUnit : fmtTotal(customerDiscount)}
+                    </span>
                   </div>
                 </>
               )}
-              <TotalRow label={lineDiscountTotal > 0 ? `Subtotal (after line disc)` : totalsLabel} value={fmtTotal(subtotal)} />
-
-              {/* Inline discount editor — quote-level (on top of per-line) */}
-              <div className="flex items-center justify-between text-sm">
-                <div className="flex items-center gap-2 text-ink-3">
-                  <span>Quote discount</span>
-                  <input
-                    type="number"
-                    min={0}
-                    max={100}
-                    value={discountPct}
-                    onChange={(e) => setDiscountPct(Math.max(0, Math.min(100, parseInt(e.target.value) || 0)))}
-                    className="w-14 px-1.5 py-0.5 text-xs text-right tabular-nums border border-hairline rounded bg-paper focus:outline-none focus:ring-2 focus:ring-amber focus:border-amber"
-                  />
-                  <span>%</span>
-                </div>
-                <span className="tabular-nums text-emerald">
-                  {discount > 0
-                    ? `−${showPerInvoice ? rupee(Math.round(discount / sharedBillingN)) + sharedBillingUnit : rupee(discount)}`
-                    : "—"}
-                </span>
-              </div>
+              <TotalRow label={customerDiscount > 0 ? "Subtotal (after discount)" : totalsLabel} value={fmtTotal(subtotal)} />
 
               <TotalRow label="Taxable amount" value={fmtTotal(taxable)} />
 
@@ -1304,8 +1252,8 @@ export function QuoteBuilder() {
         contactPhone={isLeadMode ? leadPhone : null}
         lineItems={lineItems}
         subtotal={subtotal}
-        discountPct={discountPct}
-        discount={discount}
+        discountPct={0}
+        discount={0}
         taxable={taxable}
         taxRate={taxRate}
         tax={tax}

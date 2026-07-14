@@ -111,3 +111,29 @@ export function useUpdateCustomer() {
     onError: (err) => toast.error((err as Error).message),
   });
 }
+
+// ============================================================
+// Delete — guarded via the delete_customer RPC. The RPC refuses to delete a
+// customer that still has subscriptions / payments / invoices (money history);
+// only "empty" customers can be removed. See src/lib/customers/deletable.ts
+// for the client-side twin used to disable the delete control.
+// ============================================================
+export { customerDeleteBlockReason } from "@/lib/customers/deletable";
+
+export function useDeleteCustomer() {
+  const qc = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const supabase = createClient();
+      const { error } = await supabase.rpc("delete_customer", { p_customer_id: id });
+      if (error) throw error;
+      return id;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["customers"] });
+      toast.success("Customer deleted");
+    },
+    onError: (err) => toast.error((err as Error).message),
+  });
+}

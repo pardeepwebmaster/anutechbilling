@@ -32,8 +32,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
-import { useCreateTask } from "@/lib/queries/tasks";
-import type { TaskKind } from "@/lib/supabase/database.types";
+import { useCreateTask, useUpdateTask } from "@/lib/queries/tasks";
+import type { TaskKind, Task } from "@/lib/supabase/database.types";
 
 const KINDS: { value: TaskKind; label: string; icon: string }[] = [
   { value: "call",     label: "Call",        icon: "📞" },
@@ -107,10 +107,14 @@ export interface AddTaskDialogProps {
     | { customer_id: string }
     | { subscription_id: string }
     | null;
+  /** When set, the dialog edits this task instead of creating a new one. */
+  task?: Pick<Task, "id" | "title" | "kind" | "due_at" | "notes"> | null;
 }
 
-export function AddTaskDialog({ open, onOpenChange, linkLabel, linkTo }: AddTaskDialogProps) {
+export function AddTaskDialog({ open, onOpenChange, linkLabel, linkTo, task }: AddTaskDialogProps) {
   const createTask = useCreateTask();
+  const updateTask = useUpdateTask();
+  const isEdit = Boolean(task);
 
   // Default due: in 1 hour. Computed once per mount — defaultValues is read
   // by useForm on first call, so recomputing on `open` toggle has no effect.
@@ -125,14 +129,40 @@ export function AddTaskDialog({ open, onOpenChange, linkLabel, linkTo }: AddTask
   });
 
   React.useEffect(() => {
-    if (open) reset({ title: "", kind: "followup", due_at: defaultDue, notes: "" });
-  }, [open, defaultDue, reset]);
+    if (!open) return;
+    if (task) {
+      // Edit mode — pre-fill from the task (ISO due → browser-local input value).
+      reset({
+        title:  task.title,
+        kind:   task.kind,
+        due_at: toLocalInputValue(new Date(task.due_at)),
+        notes:  task.notes ?? "",
+      });
+    } else {
+      reset({ title: "", kind: "followup", due_at: defaultDue, notes: "" });
+    }
+  }, [open, task, defaultDue, reset]);
 
   const watchedKind = watch("kind");
 
   const onSubmit = async (data: FormData) => {
     // Local datetime → ISO UTC
     const dueISO = new Date(data.due_at).toISOString();
+
+    if (task) {
+      // Edit — only the editable fields change; the link stays as-is.
+      await updateTask.mutateAsync({
+        id: task.id,
+        patch: {
+          title:  data.title.trim(),
+          kind:   data.kind,
+          due_at: dueISO,
+          notes:  data.notes?.trim() || null,
+        },
+      });
+      onOpenChange(false);
+      return;
+    }
 
     const linkPatch =
       linkTo && "lead_id"         in linkTo ? { lead_id:         linkTo.lead_id }
@@ -158,9 +188,11 @@ export function AddTaskDialog({ open, onOpenChange, linkLabel, linkTo }: AddTask
         className="w-full sm:max-w-[440px] md:max-w-[480px] p-0 flex flex-col overflow-x-hidden"
       >
         <SheetHeader>
-          <SheetTitle>Add follow-up task</SheetTitle>
+          <SheetTitle>{isEdit ? "Edit task" : "Add follow-up task"}</SheetTitle>
           <SheetDescription>
-            {linkLabel
+            {isEdit
+              ? <>Update this reminder{linkLabel ? <> for <b>{linkLabel}</b></> : null}.</>
+              : linkLabel
               ? <>Schedule a reminder linked to <b>{linkLabel}</b>. You&apos;ll see it on the dashboard, the bell, and the Tasks page when due.</>
               : <>Schedule a reminder. You&apos;ll see it on the dashboard, the bell, and the Tasks page when due.</>}
           </SheetDescription>
@@ -252,9 +284,9 @@ export function AddTaskDialog({ open, onOpenChange, linkLabel, linkTo }: AddTask
               type="submit"
               variant="primary"
               icon="check"
-              loading={isSubmitting || createTask.isPending}
+              loading={isSubmitting || createTask.isPending || updateTask.isPending}
             >
-              Schedule
+              {isEdit ? "Save changes" : "Schedule"}
             </Button>
           </SheetFooter>
         </form>

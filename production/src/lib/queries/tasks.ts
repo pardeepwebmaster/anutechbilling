@@ -15,6 +15,17 @@ import type { Database, Task } from "@/lib/supabase/database.types";
 type TaskInsert = Database["public"]["Tables"]["tasks"]["Insert"];
 type TaskUpdate = Database["public"]["Tables"]["tasks"]["Update"];
 
+/**
+ * A task plus the display name of whatever it's linked to (lead / customer /
+ * quote), pulled in one query via PostgREST embeds so the Tasks list can show
+ * "who is this about" without N extra lookups. At most one link is set.
+ */
+export type TaskWithLink = Task & {
+  leads?:     { company: string } | null;
+  customers?: { name: string } | null;
+  quotes?:    { customer_name: string } | null;
+};
+
 // ────────────────────────────────────────────────────────────────
 // Filters
 // ────────────────────────────────────────────────────────────────
@@ -44,9 +55,11 @@ function todayBoundariesIST(): { startISO: string; endISO: string } {
 export function useTasks(bucket: TaskBucket = "all") {
   return useQuery({
     queryKey: ["tasks", bucket],
-    queryFn: async (): Promise<Task[]> => {
+    queryFn: async (): Promise<TaskWithLink[]> => {
       const supabase = createClient();
-      let q = supabase.from("tasks").select("*");
+      // Embed the linked entity's display name (lead company / customer name /
+      // quote customer) so the list can show who each task is about.
+      let q = supabase.from("tasks").select("*, leads(company), customers(name), quotes(customer_name)");
 
       const { startISO, endISO } = todayBoundariesIST();
 
@@ -72,7 +85,7 @@ export function useTasks(bucket: TaskBucket = "all") {
       const order: { ascending: boolean } = { ascending: bucket === "upcoming" || bucket === "today" };
       const { data, error } = await q.order("due_at", order);
       if (error) throw error;
-      return data ?? [];
+      return (data ?? []) as unknown as TaskWithLink[];
     },
   });
 }

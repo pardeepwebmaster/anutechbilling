@@ -20,6 +20,7 @@ import { usePaymentsByQuote } from "@/lib/queries/payments";
 import { useCustomer } from "@/lib/queries/customers";
 import { useCurrentUser } from "@/lib/hooks/useCurrentUser";
 import { TaxInvoiceDialog } from "@/components/features/quotes/tax-invoice-dialog";
+import { ReceiptVoucherDialog } from "@/components/features/quotes/receipt-voucher-dialog";
 import { isInterStateSupply } from "@/lib/gst/place-of-supply";
 import { Icon } from "@/components/ui/icon";
 import { toast } from "sonner";
@@ -33,7 +34,7 @@ import { Card } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { TabBar, type TabBarItem } from "@/components/ui/tabs";
 import { rupee, formatDate, daysBetween } from "@/lib/utils";
-import type { Invoice } from "@/lib/supabase/database.types";
+import type { Invoice, Payment } from "@/lib/supabase/database.types";
 
 function InvoicesPageInner() {
   const router       = useRouter();
@@ -557,6 +558,7 @@ function InvoiceRow({
   autoOpen?: boolean;
 }) {
   const [previewOpen, setPreviewOpen] = React.useState(false);
+  const [expanded, setExpanded] = React.useState(false);
   const autoOpenFired = React.useRef(false);
 
   React.useEffect(() => {
@@ -567,6 +569,7 @@ function InvoiceRow({
   }, [autoOpen]);
 
   return (
+    <>
     <tr className="border-b border-hairline last:border-0 hover:bg-paper-2/40">
       <td className="p-3">
         <Checkbox checked={checked} onCheckedChange={onToggle} />
@@ -598,20 +601,28 @@ function InvoiceRow({
           // received. Same for status='overdue' with advances applied —
           // "Overdue · Partial" reflects reality.
           const hasAdvancesApplied = Array.isArray(inv.adjusted_advances) && inv.adjusted_advances.length > 0;
-          if (inv.status === "paid")    return <Badge kind="success" dot>Paid</Badge>;
-          if (inv.status === "pending") {
-            return hasAdvancesApplied
-              ? <Badge kind="warning" dot>Partial</Badge>
-              : <Badge kind="warning" dot>Pending</Badge>;
-          }
-          if (inv.status === "overdue") {
-            return hasAdvancesApplied
-              ? <Badge kind="danger"  dot>Overdue · Partial · {inv.overdue_days}d</Badge>
-              : <Badge kind="danger"  dot>Overdue {inv.overdue_days}d</Badge>;
-          }
-          if (inv.status === "draft")   return <Badge kind="muted">Draft</Badge>;
-          if (inv.status === "void")    return <Badge kind="muted">Void</Badge>;
-          return null;
+          const badge =
+              inv.status === "paid"    ? <Badge kind="success" dot>Paid</Badge>
+            : inv.status === "pending" ? (hasAdvancesApplied ? <Badge kind="warning" dot>Partial</Badge> : <Badge kind="warning" dot>Pending</Badge>)
+            : inv.status === "overdue" ? (hasAdvancesApplied ? <Badge kind="danger" dot>Overdue · Partial · {inv.overdue_days}d</Badge> : <Badge kind="danger" dot>Overdue {inv.overdue_days}d</Badge>)
+            : inv.status === "draft"   ? <Badge kind="muted">Draft</Badge>
+            : inv.status === "void"    ? <Badge kind="muted">Void</Badge>
+            : null;
+          // Draft/void have no receipts — badge stays static. Others toggle the
+          // payment-receipts accordion on click.
+          if (inv.status === "draft" || inv.status === "void") return badge;
+          return (
+            <button
+              type="button"
+              onClick={() => setExpanded((e) => !e)}
+              className="inline-flex items-center gap-1 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber rounded"
+              title="Show payment receipts"
+              aria-expanded={expanded}
+            >
+              {badge}
+              <Icon name={expanded ? "chevron_up" : "chevron_down"} size={12} className="text-ink-3" />
+            </button>
+          );
         })()}
       </td>
       <td className="p-3">
@@ -645,6 +656,14 @@ function InvoiceRow({
         )}
       </td>
     </tr>
+    {expanded && (
+      <tr className="bg-paper-2/30 border-b border-hairline">
+        <td colSpan={8} className="px-5 py-3">
+          <InvoicePaymentsAccordion inv={inv} />
+        </td>
+      </tr>
+    )}
+    </>
   );
 }
 
@@ -711,6 +730,79 @@ function InvoicePreviewContainer({
       tenantAddress={me.tenantAddress}
       tenantState={me.tenantState}
     />
+  );
+}
+
+/**
+ * InvoicePaymentsAccordion — expands under an invoice row to list the payment
+ * receipts (advance receipt vouchers) collected against it. Invoice → parent
+ * quote → payments. Clicking a receipt opens the GST receipt-voucher dialog.
+ */
+function InvoicePaymentsAccordion({ inv }: { inv: Invoice }) {
+  const { data: quote } = useQuoteByInvoiceId(inv.id);
+  const { data: payments, isLoading } = usePaymentsByQuote(quote?.id);
+  const { data: customer } = useCustomer(inv.customer_id ?? undefined);
+  const { data: me } = useCurrentUser();
+  const [receiptPayment, setReceiptPayment] = React.useState<Payment | null>(null);
+
+  const received = (payments ?? []).filter((p) => p.status === "received");
+  const interState = isInterStateSupply(customer?.state_code, me?.tenantStateCode);
+
+  if (isLoading) return <div className="text-xs text-ink-3 italic">Loading receipts…</div>;
+  if (received.length === 0) {
+    return <div className="text-xs text-ink-3">No payment receipts recorded for this invoice yet.</div>;
+  }
+
+  return (
+    <div>
+      <div className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold mb-2">
+        Payment receipts ({received.length})
+      </div>
+      <ul className="space-y-1.5">
+        {received.map((p) => (
+          <li key={p.id}>
+            <button
+              type="button"
+              onClick={() => setReceiptPayment(p)}
+              className="w-full flex items-center justify-between gap-3 rounded-md border border-hairline bg-paper px-3 py-2 text-left transition-colors hover:border-amber-soft hover:bg-amber-soft/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber"
+              title="Open receipt voucher"
+            >
+              <span className="flex items-center gap-2 min-w-0">
+                <Icon name="receipt" size={14} className="text-amber-ink shrink-0" />
+                <span className="font-mono text-xs text-ink truncate">{p.receipt_voucher_no ?? "Receipt"}</span>
+                <span className="text-[11px] text-ink-3 capitalize">· {p.method}</span>
+              </span>
+              <span className="flex items-center gap-3 shrink-0">
+                <span className="tabular-nums text-sm font-medium text-ink">{rupee(p.amount)}</span>
+                <span className="text-[11px] text-ink-3">{formatDate(p.received_at)}</span>
+                <Icon name="chevron_right" size={12} className="text-ink-3" />
+              </span>
+            </button>
+          </li>
+        ))}
+      </ul>
+
+      {receiptPayment && me && (
+        <ReceiptVoucherDialog
+          open={!!receiptPayment}
+          onOpenChange={(o) => { if (!o) setReceiptPayment(null); }}
+          payment={receiptPayment}
+          customerName={inv.customer_name}
+          customerGstin={customer?.gstin}
+          customerEmail={customer?.contact_email}
+          customerAddress={customer?.address}
+          tenantName={me.tenantName}
+          tenantGstin={me.tenantGstin}
+          tenantEmail={me.tenantEmail}
+          tenantPhone={me.tenantPhone}
+          tenantAddress={me.tenantAddress}
+          tenantState={me.tenantState}
+          interState={interState}
+          quoteId={quote?.id}
+          gstRate={quote?.tax_rate ?? 18}
+        />
+      )}
+    </div>
   );
 }
 

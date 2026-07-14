@@ -18,6 +18,7 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 
 import { Card } from "@/components/ui/card";
@@ -245,8 +246,8 @@ export default function PnLPage() {
             </div>
           ) : data ? (
             <div className="space-y-2.5">
-              <Row label="Revenue"        amount={data.revenue}     hint={`${data.revenueCount} invoice${data.revenueCount === 1 ? "" : "s"}`} tone="ink" />
-              <Row label="− COGS"         amount={-data.cogs}       hint={`${data.cogsCount} vendor bill${data.cogsCount === 1 ? "" : "s"}`} tone="rose" />
+              <Row label="Revenue"        amount={data.revenue}     hint={`${data.revenueCount} invoice${data.revenueCount === 1 ? "" : "s"}`} hintHref="/invoices" tone="ink" />
+              <Row label="− COGS"         amount={-data.cogs}       hint={`${data.cogsCount} vendor bill${data.cogsCount === 1 ? "" : "s"}`} hintHref="/accounting/bills" tone="rose" />
 
               <Divider />
               <Row label="Gross Margin"
@@ -258,6 +259,7 @@ export default function PnLPage() {
               <Row label="− Operating expenses"
                    amount={-data.expenses}
                    hint={`${data.expensesCount} ${data.expensesCount === 1 ? "entry" : "entries"}`}
+                   hintHref="/accounting/expenses"
                    tone="rose" />
 
               <Divider thick />
@@ -335,11 +337,13 @@ export default function PnLPage() {
 // ────────────────────────────────────────────────────────────────
 
 function Row({
-  label, amount, hint, tone, emphasis, xl,
+  label, amount, hint, hintHref, tone, emphasis, xl,
 }: {
   label: string;
   amount: number;
   hint?: string;
+  /** When set, the hint becomes a link to the underlying records (e.g. invoices). */
+  hintHref?: string;
   tone: "ink" | "emerald" | "rose";
   emphasis?: boolean;
   xl?: boolean;
@@ -353,7 +357,11 @@ function Row({
         <div className={`${emphasis ? "font-semibold" : ""} ${xl ? "text-base" : "text-sm"} text-ink leading-tight`}>
           {label}
         </div>
-        {hint && <div className="text-[11px] text-ink-3 mt-0.5">{hint}</div>}
+        {hint && (
+          hintHref
+            ? <Link href={hintHref as never} className="text-[11px] text-amber-ink hover:underline mt-0.5 inline-block">{hint} →</Link>
+            : <div className="text-[11px] text-ink-3 mt-0.5">{hint}</div>
+        )}
       </div>
       <div className={`font-mono whitespace-nowrap ${xl ? "font-serif text-3xl" : emphasis ? "text-lg font-semibold" : "text-base"} ${colorClass}`}>
         {amount < 0 ? "−" : ""}{rupee(Math.abs(amount))}

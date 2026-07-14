@@ -401,6 +401,7 @@ export function LeadForm({ onSubmit }: { onSubmit: (data: FormData) => Promise<v
 - ❌ Don't push without `npm run lint && typecheck`
 - ❌ **Don't generate document numbers in JS** (`Math.random()`, `Date.now()`, or `count(*) + 1`). Always call the `next_document_number(doc_type)` RPC. See §17a below.
 - ❌ **Don't apply DB changes via Studio/MCP without a versioned migration file in `supabase/migrations/`** — schema drift between git + prod broke us once already.
+- ❌ **Don't assume admin-client reads are fresh in route handlers.** Next.js App Router caches GET `fetch()` calls, including the ones Supabase makes. `createAdminClient()` now pins `cache: "no-store"` for this reason (fixed 14 Jul 2026 — without it `/api/v1` served STALE billing status and let revoked API keys authenticate). If you add another server client for trusted reads, force no-store the same way.
 
 ---
 

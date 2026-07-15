@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
-  billingCustomerId, mapCustomer, mapSubscription, mapInvoice, mapQuote, mapPayment,
+  billingCustomerId, mapCustomer, mapCustomerListItem, parsePagination, paginationMeta,
+  mapSubscription, mapInvoice, mapQuote, mapPayment,
 } from "./v1-mappers";
 import type {
   Customer as CustomerRow,
@@ -25,6 +26,46 @@ describe("mapCustomer", () => {
       billing_customer_id: "C-00007", name: "Acme", email: "a@acme.com", domain: "acme.com", status: "active",
     });
     expect(mapCustomer(c, false).status).toBe("inactive");
+  });
+});
+
+describe("mapCustomerListItem", () => {
+  const c = { id: "u1", customer_number: "C-00007", name: "Acme", contact_email: "a@acme.com", domain: "acme.com" } as CustomerRow;
+  it("adds id (= billing_customer_id) alongside the customer fields", () => {
+    expect(mapCustomerListItem(c, true)).toEqual({
+      id: "C-00007", billing_customer_id: "C-00007",
+      name: "Acme", email: "a@acme.com", domain: "acme.com", status: "active",
+    });
+  });
+  it("falls back id to uuid when no customer_number", () => {
+    expect(mapCustomerListItem({ ...c, customer_number: null }, false).id).toBe("u1");
+  });
+});
+
+describe("parsePagination", () => {
+  it("defaults to page 1, per_page 100", () => {
+    expect(parsePagination(null, null)).toEqual({ page: 1, perPage: 100, offset: 0 });
+  });
+  it("computes offset and caps per_page at 200", () => {
+    expect(parsePagination("3", "50")).toEqual({ page: 3, perPage: 50, offset: 100 });
+    expect(parsePagination("1", "5000").perPage).toBe(200);
+  });
+  it("falls back garbage / zero / negatives to safe defaults", () => {
+    // "0" is falsy → defaults (page 1, per_page 100)
+    expect(parsePagination("0", "0")).toEqual({ page: 1, perPage: 100, offset: 0 });
+    expect(parsePagination("-2", "abc")).toEqual({ page: 1, perPage: 100, offset: 0 });
+    // a negative per_page value is clamped up to the minimum of 1
+    expect(parsePagination("2", "-5")).toEqual({ page: 2, perPage: 1, offset: 1 });
+  });
+});
+
+describe("paginationMeta", () => {
+  it("computes pages via ceil", () => {
+    expect(paginationMeta(250, 1, 100)).toEqual({ page: 1, per_page: 100, total: 250, pages: 3 });
+    expect(paginationMeta(200, 2, 100).pages).toBe(2);
+  });
+  it("returns at least 1 page even for 0 results", () => {
+    expect(paginationMeta(0, 1, 100).pages).toBe(1);
   });
 });
 

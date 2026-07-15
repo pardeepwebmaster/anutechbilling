@@ -41,6 +41,23 @@ customer and use it for all lookups.
 
 ## 3. Endpoints (all GET, all tenant-scoped)
 
+### 3.0 List all customers (for "Sync all")
+`GET /customers?page=1&per_page=100`  (per_page max 200)
+
+```json
+{
+  "customers": [
+    { "id": "C-00001", "billing_customer_id": "C-00001", "name": "test1",
+      "email": "test1@gmail.com", "domain": null, "status": "active" }
+  ],
+  "page": 1, "per_page": 100, "total": 2, "pages": 1
+}
+```
+
+`id` == `billing_customer_id` (same value; `id` is provided because your list
+consumer keys on it). Subscriptions/invoices are NOT embedded — fetch per
+customer via 3.2–3.5. Iterate `page` from 1..`pages` to sync everyone.
+
 ### 3.1 Customer lookup
 `GET /customers/{billing_customer_id}`
 `GET /customers?email=user@acme.com`  (secondary fallback for initial link)

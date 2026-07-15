@@ -32,6 +32,28 @@ export function mapCustomer(c: CustomerRow, hasActiveSubscription: boolean) {
   };
 }
 
+/**
+ * List-item shape for the paginated /customers list. Same fields as a single
+ * customer, plus `id` (= billing_customer_id) because DSP's list consumer keys
+ * on `id`. Both are the customer number (or uuid fallback).
+ */
+export function mapCustomerListItem(c: CustomerRow, hasActiveSubscription: boolean) {
+  const id = billingCustomerId(c);
+  return { id, ...mapCustomer(c, hasActiveSubscription) };
+}
+
+/** Clamp + parse pagination params. per_page capped to keep responses bounded. */
+export function parsePagination(pageRaw: string | null, perPageRaw: string | null) {
+  const page    = Math.max(1, Math.floor(Number(pageRaw) || 1));
+  const perPage = Math.min(200, Math.max(1, Math.floor(Number(perPageRaw) || 100)));
+  return { page, perPage, offset: (page - 1) * perPage };
+}
+
+/** Pagination envelope meta. `pages` is at least 1 even when total is 0. */
+export function paginationMeta(total: number, page: number, perPage: number) {
+  return { page, per_page: perPage, total, pages: Math.max(1, Math.ceil(total / perPage)) };
+}
+
 /** Coarse billing term from the sub's date span (we don't store a cycle field). */
 function subscriptionTerm(s: Pick<SubscriptionRow, "start_date" | "renewal_date">): string {
   if (!s.start_date || !s.renewal_date) return "annual";

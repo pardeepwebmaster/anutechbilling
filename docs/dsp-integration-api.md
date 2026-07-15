@@ -104,10 +104,15 @@ customer via 3.2–3.5. Iterate `page` from 1..`pages` to sync everyone.
     "status": "paid",                    // paid | unpaid | overdue | cancelled
     "issue_date": "2026-07-14",
     "due_date": "2026-08-13",
-    "pdf_url": null
+    "pdf_url": "https://.../api/v1/documents/invoice/INV-ET-2026-27-0002/pdf?token=…"
   }
 ]
 ```
+
+`pdf_url` is a ready-to-open link (GST Tax Invoice PDF, rendered on demand). It
+carries a signed token, so a browser can open/download it directly — no Bearer
+header needed. Treat the URL as a secret (anyone with the link can view that one
+document). Returns `application/pdf`; bad/missing token → 403, unknown id → 404.
 
 ### 3.4 Quotes / pending payments
 `GET /customers/{billing_customer_id}/quotes`
@@ -119,7 +124,7 @@ customer via 3.2–3.5. Iterate `page` from 1..`pages` to sync everyone.
     "amount": 155760,
     "currency": "INR",
     "status": "accepted",                // pending | accepted | expired
-    "pdf_url": null,
+    "pdf_url": "https://.../api/v1/documents/quote/Q-ET-2026-27-0015/pdf?token=…",
     "payment_url": "https://.../quote/Q-ET-2026-27-0015/accept"
   }
 ]

@@ -90,7 +90,7 @@ const INVOICE_STATUS: Record<InvoiceRow["status"], string> = {
   draft:   "unpaid",
 };
 
-export function mapInvoice(i: InvoiceRow) {
+export function mapInvoice(i: InvoiceRow, pdfUrl: string | null = null) {
   return {
     id:         i.id,
     number:     i.id, // our id IS the sequential GST number (INV-…)
@@ -99,7 +99,7 @@ export function mapInvoice(i: InvoiceRow) {
     status:     INVOICE_STATUS[i.status] ?? i.status,
     issue_date: i.invoice_date,
     due_date:   i.due_date,
-    pdf_url:    i.pdf_url,
+    pdf_url:    pdfUrl ?? i.pdf_url,
   };
 }
 
@@ -109,13 +109,13 @@ function quoteStatus(q: QuoteRow): string {
   return "pending";
 }
 
-export function mapQuote(q: QuoteRow, appUrl: string) {
+export function mapQuote(q: QuoteRow, appUrl: string, pdfUrl: string | null = null) {
   return {
     id:          q.id,
     amount:      q.amount,
     currency:    CURRENCY,
     status:      quoteStatus(q),
-    pdf_url:     q.pdf_url,
+    pdf_url:     pdfUrl ?? q.pdf_url,
     payment_url: `${appUrl.replace(/\/$/, "")}/quote/${q.id}/accept`,
   };
 }

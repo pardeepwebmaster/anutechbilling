@@ -7,6 +7,7 @@ import { authenticateApiKey } from "@/lib/api-keys/auth";
 import { createAdminClient } from "@/lib/supabase/server";
 import { resolveCustomer } from "@/lib/api/v1-customer";
 import { mapQuote } from "@/lib/api/v1-mappers";
+import { pdfDownloadUrl } from "@/lib/pdf/pdf-token";
 import { unauthorized, notFound } from "@/lib/api/v1-response";
 import type { Quote as QuoteRow } from "@/lib/supabase/database.types";
 
@@ -31,5 +32,9 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     .order("created_date", { ascending: false });
   if (error) return notFound("Could not load quotes");
 
-  return NextResponse.json((data as QuoteRow[]).map((q) => mapQuote(q, APP_URL)));
+  return NextResponse.json(
+    (data as QuoteRow[]).map((q) =>
+      mapQuote(q, APP_URL, pdfDownloadUrl(APP_URL, "quote", q.id, auth.tenantId)),
+    ),
+  );
 }

@@ -8,13 +8,11 @@ import { createAdminClient } from "@/lib/supabase/server";
 import { resolveCustomer } from "@/lib/api/v1-customer";
 import { mapInvoice } from "@/lib/api/v1-mappers";
 import { pdfDownloadUrl } from "@/lib/pdf/pdf-token";
-import { unauthorized, notFound } from "@/lib/api/v1-response";
+import { unauthorized, notFound, requestBaseUrl } from "@/lib/api/v1-response";
 import type { Invoice as InvoiceRow } from "@/lib/supabase/database.types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL?.trim() || "https://resellersos.web.app";
 
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   const auth = await authenticateApiKey(req);
@@ -32,9 +30,10 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     .order("invoice_date", { ascending: false });
   if (error) return notFound("Could not load invoices");
 
+  const base = requestBaseUrl(req);
   return NextResponse.json(
     (data as InvoiceRow[]).map((inv) =>
-      mapInvoice(inv, pdfDownloadUrl(APP_URL, "invoice", inv.id, auth.tenantId)),
+      mapInvoice(inv, pdfDownloadUrl(base, "invoice", inv.id, auth.tenantId)),
     ),
   );
 }

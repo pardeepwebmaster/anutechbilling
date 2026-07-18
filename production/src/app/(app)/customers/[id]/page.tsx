@@ -289,27 +289,54 @@ export default function CustomerDetailPage() {
 // Clickable record table for the Quotes / Invoices tabs.
 function RecordTable({ head, rows }: { head: string[]; rows: { cells: React.ReactNode[]; onClick?: () => void }[] }) {
   return (
-    <div className="border border-hairline rounded-md overflow-hidden overflow-x-auto">
-      <table className="w-full text-sm">
-        <thead className="bg-paper-2/50">
-          <tr>
-            {head.map((h) => (
-              <th key={h} className="text-left px-3 py-2 text-[10px] font-semibold text-ink-3 uppercase tracking-wider whitespace-nowrap">{h}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-hairline">
-          {rows.map((r, i) => (
-            <tr
-              key={i}
+    <>
+      {/* Mobile: each row as a stacked label→value card (table side-scrolls on
+          phones, §20). Uses the column heads as labels so it stays generic. */}
+      <ul className="md:hidden space-y-2">
+        {rows.map((r, i) => (
+          <li key={i}>
+            <button
+              type="button"
               onClick={r.onClick}
-              className={cn("hover:bg-paper-2/30", r.onClick && "cursor-pointer")}
+              className={cn(
+                "w-full text-left rounded-md border border-hairline bg-paper p-3 space-y-1.5",
+                r.onClick ? "cursor-pointer hover:bg-paper-2/40" : "cursor-default",
+              )}
             >
-              {r.cells.map((cell, j) => <td key={j} className="px-3 py-2 text-ink-2 whitespace-nowrap">{cell}</td>)}
+              {r.cells.map((cell, j) => (
+                <div key={j} className="flex items-baseline justify-between gap-3">
+                  <span className="text-[10px] uppercase tracking-wider text-ink-3 shrink-0">{head[j]}</span>
+                  <span className="text-sm text-ink-2 text-right min-w-0">{cell}</span>
+                </div>
+              ))}
+            </button>
+          </li>
+        ))}
+      </ul>
+
+      {/* Desktop / tablet table */}
+      <div className="hidden md:block border border-hairline rounded-md overflow-hidden overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead className="bg-paper-2/50">
+            <tr>
+              {head.map((h) => (
+                <th key={h} className="text-left px-3 py-2 text-[10px] font-semibold text-ink-3 uppercase tracking-wider whitespace-nowrap">{h}</th>
+              ))}
             </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+          </thead>
+          <tbody className="divide-y divide-hairline">
+            {rows.map((r, i) => (
+              <tr
+                key={i}
+                onClick={r.onClick}
+                className={cn("hover:bg-paper-2/30", r.onClick && "cursor-pointer")}
+              >
+                {r.cells.map((cell, j) => <td key={j} className="px-3 py-2 text-ink-2 whitespace-nowrap">{cell}</td>)}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
   );
 }

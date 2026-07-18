@@ -9,6 +9,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { useItems, useDeleteItem, useLoadDefaultCatalog } from "@/lib/queries/items";
 import { ItemForm } from "@/components/features/items/item-form";
+import { FAB } from "@/components/ui/fab";
 import { GeminiCard } from "@/components/shared/gemini-card";
 import { EmptyState } from "@/components/shared/empty-state";
 import { KPI } from "@/components/shared/kpi";
@@ -369,6 +370,9 @@ export default function ItemsPage() {
 
       {/* Modal */}
       <ItemForm open={addOpen} onOpenChange={setAddOpen} item={editing ?? undefined} />
+
+      {/* Mobile thumb-zone add — desktop uses the header button. */}
+      <FAB icon="plus" label="Add item" onClick={() => { setEditing(null); setAddOpen(true); }} />
     </div>
   );
 }

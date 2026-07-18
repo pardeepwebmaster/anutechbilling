@@ -136,7 +136,37 @@ export default function ProfitByProductPage() {
       )}
 
       {!isLoading && !error && rows && rows.length > 0 && (
-        <Card flush className="overflow-x-auto">
+        <>
+        {/* Mobile card list — table side-scrolls on phones (§20). */}
+        <ul className="md:hidden space-y-2">
+          {rows.map((r) => (
+            <li key={r.name} className="rounded-lg border border-hairline bg-paper p-3">
+              <div className="flex items-center justify-between gap-2 mb-1.5">
+                <span className="font-medium text-ink text-sm truncate">{r.name}</span>
+                <Badge kind={r.marginPct >= 25 ? "success" : r.marginPct >= 15 ? "warning" : "danger"} dot>{r.marginPct}%</Badge>
+              </div>
+              <div className="grid grid-cols-3 gap-2 text-xs">
+                <div><span className="text-ink-3 block">Revenue</span><span className="tabular-nums">{rupee(r.revenue)}</span></div>
+                <div><span className="text-ink-3 block">Cost</span><span className="tabular-nums text-ink-2">{rupee(r.cost)}</span></div>
+                <div><span className="text-ink-3 block">Profit</span><span className="tabular-nums text-emerald font-medium">{rupee(r.profit)}</span></div>
+              </div>
+              <div className="text-[11px] text-ink-3 mt-1.5 tabular-nums">{r.units} units · {r.orders} orders</div>
+            </li>
+          ))}
+          <li className="rounded-lg border-2 border-ink bg-paper-2/40 p-3">
+            <div className="flex items-center justify-between text-sm font-semibold">
+              <span>Total</span><span className="tabular-nums">{totals.marginPct}%</span>
+            </div>
+            <div className="grid grid-cols-3 gap-2 text-xs mt-1.5">
+              <div><span className="text-ink-3 block">Revenue</span><span className="tabular-nums">{rupee(totals.revenue)}</span></div>
+              <div><span className="text-ink-3 block">Cost</span><span className="tabular-nums">{rupee(totals.cost)}</span></div>
+              <div><span className="text-ink-3 block">Profit</span><span className="tabular-nums text-emerald">{rupee(totals.profit)}</span></div>
+            </div>
+          </li>
+        </ul>
+
+        {/* Desktop table */}
+        <Card flush className="hidden md:block overflow-x-auto">
           <table className="w-full">
             <thead className="bg-paper-2 border-b border-hairline">
               <tr>
@@ -179,6 +209,7 @@ export default function ProfitByProductPage() {
             </tfoot>
           </table>
         </Card>
+        </>
       )}
     </div>
   );

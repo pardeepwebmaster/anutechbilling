@@ -10,6 +10,7 @@ import { useSubscriptions } from "@/lib/queries/subscriptions";
 import { useOutstandingReceivables } from "@/lib/queries/payments";
 import { effectiveHealth } from "@/lib/utils";
 import { AddCustomerForm } from "@/components/features/customers/add-customer-form";
+import { FAB } from "@/components/ui/fab";
 import { ImportCustomersDialog } from "@/components/features/customers/import-customers-dialog";
 import { ImportDomainsDialog } from "@/components/features/customers/import-domains-dialog";
 import { CustomerPanel } from "@/components/features/customers/customer-panel";
@@ -490,6 +491,9 @@ export default function CustomersPage() {
       <AddCustomerForm open={addOpen} onOpenChange={setAddOpen} />
       <ImportCustomersDialog open={importOpen} onOpenChange={setImportOpen} onImportComplete={() => refetch()} />
       <ImportDomainsDialog open={domainsOpen} onOpenChange={setDomainsOpen} onComplete={() => refetch()} />
+
+      {/* Mobile thumb-zone add — desktop uses the header button. */}
+      <FAB icon="plus" label="Add customer" onClick={() => setAddOpen(true)} />
     </div>
   );
 }

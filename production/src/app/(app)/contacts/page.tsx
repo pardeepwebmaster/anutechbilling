@@ -10,6 +10,7 @@ import { toast } from "sonner";
 
 import { useAllContacts } from "@/lib/queries/contacts";
 import ImportContactsDialog from "@/components/features/contacts/import-contacts-dialog";
+import { FAB } from "@/components/ui/fab";
 import { useQueryClient } from "@tanstack/react-query";
 import { GeminiCard } from "@/components/shared/gemini-card";
 import { EmptyState } from "@/components/shared/empty-state";
@@ -150,6 +151,9 @@ export default function ContactsPage() {
       </div>
 
       <ImportContactsDialog open={importOpen} onOpenChange={setImportOpen} />
+
+      {/* Mobile thumb-zone action — contacts are added via import (no single-add form). */}
+      <FAB icon="upload" label="Import contacts" onClick={() => setImportOpen(true)} />
 
       {/* KPIs */}
       {!isLoading && contacts && (

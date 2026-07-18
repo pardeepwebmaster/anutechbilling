@@ -60,6 +60,32 @@ function SidebarContent({ onNavigate, collapsed = false, onToggle }: { onNavigat
           users get a stripped-down menu). For sales users, also relabel
           "Deal Pipeline" → "Leads" since the Kanban / deals UI is hidden. */}
       <nav className="flex-1 overflow-y-auto px-2 py-3 space-y-5">
+        {/* Mobile-only money quick-grid — the bottom nav (Home/Leads/Deals/
+            Tasks/More) can't hold the money screens, so surface them one tap
+            deep at the top of the "More" drawer. Owner/manager only. */}
+        {me?.role !== "sales" && (
+          <div className="md:hidden">
+            <div className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-ink-3 mb-1.5">Quick money</div>
+            <div className="grid grid-cols-2 gap-2 px-1 pb-3 mb-1 border-b border-hairline">
+              {[
+                { href: "/quotes",    label: "Quotes",    icon: "file" },
+                { href: "/payments",  label: "Payments",  icon: "rupee" },
+                { href: "/invoices",  label: "Invoices",  icon: "receipt" },
+                { href: "/customers", label: "Customers", icon: "users" },
+              ].map((m) => (
+                <Link
+                  key={m.href}
+                  href={m.href as never}
+                  onClick={onNavigate}
+                  className="flex items-center gap-2 rounded-lg border border-hairline bg-paper-2/40 px-3 py-2.5 text-sm font-medium text-ink hover:bg-paper-2 active:bg-paper-2/70"
+                >
+                  <Icon name={m.icon} size={16} className="text-amber shrink-0" />
+                  {m.label}
+                </Link>
+              ))}
+            </div>
+          </div>
+        )}
         {filterNavForRole(APP_NAV, me?.role as UserRole | undefined, { canViewDeals: me?.canViewDeals }).map((section) => (
           <div key={section.section}>
             {!collapsed && (

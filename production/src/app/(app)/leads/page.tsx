@@ -1991,6 +1991,7 @@ function LeadListView({
             stale={stale}
             onTap={onRowClick}
             onChangeStage={(s) => updateStage.mutate({ id: lead.id, stage: s })}
+            onSendQuote={onSendQuote}
           />
         );
       })}

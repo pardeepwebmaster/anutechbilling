@@ -69,11 +69,13 @@ interface SwipeLeadCardProps {
   onTap: (lead: Lead) => void;
   /** Mutate the lead's stage when the user picks one from the chip menu. */
   onChangeStage: (stage: Lead["stage"]) => void;
+  /** Direct "Send quote" — carries lead context into the quote builder. */
+  onSendQuote?: (lead: Lead) => void;
   /** True if the lead's last update is > 14 days old (shows a red stale dot). */
   stale?: boolean;
 }
 
-export function SwipeLeadCard({ lead, onTap, onChangeStage, stale }: SwipeLeadCardProps) {
+export function SwipeLeadCard({ lead, onTap, onChangeStage, onSendQuote, stale }: SwipeLeadCardProps) {
   const stageMeta = LEAD_STAGES.find((s) => s.id === lead.stage);
 
   // Phone normalisation for wa.me + tel: — assume Indian +91 if 10 digits.
@@ -262,9 +264,21 @@ export function SwipeLeadCard({ lead, onTap, onChangeStage, stale }: SwipeLeadCa
               </span>
             </div>
 
-            {/* Inline action icons. Phone first (most common), then WhatsApp,
-                then email. ~32px tap targets meet Apple HIG minimum. */}
+            {/* Inline action icons. Send-quote first (the funnel's key move —
+                parity with the desktop row action), then Phone / WhatsApp /
+                Email. ~32px tap targets meet Apple HIG minimum. */}
             <div className="flex items-center gap-1 shrink-0">
+              {onSendQuote && (
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); onSendQuote(lead); }}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  className="inline-flex items-center justify-center w-8 h-8 rounded-md text-amber hover:bg-amber-soft/40 active:bg-amber-soft/60"
+                  aria-label="Send quote"
+                >
+                  <Icon name="file" size={15} />
+                </button>
+              )}
               {hasPhone && (
                 <a
                   href={`tel:${lead.contact_phone}`}

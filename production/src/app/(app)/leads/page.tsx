@@ -80,6 +80,14 @@ const LEAD_STAGES: { id: Lead["stage"]; label: string; dot: string }[] = [
   { id: "won",     label: "Won",          dot: "bg-emerald" },
 ];
 
+// Filter dropdown also offers "Lost" so operators can review archived leads.
+// Lost is an OUTCOME, not a Kanban column, so LEAD_STAGES (which drives the
+// board) deliberately omits it — only the filter list adds it back.
+const FILTER_STAGES: { id: Lead["stage"]; label: string; dot: string }[] = [
+  ...LEAD_STAGES,
+  { id: "lost", label: "Lost", dot: "bg-ink-3" },
+];
+
 function LeadsPageInner() {
   const router       = useRouter();
   const searchParams = useSearchParams();
@@ -198,9 +206,11 @@ function LeadsPageInner() {
         ?.scrollIntoView({ behavior: "smooth", block: "center" });
     }, 100);
 
-    // Clean the param from URL so refresh doesn't re-trigger
-    router.replace("/leads" as any);
-  }, [focusLeadId, leads, router]);
+    // Clean the param from URL so refresh doesn't re-trigger. Use the CURRENT
+    // path (not a hardcoded /leads) so a ?lead= deep-link opened on /deals
+    // stays on /deals instead of bouncing the user to /leads.
+    router.replace(pathname as never);
+  }, [focusLeadId, leads, router, pathname]);
 
   // Quick "Send quote" from a list row — carries the lead's context into the
   // quote builder. Returning to /leads lands on the list (no auto-opened drawer).
@@ -240,6 +250,7 @@ function LeadsPageInner() {
           l.company.toLowerCase().includes(s) ||
           (l.contact_name?.toLowerCase().includes(s) ?? false) ||
           (l.contact_email?.toLowerCase().includes(s) ?? false) ||
+          (l.contact_phone?.toLowerCase().includes(s) ?? false) ||
           (l.plan?.toLowerCase().includes(s) ?? false)
       );
     }
@@ -311,8 +322,13 @@ function LeadsPageInner() {
   const { isMobile } = useBreakpoint();
   const effectiveView = isMobile ? "list" : (tab === "leads" ? "list" : view);
 
-  // Stats are based on Deals (where value lives — raw leads have no value yet)
-  const totalValue = qualifiedDeals.reduce((s, l) => s + (l.value ?? 0), 0);
+  // Stats are based on Deals (where value lives — raw leads have no value yet).
+  // "Open" deals = qualified but NOT closed (won/lost). Header stats use these
+  // so "active deals" + "open pipeline" never count closed outcomes (a Lost
+  // deal is not active pipeline). Conversion still uses the full qualified set
+  // as the win-rate denominator.
+  const openDeals  = qualifiedDeals.filter((l) => l.stage !== "won" && l.stage !== "lost");
+  const totalValue = openDeals.reduce((s, l) => s + (l.value ?? 0), 0);
   const wonCount = qualifiedDeals.filter((l) => l.stage === "won").length;
   const conversion =
     qualifiedDeals.length > 0 ? Math.round((wonCount / qualifiedDeals.length) * 100) : 0;
@@ -343,9 +359,9 @@ function LeadsPageInner() {
           {!isLoading && leads && (
             isDealsPage ? (
               <p className="text-sm text-ink-3 mt-1 tabular-nums">
-                <b>{filtered.length}</b> active deals ·{" "}
-                <b>{rupee(totalValue, { compact: true })}</b> total pipeline ·{" "}
-                <b>{conversion}%</b> conversion
+                <b>{openDeals.length}</b> active deals ·{" "}
+                <b>{rupee(totalValue, { compact: true })}</b> open pipeline ·{" "}
+                <b>{conversion}%</b> won
               </p>
             ) : (
               <p className="text-sm text-ink-3 mt-1 tabular-nums">
@@ -416,7 +432,7 @@ function LeadsPageInner() {
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="w-56">
               <DropdownMenuLabel className="text-[10px] uppercase tracking-wider text-ink-3">Stage</DropdownMenuLabel>
-              {LEAD_STAGES.map((s) => (
+              {FILTER_STAGES.map((s) => (
                 <DropdownMenuCheckboxItem
                   key={s.id}
                   checked={stageFilter.includes(s.id)}
@@ -467,8 +483,12 @@ function LeadsPageInner() {
           </DropdownMenu>
           {/* Advanced controls — hidden for sales role to keep the inbox
               focused on call/email/update. Owner/manager get the full set. */}
+          {/* Secondary toolbar — desktop-only (hidden md:flex) so a phone's
+              header doesn't wrap into a wall of buttons. "Start trial" shows
+              ONLY on /deals: per the quote-first funnel a trial follows a quote,
+              so offering it on the raw Leads inbox contradicts the model. */}
           {!isSales && (
-            <>
+            <div className="hidden md:flex gap-2 flex-wrap items-center">
               <Button icon="download" onClick={() => setCsvImportOpen(true)}>Import CSV</Button>
               <Button icon="send" onClick={() => setCampaignOpen(true)}>
                 Send campaign
@@ -476,10 +496,12 @@ function LeadsPageInner() {
               <Button icon="globe" onClick={() => setGoogleImportOpen(true)}>
                 Import from Google
               </Button>
-              <Button icon="clock" onClick={() => setTrialOpen(true)}>
-                Start trial
-              </Button>
-            </>
+              {isDealsPage && (
+                <Button icon="clock" onClick={() => setTrialOpen(true)}>
+                  Start trial
+                </Button>
+              )}
+            </div>
           )}
           {/* Add Lead / Deal split-button — hidden on mobile because the
               floating FAB at the bottom-right already provides the same
@@ -911,12 +933,11 @@ function LeadsPageInner() {
             if (sortBy === col) setSortDir(sortDir === "asc" ? "desc" : "asc");
             else { setSortBy(col); setSortDir(col === "company" ? "asc" : "desc"); }
           }}
-          onRowClick={(l) => {
-            // Raw leads open the Edit form (quick qualify: contact/plan/value).
-            // Deals open the rich drawer (quotes, revise & resend, activity).
-            if (isDealsPage) setSelected(l);
-            else { setEditingLead(l); setAddOpen(true); }
-          }}
+          // Both Leads + Deals rows open the rich drawer now (consistency): a
+          // raw lead's first move is to CONTACT (call/WhatsApp/email/follow-up/
+          // send-quote) — all live in the drawer. Qualifying is still one click
+          // away via the drawer's "Edit" button, so nothing is lost.
+          onRowClick={(l) => setSelected(l)}
           onSendQuote={goSendQuote}
           onFollowUp={setFollowUpLead}
           isDealsPage={isDealsPage}
@@ -2042,6 +2063,18 @@ function LeadListView({
                 key={lead.id}
                 data-lead-id={lead.id}
                 onClick={() => onRowClick(lead)}
+                tabIndex={0}
+                aria-label={`Open ${lead.company}`}
+                onKeyDown={(e) => {
+                  // Keyboard parity with the mouse row-click (WCAG AA). Ignore
+                  // when focus is on an inner control (checkbox / stage select /
+                  // action link) so their own keys aren't hijacked.
+                  if (e.target !== e.currentTarget) return;
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    onRowClick(lead);
+                  }
+                }}
                 className={cn(
                   "border-b border-hairline last:border-0 cursor-pointer transition-colors group",
                   // Selected rows pick up the brand accent. Hover state

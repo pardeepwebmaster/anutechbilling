@@ -923,7 +923,101 @@ export function QuoteBuilder() {
             </Button>
           </div>
         ) : (
-          <table className="w-full">
+          <>
+          {/* Mobile: each line item as a stacked, fully-editable card. The
+              table below is a wide multi-field editor that side-scrolls
+              badly on phones (§20). */}
+          <div className="md:hidden divide-y divide-hairline">
+            {lineItems.map((line) => {
+              const commitment  = line.commitment ?? "annual_yearly";
+              const billingN    = invoicesPerYear(commitment);
+              const unitLabel   = billingUnitLabel(commitment);
+              const displayRate = Math.round(line.rate / billingN);
+              const displayCost = Math.round(line.cost / billingN);
+              const commitType: "monthly" | "annual" = commitment === "monthly" ? "monthly" : "annual";
+              const lineDiscountPct = line.discount_pct ?? 0;
+              const netRate  = line.rate * (1 - lineDiscountPct / 100);
+              const lineMargin = computeMargin(line.cost * line.qty, netRate * line.qty);
+              const lineGross  = line.qty * line.rate;
+              const lineNet    = lineGross - Math.round(lineGross * (lineDiscountPct / 100));
+              return (
+                <div key={line.id} className="p-3 space-y-2.5">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="font-medium text-sm text-ink">{line.name}</div>
+                      {line.bulk && line.domains && line.domains.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setViewDomains({ name: line.name, domains: line.domains! })}
+                          className="mt-0.5 text-[11px] text-amber-ink hover:underline inline-flex items-center gap-1"
+                        >
+                          ▸ {line.domains.length} domains · {line.domains.reduce((s, d) => s + d.seats, 0)} seats
+                        </button>
+                      )}
+                    </div>
+                    <IconButton icon="trash" aria-label="Remove line" size="sm" onClick={() => removeLine(line.id)} />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <label className="block">
+                      <span className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold">Qty</span>
+                      {line.bulk ? (
+                        <div className="mt-0.5 px-2 py-1.5 text-sm tabular-nums text-ink border border-hairline rounded bg-paper-2/40">{line.qty}</div>
+                      ) : (
+                        <input
+                          type="number" min={1} value={line.qty}
+                          onChange={(e) => updateQty(line.id, parseInt(e.target.value) || 0)}
+                          className="mt-0.5 w-full px-2 py-1.5 text-sm tabular-nums border border-hairline rounded bg-paper focus:outline-none focus:ring-2 focus:ring-amber focus:border-amber"
+                        />
+                      )}
+                    </label>
+                    <label className="block">
+                      <span className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold">Rate ₹{unitLabel}</span>
+                      <input
+                        type="number" min={0} value={displayRate}
+                        onChange={(e) => updateRate(line.id, (parseInt(e.target.value) || 0) * billingN)}
+                        className="mt-0.5 w-full px-2 py-1.5 text-sm tabular-nums border border-hairline rounded bg-paper focus:outline-none focus:ring-2 focus:ring-amber focus:border-amber"
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold">Commit</span>
+                      <select
+                        value={commitType}
+                        onChange={(e) => updateCommitment(line.id, e.target.value === "monthly" ? "monthly" : "annual_yearly")}
+                        className="mt-0.5 w-full px-2 py-1.5 text-sm border border-hairline rounded bg-paper focus:outline-none focus:ring-2 focus:ring-amber focus:border-amber"
+                      >
+                        <option value="monthly">Monthly flex</option>
+                        <option value="annual">Annual (1-yr)</option>
+                      </select>
+                    </label>
+                    <label className="block">
+                      <span className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold">Starts</span>
+                      <input
+                        type="date" value={line.start_date ?? ""}
+                        onChange={(e) => updateStartDate(line.id, e.target.value)}
+                        className="mt-0.5 w-full px-2 py-1.5 text-sm border border-hairline rounded bg-paper text-ink focus:outline-none focus:ring-2 focus:ring-amber focus:border-amber"
+                      />
+                    </label>
+                  </div>
+                  <div className="text-[11px] text-ink-3 inline-flex items-center gap-1 flex-wrap">
+                    <span>Cost ₹</span>
+                    <input
+                      type="number" min={0} value={displayCost}
+                      onChange={(e) => updateCost(line.id, (parseInt(e.target.value) || 0) * billingN)}
+                      className="w-14 px-1 py-0.5 text-[11px] text-right tabular-nums border border-hairline rounded bg-paper focus:outline-none focus:ring-1 focus:ring-amber focus:border-amber"
+                    />
+                    <span>/seat{unitLabel} · Margin {lineMargin.marginPct}%</span>
+                  </div>
+                  <div className="flex items-center justify-between border-t border-hairline pt-2">
+                    <span className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold">Amount</span>
+                    <span className="font-medium text-sm tabular-nums">{rupee(lineNet)}{billingN > 1 ? " /yr" : ""}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Desktop / tablet table */}
+          <table className="hidden md:table w-full">
             <thead className="bg-paper-2 border-b border-hairline">
               <tr>
                 <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Description</th>
@@ -1085,6 +1179,7 @@ export function QuoteBuilder() {
               })}
             </tbody>
           </table>
+          </>
         )}
 
         {/* Totals + Notes — only when we have items */}

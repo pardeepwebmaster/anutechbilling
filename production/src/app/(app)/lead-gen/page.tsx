@@ -28,16 +28,58 @@ import { formatDate } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 import type { Lead } from "@/lib/supabase/database.types";
 
-// ─── Static config data ───────────────────────────────────────────────────────
+// ─── Lead-source channel meta + aggregation (derived from real leads.source) ──
 
-const CAPTURE_CHANNELS = [
-  { id: "whatsapp",  label: "WhatsApp Business",   icon: "whatsapp", count: 12, conv: 33, status: "active",  note: "Highest volume source" },
-  { id: "website",   label: "Website form",         icon: "globe",    count: 8,  conv: 25, status: "active",  note: "exceltech.in/get-quote" },
-  { id: "referral",  label: "Referral program",     icon: "award",    count: 5,  conv: 60, status: "active",  note: "Best conversion · ₹5K credit per ref" },
-  { id: "cold",      label: "Cold outreach",        icon: "send",     count: 4,  conv: 20, status: "active",  note: "Apollo + Lemlist sequences" },
-  { id: "ads",       label: "Google Ads",           icon: "target",   count: 3,  conv: 13, status: "active",  note: "₹15K/mo spend · ₹5K/lead" },
-  { id: "linkedin",  label: "LinkedIn outbound",    icon: "users",    count: 2,  conv: 50, status: "paused",  note: "Manual DMs by Rahul" },
-] as const;
+const SOURCE_ICON: Record<string, string> = {
+  whatsapp: "whatsapp", website: "globe", referral: "award", cold: "send",
+  ads: "target", linkedin: "users", email: "mail", manual: "user", import: "download",
+};
+const SOURCE_LABEL: Record<string, string> = {
+  whatsapp: "WhatsApp Business", website: "Website form", referral: "Referral",
+  cold: "Cold outreach", ads: "Google Ads", linkedin: "LinkedIn",
+  email: "Email / Inbound", manual: "Manual entry", import: "CSV import",
+};
+
+/** Collapse a raw leads.source string into a canonical channel key. */
+function normalizeSource(raw: string | null | undefined): string {
+  const s = (raw ?? "manual").toLowerCase();
+  if (s.includes("whatsapp")) return "whatsapp";
+  if (s.includes("email")) return "email";
+  if (s.startsWith("buy") || s.includes("website") || s.includes("form")) return "website";
+  if (s.includes("referr")) return "referral";
+  if (s.includes("linkedin")) return "linkedin";
+  if (s.includes("cold") || s.includes("apollo") || s.includes("lemlist")) return "cold";
+  if (s.includes("google") || s.includes("ads") || s.includes("adword")) return "ads";
+  if (s.includes("csv") || s.includes("import")) return "import";
+  if (s.includes("manual")) return "manual";
+  return s;
+}
+
+interface CaptureChannel { id: string; label: string; icon: string; count: number; won: number; conv: number; }
+
+/** This-month lead count + conversion by capture channel, from real leads. */
+function computeCaptureChannels(leads: Lead[]): CaptureChannel[] {
+  const monthStart = new Date(); monthStart.setDate(1); monthStart.setHours(0, 0, 0, 0);
+  const byKey = new Map<string, { count: number; won: number }>();
+  for (const l of leads) {
+    if (!l.created_at || new Date(l.created_at) < monthStart) continue;
+    const key = normalizeSource(l.source);
+    const e = byKey.get(key) ?? { count: 0, won: 0 };
+    e.count++;
+    if (l.stage === "won") e.won++;
+    byKey.set(key, e);
+  }
+  return Array.from(byKey.entries())
+    .map(([id, v]) => ({
+      id,
+      label: SOURCE_LABEL[id] ?? id,
+      icon:  SOURCE_ICON[id] ?? "inbox",
+      count: v.count,
+      won:   v.won,
+      conv:  v.count > 0 ? Math.round((v.won / v.count) * 100) : 0,
+    }))
+    .sort((a, b) => b.count - a.count);
+}
 
 const WEBHOOKS = [
   {
@@ -149,31 +191,11 @@ function StageBadge({ stage }: { stage: Lead["stage"] }) {
 }
 
 function SourceIcon({ source }: { source: string | null }) {
-  const iconMap: Record<string, string> = {
-    whatsapp: "whatsapp",
-    website:  "globe",
-    referral: "award",
-    cold:     "send",
-    ads:      "target",
-    linkedin: "users",
-    email:    "mail",
-    manual:   "user",
-  };
-  const labelMap: Record<string, string> = {
-    whatsapp: "WhatsApp",
-    website:  "Website",
-    referral: "Referral",
-    cold:     "Cold",
-    ads:      "Ads",
-    linkedin: "LinkedIn",
-    email:    "Email",
-    manual:   "Manual",
-  };
-  const key = source ?? "manual";
+  const key = normalizeSource(source);
   return (
     <span className="inline-flex items-center gap-1.5 text-xs text-ink-3">
-      <Icon name={iconMap[key] ?? "inbox"} size={13} />
-      {labelMap[key] ?? key}
+      <Icon name={SOURCE_ICON[key] ?? "inbox"} size={13} />
+      {SOURCE_LABEL[key] ?? key}
     </span>
   );
 }
@@ -373,6 +395,8 @@ function ShareFormSheet({ onClose }: { onClose: () => void }) {
 
 export default function LeadGenPage() {
   const { data: leads, isLoading } = useLeads();
+  // Real capture channels: this-month lead count + conversion by source.
+  const captureChannels = React.useMemo(() => computeCaptureChannels(leads ?? []), [leads]);
   const [showShare, setShowShare] = React.useState(false);
   const [addOpen, setAddOpen]     = React.useState(false);
 
@@ -384,11 +408,11 @@ export default function LeadGenPage() {
 
   // KPI calculations
   const mtdLeads    = recentLeads.length;
-  const total       = CAPTURE_CHANNELS.reduce((s, x) => s + x.count, 0);
+  const total       = captureChannels.reduce((s, x) => s + x.count, 0);
   const avgConv     = Math.round(
-    CAPTURE_CHANNELS.reduce((s, x) => s + x.count * x.conv, 0) / Math.max(1, total),
+    captureChannels.reduce((s, x) => s + x.count * x.conv, 0) / Math.max(1, total),
   );
-  const topSource   = [...CAPTURE_CHANNELS].sort((a, b) => b.count - a.count)[0];
+  const topSource   = captureChannels[0]; // already sorted by count desc (may be undefined)
 
   return (
     <div className="mx-auto max-w-[1800px] px-8 pb-20 pt-7">
@@ -450,10 +474,10 @@ export default function LeadGenPage() {
         />
         <KPI
           label="Top source"
-          value={topSource.label.split(" ")[0]}
-          trend={`${topSource.count} this month`}
+          value={topSource ? topSource.label.split(" ")[0] : "—"}
+          trend={topSource ? `${topSource.count} this month` : "No leads yet"}
           trendKind="neutral"
-          icon={topSource.icon}
+          icon={topSource?.icon ?? "inbox"}
         />
         <KPI
           label="Avg response"
@@ -480,50 +504,43 @@ export default function LeadGenPage() {
             <Button
               variant="default"
               size="sm"
-              onClick={() => toast.info("Add channel coming soon")}
+              onClick={() => setShowShare(true)}
             >
-              <Icon name="plus" size={12} />
-              Add channel
+              <Icon name="link" size={12} />
+              Get capture link
             </Button>
           </div>
-          <div className="divide-y divide-hairline">
-            {CAPTURE_CHANNELS.map((s) => (
-              <div
-                key={s.id}
-                className="grid items-center gap-3 py-2.5"
-                style={{ gridTemplateColumns: "32px 1fr 80px 80px 72px" }}
-              >
+          {captureChannels.length === 0 ? (
+            <div className="py-8 text-center text-sm text-ink-3">
+              No leads captured this month yet. New leads are grouped here by their source
+              (WhatsApp, website form, referral, import, …) automatically.
+            </div>
+          ) : (
+            <div className="divide-y divide-hairline">
+              {captureChannels.map((s) => (
                 <div
-                  className={cn(
-                    "flex h-8 w-8 items-center justify-center rounded-lg",
-                    s.status === "active"
-                      ? "bg-indigo-50 text-indigo-600"
-                      : "bg-paper-2 text-ink-3",
-                  )}
+                  key={s.id}
+                  className="grid items-center gap-3 py-2.5"
+                  style={{ gridTemplateColumns: "32px 1fr 64px 80px" }}
                 >
-                  <Icon name={s.icon} size={15} />
+                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600">
+                    <Icon name={s.icon} size={15} />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-ink truncate">{s.label}</p>
+                    <p className="text-xs text-ink-3">{s.won} won this month</p>
+                  </div>
+                  <div className="text-right font-serif text-lg tabular-nums text-ink">
+                    {s.count}
+                  </div>
+                  <div className="text-right">
+                    <p className="text-xs font-medium tabular-nums text-ink">{s.conv}%</p>
+                    <p className="text-[10px] text-ink-3">conv rate</p>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-sm font-medium text-ink">{s.label}</p>
-                  <p className="text-xs text-ink-3">{s.note}</p>
-                </div>
-                <div className="text-right font-serif text-lg tabular-nums text-ink">
-                  {s.count}
-                </div>
-                <div className="text-right">
-                  <p className="text-xs font-medium tabular-nums text-ink">{s.conv}%</p>
-                  <p className="text-[10px] text-ink-3">conv rate</p>
-                </div>
-                <div className="text-right">
-                  {s.status === "active" ? (
-                    <Badge kind="success" dot>Active</Badge>
-                  ) : (
-                    <Badge kind="muted" dot>Paused</Badge>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </Card>
 
         {/* Public form preview */}

@@ -168,39 +168,46 @@ export function AddLineItemDialog({ open, onOpenChange, onAdd }: AddLineItemDial
                   No items match "{search}"
                 </div>
               ) : (
-                <table className="w-full">
-                  <tbody>
-                    {filtered.map((it) => (
-                      <tr
-                        key={it.id}
-                        className="border-b border-hairline last:border-0 hover:bg-paper-2 transition-colors cursor-pointer"
+                <ul className="divide-y divide-hairline">
+                  {filtered.map((it) => (
+                    <li key={it.id}>
+                      {/* Responsive flex row (was a 4-col table that overflowed
+                          on phones — squished names + clipped Add button). The
+                          whole row adds the item; "Add" is a visual affordance. */}
+                      <button
+                        type="button"
                         onClick={() => addFromCatalog(it)}
+                        className="w-full flex items-center gap-2.5 px-4 sm:px-6 py-3 text-left hover:bg-paper-2 transition-colors"
                       >
-                        <td className="px-6 py-3">
-                          <div className="font-medium text-sm">{it.name}</div>
-                          <div className="text-[11px] text-ink-3 font-mono">{it.id}</div>
-                        </td>
-                        <td className="px-3 py-3">
-                          <Badge kind={it.vendor === "google" ? "info" : it.vendor === "microsoft" ? "info" : "success"}>
-                            {it.vendor}
-                          </Badge>
-                        </td>
-                        <td className="px-3 py-3 text-right tabular-nums text-sm">
-                          <div className="font-medium">{rupee(it.msrp)}/mo</div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <span className="font-medium text-sm text-ink truncate">{it.name}</span>
+                            <Badge
+                              size="sm"
+                              kind={it.vendor === "google" || it.vendor === "microsoft" ? "info" : "success"}
+                              className="shrink-0"
+                            >
+                              {it.vendor}
+                            </Badge>
+                          </div>
+                          <div className="text-[11px] text-ink-3 font-mono truncate">{it.id}</div>
+                        </div>
+                        <div className="text-right shrink-0 tabular-nums">
+                          <div className="font-medium text-sm">{rupee(it.msrp)}/mo</div>
                           <div className={cn(
                             "text-[10px]",
                             it.margin_pct >= 18 ? "text-emerald" : it.margin_pct >= 14 ? "text-amber-ink" : "text-rose"
                           )}>
                             {it.margin_pct}% margin
                           </div>
-                        </td>
-                        <td className="px-6 py-3 text-right">
-                          <Button size="sm" variant="primary" icon="plus">Add</Button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                        </div>
+                        <span className="shrink-0 inline-flex items-center gap-1 rounded-md bg-amber text-white text-xs font-semibold px-2.5 py-1.5">
+                          <Icon name="plus" size={13} /> Add
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
               )}
             </div>
 

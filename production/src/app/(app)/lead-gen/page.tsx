@@ -1,11 +1,11 @@
 /**
- * Lead Sources — matches prototype screen "lead-gen".
+ * Lead Sources.
  *
  * Layout:
  *   - Page header (Sales · Lead Sources + Share form / Import CSV / Add Lead)
  *   - 4 KPIs: Leads MTD / Avg conversion / Top source / Avg response
- *   - 2-col: Capture channels (static config) | Public form preview
- *   - Webhook endpoints (accordion)
+ *   - 2-col: Capture channels (real, grouped by leads.source; click a channel
+ *     to see its leads in a modal) | Public pages (enquiry form + buy page)
  *   - Recent inbound leads (real Supabase data, last 7 days)
  */
 "use client";
@@ -23,10 +23,16 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Button, IconButton } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
 import { formatDate } from "@/lib/utils";
-import { cn } from "@/lib/utils";
 import type { Lead } from "@/lib/supabase/database.types";
 
 // ─── Lead-source channel meta + aggregation (derived from real leads.source) ──
@@ -248,8 +254,9 @@ export default function LeadGenPage() {
   const router = useRouter();
   // Real capture channels: this-month lead count + conversion by source.
   const captureChannels = React.useMemo(() => computeCaptureChannels(leads ?? []), [leads]);
-  // Which channel row is expanded to reveal its leads.
+  // Which capture channel's leads are shown in the modal (by id).
   const [openChannel, setOpenChannel] = React.useState<string | null>(null);
+  const openCh = captureChannels.find((c) => c.id === openChannel) ?? null;
   // Which public page (if any) the Share sheet is open for.
   const [share, setShare]         = React.useState<ShareTarget | null>(null);
   const [addOpen, setAddOpen]     = React.useState(false);
@@ -377,59 +384,33 @@ export default function LeadGenPage() {
             </div>
           ) : (
             <div className="divide-y divide-hairline">
-              {captureChannels.map((s) => {
-                const isOpen = openChannel === s.id;
-                return (
-                <div key={s.id}>
-                  {/* Row — click to expand this channel's leads */}
-                  <button
-                    type="button"
-                    onClick={() => setOpenChannel(isOpen ? null : s.id)}
-                    aria-expanded={isOpen}
-                    className="w-full grid items-center gap-3 py-2.5 text-left rounded-md hover:bg-paper-2/40 transition-colors"
-                    style={{ gridTemplateColumns: "32px 1fr 64px 80px 20px" }}
-                  >
-                    <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600">
-                      <Icon name={s.icon} size={15} />
-                    </div>
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium text-ink truncate">{s.label}</p>
-                      <p className="text-xs text-ink-3">{s.won} won this month</p>
-                    </div>
-                    <div className="text-right font-serif text-lg tabular-nums text-ink">
-                      {s.count}
-                    </div>
-                    <div className="text-right">
-                      <p className="text-xs font-medium tabular-nums text-ink">{s.conv}%</p>
-                      <p className="text-[10px] text-ink-3">conv rate</p>
-                    </div>
-                    <Icon name="chevron_down" size={14} className={cn("text-ink-3 justify-self-end transition-transform", isOpen && "rotate-180")} />
-                  </button>
-
-                  {/* Expanded — the leads captured via this channel this month */}
-                  {isOpen && (
-                    <div className="pb-2.5 pl-11 pr-1 space-y-0.5">
-                      {s.leads.map((l) => (
-                        <button
-                          key={l.id}
-                          type="button"
-                          onClick={() => router.push(`/leads?lead=${l.id}` as never)}
-                          className="w-full flex items-center justify-between gap-3 px-2 py-1.5 rounded-md text-left hover:bg-paper-2 transition-colors"
-                        >
-                          <span className="min-w-0 flex-1">
-                            <span className="block text-sm text-ink truncate">{l.company}</span>
-                            <span className="block text-[11px] text-ink-3 truncate">
-                              {l.contact_name ?? l.contact_email ?? "—"} · {formatDate(l.created_at)}
-                            </span>
-                          </span>
-                          <Icon name="arrow_right" size={13} className="text-ink-3 shrink-0" />
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-                );
-              })}
+              {captureChannels.map((s) => (
+                /* Row — click to see this channel's leads in a modal (keeps the
+                   page compact even when a channel has hundreds of leads). */
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => setOpenChannel(s.id)}
+                  className="w-full grid items-center gap-3 py-2.5 text-left rounded-md hover:bg-paper-2/40 transition-colors"
+                  style={{ gridTemplateColumns: "32px 1fr 64px 80px 20px" }}
+                >
+                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600">
+                    <Icon name={s.icon} size={15} />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-ink truncate">{s.label}</p>
+                    <p className="text-xs text-ink-3">{s.won} won this month</p>
+                  </div>
+                  <div className="text-right font-serif text-lg tabular-nums text-ink">
+                    {s.count}
+                  </div>
+                  <div className="text-right">
+                    <p className="text-xs font-medium tabular-nums text-ink">{s.conv}%</p>
+                    <p className="text-[10px] text-ink-3">conv rate</p>
+                  </div>
+                  <Icon name="chevron_right" size={14} className="text-ink-3 justify-self-end" />
+                </button>
+              ))}
             </div>
           )}
         </Card>
@@ -608,6 +589,54 @@ export default function LeadGenPage() {
           </div>
         )}
       </Card>
+
+      {/* ── Channel leads modal — the leads captured via one channel this
+          month. A scrollable dialog instead of an inline accordion, so the
+          page stays compact even when a channel has hundreds of leads. ── */}
+      <Dialog open={!!openChannel} onOpenChange={(o) => { if (!o) setOpenChannel(null); }}>
+        <DialogContent className="max-w-md p-0">
+          <DialogHeader className="px-5 pt-5">
+            <DialogTitle className="flex items-center gap-2">
+              {openCh && (
+                <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600">
+                  <Icon name={openCh.icon} size={14} />
+                </span>
+              )}
+              {openCh?.label ?? "Channel"}
+            </DialogTitle>
+            <DialogDescription>
+              {openCh
+                ? `${openCh.count} lead${openCh.count === 1 ? "" : "s"} this month · ${openCh.won} won · ${openCh.conv}% conversion`
+                : ""}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="max-h-[60vh] overflow-y-auto px-3 pb-4 pt-1">
+            {openCh?.leads.length ? (
+              <div className="space-y-0.5">
+                {openCh.leads.map((l) => (
+                  <button
+                    key={l.id}
+                    type="button"
+                    onClick={() => { setOpenChannel(null); router.push(`/leads?lead=${l.id}` as never); }}
+                    className="w-full flex items-center justify-between gap-3 px-2 py-2 rounded-md text-left hover:bg-paper-2 transition-colors"
+                  >
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-sm text-ink truncate">{l.company}</span>
+                      <span className="block text-[11px] text-ink-3 truncate">
+                        {l.contact_name ?? l.contact_email ?? "—"} · {formatDate(l.created_at)}
+                      </span>
+                    </span>
+                    <Icon name="arrow_right" size={13} className="text-ink-3 shrink-0" />
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <p className="py-8 text-center text-sm text-ink-3">No leads in this channel.</p>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* ── Share form sheet ── */}
       {share && <ShareFormSheet target={share} onClose={() => setShare(null)} />}

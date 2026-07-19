@@ -138,7 +138,7 @@ export function AddLineItemDialog({ open, onOpenChange, onAdd }: AddLineItemDial
 
         {/* CATALOG tab */}
         {tab === "catalog" && (
-          <div>
+          <div className="min-w-0">
             <div className="px-6 pt-4 pb-2">
               <Input
                 prefix={<Icon name="search" size={14} />}
@@ -149,7 +149,7 @@ export function AddLineItemDialog({ open, onOpenChange, onAdd }: AddLineItemDial
               />
             </div>
 
-            <div className="max-h-[400px] overflow-y-auto border-t border-hairline">
+            <div className="max-h-[400px] overflow-y-auto overflow-x-hidden min-w-0 border-t border-hairline">
               {isLoading ? (
                 <div className="p-4 space-y-2">
                   {[1, 2, 3, 4].map((i) => (

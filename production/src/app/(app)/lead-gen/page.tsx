@@ -11,6 +11,7 @@
 "use client";
 
 import * as React from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import type { Route } from "next";
 import { useLeads } from "@/lib/queries/leads";
@@ -55,29 +56,33 @@ function normalizeSource(raw: string | null | undefined): string {
   return s;
 }
 
-interface CaptureChannel { id: string; label: string; icon: string; count: number; won: number; conv: number; }
+interface CaptureChannel { id: string; label: string; icon: string; count: number; won: number; conv: number; leads: Lead[]; }
 
-/** This-month lead count + conversion by capture channel, from real leads. */
+/** This-month lead count + conversion by capture channel, from real leads.
+ *  Also carries the matching leads so a channel row can expand to show them. */
 function computeCaptureChannels(leads: Lead[]): CaptureChannel[] {
   const monthStart = new Date(); monthStart.setDate(1); monthStart.setHours(0, 0, 0, 0);
-  const byKey = new Map<string, { count: number; won: number }>();
+  const byKey = new Map<string, Lead[]>();
   for (const l of leads) {
     if (!l.created_at || new Date(l.created_at) < monthStart) continue;
     const key = normalizeSource(l.source);
-    const e = byKey.get(key) ?? { count: 0, won: 0 };
-    e.count++;
-    if (l.stage === "won") e.won++;
-    byKey.set(key, e);
+    const arr = byKey.get(key) ?? [];
+    arr.push(l);
+    byKey.set(key, arr);
   }
   return Array.from(byKey.entries())
-    .map(([id, v]) => ({
-      id,
-      label: SOURCE_LABEL[id] ?? id,
-      icon:  SOURCE_ICON[id] ?? "inbox",
-      count: v.count,
-      won:   v.won,
-      conv:  v.count > 0 ? Math.round((v.won / v.count) * 100) : 0,
-    }))
+    .map(([id, arr]) => {
+      const won = arr.filter((l) => l.stage === "won").length;
+      return {
+        id,
+        label: SOURCE_LABEL[id] ?? id,
+        icon:  SOURCE_ICON[id] ?? "inbox",
+        count: arr.length,
+        won,
+        conv:  arr.length > 0 ? Math.round((won / arr.length) * 100) : 0,
+        leads: arr.slice().sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()),
+      };
+    })
     .sort((a, b) => b.count - a.count);
 }
 
@@ -395,8 +400,11 @@ function ShareFormSheet({ onClose }: { onClose: () => void }) {
 
 export default function LeadGenPage() {
   const { data: leads, isLoading } = useLeads();
+  const router = useRouter();
   // Real capture channels: this-month lead count + conversion by source.
   const captureChannels = React.useMemo(() => computeCaptureChannels(leads ?? []), [leads]);
+  // Which channel row is expanded to reveal its leads.
+  const [openChannel, setOpenChannel] = React.useState<string | null>(null);
   const [showShare, setShowShare] = React.useState(false);
   const [addOpen, setAddOpen]     = React.useState(false);
 
@@ -517,28 +525,59 @@ export default function LeadGenPage() {
             </div>
           ) : (
             <div className="divide-y divide-hairline">
-              {captureChannels.map((s) => (
-                <div
-                  key={s.id}
-                  className="grid items-center gap-3 py-2.5"
-                  style={{ gridTemplateColumns: "32px 1fr 64px 80px" }}
-                >
-                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600">
-                    <Icon name={s.icon} size={15} />
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium text-ink truncate">{s.label}</p>
-                    <p className="text-xs text-ink-3">{s.won} won this month</p>
-                  </div>
-                  <div className="text-right font-serif text-lg tabular-nums text-ink">
-                    {s.count}
-                  </div>
-                  <div className="text-right">
-                    <p className="text-xs font-medium tabular-nums text-ink">{s.conv}%</p>
-                    <p className="text-[10px] text-ink-3">conv rate</p>
-                  </div>
+              {captureChannels.map((s) => {
+                const isOpen = openChannel === s.id;
+                return (
+                <div key={s.id}>
+                  {/* Row — click to expand this channel's leads */}
+                  <button
+                    type="button"
+                    onClick={() => setOpenChannel(isOpen ? null : s.id)}
+                    aria-expanded={isOpen}
+                    className="w-full grid items-center gap-3 py-2.5 text-left rounded-md hover:bg-paper-2/40 transition-colors"
+                    style={{ gridTemplateColumns: "32px 1fr 64px 80px 20px" }}
+                  >
+                    <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600">
+                      <Icon name={s.icon} size={15} />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-ink truncate">{s.label}</p>
+                      <p className="text-xs text-ink-3">{s.won} won this month</p>
+                    </div>
+                    <div className="text-right font-serif text-lg tabular-nums text-ink">
+                      {s.count}
+                    </div>
+                    <div className="text-right">
+                      <p className="text-xs font-medium tabular-nums text-ink">{s.conv}%</p>
+                      <p className="text-[10px] text-ink-3">conv rate</p>
+                    </div>
+                    <Icon name="chevron_down" size={14} className={cn("text-ink-3 justify-self-end transition-transform", isOpen && "rotate-180")} />
+                  </button>
+
+                  {/* Expanded — the leads captured via this channel this month */}
+                  {isOpen && (
+                    <div className="pb-2.5 pl-11 pr-1 space-y-0.5">
+                      {s.leads.map((l) => (
+                        <button
+                          key={l.id}
+                          type="button"
+                          onClick={() => router.push(`/leads?lead=${l.id}` as never)}
+                          className="w-full flex items-center justify-between gap-3 px-2 py-1.5 rounded-md text-left hover:bg-paper-2 transition-colors"
+                        >
+                          <span className="min-w-0 flex-1">
+                            <span className="block text-sm text-ink truncate">{l.company}</span>
+                            <span className="block text-[11px] text-ink-3 truncate">
+                              {l.contact_name ?? l.contact_email ?? "—"} · {formatDate(l.created_at)}
+                            </span>
+                          </span>
+                          <Icon name="arrow_right" size={13} className="text-ink-3 shrink-0" />
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </Card>

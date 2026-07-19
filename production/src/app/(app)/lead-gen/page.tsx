@@ -300,8 +300,20 @@ function WebhookRow({
 // ─── Share form dialog (inline simple) ───────────────────────────────────────
 
 function ShareFormSheet({ onClose }: { onClose: () => void }) {
-  const url = "https://exceltech.in/get-quote";
+  // Point at the REAL, working public capture page served by this app
+  // (/buy/workspace → POST /api/public/enquiry/workspace → creates a lead +
+  // auto-draft quote). Build the absolute URL from the CURRENT host so the
+  // link always matches whatever domain the app is running on — no hardcoded
+  // placeholder domain (the old "exceltech.in/get-quote" 404'd; it never existed).
+  const origin =
+    typeof window !== "undefined" ? window.location.origin : "";
+  const url = `${origin}/buy/workspace`;
   const embed = `<iframe src="${url}?embed=1" width="100%" height="640" frameborder="0"></iframe>`;
+
+  const shareText = `Get a Google Workspace / Microsoft 365 quote in minutes: ${url}`;
+  const waLink   = `https://wa.me/?text=${encodeURIComponent(shareText)}`;
+  const mailLink = `mailto:?subject=${encodeURIComponent("Get a quote")}&body=${encodeURIComponent(shareText)}`;
+  const smsLink  = `sms:?body=${encodeURIComponent(shareText)}`;
 
   return (
     <div
@@ -367,7 +379,7 @@ function ShareFormSheet({ onClose }: { onClose: () => void }) {
               <Button
                 variant="default"
                 size="sm"
-                onClick={() => toast.info("Email coming soon")}
+                onClick={() => { window.location.href = mailLink; }}
               >
                 <Icon name="mail" size={12} />
                 Email link
@@ -375,7 +387,7 @@ function ShareFormSheet({ onClose }: { onClose: () => void }) {
               <Button
                 variant="default"
                 size="sm"
-                onClick={() => toast.info("WhatsApp coming soon")}
+                onClick={() => window.open(waLink, "_blank", "noopener")}
               >
                 <Icon name="whatsapp" size={12} />
                 WhatsApp
@@ -383,7 +395,7 @@ function ShareFormSheet({ onClose }: { onClose: () => void }) {
               <Button
                 variant="default"
                 size="sm"
-                onClick={() => toast.info("SMS coming soon")}
+                onClick={() => { window.location.href = smsLink; }}
               >
                 <Icon name="message" size={12} />
                 SMS
@@ -407,6 +419,12 @@ export default function LeadGenPage() {
   const [openChannel, setOpenChannel] = React.useState<string | null>(null);
   const [showShare, setShowShare] = React.useState(false);
   const [addOpen, setAddOpen]     = React.useState(false);
+  // Current host (no protocol) for the "Live at …/buy/workspace" hint. Reads
+  // window on the client so it always reflects the real deployed domain.
+  const [captureHost, setCaptureHost] = React.useState("");
+  React.useEffect(() => {
+    setCaptureHost(window.location.host);
+  }, []);
 
   // Last-7-days leads
   const cutoff = new Date(Date.now() - 7 * 86_400_000);
@@ -649,7 +667,9 @@ export default function LeadGenPage() {
             </button>
             <p className="mt-2 text-center text-[10px] text-ink-3">
               Live at{" "}
-              <code className="font-mono">exceltech.in/get-quote</code>
+              <code className="font-mono">
+                {captureHost}/buy/workspace
+              </code>
             </p>
           </div>
         </Card>

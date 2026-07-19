@@ -113,20 +113,27 @@ function SourceIcon({ source }: { source: string | null }) {
 
 // ─── Share form dialog (inline simple) ───────────────────────────────────────
 
-function ShareFormSheet({ onClose }: { onClose: () => void }) {
-  // Point at the REAL, working public enquiry form served by this app
-  // (/enquiry → POST /api/public/enquiry/general → creates a lead in the
-  // pipeline). Build the absolute URL from the CURRENT host so the link always
-  // matches whatever domain the app is running on — no hardcoded placeholder
-  // domain (the old "exceltech.in/get-quote" 404'd; it never existed).
+/** One of the reseller's PUBLIC pages that can be shared/embedded. */
+interface ShareTarget {
+  /** Absolute path on this app, e.g. "/enquiry" or "/buy/workspace". */
+  path: string;
+  /** Kicker shown above the sheet title, e.g. "Enquiry form". */
+  kicker: string;
+  /** Pre-filled share message (WhatsApp / email / SMS). */
+  blurb: string;
+}
+
+function ShareFormSheet({ target, onClose }: { target: ShareTarget; onClose: () => void }) {
+  // Build the absolute URL from the CURRENT host so the link always matches
+  // whatever domain the app is running on — no hardcoded placeholder domain.
   const origin =
     typeof window !== "undefined" ? window.location.origin : "";
-  const url = `${origin}/enquiry`;
+  const url = `${origin}${target.path}`;
   const embed = `<iframe src="${url}?embed=1" width="100%" height="640" frameborder="0"></iframe>`;
 
-  const shareText = `Get a Google Workspace / Microsoft 365 quote in minutes: ${url}`;
+  const shareText = `${target.blurb} ${url}`;
   const waLink   = `https://wa.me/?text=${encodeURIComponent(shareText)}`;
-  const mailLink = `mailto:?subject=${encodeURIComponent("Get a quote")}&body=${encodeURIComponent(shareText)}`;
+  const mailLink = `mailto:?subject=${encodeURIComponent(target.blurb)}&body=${encodeURIComponent(shareText)}`;
   const smsLink  = `sms:?body=${encodeURIComponent(shareText)}`;
 
   return (
@@ -140,7 +147,7 @@ function ShareFormSheet({ onClose }: { onClose: () => void }) {
       >
         <div className="flex items-center justify-between border-b border-hairline px-5 py-4">
           <div>
-            <p className="text-xs uppercase tracking-widest text-ink-3">Public form</p>
+            <p className="text-xs uppercase tracking-widest text-ink-3">{target.kicker}</p>
             <h2 className="font-serif text-lg text-ink">Share or embed</h2>
           </div>
           <IconButton icon="x" variant="ghost" size="sm" aria-label="Close" onClick={onClose} />
@@ -222,6 +229,18 @@ function ShareFormSheet({ onClose }: { onClose: () => void }) {
   );
 }
 
+// The reseller's two public, shareable pages.
+const ENQUIRY_SHARE: ShareTarget = {
+  path:   "/enquiry",
+  kicker: "Enquiry form",
+  blurb:  "Tell us your requirement and we'll send you a quote:",
+};
+const BUY_SHARE: ShareTarget = {
+  path:   "/buy/workspace",
+  kicker: "Google Workspace buy page",
+  blurb:  "Buy Google Workspace with a GST invoice, in minutes:",
+};
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function LeadGenPage() {
@@ -231,7 +250,8 @@ export default function LeadGenPage() {
   const captureChannels = React.useMemo(() => computeCaptureChannels(leads ?? []), [leads]);
   // Which channel row is expanded to reveal its leads.
   const [openChannel, setOpenChannel] = React.useState<string | null>(null);
-  const [showShare, setShowShare] = React.useState(false);
+  // Which public page (if any) the Share sheet is open for.
+  const [share, setShare]         = React.useState<ShareTarget | null>(null);
   const [addOpen, setAddOpen]     = React.useState(false);
   // Current host (no protocol) for the "Live at …/buy/workspace" hint. Reads
   // window on the client so it always reflects the real deployed domain.
@@ -271,7 +291,7 @@ export default function LeadGenPage() {
           <Button
             variant="default"
             size="sm"
-            onClick={() => setShowShare(true)}
+            onClick={() => setShare(ENQUIRY_SHARE)}
           >
             <Icon name="link" size={14} />
             Share form
@@ -344,7 +364,7 @@ export default function LeadGenPage() {
             <Button
               variant="default"
               size="sm"
-              onClick={() => setShowShare(true)}
+              onClick={() => setShare(ENQUIRY_SHARE)}
             >
               <Icon name="link" size={12} />
               Get capture link
@@ -414,51 +434,92 @@ export default function LeadGenPage() {
           )}
         </Card>
 
-        {/* Public form preview */}
+        {/* Public pages — the two links a reseller shares with prospects:
+            the enquiry form (lead sends a requirement) and the Google Workspace
+            buy page (self-serve purchase). Each can be shared or opened. */}
         <Card className="p-5">
-          <div className="mb-4 flex items-center justify-between">
-            <div>
-              <p className="text-sm font-semibold text-ink">Public capture form</p>
-              <p className="text-xs text-ink-3">Embed on website or share link</p>
-            </div>
-            <Button
-              variant="default"
-              size="sm"
-              onClick={() => setShowShare(true)}
-            >
-              <Icon name="external" size={12} />
-              Share
-            </Button>
+          <div className="mb-4">
+            <p className="text-sm font-semibold text-ink">Public pages</p>
+            <p className="text-xs text-ink-3">Share a link or embed on your website</p>
           </div>
 
-          {/* Live preview of the REAL public form (/enquiry) — WYSIWYG, so this
-              card always matches what customers actually see. pointer-events-none
-              keeps it a look-only preview; "Open form" opens the real page. */}
-          <div className="overflow-hidden rounded-lg border border-hairline bg-paper-2">
-            <div className="relative h-[320px] overflow-hidden">
-              <iframe
-                src="/enquiry?embed=1"
-                title="Public enquiry form preview"
-                className="pointer-events-none absolute left-0 top-0 h-[533px] w-[167%] origin-top-left scale-[0.6] border-0"
-                tabIndex={-1}
-                aria-hidden="true"
-              />
+          {/* ── Enquiry form (with live WYSIWYG preview) ── */}
+          <div className="mb-4">
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-ink">Enquiry form</p>
+                <p className="text-xs text-ink-3">Prospect sends a requirement → new lead</p>
+              </div>
+              <Button
+                variant="default"
+                size="sm"
+                className="shrink-0"
+                onClick={() => setShare(ENQUIRY_SHARE)}
+              >
+                <Icon name="external" size={12} />
+                Share
+              </Button>
+            </div>
+
+            {/* Live preview of the REAL /enquiry page. pointer-events-none keeps
+                it look-only; the card always matches what customers see. */}
+            <div className="overflow-hidden rounded-lg border border-hairline bg-paper-2">
+              <div className="relative h-[300px] overflow-hidden">
+                <iframe
+                  src="/enquiry?embed=1"
+                  title="Public enquiry form preview"
+                  className="pointer-events-none absolute left-0 top-0 h-[500px] w-[167%] origin-top-left scale-[0.6] border-0"
+                  tabIndex={-1}
+                  aria-hidden="true"
+                />
+              </div>
+            </div>
+
+            <div className="mt-2 flex items-center justify-between gap-2">
+              <code className="min-w-0 truncate rounded bg-paper-2 px-2 py-1 font-mono text-[10px] text-ink-3">
+                {captureHost}/enquiry
+              </code>
+              <Button
+                variant="default"
+                size="sm"
+                className="shrink-0"
+                onClick={() => window.open("/enquiry", "_blank", "noopener")}
+              >
+                <Icon name="external" size={12} />
+                Open
+              </Button>
             </div>
           </div>
 
-          <div className="mt-3 flex items-center justify-between gap-2">
-            <code className="min-w-0 truncate rounded bg-paper-2 px-2 py-1 font-mono text-[10px] text-ink-3">
-              {captureHost}/enquiry
+          {/* ── Google Workspace buy page ── */}
+          <div className="border-t border-hairline pt-4">
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-ink">Google Workspace buy page</p>
+                <p className="text-xs text-ink-3">Self-serve purchase · live GST pricing</p>
+              </div>
+              <div className="flex shrink-0 gap-1.5">
+                <Button
+                  variant="default"
+                  size="sm"
+                  onClick={() => setShare(BUY_SHARE)}
+                >
+                  <Icon name="external" size={12} />
+                  Share
+                </Button>
+                <Button
+                  variant="default"
+                  size="sm"
+                  onClick={() => window.open("/buy/workspace", "_blank", "noopener")}
+                >
+                  <Icon name="external" size={12} />
+                  Open
+                </Button>
+              </div>
+            </div>
+            <code className="block min-w-0 truncate rounded bg-paper-2 px-2 py-1 font-mono text-[10px] text-ink-3">
+              {captureHost}/buy/workspace
             </code>
-            <Button
-              variant="default"
-              size="sm"
-              className="shrink-0"
-              onClick={() => window.open("/enquiry", "_blank", "noopener")}
-            >
-              <Icon name="external" size={12} />
-              Open form
-            </Button>
           </div>
         </Card>
       </div>
@@ -549,7 +610,7 @@ export default function LeadGenPage() {
       </Card>
 
       {/* ── Share form sheet ── */}
-      {showShare && <ShareFormSheet onClose={() => setShowShare(false)} />}
+      {share && <ShareFormSheet target={share} onClose={() => setShare(null)} />}
 
       {/* ── Add Lead modal (same one used in Lead Pipeline) ── */}
       <AddLeadForm open={addOpen} onOpenChange={setAddOpen} />

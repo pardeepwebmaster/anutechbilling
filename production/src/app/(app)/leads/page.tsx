@@ -80,10 +80,9 @@ const LEAD_STAGES: { id: Lead["stage"]; label: string; dot: string }[] = [
   { id: "won",     label: "Won",          dot: "bg-emerald" },
 ];
 
-// Filter dropdown also offers "Lost" so operators can review archived leads.
-// Lost is an OUTCOME, not a Kanban column, so LEAD_STAGES (which drives the
-// board) deliberately omits it — only the filter list adds it back.
-const FILTER_STAGES: { id: Lead["stage"]; label: string; dot: string }[] = [
+// All stage meta including Lost (LEAD_STAGES omits Lost as it's an outcome,
+// not a Kanban column). Used to build the page-aware Filter list.
+const STAGE_META: { id: Lead["stage"]; label: string; dot: string }[] = [
   ...LEAD_STAGES,
   { id: "lost", label: "Lost", dot: "bg-ink-3" },
 ];
@@ -103,6 +102,15 @@ function LeadsPageInner() {
   // qualified pipeline; /leads shows raw inbox. No tab bar — each URL is
   // its own page now.
   const isDealsPage = pathname === "/deals";
+
+  // Filter offers only the stages that can actually appear on THIS page (else
+  // filtering e.g. "Won" on the raw Leads inbox always yields 0 rows). Mirrors
+  // the inline row dropdown: raw inbox = New/Contacted; deals = the deal stages.
+  const filterStages = STAGE_META.filter((s) =>
+    isDealsPage
+      ? s.id === "quote" || s.id === "demo" || s.id === "trial" || s.id === "won" || s.id === "lost"
+      : s.id === "new" || s.id === "contact",
+  );
 
   const [search, setSearch] = React.useState("");
   const [dragId, setDragId] = React.useState<string | null>(null);
@@ -432,7 +440,7 @@ function LeadsPageInner() {
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="w-56">
               <DropdownMenuLabel className="text-[10px] uppercase tracking-wider text-ink-3">Stage</DropdownMenuLabel>
-              {FILTER_STAGES.map((s) => (
+              {filterStages.map((s) => (
                 <DropdownMenuCheckboxItem
                   key={s.id}
                   checked={stageFilter.includes(s.id)}

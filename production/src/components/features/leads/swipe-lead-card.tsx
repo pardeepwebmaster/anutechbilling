@@ -136,7 +136,7 @@ export function SwipeLeadCard({ lead, onTap, onChangeStage, onSendQuote, stale }
   };
 
   return (
-    <li className="relative overflow-hidden rounded-lg h-full">
+    <li className="relative overflow-hidden rounded-lg">
       {/* Behind-card reveal panels — visible only as the card drags out
           of the way. Emerald = Call (right swipe), Indigo = WhatsApp
           (left swipe). pointer-events-none so they don't intercept taps. */}
@@ -164,7 +164,7 @@ export function SwipeLeadCard({ lead, onTap, onChangeStage, onSendQuote, stale }
         dragSnapToOrigin
         onDragEnd={handleDragEnd}
         style={{ x, touchAction: "pan-y" }}
-        className="relative bg-paper border border-hairline rounded-lg h-full"
+        className="relative bg-paper border border-hairline rounded-lg"
         data-lead-id={lead.id}
       >
         <button

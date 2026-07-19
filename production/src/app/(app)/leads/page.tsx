@@ -1981,7 +1981,7 @@ function LeadListView({
         Dense 3-row layout: header (co/value), contact, meta+actions.
         Stage quick-change chip + inline action icons are tap-isolated
         from the card via stopPropagation. */}
-    <ul className="md:hidden grid grid-cols-1 gap-3 flex-1 min-h-0 overflow-y-auto auto-rows-[minmax(120px,1fr)]">
+    <ul className="md:hidden space-y-3 pb-2">
       {sorted.map((lead) => {
         const stale = daysSince(lead.updated_at) > 14 && lead.stage !== "won" && lead.stage !== "lost";
         return (

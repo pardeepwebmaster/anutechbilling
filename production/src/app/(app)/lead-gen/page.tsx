@@ -617,60 +617,34 @@ export default function LeadGenPage() {
             </Button>
           </div>
 
-          {/* Form mockup */}
-          <div className="rounded-lg bg-paper-2 p-4 text-xs">
-            <div className="mb-3 flex items-center gap-2">
-              <div className="flex h-6 w-6 items-center justify-center rounded-md bg-ink font-serif text-sm text-paper">
-                R
-              </div>
-              <span className="font-serif text-sm text-ink">
-                Get a quote in 24 hours
-              </span>
+          {/* Live preview of the REAL public form (/enquiry) — WYSIWYG, so this
+              card always matches what customers actually see. pointer-events-none
+              keeps it a look-only preview; "Open form" opens the real page. */}
+          <div className="overflow-hidden rounded-lg border border-hairline bg-paper-2">
+            <div className="relative h-[320px] overflow-hidden">
+              <iframe
+                src="/enquiry?embed=1"
+                title="Public enquiry form preview"
+                className="pointer-events-none absolute left-0 top-0 h-[533px] w-[167%] origin-top-left scale-[0.6] border-0"
+                tabIndex={-1}
+                aria-hidden="true"
+              />
             </div>
-            {[
-              { label: "Company name *", placeholder: "Acme Corp Pvt Ltd" },
-              { label: "Your name *",    placeholder: "Rajesh Kumar" },
-              { label: "Email *",        placeholder: "rajesh@acme.com" },
-              { label: "Phone",          placeholder: "+91 98765 43210" },
-            ].map((f) => (
-              <div key={f.label} className="mb-2.5">
-                <p className="mb-0.5 text-[10px] font-medium uppercase tracking-wider text-ink-3">
-                  {f.label}
-                </p>
-                <input
-                  disabled
-                  placeholder={f.placeholder}
-                  className="w-full rounded-md border border-hairline bg-paper px-2.5 py-1.5 text-xs text-ink-3 placeholder:text-ink-3/60"
-                />
-              </div>
-            ))}
-            <div className="mb-2.5">
-              <p className="mb-1 text-[10px] font-medium uppercase tracking-wider text-ink-3">
-                Interested in
-              </p>
-              <div className="flex flex-wrap gap-1.5">
-                {["Workspace", "M365", "Zoho", "Help me choose"].map((o) => (
-                  <span
-                    key={o}
-                    className="rounded-full border border-hairline bg-paper px-2 py-0.5 text-[10px] text-ink-3"
-                  >
-                    {o}
-                  </span>
-                ))}
-              </div>
-            </div>
-            <button
-              disabled
-              className="mt-1 w-full rounded-md bg-amber py-1.5 text-xs font-medium text-white opacity-80"
+          </div>
+
+          <div className="mt-3 flex items-center justify-between gap-2">
+            <code className="min-w-0 truncate rounded bg-paper-2 px-2 py-1 font-mono text-[10px] text-ink-3">
+              {captureHost}/enquiry
+            </code>
+            <Button
+              variant="default"
+              size="sm"
+              className="shrink-0"
+              onClick={() => window.open("/enquiry", "_blank", "noopener")}
             >
-              Get my quote
-            </button>
-            <p className="mt-2 text-center text-[10px] text-ink-3">
-              Live at{" "}
-              <code className="font-mono">
-                {captureHost}/enquiry
-              </code>
-            </p>
+              <Icon name="external" size={12} />
+              Open form
+            </Button>
           </div>
         </Card>
       </div>

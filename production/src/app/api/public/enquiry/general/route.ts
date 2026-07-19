@@ -1,0 +1,171 @@
+/**
+ * POST /api/public/enquiry/general
+ *
+ * General-purpose PUBLIC lead-capture endpoint for the shareable enquiry form
+ * at /enquiry. Anonymous visitors hit this — no auth required.
+ *
+ * Unlike /api/public/enquiry/workspace (which is purchase-oriented: it needs a
+ * tier + seat count and auto-drafts a priced Google Workspace quote), THIS
+ * endpoint is for "tell us your requirement" enquiries. The visitor describes
+ * what they need in free text; we simply create a `leads` row (stage='new',
+ * source='enquiry-form') and notify the reseller. No pricing, no auto-quote —
+ * Pardeep reads the requirement and follows up.
+ *
+ * Security:
+ * - Validated with Zod (rejects malformed bodies)
+ * - Uses the admin client (bypasses RLS — the visitor has no session) but writes
+ *   ONLY to the single BUY_PAGE_TENANT_ID tenant, so there is no cross-tenant
+ *   surface. (Same model as the workspace enquiry route.)
+ */
+import { NextResponse, type NextRequest } from "next/server";
+import { z } from "zod";
+import { createAdminClient } from "@/lib/supabase/server";
+import { sendEmail } from "@/lib/email/send";
+
+const FROM_EMAIL = process.env.RESEND_FROM_DEFAULT?.trim() || "ResellerOS <onboarding@resend.dev>";
+const APP_URL    = process.env.NEXT_PUBLIC_APP_URL?.trim() || "https://resellersos.web.app";
+
+// The tenant that owns the public capture form. Explicit env var (shared with
+// the buy page) so it can't drift when new tenants get seeded.
+const BUY_PAGE_TENANT_ID =
+  process.env.BUY_PAGE_TENANT_ID?.trim() || "fbb976f1-9090-4f10-9726-0901bd144e42";
+
+// Human labels for the product a lead is interested in. Kept in sync with the
+// <select> options on the /enquiry form.
+const PRODUCT_LABEL: Record<string, string> = {
+  "google-workspace": "Google Workspace",
+  "microsoft-365":    "Microsoft 365",
+  "zoho":             "Zoho",
+  "other":            "Other / Not sure",
+};
+
+const enquirySchema = z.object({
+  fullName:    z.string().min(2).max(120),
+  companyName: z.string().min(2).max(200),
+  email:       z.string().email().max(200),
+  phone:       z.string().min(10).max(20),
+  product:     z.enum(["google-workspace", "microsoft-365", "zoho", "other"]).optional(),
+  seats:       z.coerce.number().int().min(1).max(100000).optional(),
+  message:     z.string().min(5, "Please describe what you need").max(2000),
+});
+
+export async function POST(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const parsed = enquirySchema.safeParse(body);
+
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: "Invalid form data: " + parsed.error.issues.map((i) => i.message).join(", ") },
+        { status: 400 },
+      );
+    }
+
+    const { fullName, companyName, email, phone, product, seats, message } = parsed.data;
+
+    const admin = createAdminClient();
+    const tenantId = BUY_PAGE_TENANT_ID;
+
+    const productLabel = product ? PRODUCT_LABEL[product] : null;
+
+    const leadId    = "L-" + Date.now().toString(36).toUpperCase();
+    const leadNotes = [
+      "Submitted via public enquiry form (/enquiry)",
+      productLabel ? `Interested in: ${productLabel}` : null,
+      seats ? `Approx users: ${seats}` : null,
+      `Requirement: ${message}`,
+    ].filter(Boolean).join("\n");
+
+    const { error: leadErr } = await admin.from("leads").insert({
+      id:            leadId,
+      tenant_id:     tenantId,
+      company:       companyName,
+      contact_name:  fullName,
+      contact_email: email,
+      contact_phone: phone,
+      plan:          product ?? null,
+      seats:         seats ?? null,
+      stage:         "new",
+      source:        "enquiry-form",
+      notes:         leadNotes,
+    });
+
+    if (leadErr) {
+      console.error("[/api/public/enquiry/general] lead insert failed:", leadErr);
+      return NextResponse.json(
+        { error: "Could not save your enquiry. Please try again or call us." },
+        { status: 500 },
+      );
+    }
+
+    // ── Notify the reseller (best-effort — don't fail the request on email) ──
+    // Pull the tenant's own inbox so alerts land with the right owner, not a
+    // hardcoded address.
+    const { data: tenant } = await admin
+      .from("tenants")
+      .select("email, name")
+      .eq("id", tenantId)
+      .maybeSingle();
+
+    const ownerEmail = tenant?.email;
+    const firstName  = fullName.split(" ")[0];
+
+    await Promise.allSettled([
+      // 1. Reseller alert
+      ownerEmail
+        ? sendEmail({
+            to:      ownerEmail,
+            from:    FROM_EMAIL,
+            replyTo: email,
+            subject: `🔔 New enquiry — ${companyName}${productLabel ? ` (${productLabel})` : ""}`,
+            text:
+`A new enquiry just came in through your public form.
+
+COMPANY     ${companyName}
+CONTACT     ${fullName} <${email}>
+PHONE       ${phone}
+${productLabel ? `INTEREST    ${productLabel}\n` : ""}${seats ? `USERS       ${seats}\n` : ""}
+REQUIREMENT
+${message}
+
+Open the lead to follow up:
+${APP_URL}/leads/${leadId}
+
+— ResellerOS`,
+          })
+        : Promise.resolve({ status: "skipped" as const }),
+
+      // 2. Customer acknowledgement
+      sendEmail({
+        to:      email,
+        from:    FROM_EMAIL,
+        replyTo: ownerEmail,
+        subject: `Got your enquiry, ${firstName} — we'll be in touch shortly`,
+        text:
+`Hi ${firstName},
+
+Thanks for reaching out${tenant?.name ? ` to ${tenant.name}` : ""}. We've received your requirement and someone will get back to you shortly.
+
+WHAT WE HAVE FROM YOU
+  Company       ${companyName}
+${productLabel ? `  Interested in ${productLabel}\n` : ""}${seats ? `  Users         ${seats}\n` : ""}  Requirement   ${message}
+
+If it's urgent, just reply to this email.
+
+— Team${tenant?.name ? ` ${tenant.name}` : ""}`,
+      }),
+    ]).then((results) => {
+      results.forEach((r, i) => {
+        if (r.status === "rejected") {
+          console.error(`[enquiry/general] email ${i === 0 ? "to owner" : "to customer"} failed:`, r.reason);
+        }
+      });
+    });
+
+    return NextResponse.json({ success: true, leadId });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    console.error("[/api/public/enquiry/general] crashed:", message);
+    return NextResponse.json({ error: "Something went wrong. Please try again." }, { status: 500 });
+  }
+}

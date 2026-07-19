@@ -300,14 +300,14 @@ function WebhookRow({
 // ─── Share form dialog (inline simple) ───────────────────────────────────────
 
 function ShareFormSheet({ onClose }: { onClose: () => void }) {
-  // Point at the REAL, working public capture page served by this app
-  // (/buy/workspace → POST /api/public/enquiry/workspace → creates a lead +
-  // auto-draft quote). Build the absolute URL from the CURRENT host so the
-  // link always matches whatever domain the app is running on — no hardcoded
-  // placeholder domain (the old "exceltech.in/get-quote" 404'd; it never existed).
+  // Point at the REAL, working public enquiry form served by this app
+  // (/enquiry → POST /api/public/enquiry/general → creates a lead in the
+  // pipeline). Build the absolute URL from the CURRENT host so the link always
+  // matches whatever domain the app is running on — no hardcoded placeholder
+  // domain (the old "exceltech.in/get-quote" 404'd; it never existed).
   const origin =
     typeof window !== "undefined" ? window.location.origin : "";
-  const url = `${origin}/buy/workspace`;
+  const url = `${origin}/enquiry`;
   const embed = `<iframe src="${url}?embed=1" width="100%" height="640" frameborder="0"></iframe>`;
 
   const shareText = `Get a Google Workspace / Microsoft 365 quote in minutes: ${url}`;
@@ -668,7 +668,7 @@ export default function LeadGenPage() {
             <p className="mt-2 text-center text-[10px] text-ink-3">
               Live at{" "}
               <code className="font-mono">
-                {captureHost}/buy/workspace
+                {captureHost}/enquiry
               </code>
             </p>
           </div>

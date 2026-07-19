@@ -78,6 +78,17 @@ interface SwipeLeadCardProps {
 export function SwipeLeadCard({ lead, onTap, onChangeStage, onSendQuote, stale }: SwipeLeadCardProps) {
   const stageMeta = LEAD_STAGES.find((s) => s.id === lead.stage);
 
+  // Quote-first funnel gating (mirrors the drawer + desktop row select):
+  //  • Pre-quote lead (new/contact): only New / Contacted / Lost. To advance
+  //    you must Send a quote (the 📄 icon), which moves it into Deals.
+  //  • Post-quote deal: the deal stages only (no going back to the inbox).
+  const isPreQuote = lead.stage === "new" || lead.stage === "contact";
+  const stageOptions = LEAD_STAGES.filter((s) =>
+    isPreQuote
+      ? s.id === "new" || s.id === "contact" || s.id === "lost"
+      : s.id !== "new" && s.id !== "contact",
+  );
+
   // Phone normalisation for wa.me + tel: — assume Indian +91 if 10 digits.
   const phoneDigits = (lead.contact_phone ?? "").replace(/\D/g, "");
   const waNumber    = phoneDigits.startsWith("91")
@@ -228,7 +239,7 @@ export function SwipeLeadCard({ lead, onTap, onChangeStage, onSendQuote, stale }
                       Move {lead.company} to…
                     </DropdownMenuLabel>
                     <DropdownMenuSeparator />
-                    {LEAD_STAGES.map((s) => (
+                    {stageOptions.map((s) => (
                       <DropdownMenuItem
                         key={s.id}
                         disabled={s.id === lead.stage}

@@ -301,7 +301,7 @@ type WhatsAppMessageUpdate = Partial<Omit<WhatsAppMessageInsert, "id" | "tenant_
 // Banking — bank_accounts + bank_transactions (migration 0048)
 // ============================================================
 export type BankAccountType =
-  | "current" | "savings" | "overdraft" | "fixed_deposit" | "other";
+  | "current" | "savings" | "overdraft" | "fixed_deposit" | "cash" | "other";
 
 export type BankTransactionSource =
   | "manual" | "csv_upload" | "api_fetch";
@@ -317,8 +317,8 @@ type BankAccountRow = {
   tenant_id:            string;
   name:                 string;
   bank_name:            string;
-  account_number_last4: string;
-  ifsc:                 string;
+  account_number_last4: string | null;   // null for a cash / petty-cash account
+  ifsc:                 string | null;   // null for a cash / petty-cash account
   account_type:         BankAccountType;
   opening_balance:      number;
   opening_balance_date: string;
@@ -331,8 +331,6 @@ type BankAccountInsert = Partial<BankAccountRow> & {
   tenant_id:            string;
   name:                 string;
   bank_name:            string;
-  account_number_last4: string;
-  ifsc:                 string;
   opening_balance_date: string;
 };
 type BankAccountUpdate = Partial<Omit<BankAccountInsert, "id" | "tenant_id">>;
@@ -1972,6 +1970,21 @@ export type Database = {
       suggest_bank_transaction_matches: {
         Args: { p_bank_txn_id: string };
         Returns: BankMatchSuggestionRow[];
+      };
+      /**
+       * Atomic transfer between two of the tenant's own accounts (e.g. a bank
+       * → petty-cash withdrawal): a debit leg on the source + credit leg on the
+       * destination, in one transaction. Added in migration 0083.
+       */
+      record_account_transfer: {
+        Args: {
+          p_from_account: string;
+          p_to_account:   string;
+          p_amount:       number;
+          p_txn_date:     string;
+          p_note?:        string | null;
+        };
+        Returns: undefined;
       };
     };
     Enums: {

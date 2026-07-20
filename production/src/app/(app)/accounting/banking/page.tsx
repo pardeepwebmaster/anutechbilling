@@ -25,11 +25,13 @@ import { EmptyState } from "@/components/shared/empty-state";
 import { useBankAccounts, type BankAccountRow } from "@/lib/queries/bank";
 import { rupee } from "@/lib/utils";
 import { AddBankAccountForm } from "@/components/features/banking/add-bank-account-form";
+import { TransferDialog } from "@/components/features/banking/transfer-dialog";
 
 export default function BankingPage() {
   const router = useRouter();
   const { data: accounts, isLoading } = useBankAccounts();
   const [addOpen, setAddOpen] = React.useState(false);
+  const [transferOpen, setTransferOpen] = React.useState(false);
 
   const totalBalance = (accounts ?? []).reduce(
     (sum, a) => sum + (a.current_balance ?? a.opening_balance),
@@ -48,9 +50,16 @@ export default function BankingPage() {
             customer payments + vendor expenses.
           </p>
         </div>
-        <Button variant="primary" icon="plus" onClick={() => setAddOpen(true)}>
-          Add bank account
-        </Button>
+        <div className="flex gap-2 flex-wrap">
+          {(accounts?.length ?? 0) >= 2 && (
+            <Button icon="refresh" onClick={() => setTransferOpen(true)}>
+              Move money / withdraw
+            </Button>
+          )}
+          <Button variant="primary" icon="plus" onClick={() => setAddOpen(true)}>
+            Add account
+          </Button>
+        </div>
       </div>
 
       {/* Summary strip */}
@@ -105,6 +114,7 @@ export default function BankingPage() {
       )}
 
       <AddBankAccountForm open={addOpen} onOpenChange={setAddOpen} />
+      <TransferDialog open={transferOpen} onOpenChange={setTransferOpen} accounts={accounts ?? []} />
     </div>
   );
 }
@@ -127,15 +137,20 @@ function BankAccountCard({ account, onOpen }: { account: BankAccountRow; onOpen:
             {account.bank_name}
           </p>
           <h3 className="font-semibold text-ink truncate mt-0.5">{account.name}</h3>
-          <p className="text-xs text-ink-3 font-mono mt-0.5">
-            ••• {account.account_number_last4} · {account.ifsc}
-          </p>
+          {account.account_type === "cash" ? (
+            <p className="text-xs text-ink-3 mt-0.5">Cash in hand</p>
+          ) : (
+            <p className="text-xs text-ink-3 font-mono mt-0.5">
+              ••• {account.account_number_last4} · {account.ifsc}
+            </p>
+          )}
         </div>
-        <Badge kind="muted" size="sm">
+        <Badge kind={account.account_type === "cash" ? "success" : "muted"} size="sm">
           {account.account_type === "current" ? "Current" :
            account.account_type === "savings" ? "Savings" :
            account.account_type === "overdraft" ? "OD" :
-           account.account_type === "fixed_deposit" ? "FD" : account.account_type}
+           account.account_type === "fixed_deposit" ? "FD" :
+           account.account_type === "cash" ? "Cash" : account.account_type}
         </Badge>
       </div>
 

@@ -52,7 +52,7 @@ export async function POST(req: Request) {
   // Provider call (mock when env keys missing)
   const consent = await createConsent({
     vua:               body.vua,
-    bank_ifsc:         account.ifsc,
+    bank_ifsc:         account.ifsc ?? "",   // real bank accounts always have IFSC; cash accounts don't use AA
     fetch_window_from: fromIso,
     fetch_window_to:   toIso,
     purpose:           "Reseller bookkeeping — auto-reconcile bank statements",

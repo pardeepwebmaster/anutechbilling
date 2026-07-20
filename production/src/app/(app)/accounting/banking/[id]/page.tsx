@@ -112,7 +112,9 @@ export default function BankAccountDetailPage() {
           </p>
           <h1 className="font-serif text-3xl md:text-4xl leading-tight">{account.name}</h1>
           <p className="text-xs text-ink-3 font-mono mt-1">
-            ••• {account.account_number_last4} · {account.ifsc} · {account.account_type}
+            {account.account_type === "cash"
+              ? "Cash in hand · petty cash"
+              : `••• ${account.account_number_last4} · ${account.ifsc} · ${account.account_type}`}
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">

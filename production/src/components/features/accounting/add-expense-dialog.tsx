@@ -30,6 +30,7 @@ import {
   EXPENSE_CATEGORIES,
   PAYMENT_METHODS,
 } from "@/lib/queries/expenses";
+import { useBankAccounts } from "@/lib/queries/bank";
 
 const schema = z.object({
   category:       z.string().min(2),
@@ -45,6 +46,9 @@ type FormData = z.infer<typeof schema>;
 export function AddExpenseDialog({ onClose }: { onClose: () => void }) {
   const create = useCreateExpense();
   const today  = new Date().toISOString().slice(0, 10);
+  const { data: bankAccounts } = useBankAccounts();
+  const cashAccounts = (bankAccounts ?? []).filter((a) => a.account_type === "cash");
+  const [pettyCashAccountId, setPettyCashAccountId] = React.useState<string>("");
 
   const {
     register, handleSubmit, watch, setValue,
@@ -69,6 +73,8 @@ export function AddExpenseDialog({ onClose }: { onClose: () => void }) {
       gst_paid:       Math.round(values.gst_paid),
       payment_method: values.payment_method || null,
       description:    values.description    || null,
+      // Only tag a petty-cash out-flow when paid by cash from a chosen account.
+      pettyCashAccountId: values.payment_method === "cash" ? (pettyCashAccountId || null) : null,
     });
     onClose();
   }
@@ -124,6 +130,25 @@ export function AddExpenseDialog({ onClose }: { onClose: () => void }) {
               </SelectContent>
             </Select>
           </FormField>
+
+          {/* Petty-cash link — only when paid by cash and a cash account exists.
+              Picking one deducts this expense from that account's cash-in-hand. */}
+          {watch("payment_method") === "cash" && cashAccounts.length > 0 && (
+            <FormField label="Paid from petty cash" htmlFor="petty_cash">
+              <Select value={pettyCashAccountId || "none"} onValueChange={(v) => setPettyCashAccountId(v === "none" ? "" : v)}>
+                <SelectTrigger id="petty_cash"><SelectValue placeholder="Don't deduct from petty cash" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Don&apos;t deduct from petty cash</SelectItem>
+                  {cashAccounts.map((a) => (
+                    <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-[10px] text-ink-3 mt-1">
+                Deducts this amount from the petty-cash balance (cash in hand).
+              </p>
+            </FormField>
+          )}
 
           <FormField label="Description (optional)" htmlFor="description">
             <Textarea id="description" rows={2} placeholder="Reference, period, comments…" {...register("description")} />

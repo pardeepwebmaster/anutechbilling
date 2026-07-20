@@ -107,7 +107,13 @@ function newExpenseId(): string {
 export function useCreateExpense() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (input: Omit<ExpenseInsert, "id" | "tenant_id">) => {
+    // `pettyCashAccountId` (optional): when a cash expense is paid out of a
+    // petty-cash account, we also drop a matching DEBIT on that account so its
+    // "cash in hand" balance stays live. Not part of the expenses table.
+    mutationFn: async (
+      input: Omit<ExpenseInsert, "id" | "tenant_id"> & { pettyCashAccountId?: string | null },
+    ) => {
+      const { pettyCashAccountId, ...expenseInput } = input;
       const supabase = createClient();
       const { data: authData } = await supabase.auth.getUser();
       if (!authData?.user) throw new Error("Not authenticated");
@@ -122,17 +128,39 @@ export function useCreateExpense() {
       const { data, error } = await supabase
         .from("expenses")
         .insert({
-          ...input,
+          ...expenseInput,
           id:        newExpenseId(),
           tenant_id: me.tenant_id,
         })
         .select()
         .single();
       if (error) throw error;
-      return data as Expense;
+      const expense = data as Expense;
+
+      // Petty-cash out-flow — best-effort. If it fails the expense is still
+      // saved; the operator can add the cash movement manually.
+      if (pettyCashAccountId && expense.amount > 0) {
+        const { error: txnErr } = await supabase.from("bank_transactions").insert({
+          tenant_id:        me.tenant_id,
+          bank_account_id:  pettyCashAccountId,
+          txn_date:         expense.expense_date,
+          description:      `Petty cash: ${expense.category}${expense.vendor_name ? ` · ${expense.vendor_name}` : ""}`,
+          debit:            expense.amount,
+          credit:           0,
+          source:           "manual",
+          matched_to_type:  "expense",
+          matched_to_id:    expense.id,
+          match_confidence: "manual",
+        });
+        if (txnErr) console.error("[create-expense] petty-cash debit failed (expense still saved):", txnErr);
+      }
+
+      return expense;
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["expenses"] });
+      qc.invalidateQueries({ queryKey: ["bank_accounts"] });
+      qc.invalidateQueries({ queryKey: ["bank_transactions"] });
       toast.success("Expense added");
     },
     onError: (err) => toast.error((err as Error).message),

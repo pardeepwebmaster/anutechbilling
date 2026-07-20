@@ -25,9 +25,9 @@ export type BankAccountRow = {
   tenant_id:            string;
   name:                 string;
   bank_name:            string;
-  account_number_last4: string;
-  ifsc:                 string;
-  account_type:         "current" | "savings" | "overdraft" | "fixed_deposit" | "other";
+  account_number_last4: string | null;
+  ifsc:                 string | null;
+  account_type:         "current" | "savings" | "overdraft" | "fixed_deposit" | "cash" | "other";
   opening_balance:      number;
   opening_balance_date: string;
   is_active:            boolean;
@@ -157,6 +157,36 @@ export function useCreateBankAccount() {
     onError: (err) => {
       toast.error(err instanceof Error ? err.message : "Could not add bank account");
     },
+  });
+}
+
+// ─── Transfer between two own accounts (e.g. bank → petty cash) ─────────────
+export function useRecordTransfer() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: {
+      fromAccountId: string;
+      toAccountId:   string;
+      amount:        number;
+      txnDate:       string;   // YYYY-MM-DD
+      note?:         string | null;
+    }) => {
+      const supabase = createClient();
+      const { error } = await supabase.rpc("record_account_transfer", {
+        p_from_account: input.fromAccountId,
+        p_to_account:   input.toAccountId,
+        p_amount:       input.amount,
+        p_txn_date:     input.txnDate,
+        p_note:         input.note ?? null,
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["bank_accounts"] });
+      qc.invalidateQueries({ queryKey: ["bank_transactions"] });
+      toast.success("Transfer recorded");
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : "Transfer failed"),
   });
 }
 

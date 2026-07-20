@@ -59,14 +59,24 @@ const COMMON_INDIAN_BANKS = [
 
 const schema = z.object({
   name:                 z.string().min(2, "Nickname required").max(60),
-  bank_name:            z.string().min(2, "Bank required"),
-  account_number_last4: z.string().regex(/^\d{4}$/, "Last 4 digits only"),
-  ifsc:                 z.string().transform((s) => s.toUpperCase().trim())
-                          .pipe(z.string().regex(IFSC_REGEX, "Invalid IFSC (e.g. HDFC0001234)")),
-  account_type:         z.enum(["current", "savings", "overdraft", "fixed_deposit", "other"]),
+  bank_name:            z.string().optional(),
+  account_number_last4: z.string().optional(),
+  ifsc:                 z.string().optional(),
+  account_type:         z.enum(["current", "savings", "overdraft", "fixed_deposit", "cash", "other"]),
   opening_balance:      z.coerce.number().int(),
   opening_balance_date: z.string().min(1, "Date required"),
   notes:                z.string().optional(),
+}).superRefine((val, ctx) => {
+  // Bank identifiers are required for real bank accounts, but not for a
+  // cash / petty-cash account (which has no IFSC or account number).
+  if (val.account_type !== "cash") {
+    if (!val.bank_name || val.bank_name.length < 2)
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["bank_name"], message: "Bank required" });
+    if (!/^\d{4}$/.test(val.account_number_last4 ?? ""))
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["account_number_last4"], message: "Last 4 digits only" });
+    if (!IFSC_REGEX.test((val.ifsc ?? "").toUpperCase().trim()))
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["ifsc"], message: "Invalid IFSC (e.g. HDFC0001234)" });
+  }
 });
 
 type FormData = z.infer<typeof schema>;
@@ -101,13 +111,16 @@ export function AddBankAccountForm({ open, onOpenChange }: Props) {
   React.useEffect(() => { setValue("bank_name", bankName); }, [bankName, setValue]);
   React.useEffect(() => { setValue("account_type", accountType); }, [accountType, setValue]);
 
+  const isCash = accountType === "cash";
+
   const onSubmit = async (data: FormData) => {
     try {
       await create.mutateAsync({
         name:                 data.name.trim(),
-        bank_name:            data.bank_name,
-        account_number_last4: data.account_number_last4,
-        ifsc:                 data.ifsc,
+        // A cash account has no bank / IFSC / account number.
+        bank_name:            isCash ? "Cash in hand" : (data.bank_name ?? ""),
+        account_number_last4: isCash ? null : (data.account_number_last4 ?? null),
+        ifsc:                 isCash ? null : (data.ifsc ?? null),
         account_type:         data.account_type,
         opening_balance:      data.opening_balance,
         opening_balance_date: data.opening_balance_date,
@@ -150,49 +163,61 @@ export function AddBankAccountForm({ open, onOpenChange }: Props) {
               </p>
             </FormField>
 
-            <FormField label="Bank" required htmlFor="bank_name">
-              <Select value={bankName} onValueChange={setBankName}>
-                <SelectTrigger id="bank_name" error={!!errors.bank_name}>
-                  <SelectValue placeholder="Select your bank" />
-                </SelectTrigger>
-                <SelectContent>
-                  {COMMON_INDIAN_BANKS.map((b) => (
-                    <SelectItem key={b} value={b}>{b}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <input type="hidden" {...register("bank_name")} value={bankName} />
-              {errors.bank_name?.message && (
-                <p className="mt-1 text-[10px] text-rose">{errors.bank_name.message}</p>
-              )}
-            </FormField>
+            {!isCash && (
+              <>
+                <FormField label="Bank" required htmlFor="bank_name">
+                  <Select value={bankName} onValueChange={setBankName}>
+                    <SelectTrigger id="bank_name" error={!!errors.bank_name}>
+                      <SelectValue placeholder="Select your bank" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {COMMON_INDIAN_BANKS.map((b) => (
+                        <SelectItem key={b} value={b}>{b}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <input type="hidden" {...register("bank_name")} value={bankName} />
+                  {errors.bank_name?.message && (
+                    <p className="mt-1 text-[10px] text-rose">{errors.bank_name.message}</p>
+                  )}
+                </FormField>
 
-            <div className="grid grid-cols-2 gap-3">
-              <FormField label="Last 4 digits" required htmlFor="account_number_last4">
-                <Input
-                  id="account_number_last4"
-                  inputMode="numeric"
-                  maxLength={4}
-                  placeholder="1234"
-                  className="font-mono"
-                  error={errors.account_number_last4?.message}
-                  {...register("account_number_last4")}
-                />
-                <p className="text-[10px] text-ink-3 mt-1">
-                  Last 4 only — full number not stored
-                </p>
-              </FormField>
-              <FormField label="IFSC" required htmlFor="ifsc">
-                <Input
-                  id="ifsc"
-                  placeholder="HDFC0001234"
-                  className="font-mono uppercase"
-                  maxLength={11}
-                  error={errors.ifsc?.message}
-                  {...register("ifsc")}
-                />
-              </FormField>
-            </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <FormField label="Last 4 digits" required htmlFor="account_number_last4">
+                    <Input
+                      id="account_number_last4"
+                      inputMode="numeric"
+                      maxLength={4}
+                      placeholder="1234"
+                      className="font-mono"
+                      error={errors.account_number_last4?.message}
+                      {...register("account_number_last4")}
+                    />
+                    <p className="text-[10px] text-ink-3 mt-1">
+                      Last 4 only — full number not stored
+                    </p>
+                  </FormField>
+                  <FormField label="IFSC" required htmlFor="ifsc">
+                    <Input
+                      id="ifsc"
+                      placeholder="HDFC0001234"
+                      className="font-mono uppercase"
+                      maxLength={11}
+                      error={errors.ifsc?.message}
+                      {...register("ifsc")}
+                    />
+                  </FormField>
+                </div>
+              </>
+            )}
+
+            {isCash && (
+              <div className="rounded-md bg-amber-soft/50 border border-amber/30 px-3 py-2 text-[11px] text-amber-ink leading-relaxed">
+                <b>Petty cash / cash in hand.</b> No bank or IFSC needed. Move money in
+                with &ldquo;Withdraw to petty cash&rdquo; from a bank account, and cash
+                expenses (Expenses → paid by Cash) reduce this balance.
+              </div>
+            )}
 
             <FormField label="Account type" htmlFor="account_type">
               <Select value={accountType} onValueChange={(v) => setAccountType(v as FormData["account_type"])}>
@@ -204,6 +229,7 @@ export function AddBankAccountForm({ open, onOpenChange }: Props) {
                   <SelectItem value="savings">Savings</SelectItem>
                   <SelectItem value="overdraft">Overdraft (OD/CC)</SelectItem>
                   <SelectItem value="fixed_deposit">Fixed Deposit</SelectItem>
+                  <SelectItem value="cash">Cash / Petty cash</SelectItem>
                   <SelectItem value="other">Other</SelectItem>
                 </SelectContent>
               </Select>

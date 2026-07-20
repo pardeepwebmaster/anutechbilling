@@ -22,6 +22,7 @@ import { useQuotes } from "@/lib/queries/quotes";
 import { useCustomers } from "@/lib/queries/customers";
 import { useCurrentUser } from "@/lib/hooks/useCurrentUser";
 import { ReceiptVoucherDialog } from "@/components/features/quotes/receipt-voucher-dialog";
+import { EditPaymentDialog } from "@/components/features/quotes/edit-payment-dialog";
 import { GeminiCard } from "@/components/shared/gemini-card";
 import { EmptyState } from "@/components/shared/empty-state";
 import { StatStrip } from "@/components/shared/stat-strip";
@@ -52,6 +53,8 @@ const METHOD_META: Record<string, { label: string; icon: string }> = {
 export default function PaymentsPage() {
   const [tab, setTab]       = React.useState<"all" | "received" | "refunded">("all");
   const [search, setSearch] = React.useState("");
+  // Payment currently open in the "edit details" sheet (null = closed).
+  const [editPayment, setEditPayment] = React.useState<Payment | null>(null);
 
   const { data: payments, isLoading, error, refetch } = usePayments();
   const { data: quotes } = useQuotes();
@@ -346,10 +349,10 @@ export default function PaymentsPage() {
             const ctx = quoteById.get(p.quote_id);
             const customer = ctx?.customerId ? customerById.get(ctx.customerId) : undefined;
             return (
-              <li key={p.id}>
+              <li key={p.id} className="bg-paper border border-hairline rounded-lg overflow-hidden">
                 <Link
                   href={`/quotes/${p.quote_id}` as never}
-                  className="block bg-paper border border-hairline rounded-lg p-3 active:bg-paper-2/50"
+                  className="block p-3 active:bg-paper-2/50"
                 >
                   <div className="flex items-start justify-between gap-3 mb-1.5">
                     <div className="min-w-0 flex-1">
@@ -377,6 +380,15 @@ export default function PaymentsPage() {
                     </Badge>
                   </div>
                 </Link>
+                {p.status === "received" && (
+                  <button
+                    type="button"
+                    onClick={() => setEditPayment(p)}
+                    className="flex w-full items-center justify-center gap-1.5 border-t border-hairline/60 py-2 text-xs font-medium text-ink-2 active:bg-paper-2"
+                  >
+                    <Icon name="edit" size={12} /> Edit details
+                  </button>
+                )}
               </li>
             );
           })}
@@ -410,6 +422,7 @@ export default function PaymentsPage() {
                     ctx={ctx}
                     customer={customer}
                     me={me}
+                    onEdit={() => setEditPayment(p)}
                   />
                 );
               })}
@@ -425,6 +438,16 @@ export default function PaymentsPage() {
           A quote can have multiple payments (installments). Open the quote to see its full payment history.
         </div>
       )}
+
+      {/* Edit payment details (safe fields only — amount stays locked) */}
+      <EditPaymentDialog
+        open={!!editPayment}
+        onOpenChange={(o) => { if (!o) setEditPayment(null); }}
+        payment={editPayment}
+        customerName={
+          (editPayment && quoteById.get(editPayment.quote_id)?.customerName) || "Customer"
+        }
+      />
     </div>
   );
 }
@@ -510,6 +533,7 @@ function PaymentRowView({
   ctx,
   customer,
   me,
+  onEdit,
 }: {
   p: Payment;
   ctx?: { customerName: string; paymentStatus: string; invoiceId: string | null; customerId: string | null };
@@ -521,6 +545,7 @@ function PaymentRowView({
     state_code:     string | null;
   };
   me?: ReturnType<typeof useCurrentUser>["data"];
+  onEdit: () => void;
 }) {
   const methodInfo = METHOD_META[p.method];
   const [receiptOpen, setReceiptOpen] = React.useState(false);
@@ -576,6 +601,17 @@ function PaymentRowView({
       </td>
       <td className="p-3 text-right">
         <div className="flex justify-end gap-1">
+          {p.status === "received" && (
+            <Button
+              size="sm"
+              icon="edit"
+              variant="ghost"
+              onClick={onEdit}
+              title="Edit payment details (method / reference / date / notes)"
+            >
+              Edit
+            </Button>
+          )}
           {p.status === "received" && me && (
             <Button
               size="sm"

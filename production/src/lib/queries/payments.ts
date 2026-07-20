@@ -59,6 +59,49 @@ export function totalReceived(payments: Payment[]): number {
 }
 
 // ============================================================
+// Edit a payment's SAFE fields (method / reference / date / notes)
+// ============================================================
+// Deliberately does NOT touch amount, quote_id, customer_id or status —
+// those drive the receipt voucher value, subscription state and invoice
+// linkage. Correcting an amount must go through a reverse + re-record flow
+// (GST: you can't silently alter an issued receipt voucher's value), not this.
+// The receipt voucher (RV) is rendered on demand from the payment row, so a
+// corrected method/reference/date shows up on the RV automatically — the RV
+// number stays the same (this is a detail correction, not a new voucher).
+export function useUpdatePayment() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: {
+      id:          string;
+      method:      PaymentMethod;
+      reference:   string | null;
+      received_at: string;   // ISO timestamp
+      notes:       string | null;
+    }) => {
+      const supabase = createClient();
+      const { error } = await supabase
+        .from("payments")
+        .update({
+          method:      input.method,
+          reference:   input.reference,
+          received_at: input.received_at,
+          notes:       input.notes,
+        })
+        .eq("id", input.id);
+      if (error) throw error;
+      return input.id;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["payments"] });
+      qc.invalidateQueries({ queryKey: ["payments", "by-quote"] });
+      qc.invalidateQueries({ queryKey: ["outstanding-receivables"] });
+      toast.success("Payment details updated");
+    },
+    onError: (err) => toast.error((err as Error).message),
+  });
+}
+
+// ============================================================
 // Refund a payment
 // ============================================================
 export function useRefundPayment() {

@@ -308,7 +308,11 @@ function TransactionRow({
         )}
       </td>
       <td className="px-4 py-3 text-right">
-        {txn.matched_to_type ? (
+        {txn.matched_to_type === "transfer" ? (
+          // Inter-account transfers are auto-reconciled self-balancing pairs —
+          // un-reconciling one leg would orphan it, so no action here.
+          <span className="text-[11px] text-ink-3">Auto</span>
+        ) : txn.matched_to_type ? (
           <button
             type="button"
             onClick={() =>

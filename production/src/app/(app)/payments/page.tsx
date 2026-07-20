@@ -20,6 +20,7 @@ import {
 } from "@/lib/queries/payments";
 import { useQuotes } from "@/lib/queries/quotes";
 import { useCustomers } from "@/lib/queries/customers";
+import { useBankAccounts } from "@/lib/queries/bank";
 import { useCurrentUser } from "@/lib/hooks/useCurrentUser";
 import { ReceiptVoucherDialog } from "@/components/features/quotes/receipt-voucher-dialog";
 import { EditPaymentDialog } from "@/components/features/quotes/edit-payment-dialog";
@@ -60,7 +61,15 @@ export default function PaymentsPage() {
   const { data: quotes } = useQuotes();
   const { data: outstanding } = useOutstandingReceivables();
   const { data: customers } = useCustomers();
+  const { data: bankAccounts } = useBankAccounts();
   const { data: me } = useCurrentUser();
+
+  // Lookup: bankAccountId → short label (for the "received in" hint on a row)
+  const bankNameById = React.useMemo(() => {
+    const m = new Map<string, string>();
+    for (const a of bankAccounts ?? []) m.set(a.id, `${a.bank_name} ••${a.account_number_last4}`);
+    return m;
+  }, [bankAccounts]);
   const markReminderSent  = useMarkReminderSent();
   const suspendSub        = useSuspendSubscription();
   const resumeSub         = useResumeSubscription();
@@ -370,6 +379,9 @@ export default function PaymentsPage() {
                     <span className="text-ink-3 truncate">
                       {p.received_at ? formatDate(p.received_at) : "—"}
                       {p.receipt_voucher_no && <> · <span className="font-mono">{p.receipt_voucher_no}</span></>}
+                      {p.bank_account_id && bankNameById.get(p.bank_account_id) && (
+                        <> · {bankNameById.get(p.bank_account_id)}</>
+                      )}
                     </span>
                     <Badge
                       kind={p.status === "received" ? "success" : "danger"}
@@ -422,6 +434,7 @@ export default function PaymentsPage() {
                     ctx={ctx}
                     customer={customer}
                     me={me}
+                    bankLabel={p.bank_account_id ? bankNameById.get(p.bank_account_id) : undefined}
                     onEdit={() => setEditPayment(p)}
                   />
                 );
@@ -533,6 +546,7 @@ function PaymentRowView({
   ctx,
   customer,
   me,
+  bankLabel,
   onEdit,
 }: {
   p: Payment;
@@ -545,6 +559,7 @@ function PaymentRowView({
     state_code:     string | null;
   };
   me?: ReturnType<typeof useCurrentUser>["data"];
+  bankLabel?: string;
   onEdit: () => void;
 }) {
   const methodInfo = METHOD_META[p.method];
@@ -581,6 +596,11 @@ function PaymentRowView({
           </span>
         ) : (
           <span className="text-xs text-ink-3">{p.method}</span>
+        )}
+        {bankLabel && (
+          <div className="text-[10px] text-ink-3 mt-0.5 flex items-center gap-1">
+            <Icon name="receipt" size={9} /> {bankLabel}
+          </div>
         )}
       </td>
       <td className="p-3 font-mono text-xs text-ink-2 truncate max-w-[160px]">{p.reference ?? "—"}</td>

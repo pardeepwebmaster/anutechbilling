@@ -36,6 +36,7 @@ import { Icon } from "@/components/ui/icon";
 import { createClient } from "@/lib/supabase/client";
 import { rupee } from "@/lib/utils";
 import { fiscalYearFromDate, TDS_SECTIONS } from "@/lib/queries/tds-receivable";
+import { useBankAccounts } from "@/lib/queries/bank";
 
 const METHODS = [
   { value: "upi",           label: "UPI (Google Pay / PhonePe / Paytm)" },
@@ -106,6 +107,8 @@ export function RecordPaymentDialog({
 }: RecordPaymentDialogProps) {
   const qc = useQueryClient();
   const [method, setMethod] = React.useState("upi");
+  const [bankAccountId, setBankAccountId] = React.useState<string>("");
+  const { data: bankAccounts } = useBankAccounts();
 
   const remaining = Math.max(0, expectedAmount - alreadyReceived);
   const hasPriorPayments = alreadyReceived > 0;
@@ -177,6 +180,7 @@ export function RecordPaymentDialog({
     if (!open) {
       reset();
       setMethod("upi");
+      setBankAccountId("");
     } else {
       reset({
         amount:      remaining,
@@ -227,6 +231,18 @@ export function RecordPaymentDialog({
       });
       if (error) throw error;
       if (!r) throw new Error("record_payment returned no result");
+
+      // ── 2b. Tag which bank account received this money (best-effort) ──────
+      // Additive to the RPC — a reporting/reconciliation aid, NOT a balance
+      // mover. If it fails the payment is still recorded; the operator can set
+      // it later from the payment's Edit sheet.
+      if (bankAccountId && r.payment_id) {
+        const { error: bankErr } = await supabase
+          .from("payments")
+          .update({ bank_account_id: bankAccountId })
+          .eq("id", r.payment_id);
+        if (bankErr) console.error("[record-payment] bank_account tag failed (payment still recorded):", bankErr);
+      }
 
       // ── 3. Insert TDS receivable row (best-effort; failure is non-fatal)
       if (tdsActive && tdsAmount > 0) {
@@ -487,6 +503,28 @@ export function RecordPaymentDialog({
             </Select>
             <input type="hidden" {...register("method")} value={method} />
           </FormField>
+
+          {(bankAccounts?.length ?? 0) > 0 && (
+            <FormField label="Received in (bank account)" htmlFor="bankAccount">
+              <Select value={bankAccountId || "none"} onValueChange={(v) => setBankAccountId(v === "none" ? "" : v)}>
+                <SelectTrigger id="bankAccount">
+                  <SelectValue placeholder="Not linked" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Not linked</SelectItem>
+                  {(bankAccounts ?? []).map((a) => (
+                    <SelectItem key={a.id} value={a.id}>
+                      {a.name} · {a.bank_name} ••{a.account_number_last4}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-[11px] text-ink-3 mt-1">
+                Tags which account got the money (for reports + easier reconciliation).
+                Balance still comes from your bank statement, not this.
+              </p>
+            </FormField>
+          )}
 
           <FormField label="Transaction reference" required htmlFor="reference">
             <Input

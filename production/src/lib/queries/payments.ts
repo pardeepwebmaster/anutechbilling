@@ -72,20 +72,22 @@ export function useUpdatePayment() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (input: {
-      id:          string;
-      method:      PaymentMethod;
-      reference:   string | null;
-      received_at: string;   // ISO timestamp
-      notes:       string | null;
+      id:              string;
+      method:          PaymentMethod;
+      reference:       string | null;
+      received_at:     string;   // ISO timestamp
+      notes:           string | null;
+      bank_account_id: string | null;
     }) => {
       const supabase = createClient();
       const { error } = await supabase
         .from("payments")
         .update({
-          method:      input.method,
-          reference:   input.reference,
-          received_at: input.received_at,
-          notes:       input.notes,
+          method:          input.method,
+          reference:       input.reference,
+          received_at:     input.received_at,
+          notes:           input.notes,
+          bank_account_id: input.bank_account_id,
         })
         .eq("id", input.id);
       if (error) throw error;

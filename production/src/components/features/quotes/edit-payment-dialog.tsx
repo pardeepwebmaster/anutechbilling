@@ -38,6 +38,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { useUpdatePayment, type Payment } from "@/lib/queries/payments";
+import { useBankAccounts } from "@/lib/queries/bank";
 import { rupee } from "@/lib/utils";
 
 const METHODS = [
@@ -50,10 +51,11 @@ const METHODS = [
 ] as const;
 
 const schema = z.object({
-  method:      z.enum(["upi", "razorpay", "bank_transfer", "cheque", "cash", "other"]),
-  reference:   z.string().min(1, "Transaction reference required"),
-  receivedDate: z.string().min(1, "Date required"),
-  notes:       z.string().optional(),
+  method:        z.enum(["upi", "razorpay", "bank_transfer", "cheque", "cash", "other"]),
+  reference:     z.string().min(1, "Transaction reference required"),
+  receivedDate:  z.string().min(1, "Date required"),
+  notes:         z.string().optional(),
+  bankAccountId: z.string().optional(),   // "" = not linked
 });
 type FormData = z.infer<typeof schema>;
 
@@ -66,7 +68,9 @@ interface EditPaymentDialogProps {
 
 export function EditPaymentDialog({ open, onOpenChange, payment, customerName }: EditPaymentDialogProps) {
   const updatePayment = useUpdatePayment();
+  const { data: bankAccounts } = useBankAccounts();
   const [method, setMethod] = React.useState<FormData["method"]>("upi");
+  const [bankAccountId, setBankAccountId] = React.useState<string>("");
 
   const {
     register,
@@ -75,7 +79,7 @@ export function EditPaymentDialog({ open, onOpenChange, payment, customerName }:
     formState: { errors, isSubmitting },
   } = useForm<FormData>({
     resolver: zodResolver(schema),
-    defaultValues: { method: "upi", reference: "", receivedDate: "", notes: "" },
+    defaultValues: { method: "upi", reference: "", receivedDate: "", notes: "", bankAccountId: "" },
   });
 
   // Re-seed the form whenever a different payment opens.
@@ -83,11 +87,13 @@ export function EditPaymentDialog({ open, onOpenChange, payment, customerName }:
     if (open && payment) {
       const m = payment.method;
       setMethod(m);
+      setBankAccountId(payment.bank_account_id ?? "");
       reset({
-        method:       m,
-        reference:    payment.reference ?? "",
-        receivedDate: payment.received_at ? payment.received_at.slice(0, 10) : "",
-        notes:        payment.notes ?? "",
+        method:        m,
+        reference:     payment.reference ?? "",
+        receivedDate:  payment.received_at ? payment.received_at.slice(0, 10) : "",
+        notes:         payment.notes ?? "",
+        bankAccountId: payment.bank_account_id ?? "",
       });
     }
   }, [open, payment, reset]);
@@ -105,11 +111,15 @@ export function EditPaymentDialog({ open, onOpenChange, payment, customerName }:
 
     updatePayment.mutate(
       {
-        id:          payment.id,
-        method:      data.method,
-        reference:   data.reference.trim() || null,
+        id:              payment.id,
+        // method + bankAccountId are controlled by local state (the Radix
+        // Selects), so read them directly — the hidden-input/register bridge
+        // can lag a click, which silently dropped the bank tag.
+        method,
+        reference:       data.reference.trim() || null,
         received_at,
-        notes:       data.notes?.trim() || null,
+        notes:           data.notes?.trim() || null,
+        bank_account_id: bankAccountId || null,
       },
       { onSuccess: () => onOpenChange(false) },
     );
@@ -184,6 +194,36 @@ export function EditPaymentDialog({ open, onOpenChange, payment, customerName }:
                 error={errors.receivedDate?.message}
                 {...register("receivedDate")}
               />
+            </FormField>
+
+            <FormField label="Received in (bank account)" htmlFor="edit-bank">
+              <Select
+                value={bankAccountId || "none"}
+                onValueChange={(v) => {
+                  const val = v === "none" ? "" : v;
+                  setBankAccountId(val);
+                  (register("bankAccountId") as unknown as { onChange: (e: unknown) => void }).onChange({
+                    target: { value: val, name: "bankAccountId" },
+                  });
+                }}
+              >
+                <SelectTrigger id="edit-bank">
+                  <SelectValue placeholder="Not linked" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Not linked</SelectItem>
+                  {(bankAccounts ?? []).map((a) => (
+                    <SelectItem key={a.id} value={a.id}>
+                      {a.name} · {a.bank_name} ••{a.account_number_last4}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <input type="hidden" {...register("bankAccountId")} value={bankAccountId} />
+              <p className="mt-1 text-[11px] text-ink-3">
+                Tags which account received this money (for reports + easier reconciliation).
+                Doesn&apos;t change the account balance — that comes from your bank statement.
+              </p>
             </FormField>
 
             <FormField label="Notes (optional)" htmlFor="edit-notes">

@@ -921,6 +921,7 @@ type PaymentRow = {
   refund_reason:      string | null;
   recorded_by:        string | null;
   receipt_voucher_no: string | null;
+  bank_account_id:    string | null;
   created_at:         string;
 }
 type PaymentInsert = {
@@ -938,6 +939,7 @@ type PaymentInsert = {
   refund_reason?: string | null;
   recorded_by?:  string | null;
   receipt_voucher_no?: string | null;
+  bank_account_id?: string | null;
 }
 type PaymentUpdate = Partial<PaymentInsert>;
 

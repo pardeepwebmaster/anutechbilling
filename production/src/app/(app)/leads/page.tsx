@@ -1825,6 +1825,102 @@ function LeadDetailSheet({
 }
 
 // ============================================================
+// RowActions — the sticky trailing cell for a lead row. A muted ⋯ at rest;
+// hovering / clicking / focusing it opens a dark quick-action panel. JS
+// hover-intent (open + delayed close, cancelled on panel re-enter) keeps the
+// panel open while the mouse is over it — even where it overflows the cell —
+// which pure CSS :hover can't do reliably once the panel extends past the cell.
+// ============================================================
+function RowActions({
+  lead, isSelected, onSendQuote, onFollowUp,
+}: {
+  lead: Lead;
+  isSelected: boolean;
+  onSendQuote: (l: Lead) => void;
+  onFollowUp: (l: Lead) => void;
+}) {
+  const [open, setOpen] = React.useState(false);
+  const closeTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const show = React.useCallback(() => {
+    if (closeTimer.current) clearTimeout(closeTimer.current);
+    setOpen(true);
+  }, []);
+  const scheduleHide = React.useCallback(() => {
+    if (closeTimer.current) clearTimeout(closeTimer.current);
+    closeTimer.current = setTimeout(() => setOpen(false), 140);
+  }, []);
+  React.useEffect(() => () => { if (closeTimer.current) clearTimeout(closeTimer.current); }, []);
+
+  const phoneDigits = (lead.contact_phone ?? "").replace(/\D/g, "");
+  const waNumber = phoneDigits.startsWith("91")
+    ? phoneDigits
+    : (phoneDigits.length === 10 ? `91${phoneDigits}` : phoneDigits);
+  const hasPhone = phoneDigits.length >= 10;
+  const hasEmail = Boolean(lead.contact_email);
+
+  const iconBtn = "inline-flex items-center justify-center w-9 h-full rounded-lg hover:bg-white/15";
+
+  return (
+    <td
+      className={cn(
+        "relative sticky right-0 p-3 border-l border-hairline shadow-[-8px_0_12px_-8px_rgba(0,0,0,0.14)]",
+        isSelected ? "bg-amber-soft" : "bg-paper",
+      )}
+      onClick={(e) => e.stopPropagation()}
+    >
+      {/* ⋯ trigger */}
+      <button
+        type="button"
+        aria-label="Quick actions"
+        aria-expanded={open}
+        onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }}
+        onMouseEnter={show}
+        onMouseLeave={scheduleHide}
+        onFocus={show}
+        className={cn(
+          "flex w-full items-center justify-end text-ink-3 transition-opacity duration-150 hover:text-ink",
+          open && "opacity-0 pointer-events-none",
+        )}
+      >
+        <Icon name="more_h" size={20} />
+      </button>
+
+      {/* Dark panel — ~70% row height. Stays open while hovered (hover-intent). */}
+      <div
+        onMouseEnter={show}
+        onMouseLeave={scheduleHide}
+        className={cn(
+          "absolute right-1 top-1/2 -translate-y-1/2 flex h-[70%] items-center gap-0.5 rounded-xl bg-ink px-1.5 shadow-lg transition-all duration-200 ease-out",
+          open ? "opacity-100 translate-x-0 pointer-events-auto" : "opacity-0 -translate-x-2 pointer-events-none",
+        )}
+      >
+        <button type="button" title="Send quote" onClick={(e) => { e.stopPropagation(); setOpen(false); onSendQuote(lead); }} className={cn(iconBtn, "text-amber")}>
+          <Icon name="file" size={20} />
+        </button>
+        <button type="button" title="Schedule follow-up" onClick={(e) => { e.stopPropagation(); setOpen(false); onFollowUp(lead); }} className={cn(iconBtn, "text-indigo")}>
+          <Icon name="clock" size={20} />
+        </button>
+        {hasPhone && (
+          <a href={`tel:${lead.contact_phone}`} onClick={(e) => e.stopPropagation()} className={cn(iconBtn, "text-emerald")} title="Call">
+            <Icon name="mobile" size={20} />
+          </a>
+        )}
+        {hasPhone && (
+          <a href={`https://wa.me/${waNumber}`} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className={cn(iconBtn, "text-emerald")} title="WhatsApp">
+            <Icon name="whatsapp" size={20} />
+          </a>
+        )}
+        {hasEmail && (
+          <a href={`https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(lead.contact_email ?? "")}`} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className={cn(iconBtn, "text-indigo")} title="Email (opens Gmail)">
+            <Icon name="mail" size={20} />
+          </a>
+        )}
+      </div>
+    </td>
+  );
+}
+
+// ============================================================
 // LeadListView — table view for scanning leads at scale (50+).
 // Same data source + same row-click drawer as Kanban; just a different lens.
 // ============================================================
@@ -2063,12 +2159,7 @@ function LeadListView({
             const stale       = daysSince(lead.updated_at) > 14 && lead.stage !== "won" && lead.stage !== "lost";
             const age         = daysSince(lead.updated_at);
             const isSelected  = selectedIds.has(lead.id);
-            const phoneDigits = (lead.contact_phone ?? "").replace(/\D/g, "");
-            const waNumber    = phoneDigits.startsWith("91")
-              ? phoneDigits
-              : (phoneDigits.length === 10 ? `91${phoneDigits}` : phoneDigits);
-            const hasPhone    = phoneDigits.length >= 10;
-            const hasEmail    = Boolean(lead.contact_email);
+            // Phone/email affordances now live inside <RowActions/>.
             return (
               <tr
                 key={lead.id}
@@ -2164,84 +2255,9 @@ function LeadListView({
                     {age === 0 ? "today" : age === 1 ? "1d ago" : `${age}d ago`}
                   </span>
                 </td>
-                {/* Quick-action icons — invisible until row hover. opacity
-                    transition keeps the layout stable (no shift on hover).
-                    Each icon stopsPropagation so they don't open the drawer. */}
-                <td className={cn(
-                  // `group/act` scopes the reveal to THIS cell (the ⋯), not the
-                  // whole row. Opaque bg + left border so scrolled-under columns
-                  // never bleed through. `relative` anchors the overlaid actions.
-                  "group/act relative sticky right-0 p-3 border-l border-hairline shadow-[-8px_0_12px_-8px_rgba(0,0,0,0.14)]",
-                  isSelected ? "bg-amber-soft" : "bg-paper",
-                )} onClick={(e) => e.stopPropagation()}>
-                  {/* At-rest ⋯ trigger. It's a real button so a click/tap focuses
-                      it → group-focus-within reveals the actions (touch-friendly);
-                      mouse hover over the cell reveals them too. */}
-                  <button
-                    type="button"
-                    aria-label="Show quick actions"
-                    onClick={(e) => e.stopPropagation()}
-                    className="flex w-full items-center justify-end text-ink-3 transition-opacity duration-150 hover:text-ink group-hover/act:opacity-0 group-focus-within/act:opacity-0"
-                  >
-                    <Icon name="more_h" size={20} />
-                  </button>
-                  {/* Full actions — overlaid so swapping in doesn't shift layout;
-                      slide in from the left when the ⋯ cell is hovered or focused. */}
-                  <div className="absolute inset-0 flex items-center justify-end gap-1 px-2 opacity-0 -translate-x-3 pointer-events-none transition-all duration-200 ease-out group-hover/act:opacity-100 group-hover/act:translate-x-0 group-hover/act:pointer-events-auto group-focus-within/act:opacity-100 group-focus-within/act:translate-x-0 group-focus-within/act:pointer-events-auto">
-                    {/* translucent panel behind the icons (≈20% opacity) */}
-                    <span aria-hidden className="absolute inset-y-1.5 right-1 left-1 rounded-lg bg-paper-2/20 ring-1 ring-hairline/50" />
-                    <button
-                      type="button"
-                      onClick={(e) => { e.stopPropagation(); onSendQuote(lead); }}
-                      className="relative inline-flex items-center justify-center w-10 h-10 rounded-lg text-amber hover:bg-amber-soft/50"
-                      title="Send quote"
-                    >
-                      <Icon name="file" size={20} />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={(e) => { e.stopPropagation(); onFollowUp(lead); }}
-                      className="relative inline-flex items-center justify-center w-10 h-10 rounded-lg text-indigo hover:bg-indigo-50"
-                      title="Schedule follow-up"
-                    >
-                      <Icon name="clock" size={20} />
-                    </button>
-                    {hasPhone && (
-                      <a
-                        href={`tel:${lead.contact_phone}`}
-                        onClick={(e) => e.stopPropagation()}
-                        className="relative inline-flex items-center justify-center w-10 h-10 rounded-lg text-emerald hover:bg-emerald-soft/50"
-                        title="Call"
-                      >
-                        <Icon name="mobile" size={20} />
-                      </a>
-                    )}
-                    {hasPhone && (
-                      <a
-                        href={`https://wa.me/${waNumber}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={(e) => e.stopPropagation()}
-                        className="relative inline-flex items-center justify-center w-10 h-10 rounded-lg text-emerald hover:bg-emerald-soft/50"
-                        title="WhatsApp"
-                      >
-                        <Icon name="whatsapp" size={20} />
-                      </a>
-                    )}
-                    {hasEmail && (
-                      <a
-                        href={`https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(lead.contact_email ?? "")}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={(e) => e.stopPropagation()}
-                        className="relative inline-flex items-center justify-center w-10 h-10 rounded-lg text-indigo hover:bg-indigo-50"
-                        title="Email (opens Gmail)"
-                      >
-                        <Icon name="mail" size={20} />
-                      </a>
-                    )}
-                  </div>
-                </td>
+                {/* Quick actions — dark panel that opens from the ⋯ (hover/click/
+                    focus) and stays open while the panel itself is hovered. */}
+                <RowActions lead={lead} isSelected={isSelected} onSendQuote={onSendQuote} onFollowUp={onFollowUp} />
               </tr>
             );
           })}

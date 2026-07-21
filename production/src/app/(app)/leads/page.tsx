@@ -356,7 +356,7 @@ function LeadsPageInner() {
   };
 
   return (
-    <div className="p-4 md:p-6 lg:p-8 max-w-[1800px] mx-auto min-h-[calc(100vh-3.5rem)] flex flex-col bg-paper">
+    <div className="p-4 md:p-6 lg:p-8 max-w-[1800px] mx-auto min-h-[calc(100vh-3.5rem)] flex flex-col">
       {/* Header */}
       <div className="flex items-end justify-between gap-3 flex-wrap mb-6">
         <div>

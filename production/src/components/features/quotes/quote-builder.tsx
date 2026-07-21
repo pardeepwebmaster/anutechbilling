@@ -184,6 +184,11 @@ export function QuoteBuilder() {
   // null = unassigned (shown as placeholder in header until save).
   const [quoteId, setQuoteId] = React.useState<string | null>(null);
 
+  // Today's date (IST) as YYYY-MM-DD — the default service start date for new
+  // line items (operator can still change or clear it). Cheap to recompute per
+  // render; not memoised on purpose so an overnight session stays correct.
+  const todayISO = new Date(Date.now() + 5.5 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
   // ── Pre-fill from lead (runs once — waits for catalog so we use real prices) ──
   const prefilledRef = React.useRef(false);
   React.useEffect(() => {
@@ -277,6 +282,7 @@ export function QuoteBuilder() {
           list_rate:  rate,
           cost,
           commitment: "annual_yearly",
+          start_date: todayISO,
         },
       ]);
       toast.success(
@@ -393,7 +399,7 @@ export function QuoteBuilder() {
   const addLine = (line: QuoteLineItem) => {
     // Freeze the LIST price at add time (= the rate we start from). Lowering the
     // rate later surfaces the gap as the customer's discount. (see totals)
-    const withList: QuoteLineItem = { ...line, list_rate: line.list_rate ?? line.rate };
+    const withList: QuoteLineItem = { ...line, list_rate: line.list_rate ?? line.rate, start_date: line.start_date ?? todayISO };
     // Merge into an economically-identical existing line instead of creating a
     // duplicate row (which silently doubles the quote total). (audit: dup-line)
     const { lines, merged, mergedQty } = addOrMergeLine(lineItems, withList);

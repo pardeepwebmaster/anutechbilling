@@ -2201,9 +2201,16 @@ function LeadListView({
                 </td>
                 <td className="px-3 py-2 text-sm">
                   <div className="text-ink">{lead.contact_name ?? "—"}</div>
-                  <div className="text-[11px] text-ink-3 font-mono truncate max-w-[180px]">
-                    {lead.contact_email ?? lead.contact_phone ?? ""}
-                  </div>
+                  {lead.contact_email && (
+                    <div className="text-[11px] text-ink-3 font-mono truncate max-w-[180px]">
+                      {lead.contact_email}
+                    </div>
+                  )}
+                  {lead.contact_phone && (
+                    <div className="text-[11px] text-ink-3 font-mono truncate max-w-[180px]">
+                      {lead.contact_phone}
+                    </div>
+                  )}
                 </td>
                 <td className="px-3 py-2 text-sm text-ink-2">{lead.plan ?? "—"}</td>
                 <td className="px-3 py-2 text-right tabular-nums text-sm">{lead.seats ?? "—"}</td>

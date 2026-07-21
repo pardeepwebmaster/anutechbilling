@@ -80,7 +80,7 @@ const ICON_MAP: Record<string, LucideIcon> = {
   mail: Mail,
   phone: Phone,
   message: MessageSquare,
-  whatsapp: MessageSquare, // lucide doesn't have WhatsApp brand icon; use MessageSquare
+  // whatsapp → real brand mark, rendered by Icon() below (not a lucide glyph)
 
   // System
   settings: Settings,
@@ -130,12 +130,41 @@ export interface IconProps extends React.SVGProps<SVGSVGElement> {
 }
 
 /**
+ * The real WhatsApp brand mark — solid green speech bubble with the white
+ * phone handset (the recognisable app-icon look). Self-coloured, so it stays
+ * on-brand regardless of the surrounding text colour. Lucide has no WhatsApp
+ * glyph, so we render the authentic logo here.
+ */
+function WhatsAppMark({ size = 16, className, ...rest }: Omit<IconProps, "name">) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      className={cn("inline-block flex-shrink-0", className)}
+      aria-hidden="true"
+      {...rest}
+    >
+      <path
+        fill="#25D366"
+        d="M.057 24l1.687-6.163a11.867 11.867 0 01-1.587-5.946C.16 5.335 5.495 0 12.05 0a11.817 11.817 0 018.413 3.488 11.824 11.824 0 013.48 8.414c-.003 6.557-5.338 11.892-11.893 11.892a11.9 11.9 0 01-5.688-1.448L.057 24z"
+      />
+      <path
+        fill="#FFF"
+        d="M17.498 14.382c-.301-.15-1.767-.867-2.04-.966-.273-.101-.473-.15-.673.15-.197.295-.771.964-.944 1.162-.175.195-.349.21-.646.075-.3-.15-1.263-.465-2.403-1.485-.888-.795-1.484-1.77-1.66-2.07-.174-.3-.019-.465.13-.615.136-.135.301-.345.451-.523.146-.181.194-.301.297-.496.1-.21.049-.375-.025-.524-.075-.15-.672-1.62-.922-2.206-.24-.584-.487-.51-.672-.51-.172-.015-.371-.015-.571-.015-.2 0-.523.074-.797.359-.273.3-1.045 1.02-1.045 2.475s1.07 2.865 1.219 3.075c.149.195 2.105 3.195 5.1 4.485.714.3 1.27.48 1.704.629.714.227 1.365.195 1.88.121.574-.091 1.767-.721 2.016-1.426.255-.705.255-1.29.18-1.425-.074-.135-.27-.21-.57-.345z"
+      />
+    </svg>
+  );
+}
+
+/**
  * Render an icon by prototype-compatible name.
  *
  * Unknown name → renders the AlertTriangle icon as a visible "missing icon" indicator
  * (instead of silent fail) so we catch typos early in dev.
  */
 export function Icon({ name, size = 16, className, ...rest }: IconProps) {
+  if (name === "whatsapp") return <WhatsAppMark size={size} className={className} {...rest} />;
   const Component = ICON_MAP[name] ?? AlertTriangle;
   return (
     <Component

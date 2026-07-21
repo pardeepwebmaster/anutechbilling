@@ -1225,6 +1225,7 @@ type EmployeeRow = {
   pf_no:           string | null;
   esi_no:          string | null;
   is_active:       boolean;
+  pin_hash:        string | null;
   notes:           string | null;
   created_at:      string;
   updated_at:      string;
@@ -1313,6 +1314,28 @@ type StatutoryDuesPaymentInsert = {
   notes?:           string | null;
 };
 type StatutoryDuesPaymentUpdate = Partial<Omit<StatutoryDuesPaymentInsert, "tenant_id">>;
+
+// Attendance (migration 0088).
+type AttendanceRow = {
+  id:          string;
+  tenant_id:   string;
+  employee_id: string;
+  work_date:   string;
+  check_in:    string | null;
+  check_out:   string | null;
+  source:      string;
+  created_at:  string;
+};
+type AttendanceInsert = {
+  id?:         string;
+  tenant_id:   string;
+  employee_id: string;
+  work_date:   string;
+  check_in?:   string | null;
+  check_out?:  string | null;
+  source?:     string;
+};
+type AttendanceUpdate = Partial<Omit<AttendanceInsert, "tenant_id">>;
 
 // ============================================================
 // TDS Receivable (migration 0014)
@@ -1790,6 +1813,7 @@ export type Database = {
       leave_entries:{ Row: LeaveEntryRow; Insert: LeaveEntryInsert; Update: LeaveEntryUpdate; Relationships: [] };
       salary_payments:{ Row: SalaryPaymentRow; Insert: SalaryPaymentInsert; Update: SalaryPaymentUpdate; Relationships: [] };
       statutory_dues_payments:{ Row: StatutoryDuesPaymentRow; Insert: StatutoryDuesPaymentInsert; Update: StatutoryDuesPaymentUpdate; Relationships: [] };
+      attendance:{ Row: AttendanceRow; Insert: AttendanceInsert; Update: AttendanceUpdate; Relationships: [] };
       tds_receivable:     { Row: TdsReceivableRow;     Insert: TdsReceivableInsert;     Update: TdsReceivableUpdate;     Relationships: [] };
       customer_users:     { Row: CustomerUserRow;      Insert: CustomerUserInsert;      Update: CustomerUserUpdate;      Relationships: [] };
       support_tickets:    { Row: SupportTicketRow;     Insert: SupportTicketInsert;     Update: SupportTicketUpdate;     Relationships: [] };
@@ -2238,6 +2262,14 @@ export type Database = {
           p_notes?:          string | null;
         };
         Returns: undefined;
+      };
+      set_employee_pin: {
+        Args: { p_employee_id: string; p_pin: string };
+        Returns: undefined;
+      };
+      mark_attendance: {
+        Args: { p_employee_id: string; p_pin: string };
+        Returns: string;
       };
     };
     Enums: {

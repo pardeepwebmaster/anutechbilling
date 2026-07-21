@@ -23,10 +23,11 @@ import { rupee, formatDate, cn } from "@/lib/utils";
 import { useBankAccounts } from "@/lib/queries/bank";
 import { useEmployeeLoans } from "@/lib/queries/employee-loans";
 import {
-  useEmployees, useUpsertEmployee,
+  useEmployees, useUpsertEmployee, useSetEmployeePin,
   useLeaveEntries, useCreateLeaveEntry, useDeleteLeaveEntry,
   useSalaryPayments, usePaySalary,
   useStatutoryDues, usePayStatutoryDues,
+  useAttendance,
   LEAVE_TYPE_LABEL,
   type Employee, type LeaveKind,
 } from "@/lib/queries/payroll";
@@ -44,7 +45,7 @@ function fyStartISO(): string {
 }
 const selectCls = "w-full rounded-md border border-hairline bg-paper px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-amber";
 
-type Tab = "employees" | "payroll" | "leave";
+type Tab = "employees" | "payroll" | "leave" | "attendance";
 
 export default function PayrollPage() {
   const [tab, setTab] = React.useState<Tab>("payroll");
@@ -74,7 +75,7 @@ export default function PayrollPage() {
 
       {/* Tabs */}
       <div className="mb-5 flex gap-1 border-b border-hairline">
-        {([["payroll", "Run payroll"], ["employees", "Employees"], ["leave", "Leave"]] as [Tab, string][]).map(([k, label]) => (
+        {([["payroll", "Run payroll"], ["employees", "Employees"], ["attendance", "Attendance"], ["leave", "Leave"]] as [Tab, string][]).map(([k, label]) => (
           <button
             key={k}
             onClick={() => setTab(k)}
@@ -90,6 +91,7 @@ export default function PayrollPage() {
 
       {tab === "employees" && <EmployeesTab />}
       {tab === "payroll" && <PayrollTab />}
+      {tab === "attendance" && <AttendanceTab />}
       {tab === "leave" && <LeaveTab />}
 
       {payDuesOpen && <PayDuesDialog payable={dues.data?.payable ?? 0} onClose={() => setPayDuesOpen(false)} />}
@@ -155,18 +157,23 @@ function EmployeesTab() {
 
 function EmployeeDialog({ employee, onClose }: { employee: Employee | null; onClose: () => void }) {
   const save = useUpsertEmployee();
+  const setPin = useSetEmployeePin();
   const [name, setName] = React.useState(employee?.name ?? "");
   const [gross, setGross] = React.useState(String(employee?.monthly_gross ?? ""));
   const [joined, setJoined] = React.useState(employee?.joining_date ?? "");
   const [allowance, setAllowance] = React.useState(String(employee?.leave_allowance ?? 18));
   const [active, setActive] = React.useState(employee?.is_active ?? true);
+  const [pin, setPinValue] = React.useState("");
+
+  const pinValid = pin === "" || /^[0-9]{4,6}$/.test(pin);
 
   async function submit() {
-    if (!name.trim()) return;
-    await save.mutateAsync({
+    if (!name.trim() || !pinValid) return;
+    const id = await save.mutateAsync({
       id: employee?.id, name: name.trim(), monthly_gross: Math.round(Number(gross) || 0),
       joining_date: joined || null, leave_allowance: Math.round(Number(allowance) || 0), is_active: active,
     });
+    if (pin && id) await setPin.mutateAsync({ employeeId: id, pin });
     onClose();
   }
 
@@ -195,14 +202,23 @@ function EmployeeDialog({ employee, onClose }: { employee: Employee | null; onCl
               <Input type="number" min={0} value={allowance} onChange={(e) => setAllowance(e.target.value)} />
             </div>
           </div>
+          <div>
+            <label className="block text-xs font-medium text-ink-2 mb-1">
+              Attendance PIN {employee?.pin_hash ? <span className="text-emerald font-normal">· already set</span> : ""}
+            </label>
+            <Input inputMode="numeric" value={pin} onChange={(e) => setPinValue(e.target.value.replace(/\D/g, ""))}
+              placeholder={employee?.pin_hash ? "Enter new 4–6 digits to reset" : "Set a 4–6 digit PIN"} maxLength={6} />
+            {!pinValid && <p className="mt-1 text-[11px] text-rose">PIN must be 4–6 digits.</p>}
+            <p className="mt-1 text-[11px] text-ink-3">Used at the attendance kiosk to check in/out.</p>
+          </div>
           <label className="flex items-center gap-2 text-sm text-ink-2">
             <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} className="w-4 h-4 accent-amber" />
             Active
           </label>
         </div>
         <DialogFooter>
-          <Button variant="ghost" onClick={onClose} disabled={save.isPending}>Cancel</Button>
-          <Button variant="primary" loading={save.isPending} disabled={!name.trim()} onClick={submit}>Save</Button>
+          <Button variant="ghost" onClick={onClose} disabled={save.isPending || setPin.isPending}>Cancel</Button>
+          <Button variant="primary" loading={save.isPending || setPin.isPending} disabled={!name.trim() || !pinValid} onClick={submit}>Save</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -276,6 +292,8 @@ function PayrollTab() {
 function PaySalaryDialog({ employee, period, onClose }: { employee: Employee; period: string; onClose: () => void }) {
   const accountsQ = useBankAccounts();
   const loansQ = useEmployeeLoans();
+  const attQ = useAttendance(period);
+  const leaveQ = useLeaveEntries();
   const pay = usePaySalary();
   const accounts = (accountsQ.data ?? []).filter((a) => a.is_active);
 
@@ -315,6 +333,31 @@ function PaySalaryDialog({ employee, period, onClose }: { employee: Employee; pe
     setLopAmt(String(Math.round((grossN / 30) * d)));
   }
 
+  // Suggested LOP from attendance + unpaid leave (Sundays are weekly off).
+  const lopSuggestion = React.useMemo(() => {
+    const [yy, mm] = period.split("-").map(Number);
+    const monthStart = new Date(Date.UTC(yy, mm - 1, 1));
+    const monthEnd = new Date(Date.UTC(yy, mm, 0));
+    const todayUTC = new Date(todayISO() + "T00:00:00Z");
+    const rangeEnd = todayUTC < monthEnd ? todayUTC : monthEnd;
+    const rangeStart = employee.joining_date && employee.joining_date > `${period}-01`
+      ? new Date(employee.joining_date + "T00:00:00Z") : monthStart;
+    let expected = 0;
+    for (const d = new Date(rangeStart); d <= rangeEnd; d.setUTCDate(d.getUTCDate() + 1)) {
+      if (d.getUTCDay() !== 0) expected++;
+    }
+    const present = new Set((attQ.data ?? []).filter((a) => a.employee_id === employee.id && a.check_in).map((a) => a.work_date)).size;
+    const monthLeaves = (leaveQ.data ?? []).filter((l) => l.employee_id === employee.id && l.from_date <= `${period}-31` && l.to_date >= `${period}-01`);
+    const paidLeave = monthLeaves.filter((l) => l.type !== "unpaid").reduce((s, l) => s + l.days, 0);
+    const unpaidLeave = monthLeaves.filter((l) => l.type === "unpaid").reduce((s, l) => s + l.days, 0);
+    const absent = Math.max(0, expected - present - paidLeave - unpaidLeave);
+    return { present, absent, unpaidLeave, lopDays: absent + unpaidLeave };
+  }, [period, employee, attQ.data, leaveQ.data]);
+
+  function applyLopSuggestion() {
+    onLopDays(String(lopSuggestion.lopDays));
+  }
+
   async function submit() {
     if (!valid) return;
     await pay.mutateAsync({
@@ -351,6 +394,10 @@ function PaySalaryDialog({ employee, period, onClose }: { employee: Employee; pe
 
           <div className="rounded-md border border-hairline p-3 space-y-3">
             <div className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold">Deductions</div>
+            <div className="flex items-center justify-between gap-2 rounded bg-paper-2/50 px-2.5 py-1.5 text-[11px] text-ink-3">
+              <span>From attendance: <b className="text-ink-2">{lopSuggestion.present}</b> present · <b className="text-ink-2">{lopSuggestion.absent}</b> absent · <b className="text-ink-2">{lopSuggestion.unpaidLeave}</b> unpaid leave → LOP <b className="text-ink">{lopSuggestion.lopDays}d</b></span>
+              <button type="button" onClick={applyLopSuggestion} className="shrink-0 rounded border border-hairline px-2 py-0.5 font-medium text-ink hover:bg-paper">Apply</button>
+            </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-medium text-ink-2 mb-1">Unpaid leave (LOP) days</label>
@@ -527,6 +574,76 @@ function LeaveDialog({ employees, onClose }: { employees: Employee[]; onClose: (
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+// ── Attendance tab ──────────────────────────────────────────────────────────
+function AttendanceTab() {
+  const [period, setPeriod] = React.useState(currentPeriod());
+  const empQ = useEmployees();
+  const attQ = useAttendance(period);
+  const employees = (empQ.data ?? []).filter((e) => e.is_active);
+
+  const byEmp = new Map<string, { present: number; last: string | null }>();
+  for (const a of attQ.data ?? []) {
+    const cur = byEmp.get(a.employee_id) ?? { present: 0, last: null };
+    if (a.check_in) cur.present += 1;
+    if (!cur.last || a.work_date > cur.last) cur.last = a.work_date;
+    byEmp.set(a.employee_id, cur);
+  }
+
+  return (
+    <>
+      <Card className="mb-4 p-3 md:p-4">
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="text-xs text-ink-3 font-semibold uppercase tracking-wide">Month</label>
+          <input type="month" value={period} onChange={(e) => setPeriod(e.target.value)}
+            className="px-3 py-1.5 text-sm rounded-md border border-hairline bg-paper" />
+          <Button variant="primary" icon="external" className="ml-auto"
+            onClick={() => window.open("/attendance/kiosk", "_blank", "noopener")}>
+            Open kiosk
+          </Button>
+        </div>
+        <p className="mt-2 text-[11px] text-ink-3">
+          Open the kiosk on your office tablet/phone (kept logged in) — employees tap their name + PIN to check in/out.
+          Set each employee&apos;s PIN in the Employees tab.
+        </p>
+      </Card>
+
+      {empQ.isLoading ? (
+        <div className="space-y-3">{[1, 2, 3].map((i) => <Skeleton key={i} className="h-12 w-full" />)}</div>
+      ) : employees.length === 0 ? (
+        <Card className="py-2"><EmptyState icon="users" title="No active employees" body="Add employees and set their PINs first." /></Card>
+      ) : (
+        <Card className="overflow-hidden">
+          <table className="w-full text-sm">
+            <thead className="bg-paper-2/50 text-[10px] uppercase tracking-wider text-ink-3 font-semibold">
+              <tr>
+                <th className="text-left px-4 py-3">Employee</th>
+                <th className="text-left px-4 py-3">PIN</th>
+                <th className="text-right px-4 py-3">Days present</th>
+                <th className="text-left px-4 py-3">Last seen</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-hairline">
+              {employees.map((e) => {
+                const s = byEmp.get(e.id);
+                return (
+                  <tr key={e.id} className="hover:bg-paper-2/40">
+                    <td className="px-4 py-3 font-medium text-ink">{e.name}</td>
+                    <td className="px-4 py-3">
+                      {e.pin_hash ? <Badge kind="success">Set</Badge> : <Badge kind="warning">Not set</Badge>}
+                    </td>
+                    <td className="px-4 py-3 text-right font-mono">{s?.present ?? 0}</td>
+                    <td className="px-4 py-3 text-ink-2">{s?.last ? formatDate(s.last) : "—"}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </Card>
+      )}
+    </>
   );
 }
 

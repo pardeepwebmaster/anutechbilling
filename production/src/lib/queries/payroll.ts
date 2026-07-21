@@ -16,6 +16,7 @@ import type { Database } from "@/lib/supabase/database.types";
 export type Employee = Database["public"]["Tables"]["employees"]["Row"];
 export type LeaveEntry = Database["public"]["Tables"]["leave_entries"]["Row"];
 export type SalaryPayment = Database["public"]["Tables"]["salary_payments"]["Row"];
+export type Attendance = Database["public"]["Tables"]["attendance"]["Row"];
 export type LeaveKind = LeaveEntry["type"];
 
 export const LEAVE_TYPE_LABEL: Record<LeaveKind, string> = {
@@ -62,11 +63,12 @@ export function useUpsertEmployee() {
         const { id, ...patch } = input;
         const { error } = await supabase.from("employees").update(patch).eq("id", id);
         if (error) throw error;
-      } else {
-        const tid = await tenantId();
-        const { error } = await supabase.from("employees").insert({ ...input, tenant_id: tid });
-        if (error) throw error;
+        return id;
       }
+      const tid = await tenantId();
+      const { data, error } = await supabase.from("employees").insert({ ...input, tenant_id: tid }).select("id").single();
+      if (error) throw error;
+      return (data as { id: string }).id;
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["employees"] });
@@ -198,6 +200,49 @@ export function useStatutoryDues() {
       return { withheld, paid: paidTotal, payable: Math.max(0, withheld - paidTotal) };
     },
     staleTime: 30_000,
+  });
+}
+
+// ── Attendance ──────────────────────────────────────────────────────────────
+export function useAttendance(period?: string) {
+  return useQuery({
+    queryKey: ["attendance", period ?? "all"],
+    queryFn: async (): Promise<Attendance[]> => {
+      const supabase = createClient();
+      let q = supabase.from("attendance").select("*").order("work_date", { ascending: false });
+      if (period) q = q.gte("work_date", `${period}-01`).lte("work_date", `${period}-31`);
+      const { data, error } = await q;
+      if (error) throw error;
+      return (data ?? []) as Attendance[];
+    },
+    staleTime: 15_000,
+  });
+}
+
+export function useSetEmployeePin() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { employeeId: string; pin: string }) => {
+      const supabase = createClient();
+      const { error } = await supabase.rpc("set_employee_pin", { p_employee_id: input.employeeId, p_pin: input.pin });
+      if (error) throw error;
+    },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["employees"] }); toast.success("PIN set"); },
+    onError: (err) => toast.error((err as Error).message),
+  });
+}
+
+export function useMarkAttendance() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { employeeId: string; pin: string }): Promise<string> => {
+      const supabase = createClient();
+      const { data, error } = await supabase.rpc("mark_attendance", { p_employee_id: input.employeeId, p_pin: input.pin });
+      if (error) throw error;
+      return data as string;
+    },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["attendance"] }); },
+    // errors surfaced by the caller (kiosk shows inline feedback)
   });
 }
 

@@ -163,8 +163,34 @@ function WhatsAppMark({ size = 16, className, ...rest }: Omit<IconProps, "name">
  * Unknown name → renders the AlertTriangle icon as a visible "missing icon" indicator
  * (instead of silent fail) so we catch typos early in dev.
  */
+/**
+ * A realistic "call" button — solid green circle with a white phone handset
+ * (the universal answer-call look). Self-coloured, like {@link WhatsAppMark}.
+ * Distinct from WhatsApp by its solid circle (vs the speech-bubble) shape.
+ */
+function CallMark({ size = 16, className, ...rest }: Omit<IconProps, "name">) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      className={cn("inline-block flex-shrink-0", className)}
+      aria-hidden="true"
+      {...rest}
+    >
+      <circle cx="12" cy="12" r="12" fill="#22C55E" />
+      <path
+        transform="translate(3.9 3.9) scale(0.675)"
+        fill="#FFF"
+        d="M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z"
+      />
+    </svg>
+  );
+}
+
 export function Icon({ name, size = 16, className, ...rest }: IconProps) {
   if (name === "whatsapp") return <WhatsAppMark size={size} className={className} {...rest} />;
+  if (name === "call") return <CallMark size={size} className={className} {...rest} />;
   const Component = ICON_MAP[name] ?? AlertTriangle;
   return (
     <Component

@@ -1905,7 +1905,7 @@ function RowActions({
         </button>
         {hasPhone && (
           <a href={`tel:${lead.contact_phone}`} onClick={(e) => e.stopPropagation()} className={cn(iconBtn, "hover:bg-ink/15")} title="Call">
-            <Icon name="mobile" size={20} />
+            <Icon name="call" size={20} />
           </a>
         )}
         {hasPhone && (

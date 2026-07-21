@@ -1989,7 +1989,7 @@ function LeadListView({
         Dense 3-row layout: header (co/value), contact, meta+actions.
         Stage quick-change chip + inline action icons are tap-isolated
         from the card via stopPropagation. */}
-    <ul className="md:hidden space-y-3 pb-2">
+    <ul className="xl:hidden space-y-3 pb-2">
       {sorted.map((lead) => {
         const stale = daysSince(lead.updated_at) > 14 && lead.stage !== "won" && lead.stage !== "lost";
         return (
@@ -2020,7 +2020,7 @@ function LeadListView({
         competition bug — table had been crushing to 1.6px on /deals when
         only 1-3 deals existed and rail-below's quick-actions grid was
         taking all the flex space). */}
-    <div className="hidden md:block w-full max-w-full relative border border-hairline rounded-md overflow-auto bg-paper flex-1 min-h-[400px]">
+    <div className="hidden xl:block w-full max-w-full relative border border-hairline rounded-md overflow-auto bg-paper flex-1 min-h-[400px]">
       <table className="w-full">
         <thead className="bg-paper-2 border-b border-hairline">
           <tr>

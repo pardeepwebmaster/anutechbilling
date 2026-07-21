@@ -1159,6 +1159,7 @@ type BalanceSheetItemInsert = {
 type BalanceSheetItemUpdate = Partial<Omit<BalanceSheetItemInsert, "tenant_id">>;
 
 // Employee loans / advances (migration 0085). A loan is an asset, not an expense.
+type EmployeeLoanKind = "loan" | "salary_advance" | "expense_advance";
 type EmployeeLoanRow = {
   id:              string;
   tenant_id:       string;
@@ -1166,6 +1167,7 @@ type EmployeeLoanRow = {
   principal:       number;
   disbursed_on:    string;
   bank_account_id: string | null;
+  kind:            EmployeeLoanKind;
   notes:           string | null;
   status:          "active" | "closed";
   created_at:      string;
@@ -1179,6 +1181,7 @@ type EmployeeLoanInsert = {
   principal:        number;
   disbursed_on:     string;
   bank_account_id?: string | null;
+  kind?:            EmployeeLoanKind;
   notes?:           string | null;
   status?:          "active" | "closed";
   created_by?:      string | null;
@@ -1191,8 +1194,9 @@ type EmployeeLoanRepaymentRow = {
   loan_id:         string;
   amount:          number;
   repaid_on:       string;
-  method:          "cash" | "bank" | "salary_deduction";
+  method:          "cash" | "bank" | "salary_deduction" | "expense";
   bank_account_id: string | null;
+  expense_id:      string | null;
   notes:           string | null;
   created_at:      string;
 };
@@ -1202,8 +1206,9 @@ type EmployeeLoanRepaymentInsert = {
   loan_id:          string;
   amount:           number;
   repaid_on:        string;
-  method:           "cash" | "bank" | "salary_deduction";
+  method:           "cash" | "bank" | "salary_deduction" | "expense";
   bank_account_id?: string | null;
+  expense_id?:      string | null;
   notes?:           string | null;
 };
 type EmployeeLoanRepaymentUpdate = Partial<Omit<EmployeeLoanRepaymentInsert, "tenant_id">>;
@@ -2072,9 +2077,22 @@ export type Database = {
           p_principal:       number;
           p_disbursed_on:    string;
           p_bank_account_id: string;
+          p_kind?:           string;
           p_notes?:          string | null;
         };
         Returns: string;
+      };
+      settle_expense_advance: {
+        Args: {
+          p_loan_id:        string;
+          p_spent_amount:   number;
+          p_category:       string;
+          p_return_amount:  number;
+          p_return_account: string | null;
+          p_date:           string;
+          p_notes?:         string | null;
+        };
+        Returns: undefined;
       };
       record_employee_loan_repayment: {
         Args: {

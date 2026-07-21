@@ -27,10 +27,14 @@ import {
   useEmployeeLoans,
   useDisburseLoan,
   useRecordLoanRepayment,
+  useSettleExpenseAdvance,
   useLoanRepayments,
+  LOAN_KIND_LABEL,
   type EmployeeLoan,
+  type EmployeeLoanKind,
   type LoanRepaymentMethod,
 } from "@/lib/queries/employee-loans";
+import { EXPENSE_CATEGORIES } from "@/lib/queries/expenses";
 
 function todayISO(): string {
   const ist = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
@@ -38,13 +42,19 @@ function todayISO(): string {
 }
 
 const METHOD_LABEL: Record<LoanRepaymentMethod, string> = {
-  cash: "Cash", bank: "Bank transfer", salary_deduction: "Salary deduction",
+  cash: "Cash", bank: "Bank transfer", salary_deduction: "Salary deduction", expense: "Spent (expense)",
 };
 
 export default function EmployeeLoansPage() {
   const q = useEmployeeLoans();
   const [disburseOpen, setDisburseOpen] = React.useState(false);
   const [repayFor, setRepayFor] = React.useState<EmployeeLoan | null>(null);
+  const [settleFor, setSettleFor] = React.useState<EmployeeLoan | null>(null);
+
+  const openAction = (l: EmployeeLoan) =>
+    l.kind === "expense_advance" ? setSettleFor(l) : setRepayFor(l);
+  const actionLabel = (l: EmployeeLoan) =>
+    l.kind === "expense_advance" ? "Settle" : "Record repayment";
 
   const loans     = q.data ?? [];
   const isLoading = q.isLoading;
@@ -104,7 +114,14 @@ export default function EmployeeLoansPage() {
                 {loans.map((l) => (
                   <tr key={l.id} className="hover:bg-paper-2/40">
                     <td className="px-4 py-3 text-ink font-medium">
-                      {l.employee_name}
+                      <div className="flex items-center gap-2">
+                        {l.employee_name}
+                        {l.kind !== "loan" && (
+                          <span className="rounded bg-paper-2 px-1.5 py-0.5 text-[10px] font-medium text-ink-3">
+                            {LOAN_KIND_LABEL[l.kind]}
+                          </span>
+                        )}
+                      </div>
                       {l.notes && <div className="text-[11px] text-ink-3 font-normal">{l.notes}</div>}
                     </td>
                     <td className="px-4 py-3 text-ink-2">{formatDate(l.disbursed_on)}</td>
@@ -118,9 +135,9 @@ export default function EmployeeLoansPage() {
                     </td>
                     <td className="px-4 py-3 text-right">
                       {l.status === "active" ? (
-                        <Button variant="ghost" size="sm" onClick={() => setRepayFor(l)}>Record repayment</Button>
+                        <Button variant="ghost" size="sm" onClick={() => openAction(l)}>{actionLabel(l)}</Button>
                       ) : (
-                        <span className="text-[11px] text-ink-3">Fully repaid</span>
+                        <span className="text-[11px] text-ink-3">Settled</span>
                       )}
                     </td>
                   </tr>
@@ -135,7 +152,10 @@ export default function EmployeeLoansPage() {
               <li key={l.id}>
                 <Card className="p-4">
                   <div className="flex items-start justify-between gap-2 mb-1">
-                    <div className="font-medium text-ink leading-tight">{l.employee_name}</div>
+                    <div className="font-medium text-ink leading-tight">
+                      {l.employee_name}
+                      {l.kind !== "loan" && <span className="ml-1.5 text-[10px] font-normal text-ink-3">· {LOAN_KIND_LABEL[l.kind]}</span>}
+                    </div>
                     <div className="font-serif text-xl text-ink leading-none">{rupee(l.outstanding)}</div>
                   </div>
                   <div className="text-[11px] text-ink-3 mb-2">
@@ -146,7 +166,7 @@ export default function EmployeeLoansPage() {
                       {l.status === "closed" ? "Cleared" : "Active"}
                     </Badge>
                     {l.status === "active" && (
-                      <Button variant="ghost" size="sm" onClick={() => setRepayFor(l)}>Record repayment</Button>
+                      <Button variant="ghost" size="sm" onClick={() => openAction(l)}>{actionLabel(l)}</Button>
                     )}
                   </div>
                 </Card>
@@ -159,6 +179,7 @@ export default function EmployeeLoansPage() {
       <FAB icon="plus" label="Loan" onClick={() => setDisburseOpen(true)} ariaLabel="Give loan" />
       {disburseOpen && <DisburseDialog onClose={() => setDisburseOpen(false)} />}
       {repayFor && <RepaymentDialog loan={repayFor} onClose={() => setRepayFor(null)} />}
+      {settleFor && <SettleDialog loan={settleFor} onClose={() => setSettleFor(null)} />}
     </div>
   );
 }
@@ -184,6 +205,7 @@ function DisburseDialog({ onClose }: { onClose: () => void }) {
   const [amount, setAmount]     = React.useState("");
   const [date, setDate]         = React.useState(todayISO());
   const [accountId, setAccountId] = React.useState("");
+  const [kind, setKind]         = React.useState<EmployeeLoanKind>("loan");
   const [notes, setNotes]       = React.useState("");
 
   React.useEffect(() => {
@@ -197,10 +219,17 @@ function DisburseDialog({ onClose }: { onClose: () => void }) {
     if (!Number.isFinite(amt) || amt <= 0) return;
     if (!accountId) return;
     await disburse.mutateAsync({
-      employeeName: name.trim(), principal: amt, disbursedOn: date, bankAccountId: accountId, notes: notes.trim() || null,
+      employeeName: name.trim(), principal: amt, disbursedOn: date, bankAccountId: accountId, kind, notes: notes.trim() || null,
     });
     onClose();
   }
+
+  const kindHint =
+    kind === "expense_advance"
+      ? "To spend on company work (travel, purchases). You'll settle it against expense bills, not repay it."
+      : kind === "salary_advance"
+        ? "Advance pay, recovered later — usually deducted from salary."
+        : "A personal loan, repaid back in cash / bank / salary deduction.";
 
   return (
     <Dialog open onOpenChange={(v) => { if (!v) onClose(); }}>
@@ -211,6 +240,15 @@ function DisburseDialog({ onClose }: { onClose: () => void }) {
         </DialogHeader>
 
         <div className="space-y-3">
+          <div>
+            <label className="block text-xs font-medium text-ink-2 mb-1">Type</label>
+            <select value={kind} onChange={(e) => setKind(e.target.value as EmployeeLoanKind)} className={selectCls}>
+              <option value="loan">Loan (repaid back)</option>
+              <option value="salary_advance">Salary advance (recovered from pay)</option>
+              <option value="expense_advance">Expense advance (to spend on company work)</option>
+            </select>
+            <p className="mt-1 text-[11px] text-ink-3">{kindHint}</p>
+          </div>
           <div>
             <label className="block text-xs font-medium text-ink-2 mb-1">Employee name</label>
             <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Rahul Sharma" autoFocus />
@@ -351,6 +389,103 @@ function RepaymentDialog({ loan, onClose }: { loan: EmployeeLoan; onClose: () =>
           <Button variant="ghost" onClick={onClose} disabled={repay.isPending}>Cancel</Button>
           <Button variant="primary" loading={repay.isPending} disabled={!valid} onClick={submit}>
             Record {amt > 0 && !tooMuch ? rupee(amt) : ""}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function SettleDialog({ loan, onClose }: { loan: EmployeeLoan; onClose: () => void }) {
+  const accountsQ = useBankAccounts();
+  const settle    = useSettleExpenseAdvance();
+  const accounts  = (accountsQ.data ?? []).filter((a) => a.is_active);
+
+  const [spent, setSpent]       = React.useState(String(loan.outstanding));
+  const [category, setCategory] = React.useState<string>("Travel");
+  const [ret, setRet]           = React.useState("0");
+  const [accountId, setAccountId] = React.useState("");
+  const [date, setDate]         = React.useState(todayISO());
+  const [notes, setNotes]       = React.useState("");
+
+  React.useEffect(() => {
+    if (!accountId && accounts.length > 0) setAccountId(accounts[0].id);
+  }, [accounts, accountId]);
+
+  const spentAmt = Math.max(0, Math.round(Number(spent) || 0));
+  const retAmt   = Math.max(0, Math.round(Number(ret) || 0));
+  const total    = spentAmt + retAmt;
+  const tooMuch  = total > loan.outstanding;
+  const needAccount = retAmt > 0;
+  const valid = total > 0 && !tooMuch && (spentAmt === 0 || Boolean(category)) && (!needAccount || Boolean(accountId));
+
+  async function submit() {
+    if (!valid) return;
+    await settle.mutateAsync({
+      loanId: loan.id, spentAmount: spentAmt, category, returnAmount: retAmt,
+      returnAccountId: needAccount ? accountId : null, date, notes: notes.trim() || null,
+    });
+    onClose();
+  }
+
+  return (
+    <Dialog open onOpenChange={(v) => { if (!v) onClose(); }}>
+      <DialogContent className="md:!max-w-md">
+        <DialogHeader>
+          <DialogTitle>Settle expense advance — {loan.employee_name}</DialogTitle>
+          <DialogDescription>
+            Outstanding: <b className="text-ink">{rupee(loan.outstanding)}</b>. Book what was spent as a company
+            expense and return any unspent cash. (No fresh cash leaves — it already left when you gave the advance.)
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-3">
+          <div>
+            <label className="block text-xs font-medium text-ink-2 mb-1">Spent on company work (₹)</label>
+            <Input type="number" min={0} value={spent} onChange={(e) => setSpent(e.target.value)} />
+          </div>
+          {spentAmt > 0 && (
+            <div>
+              <label className="block text-xs font-medium text-ink-2 mb-1">Expense category</label>
+              <select value={category} onChange={(e) => setCategory(e.target.value)} className={selectCls}>
+                {EXPENSE_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+          )}
+          <div>
+            <label className="block text-xs font-medium text-ink-2 mb-1">Unspent cash returned (₹)</label>
+            <Input type="number" min={0} value={ret} onChange={(e) => setRet(e.target.value)} />
+          </div>
+          {needAccount && (
+            <div>
+              <label className="block text-xs font-medium text-ink-2 mb-1">Returned into</label>
+              <select value={accountId} onChange={(e) => setAccountId(e.target.value)} className={selectCls}>
+                {accounts.length === 0 && <option value="">No accounts — add one in Banking</option>}
+                {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+              </select>
+            </div>
+          )}
+          <div>
+            <label className="block text-xs font-medium text-ink-2 mb-1">Date</label>
+            <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-ink-2 mb-1">Note (optional)</label>
+            <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="e.g. Mumbai client visit" />
+          </div>
+
+          {tooMuch && <p className="text-[11px] text-rose">Spent + returned ({rupee(total)}) can&apos;t exceed the outstanding {rupee(loan.outstanding)}.</p>}
+          {!tooMuch && total > 0 && total < loan.outstanding && (
+            <p className="text-[11px] text-ink-3">
+              {rupee(loan.outstanding - total)} will stay outstanding after this.
+            </p>
+          )}
+        </div>
+
+        <DialogFooter>
+          <Button variant="ghost" onClick={onClose} disabled={settle.isPending}>Cancel</Button>
+          <Button variant="primary" loading={settle.isPending} disabled={!valid} onClick={submit}>
+            Settle {total > 0 && !tooMuch ? rupee(total) : ""}
           </Button>
         </DialogFooter>
       </DialogContent>

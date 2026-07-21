@@ -13,7 +13,14 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "sonner";
 
-export type LoanRepaymentMethod = "cash" | "bank" | "salary_deduction";
+export type LoanRepaymentMethod = "cash" | "bank" | "salary_deduction" | "expense";
+export type EmployeeLoanKind = "loan" | "salary_advance" | "expense_advance";
+
+export const LOAN_KIND_LABEL: Record<EmployeeLoanKind, string> = {
+  loan: "Loan",
+  salary_advance: "Salary advance",
+  expense_advance: "Expense advance",
+};
 
 export type EmployeeLoanRow = {
   id:              string;
@@ -22,6 +29,7 @@ export type EmployeeLoanRow = {
   principal:       number;
   disbursed_on:    string;
   bank_account_id: string | null;
+  kind:            EmployeeLoanKind;
   notes:           string | null;
   status:          "active" | "closed";
   created_at:      string;
@@ -51,7 +59,7 @@ export function useEmployeeLoans() {
       const supabase = createClient();
       const { data: loans, error } = await supabase
         .from("employee_loans")
-        .select("id, tenant_id, employee_name, principal, disbursed_on, bank_account_id, notes, status, created_at")
+        .select("id, tenant_id, employee_name, principal, disbursed_on, bank_account_id, kind, notes, status, created_at")
         .order("created_at", { ascending: false });
       if (error) throw error;
 
@@ -101,6 +109,7 @@ export function useDisburseLoan() {
       principal: number;
       disbursedOn: string;
       bankAccountId: string;
+      kind: EmployeeLoanKind;
       notes?: string | null;
     }) => {
       const supabase = createClient();
@@ -109,6 +118,7 @@ export function useDisburseLoan() {
         p_principal:       input.principal,
         p_disbursed_on:    input.disbursedOn,
         p_bank_account_id: input.bankAccountId,
+        p_kind:            input.kind,
         p_notes:           input.notes ?? null,
       });
       if (error) throw error;
@@ -154,6 +164,47 @@ export function useRecordLoanRepayment() {
       qc.invalidateQueries({ queryKey: ["bank_accounts"] });
       qc.invalidateQueries({ queryKey: ["bank_transactions"] });
       toast.success("Repayment recorded");
+    },
+    onError: (err) => toast.error((err as Error).message),
+  });
+}
+
+/**
+ * Settle an EXPENSE advance: the spent portion becomes a company expense (no
+ * fresh cash out — the cash already left when the advance was given), and any
+ * unspent balance is returned to an account (cash in). Atomic (RPC 0086).
+ */
+export function useSettleExpenseAdvance() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: {
+      loanId: string;
+      spentAmount: number;
+      category: string;
+      returnAmount: number;
+      returnAccountId?: string | null;
+      date: string;
+      notes?: string | null;
+    }) => {
+      const supabase = createClient();
+      const { error } = await supabase.rpc("settle_expense_advance", {
+        p_loan_id:        input.loanId,
+        p_spent_amount:   input.spentAmount,
+        p_category:       input.category,
+        p_return_amount:  input.returnAmount,
+        p_return_account: input.returnAmount > 0 ? (input.returnAccountId ?? null) : null,
+        p_date:           input.date,
+        p_notes:          input.notes ?? null,
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["employee-loans"] });
+      qc.invalidateQueries({ queryKey: ["balance-sheet"] });
+      qc.invalidateQueries({ queryKey: ["expenses"] });
+      qc.invalidateQueries({ queryKey: ["bank_accounts"] });
+      qc.invalidateQueries({ queryKey: ["bank_transactions"] });
+      toast.success("Advance settled");
     },
     onError: (err) => toast.error((err as Error).message),
   });

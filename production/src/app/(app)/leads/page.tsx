@@ -1851,7 +1851,7 @@ function RowActions({
   return (
     <td
       className={cn(
-        "sticky right-0 p-3 border-l border-hairline shadow-[-8px_0_12px_-8px_rgba(0,0,0,0.14)]",
+        "sticky right-0 p-3",
         isSelected ? "bg-amber-soft" : "bg-paper",
       )}
       onClick={(e) => e.stopPropagation()}
@@ -2139,7 +2139,7 @@ function LeadListView({
             {/* Actions column — sticky to the right edge so the row's quick
                 actions stay visible even if the table scrolls horizontally on a
                 narrow screen. Header is blank; body shows row-hover icons. */}
-            <th className="sticky right-0 z-10 bg-paper-2 border-l border-hairline px-3 py-2 w-32 text-xs font-semibold text-ink-3 uppercase tracking-wider text-right">
+            <th className="sticky right-0 z-10 bg-paper-2 px-3 py-2 w-32 text-xs font-semibold text-ink-3 uppercase tracking-wider text-right">
               <span className="sr-only">Quick actions</span>
             </th>
           </tr>

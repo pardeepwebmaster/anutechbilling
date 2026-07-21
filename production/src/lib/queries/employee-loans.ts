@@ -155,6 +155,59 @@ export function useUpdateLoanNote() {
   });
 }
 
+/** Edit a mistaken loan/advance (money-safe: reverses + re-posts the cash leg).
+ *  Only works when the loan has no repayments yet (RPC enforces). */
+export function useEditLoan() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: {
+      loanId: string; employeeName: string; principal: number; disbursedOn: string;
+      bankAccountId: string; kind: EmployeeLoanKind; notes?: string | null;
+    }) => {
+      const supabase = createClient();
+      const { error } = await supabase.rpc("edit_employee_loan", {
+        p_loan_id:         input.loanId,
+        p_employee_name:   input.employeeName,
+        p_principal:       input.principal,
+        p_disbursed_on:    input.disbursedOn,
+        p_bank_account_id: input.bankAccountId,
+        p_kind:            input.kind,
+        p_notes:           input.notes ?? null,
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["employee-loans"] });
+      qc.invalidateQueries({ queryKey: ["balance-sheet"] });
+      qc.invalidateQueries({ queryKey: ["bank_accounts"] });
+      qc.invalidateQueries({ queryKey: ["bank_transactions"] });
+      toast.success("Loan updated");
+    },
+    onError: (err) => toast.error((err as Error).message),
+  });
+}
+
+/** Delete a mistaken loan/advance (puts the disbursed cash back). Blocked once
+ *  it has repayments. */
+export function useDeleteEmployeeLoan() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (loanId: string) => {
+      const supabase = createClient();
+      const { error } = await supabase.rpc("delete_employee_loan", { p_loan_id: loanId });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["employee-loans"] });
+      qc.invalidateQueries({ queryKey: ["balance-sheet"] });
+      qc.invalidateQueries({ queryKey: ["bank_accounts"] });
+      qc.invalidateQueries({ queryKey: ["bank_transactions"] });
+      toast.success("Loan deleted — cash restored");
+    },
+    onError: (err) => toast.error((err as Error).message),
+  });
+}
+
 /** Record a repayment — reduces outstanding + (cash/bank) a bank credit. */
 export function useRecordLoanRepayment() {
   const qc = useQueryClient();

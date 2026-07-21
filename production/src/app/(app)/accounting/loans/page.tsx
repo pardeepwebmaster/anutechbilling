@@ -30,6 +30,8 @@ import {
   useRecordLoanRepayment,
   useSettleExpenseAdvance,
   useUpdateLoanNote,
+  useEditLoan,
+  useDeleteEmployeeLoan,
   useLoanRepayments,
   LOAN_KIND_LABEL,
   type EmployeeLoan,
@@ -54,7 +56,15 @@ export default function EmployeeLoansPage() {
   const [repayFor, setRepayFor] = React.useState<EmployeeLoan | null>(null);
   const [settleFor, setSettleFor] = React.useState<EmployeeLoan | null>(null);
   const [purposeFor, setPurposeFor] = React.useState<EmployeeLoan | null>(null);
+  const [editFor, setEditFor] = React.useState<EmployeeLoan | null>(null);
   const [typeFilter, setTypeFilter] = React.useState<"all" | EmployeeLoanKind>("all");
+  const deleteLoan = useDeleteEmployeeLoan();
+
+  const confirmDelete = (l: EmployeeLoan) => {
+    if (window.confirm(`Delete this ${LOAN_KIND_LABEL[l.kind].toLowerCase()} to ${l.employee_name} (${rupee(l.principal)})? The disbursed cash will be restored to the account.`)) {
+      deleteLoan.mutate(l.id);
+    }
+  };
 
   const openAction = (l: EmployeeLoan) =>
     l.kind === "expense_advance" ? setSettleFor(l) : setRepayFor(l);
@@ -171,12 +181,24 @@ export default function EmployeeLoansPage() {
                         {l.status === "closed" ? "Cleared" : "Active"}
                       </Badge>
                     </td>
-                    <td className="px-4 py-3 text-right">
-                      {l.status === "active" ? (
-                        <Button variant="ghost" size="sm" onClick={() => openAction(l)}>{actionLabel(l)}</Button>
-                      ) : (
-                        <span className="text-[11px] text-ink-3">Settled</span>
-                      )}
+                    <td className="px-4 py-3">
+                      <div className="flex items-center justify-end gap-0.5">
+                        {l.status === "active" ? (
+                          <Button variant="ghost" size="sm" onClick={() => openAction(l)}>{actionLabel(l)}</Button>
+                        ) : (
+                          <span className="mr-1 text-[11px] text-ink-3">Settled</span>
+                        )}
+                        {l.repaid === 0 && (
+                          <>
+                            <button type="button" title="Edit" onClick={() => setEditFor(l)} className="rounded p-1.5 text-ink-3 hover:bg-paper-2 hover:text-ink">
+                              <Icon name="edit" size={15} />
+                            </button>
+                            <button type="button" title="Delete" onClick={() => confirmDelete(l)} className="rounded p-1.5 text-ink-3 hover:bg-rose-soft hover:text-rose">
+                              <Icon name="trash" size={15} />
+                            </button>
+                          </>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -215,9 +237,21 @@ export default function EmployeeLoansPage() {
                     <Badge kind={l.status === "closed" ? "success" : "warning"} dot>
                       {l.status === "closed" ? "Cleared" : "Active"}
                     </Badge>
-                    {l.status === "active" && (
-                      <Button variant="ghost" size="sm" onClick={() => openAction(l)}>{actionLabel(l)}</Button>
-                    )}
+                    <div className="flex items-center gap-0.5">
+                      {l.status === "active" && (
+                        <Button variant="ghost" size="sm" onClick={() => openAction(l)}>{actionLabel(l)}</Button>
+                      )}
+                      {l.repaid === 0 && (
+                        <>
+                          <button type="button" aria-label="Edit" onClick={() => setEditFor(l)} className="rounded p-1.5 text-ink-3 hover:bg-paper-2 hover:text-ink">
+                            <Icon name="edit" size={15} />
+                          </button>
+                          <button type="button" aria-label="Delete" onClick={() => confirmDelete(l)} className="rounded p-1.5 text-ink-3 hover:bg-rose-soft hover:text-rose">
+                            <Icon name="trash" size={15} />
+                          </button>
+                        </>
+                      )}
+                    </div>
                   </div>
                 </Card>
               </li>
@@ -231,7 +265,82 @@ export default function EmployeeLoansPage() {
       {repayFor && <RepaymentDialog loan={repayFor} onClose={() => setRepayFor(null)} />}
       {settleFor && <SettleDialog loan={settleFor} onClose={() => setSettleFor(null)} />}
       {purposeFor && <EditPurposeDialog loan={purposeFor} onClose={() => setPurposeFor(null)} />}
+      {editFor && <EditLoanDialog loan={editFor} onClose={() => setEditFor(null)} />}
     </div>
+  );
+}
+
+function EditLoanDialog({ loan, onClose }: { loan: EmployeeLoan; onClose: () => void }) {
+  const accountsQ = useBankAccounts();
+  const edit      = useEditLoan();
+  const accounts  = (accountsQ.data ?? []).filter((a) => a.is_active);
+
+  const [name, setName]       = React.useState(loan.employee_name);
+  const [amount, setAmount]   = React.useState(String(loan.principal));
+  const [date, setDate]       = React.useState(loan.disbursed_on);
+  const [accountId, setAccountId] = React.useState(loan.bank_account_id ?? "");
+  const [kind, setKind]       = React.useState<EmployeeLoanKind>(loan.kind);
+  const [notes, setNotes]     = React.useState(loan.notes ?? "");
+
+  React.useEffect(() => { if (!accountId && accounts.length > 0) setAccountId(accounts[0].id); }, [accounts, accountId]);
+
+  const amt = Math.round(Number(amount) || 0);
+  const valid = name.trim().length > 0 && amt > 0 && Boolean(accountId);
+
+  async function submit() {
+    if (!valid) return;
+    await edit.mutateAsync({
+      loanId: loan.id, employeeName: name.trim(), principal: amt, disbursedOn: date,
+      bankAccountId: accountId, kind, notes: notes.trim() || null,
+    });
+    onClose();
+  }
+
+  return (
+    <Dialog open onOpenChange={(v) => { if (!v) onClose(); }}>
+      <DialogContent className="md:!max-w-md">
+        <DialogHeader>
+          <DialogTitle>Edit — {loan.employee_name}</DialogTitle>
+          <DialogDescription>Fix a mistake. Changing the amount or account adjusts the bank entry automatically.</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div>
+            <label className="block text-xs font-medium text-ink-2 mb-1">Type</label>
+            <select value={kind} onChange={(e) => setKind(e.target.value as EmployeeLoanKind)} className={selectCls}>
+              <option value="loan">Loan (repaid back)</option>
+              <option value="salary_advance">Salary advance</option>
+              <option value="expense_advance">Expense advance</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-ink-2 mb-1">Employee name</label>
+            <Input value={name} onChange={(e) => setName(e.target.value)} />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-ink-2 mb-1">Amount (₹)</label>
+            <Input type="number" min={1} value={amount} onChange={(e) => setAmount(e.target.value)} />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-ink-2 mb-1">Paid from</label>
+            <select value={accountId} onChange={(e) => setAccountId(e.target.value)} className={selectCls}>
+              {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-ink-2 mb-1">Date</label>
+            <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-ink-2 mb-1">Purpose (optional)</label>
+            <Input value={notes} onChange={(e) => setNotes(e.target.value)} />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="ghost" onClick={onClose} disabled={edit.isPending}>Cancel</Button>
+          <Button variant="primary" loading={edit.isPending} disabled={!valid} onClick={submit}>Save changes</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

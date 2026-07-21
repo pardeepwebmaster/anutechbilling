@@ -2242,6 +2242,22 @@ export type Database = {
         };
         Returns: undefined;
       };
+      edit_employee_loan: {
+        Args: {
+          p_loan_id:         string;
+          p_employee_name:   string;
+          p_principal:       number;
+          p_disbursed_on:    string;
+          p_bank_account_id: string;
+          p_kind:            string;
+          p_notes?:          string | null;
+        };
+        Returns: undefined;
+      };
+      delete_employee_loan: {
+        Args: { p_loan_id: string };
+        Returns: undefined;
+      };
       record_employee_loan_repayment: {
         Args: {
           p_loan_id:         string;

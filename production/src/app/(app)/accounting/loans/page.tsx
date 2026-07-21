@@ -22,7 +22,7 @@ import { FAB } from "@/components/ui/fab";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "@/components/ui/dialog";
-import { rupee, formatDate } from "@/lib/utils";
+import { rupee, formatDate, cn } from "@/lib/utils";
 import { useBankAccounts } from "@/lib/queries/bank";
 import {
   useEmployeeLoans,
@@ -54,6 +54,7 @@ export default function EmployeeLoansPage() {
   const [repayFor, setRepayFor] = React.useState<EmployeeLoan | null>(null);
   const [settleFor, setSettleFor] = React.useState<EmployeeLoan | null>(null);
   const [purposeFor, setPurposeFor] = React.useState<EmployeeLoan | null>(null);
+  const [typeFilter, setTypeFilter] = React.useState<"all" | EmployeeLoanKind>("all");
 
   const openAction = (l: EmployeeLoan) =>
     l.kind === "expense_advance" ? setSettleFor(l) : setRepayFor(l);
@@ -62,6 +63,8 @@ export default function EmployeeLoansPage() {
 
   const loans     = q.data ?? [];
   const isLoading = q.isLoading;
+  const shown     = typeFilter === "all" ? loans : loans.filter((l) => l.kind === typeFilter);
+  const kindCount = (k: EmployeeLoanKind) => loans.filter((l) => l.kind === k).length;
 
   const totalOutstanding = loans.reduce((s, l) => s + l.outstanding, 0);
   const activeCount       = loans.filter((l) => l.status === "active").length;
@@ -86,6 +89,28 @@ export default function EmployeeLoansPage() {
         <KPI label="Active loans" value={String(activeCount)} />
         <KPI label="Total disbursed" value={rupee(totalDisbursed)} />
       </div>
+
+      {loans.length > 0 && (kindCount("salary_advance") > 0 || kindCount("expense_advance") > 0) && (
+        <div className="mb-4 flex flex-wrap items-center gap-1.5">
+          {([["all", "All"], ["loan", "Loans"], ["salary_advance", "Salary advances"], ["expense_advance", "Expense advances"]] as const).map(([k, label]) => {
+            const count = k === "all" ? loans.length : kindCount(k);
+            if (k !== "all" && count === 0) return null;
+            return (
+              <button
+                key={k}
+                type="button"
+                onClick={() => setTypeFilter(k)}
+                className={cn(
+                  "rounded-full border px-3 py-1 text-xs transition-colors",
+                  typeFilter === k ? "border-amber bg-amber-soft text-amber-ink" : "border-hairline text-ink-3 hover:text-ink hover:bg-paper-2",
+                )}
+              >
+                {label} <span className="opacity-70 tabular-nums">{count}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {isLoading ? (
         <div className="space-y-3">{[1, 2, 3].map((i) => <Skeleton key={i} className="h-16 w-full" />)}</div>
@@ -116,16 +141,14 @@ export default function EmployeeLoansPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-hairline">
-                {loans.map((l) => (
+                {shown.map((l) => (
                   <tr key={l.id} className="hover:bg-paper-2/40">
                     <td className="px-4 py-3 text-ink font-medium">
                       <div className="flex items-center gap-2">
                         {l.employee_name}
-                        {l.kind !== "loan" && (
-                          <span className="rounded bg-paper-2 px-1.5 py-0.5 text-[10px] font-medium text-ink-3">
-                            {LOAN_KIND_LABEL[l.kind]}
-                          </span>
-                        )}
+                        <Badge kind={l.kind === "expense_advance" ? "warning" : l.kind === "salary_advance" ? "info" : "muted"}>
+                          {LOAN_KIND_LABEL[l.kind]}
+                        </Badge>
                       </div>
                     </td>
                     <td className="px-4 py-3">
@@ -163,13 +186,17 @@ export default function EmployeeLoansPage() {
 
           {/* Mobile cards */}
           <ul className="md:hidden space-y-2.5">
-            {loans.map((l) => (
+            {shown.map((l) => (
               <li key={l.id}>
                 <Card className="p-4">
                   <div className="flex items-start justify-between gap-2 mb-1">
                     <div className="font-medium text-ink leading-tight">
                       {l.employee_name}
-                      {l.kind !== "loan" && <span className="ml-1.5 text-[10px] font-normal text-ink-3">· {LOAN_KIND_LABEL[l.kind]}</span>}
+                      <span className="ml-1.5 align-middle">
+                        <Badge kind={l.kind === "expense_advance" ? "warning" : l.kind === "salary_advance" ? "info" : "muted"}>
+                          {LOAN_KIND_LABEL[l.kind]}
+                        </Badge>
+                      </span>
                     </div>
                     <div className="font-serif text-xl text-ink leading-none">{rupee(l.outstanding)}</div>
                   </div>

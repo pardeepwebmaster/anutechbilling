@@ -39,8 +39,12 @@ ENV NEXT_PUBLIC_SUPABASE_URL="https://ontpnqjoysjgrlsukecm.supabase.co"
 ENV NEXT_PUBLIC_SUPABASE_ANON_KEY="sb_publishable_M1d2SCgCNq5QXLVAOsBPUA_UwLutFUK"
 
 # App URL — must be a valid URL (Next.js metadataBase calls `new URL(...)` at build).
-# Overridden by --build-arg in second-phase deploy with the real Cloud Run URL.
-ARG NEXT_PUBLIC_APP_URL="https://resellersos.app"
+# NOTE: this is baked into the bundle at build time. It defaults to the live
+# Cloud Run URL so email/notification links actually resolve. `resellersos.app`
+# was NOT live and produced dead links. Override via --build-arg once a real
+# custom domain is mapped. (Customer-facing quote links now derive from the
+# request host instead — see /api/quotes/[id]/send — so they're domain-agnostic.)
+ARG NEXT_PUBLIC_APP_URL="https://resellersos-1005662057478.asia-south1.run.app"
 ENV NEXT_PUBLIC_APP_URL=$NEXT_PUBLIC_APP_URL
 
 ENV NEXT_TELEMETRY_DISABLED=1

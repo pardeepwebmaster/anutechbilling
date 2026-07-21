@@ -121,7 +121,13 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   const total       = quote.amount ?? taxable + tax;
   const lineItems   = (quote.line_items ?? []) as QuoteLineItem[];
 
-  const customerUrl = `${process.env.NEXT_PUBLIC_APP_URL ?? new URL(req.url).origin}/quote/${quote.id}/accept`;
+  // Build the accept/pay link from the ACTUAL host the request came in on, not
+  // NEXT_PUBLIC_APP_URL — that's baked at build time to a domain that may not be
+  // live yet (dead links). Honours the Cloud Run proxy's x-forwarded-* headers.
+  const linkProto = req.headers.get("x-forwarded-proto") ?? "https";
+  const linkHost  = req.headers.get("x-forwarded-host") ?? req.headers.get("host");
+  const linkBase  = linkHost ? `${linkProto}://${linkHost}` : new URL(req.url).origin;
+  const customerUrl = `${linkBase}/quote/${quote.id}/accept`;
   const subject     = body.subject?.trim() ||
                       `Quotation ${quote.id} from ${tenant.name}`;
   const greetName   = customer?.contact_name || quote.customer_name;

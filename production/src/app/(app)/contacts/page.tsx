@@ -44,6 +44,7 @@ export default function ContactsPage() {
   const [importOpen, setImportOpen] = React.useState(false);
   const [emailComposerOpen, setEmailComposerOpen] = React.useState(false);
   const [composerRecipients, setComposerRecipients] = React.useState<{ email: string; name?: string; company?: string }[]>([]);
+  const [composerTotalSelected, setComposerTotalSelected] = React.useState(0);
 
   // Promote a single imported contact to lead
   async function promoteOne(contactId: string) {
@@ -128,6 +129,7 @@ export default function ContactsPage() {
         return;
       }
       setComposerRecipients(recips);
+      setComposerTotalSelected(chosen.length);
       setEmailComposerOpen(true);
       return;
     }
@@ -183,6 +185,7 @@ export default function ContactsPage() {
           open={emailComposerOpen}
           onOpenChange={setEmailComposerOpen}
           recipients={composerRecipients}
+          totalSelected={composerTotalSelected}
         />
       )}
 

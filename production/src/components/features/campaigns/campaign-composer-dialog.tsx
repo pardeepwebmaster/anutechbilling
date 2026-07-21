@@ -30,6 +30,9 @@ interface Props {
   /** Hand-picked recipients (e.g. from the Contacts page). When set, the
    *  stage-audience picker is replaced by "sending to these N contacts". */
   recipients?: { email: string; name?: string; company?: string }[];
+  /** Total contacts the operator selected (incl. ones without an email) — used
+   *  to explain the "N selected → M emailable" gap. */
+  totalSelected?: number;
 }
 
 const STAGE_OPTIONS: { id: string; label: string }[] = [
@@ -44,7 +47,7 @@ const STAGE_OPTIONS: { id: string; label: string }[] = [
 
 type BodyMode = "preview" | "html" | "text";
 
-export default function CampaignComposerDialog({ open, onOpenChange, recipients }: Props) {
+export default function CampaignComposerDialog({ open, onOpenChange, recipients, totalSelected }: Props) {
   const presetRecipients = React.useMemo(
     () => (recipients ?? []).filter((r) => r.email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(r.email)),
     [recipients],
@@ -332,7 +335,12 @@ export default function CampaignComposerDialog({ open, onOpenChange, recipients 
               <Badge kind="info" dot>Sending to {recipientCount} selected contact{recipientCount === 1 ? "" : "s"}</Badge>
             </div>
             <p className="text-[11px] text-ink-3 mt-1.5">
-              You hand-picked these on the Contacts page. Contacts without a valid email are skipped automatically.
+              You hand-picked these on the Contacts page.
+              {typeof totalSelected === "number" && totalSelected > recipientCount ? (
+                <> <b className="text-amber-ink">{totalSelected - recipientCount} of your {totalSelected} skipped</b> — no email address (reach them via WhatsApp/phone).</>
+              ) : (
+                <> Contacts without a valid email are skipped automatically.</>
+              )}
             </p>
           </div>
         ) : (

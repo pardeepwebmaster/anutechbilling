@@ -112,7 +112,7 @@ export default function BalanceSheetPage() {
                 <BSLine label="TDS receivable" hint="credits from customers' TDS" amount={auto?.tdsReceivable ?? 0} auto />
                 {gstCredit > 0 && <BSLine label="GST input credit (ITC)" amount={gstCredit} auto />}
                 {manualAssetRows.map((r) => (
-                  <BSLine key={r.id} label={r.label} amount={r.amount} onDelete={() => del.mutate(r.id)} />
+                  <BSLine key={r.id} label={r.label} amount={r.amount} onDelete={() => { if (window.confirm(`Remove "${r.label}" from the balance sheet?`)) del.mutate(r.id); }} />
                 ))}
               </div>
               <TotalLine label="Total Assets" amount={totalAssets} />
@@ -127,7 +127,7 @@ export default function BalanceSheetPage() {
                   <BSLine label="GST payable" hint={`net, ${auto?.fyLabel ?? "this FY"} — before filing`} amount={gstPayable} auto />
                 )}
                 {manualLiabRows.map((r) => (
-                  <BSLine key={r.id} label={r.label} amount={r.amount} onDelete={() => del.mutate(r.id)} />
+                  <BSLine key={r.id} label={r.label} amount={r.amount} onDelete={() => { if (window.confirm(`Remove "${r.label}" from the balance sheet?`)) del.mutate(r.id); }} />
                 ))}
               </div>
               <TotalLine label="Total Liabilities" amount={totalLiab} muted />
@@ -136,7 +136,7 @@ export default function BalanceSheetPage() {
                 <SectionTitle>Equity (net worth)</SectionTitle>
                 <div className="space-y-1 mt-3">
                   {manualEqRows.map((r) => (
-                    <BSLine key={r.id} label={r.label} amount={r.amount} onDelete={() => del.mutate(r.id)} />
+                    <BSLine key={r.id} label={r.label} amount={r.amount} onDelete={() => { if (window.confirm(`Remove "${r.label}" from the balance sheet?`)) del.mutate(r.id); }} />
                   ))}
                   <BSLine
                     label="Retained earnings"

@@ -105,15 +105,18 @@ export const APP_NAV: NavSection[] = [
     ],
   },
   {
+    // Section visible to sales too, but only the Quotes item is exposed to them
+    // (sending quotes is a sales rep's core job). The money/admin items below
+    // stay owner/manager-only via per-item roles.
     section: "Revenue",
-    roles: ["owner", "manager"],
+    roles: ["owner", "manager", "sales"],
     items: [
-      { id: "online-orders", href: "/online-orders", label: "Online Orders", icon: "cart" },
-      { id: "quotes",        href: "/quotes",        label: "Quotes",        icon: "file" },
-      { id: "payments",      href: "/payments",      label: "Payments",      icon: "rupee" },
-      { id: "invoices",      href: "/invoices",      label: "Invoices",      icon: "receipt" },
-      { id: "subscriptions", href: "/subscriptions", label: "Subscriptions", icon: "refresh" },
-      { id: "renewals",      href: "/renewals",      label: "Renewals",      icon: "clock" },
+      { id: "online-orders", href: "/online-orders", label: "Online Orders", icon: "cart",    roles: ["owner", "manager"] },
+      { id: "quotes",        href: "/quotes",        label: "Quotes",        icon: "file",    roles: ["owner", "manager", "sales"] },
+      { id: "payments",      href: "/payments",      label: "Payments",      icon: "rupee",   roles: ["owner", "manager"] },
+      { id: "invoices",      href: "/invoices",      label: "Invoices",      icon: "receipt", roles: ["owner", "manager"] },
+      { id: "subscriptions", href: "/subscriptions", label: "Subscriptions", icon: "refresh", roles: ["owner", "manager"] },
+      { id: "renewals",      href: "/renewals",      label: "Renewals",      icon: "clock",   roles: ["owner", "manager"] },
     ],
   },
   {

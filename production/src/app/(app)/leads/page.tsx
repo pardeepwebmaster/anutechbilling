@@ -1825,11 +1825,11 @@ function LeadDetailSheet({
 }
 
 // ============================================================
-// RowActions — the sticky trailing cell for a lead row. A muted ⋯ at rest;
-// hovering / clicking / focusing it opens a dark quick-action panel. JS
-// hover-intent (open + delayed close, cancelled on panel re-enter) keeps the
-// panel open while the mouse is over it — even where it overflows the cell —
-// which pure CSS :hover can't do reliably once the panel extends past the cell.
+// RowActions — the sticky trailing cell for a lead row. A persistent ⋯ that
+// opens a clean, LABELLED action menu (coloured icon + name), so every action
+// is unambiguous — no colour-guessing, the two green actions read clearly as
+// "Call" vs "WhatsApp". Radix renders it in a portal, so it's never clipped by
+// the cell (which is why the old hover-slide panel needed a JS hover-intent).
 // ============================================================
 function RowActions({
   lead, isSelected, onSendQuote, onFollowUp,
@@ -1839,18 +1839,6 @@ function RowActions({
   onSendQuote: (l: Lead) => void;
   onFollowUp: (l: Lead) => void;
 }) {
-  const [open, setOpen] = React.useState(false);
-  const closeTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-  const show = React.useCallback(() => {
-    if (closeTimer.current) clearTimeout(closeTimer.current);
-    setOpen(true);
-  }, []);
-  const scheduleHide = React.useCallback(() => {
-    if (closeTimer.current) clearTimeout(closeTimer.current);
-    closeTimer.current = setTimeout(() => setOpen(false), 140);
-  }, []);
-  React.useEffect(() => () => { if (closeTimer.current) clearTimeout(closeTimer.current); }, []);
-
   const phoneDigits = (lead.contact_phone ?? "").replace(/\D/g, "");
   const waNumber = phoneDigits.startsWith("91")
     ? phoneDigits
@@ -1858,67 +1846,66 @@ function RowActions({
   const hasPhone = phoneDigits.length >= 10;
   const hasEmail = Boolean(lead.contact_email);
 
-  // On the dark panel, uniform light icons read cleanly (colored icons clashed /
-  // the indigo ones were low-contrast). Each keeps a subtle tinted hover so the
-  // action still has a hint of colour on interaction.
-  const iconBtn = "inline-flex items-center justify-center w-9 h-full rounded-lg text-paper/85 transition-colors hover:text-paper";
+  const itemCls = "gap-2.5 py-2 cursor-pointer";
 
   return (
     <td
       className={cn(
-        "relative sticky right-0 p-3 border-l border-hairline shadow-[-8px_0_12px_-8px_rgba(0,0,0,0.14)]",
+        "sticky right-0 p-3 border-l border-hairline shadow-[-8px_0_12px_-8px_rgba(0,0,0,0.14)]",
         isSelected ? "bg-amber-soft" : "bg-paper",
       )}
       onClick={(e) => e.stopPropagation()}
     >
-      {/* ⋯ trigger */}
-      <button
-        type="button"
-        aria-label="Quick actions"
-        aria-expanded={open}
-        onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }}
-        onMouseEnter={show}
-        onMouseLeave={scheduleHide}
-        onFocus={show}
-        className={cn(
-          "flex w-full items-center justify-end text-ink-3 transition-opacity duration-150 hover:text-ink",
-          open && "opacity-0 pointer-events-none",
-        )}
-      >
-        <Icon name="more_h" size={20} />
-      </button>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            aria-label="Lead actions"
+            className="ml-auto flex h-8 w-8 items-center justify-center rounded-lg text-ink-3 transition-colors hover:bg-paper-2 hover:text-ink data-[state=open]:bg-paper-2 data-[state=open]:text-ink"
+          >
+            <Icon name="more_h" size={20} />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="min-w-[13rem]">
+          <DropdownMenuLabel>Actions</DropdownMenuLabel>
+          <DropdownMenuItem className={itemCls} onClick={() => onSendQuote(lead)}>
+            <Icon name="quote" size={20} /> Send quote
+          </DropdownMenuItem>
+          <DropdownMenuItem className={itemCls} onClick={() => onFollowUp(lead)}>
+            <Icon name="reminder" size={20} /> Schedule follow-up
+          </DropdownMenuItem>
 
-      {/* Dark panel — ~70% row height. Stays open while hovered (hover-intent). */}
-      <div
-        onMouseEnter={show}
-        onMouseLeave={scheduleHide}
-        className={cn(
-          "absolute right-1 top-1/2 -translate-y-1/2 flex h-[70%] items-center gap-0.5 rounded-xl bg-amber px-1.5 shadow-lg transition-all duration-200 ease-out",
-          open ? "opacity-100 translate-x-0 pointer-events-auto" : "opacity-0 -translate-x-2 pointer-events-none",
-        )}
-      >
-        <button type="button" title="Send quote" onClick={(e) => { e.stopPropagation(); setOpen(false); onSendQuote(lead); }} className={cn(iconBtn, "hover:bg-ink/15")}>
-          <Icon name="quote" size={20} />
-        </button>
-        <button type="button" title="Schedule follow-up" onClick={(e) => { e.stopPropagation(); setOpen(false); onFollowUp(lead); }} className={cn(iconBtn, "hover:bg-ink/15")}>
-          <Icon name="reminder" size={20} />
-        </button>
-        {hasPhone && (
-          <a href={`tel:${lead.contact_phone}`} onClick={(e) => e.stopPropagation()} className={cn(iconBtn, "hover:bg-ink/15")} title="Call">
-            <Icon name="call" size={20} />
-          </a>
-        )}
-        {hasPhone && (
-          <a href={`https://wa.me/${waNumber}`} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className={cn(iconBtn, "hover:bg-ink/15")} title="WhatsApp">
-            <Icon name="whatsapp" size={20} />
-          </a>
-        )}
-        {hasEmail && (
-          <a href={`https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(lead.contact_email ?? "")}`} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className={cn(iconBtn, "hover:bg-ink/15")} title="Email (opens Gmail)">
-            <Icon name="email" size={20} />
-          </a>
-        )}
-      </div>
+          {(hasPhone || hasEmail) && <DropdownMenuSeparator />}
+
+          {hasPhone && (
+            <DropdownMenuItem asChild className={itemCls}>
+              <a href={`tel:${lead.contact_phone}`}>
+                <Icon name="call" size={20} /> Call
+                <span className="ml-auto font-mono text-[11px] text-ink-3">{lead.contact_phone}</span>
+              </a>
+            </DropdownMenuItem>
+          )}
+          {hasPhone && (
+            <DropdownMenuItem asChild className={itemCls}>
+              <a href={`https://wa.me/${waNumber}`} target="_blank" rel="noopener noreferrer">
+                <Icon name="whatsapp" size={20} /> WhatsApp
+              </a>
+            </DropdownMenuItem>
+          )}
+          {hasEmail && (
+            <DropdownMenuItem asChild className={itemCls}>
+              <a
+                href={`https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(lead.contact_email ?? "")}`}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <Icon name="email" size={20} /> Email
+                <span className="ml-auto max-w-[9rem] truncate text-[11px] text-ink-3">{lead.contact_email}</span>
+              </a>
+            </DropdownMenuItem>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
     </td>
   );
 }

@@ -2174,7 +2174,7 @@ function LeadListView({
                   "sticky right-0 p-3 border-l border-hairline shadow-[-8px_0_12px_-8px_rgba(0,0,0,0.14)]",
                   isSelected ? "bg-amber-soft" : "bg-paper",
                 )} onClick={(e) => e.stopPropagation()}>
-                  <div className="flex items-center justify-end gap-1">
+                  <div className="flex items-center justify-end gap-1 opacity-0 -translate-x-3 transition-all duration-200 ease-out group-hover:opacity-100 group-hover:translate-x-0 group-focus-within:opacity-100 group-focus-within:translate-x-0">
                     <button
                       type="button"
                       onClick={(e) => { e.stopPropagation(); onSendQuote(lead); }}
@@ -2237,7 +2237,7 @@ function LeadListView({
       )}
       <div className="px-3 py-2 border-t border-hairline bg-paper-2/40 text-[11px] text-ink-3 flex items-center gap-2">
         <Icon name="info" size={11} />
-        Click any row to open the drawer · Tick a checkbox to enable bulk actions · Row actions: Send quote / Follow-up / Call / WhatsApp / Email
+        Click any row to open the drawer · Tick a checkbox to enable bulk actions · Hover a row for quick actions: Send quote / Follow-up / Call / WhatsApp / Email
       </div>
     </div>
 

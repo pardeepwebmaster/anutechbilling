@@ -14,6 +14,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { Icon } from "@/components/ui/icon";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/shared/empty-state";
 import {
@@ -27,7 +28,7 @@ import {
   useLeaveEntries, useCreateLeaveEntry, useDeleteLeaveEntry,
   useSalaryPayments, usePaySalary,
   useStatutoryDues, usePayStatutoryDues,
-  useAttendance,
+  useAttendance, useAttendanceNetwork, useSetAttendanceNetwork,
   LEAVE_TYPE_LABEL,
   type Employee, type LeaveKind,
 } from "@/lib/queries/payroll";
@@ -578,6 +579,49 @@ function LeaveDialog({ employees, onClose }: { employees: Employee[]; onClose: (
 }
 
 // ── Attendance tab ──────────────────────────────────────────────────────────
+function NetworkCard() {
+  const netQ = useAttendanceNetwork();
+  const setNet = useSetAttendanceNetwork();
+  const d = netQ.data;
+  const locked = (d?.allowedIps.length ?? 0) > 0;
+  return (
+    <Card className={cn("mb-4 p-3 md:p-4", locked ? "border-emerald/30" : "")}>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <div className="text-sm font-medium text-ink flex items-center gap-2">
+            <Icon name="lock" size={14} className={locked ? "text-emerald" : "text-ink-3"} />
+            Office network {locked ? "locked" : "not locked"}
+          </div>
+          <p className="text-[11px] text-ink-3 mt-0.5 max-w-xl">
+            {locked
+              ? "Attendance can only be marked from the office network(s) below — off-site marking is blocked."
+              : "Anyone with the kiosk link can mark from any network. Open this on the office WiFi and lock it to prevent off-site marking."}
+          </p>
+        </div>
+        <div className="flex gap-2 shrink-0">
+          <Button variant="primary" size="sm" loading={setNet.isPending} onClick={() => setNet.mutate({ action: "lock" })}>
+            Lock to this network
+          </Button>
+          {locked && <Button variant="ghost" size="sm" onClick={() => setNet.mutate({ action: "clear" })}>Turn off</Button>}
+        </div>
+      </div>
+      {d && (
+        <div className="mt-2 text-[11px] text-ink-3">
+          This network&apos;s IP: <span className="font-mono text-ink-2">{d.currentIp || "—"}</span>
+          {locked && (
+            <span className="ml-2">· Allowed:{d.allowedIps.map((ip) => (
+              <span key={ip} className="ml-1 font-mono text-ink-2">
+                {ip}
+                <button onClick={() => setNet.mutate({ action: "remove", ip })} className="ml-0.5 text-rose" aria-label={`Remove ${ip}`}>×</button>
+              </span>
+            ))}</span>
+          )}
+        </div>
+      )}
+    </Card>
+  );
+}
+
 function AttendanceTab() {
   const [period, setPeriod] = React.useState(currentPeriod());
   const empQ = useEmployees();
@@ -594,6 +638,8 @@ function AttendanceTab() {
 
   return (
     <>
+      <NetworkCard />
+
       <Card className="mb-4 p-3 md:p-4">
         <div className="flex flex-wrap items-center gap-3">
           <label className="text-xs text-ink-3 font-semibold uppercase tracking-wide">Month</label>

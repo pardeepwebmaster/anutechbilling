@@ -235,14 +235,50 @@ export function useSetEmployeePin() {
 export function useMarkAttendance() {
   const qc = useQueryClient();
   return useMutation({
+    // Goes through the API route so the office-network (IP) gate is enforced
+    // server-side with the real client IP.
     mutationFn: async (input: { employeeId: string; pin: string }): Promise<string> => {
-      const supabase = createClient();
-      const { data, error } = await supabase.rpc("mark_attendance", { p_employee_id: input.employeeId, p_pin: input.pin });
-      if (error) throw error;
-      return data as string;
+      const res = await fetch("/api/attendance/mark", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ employeeId: input.employeeId, pin: input.pin }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error ?? "Could not mark attendance");
+      return json.action as string;
     },
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["attendance"] }); },
     // errors surfaced by the caller (kiosk shows inline feedback)
+  });
+}
+
+export function useAttendanceNetwork() {
+  return useQuery({
+    queryKey: ["attendance-network"],
+    queryFn: async () => {
+      const res = await fetch("/api/attendance/network");
+      if (!res.ok) throw new Error("Failed to load network settings");
+      return res.json() as Promise<{ allowedIps: string[]; currentIp: string; onAllowedNetwork: boolean }>;
+    },
+    staleTime: 10_000,
+  });
+}
+
+export function useSetAttendanceNetwork() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { action: "lock" | "clear" | "remove"; ip?: string }) => {
+      const res = await fetch("/api/attendance/network", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error ?? "Failed");
+      return json as { allowedIps: string[]; currentIp: string };
+    },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["attendance-network"] }); toast.success("Attendance network updated"); },
+    onError: (e) => toast.error((e as Error).message),
   });
 }
 

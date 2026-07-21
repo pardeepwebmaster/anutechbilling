@@ -1324,6 +1324,7 @@ type AttendanceRow = {
   check_in:    string | null;
   check_out:   string | null;
   source:      string;
+  marked_ip:   string | null;
   created_at:  string;
 };
 type AttendanceInsert = {
@@ -1334,8 +1335,21 @@ type AttendanceInsert = {
   check_in?:   string | null;
   check_out?:  string | null;
   source?:     string;
+  marked_ip?:  string | null;
 };
 type AttendanceUpdate = Partial<Omit<AttendanceInsert, "tenant_id">>;
+
+type AttendanceSettingsRow = {
+  tenant_id:   string;
+  allowed_ips: string[];
+  updated_at:  string;
+};
+type AttendanceSettingsInsert = {
+  tenant_id:    string;
+  allowed_ips?: string[];
+  updated_at?:  string;
+};
+type AttendanceSettingsUpdate = Partial<Omit<AttendanceSettingsInsert, "tenant_id">>;
 
 // ============================================================
 // TDS Receivable (migration 0014)
@@ -1814,6 +1828,7 @@ export type Database = {
       salary_payments:{ Row: SalaryPaymentRow; Insert: SalaryPaymentInsert; Update: SalaryPaymentUpdate; Relationships: [] };
       statutory_dues_payments:{ Row: StatutoryDuesPaymentRow; Insert: StatutoryDuesPaymentInsert; Update: StatutoryDuesPaymentUpdate; Relationships: [] };
       attendance:{ Row: AttendanceRow; Insert: AttendanceInsert; Update: AttendanceUpdate; Relationships: [] };
+      attendance_settings:{ Row: AttendanceSettingsRow; Insert: AttendanceSettingsInsert; Update: AttendanceSettingsUpdate; Relationships: [] };
       tds_receivable:     { Row: TdsReceivableRow;     Insert: TdsReceivableInsert;     Update: TdsReceivableUpdate;     Relationships: [] };
       customer_users:     { Row: CustomerUserRow;      Insert: CustomerUserInsert;      Update: CustomerUserUpdate;      Relationships: [] };
       support_tickets:    { Row: SupportTicketRow;     Insert: SupportTicketInsert;     Update: SupportTicketUpdate;     Relationships: [] };
@@ -2268,7 +2283,7 @@ export type Database = {
         Returns: undefined;
       };
       mark_attendance: {
-        Args: { p_employee_id: string; p_pin: string };
+        Args: { p_employee_id: string; p_pin: string; p_ip?: string | null };
         Returns: string;
       };
     };

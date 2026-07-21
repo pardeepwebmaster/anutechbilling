@@ -13,7 +13,7 @@ import { Icon } from "@/components/ui/icon";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/shared/empty-state";
 import { cn } from "@/lib/utils";
-import { useEmployees, useAttendance, useMarkAttendance, type Employee } from "@/lib/queries/payroll";
+import { useEmployees, useAttendance, useMarkAttendance, useAttendanceNetwork, type Employee } from "@/lib/queries/payroll";
 
 function istToday(): string {
   return new Date(Date.now() + 5.5 * 60 * 60 * 1000).toISOString().slice(0, 10);
@@ -29,7 +29,16 @@ function fmtTime(iso: string | null): string {
 export default function AttendanceKioskPage() {
   const empQ = useEmployees();
   const attQ = useAttendance(istPeriod());
+  const netQ = useAttendanceNetwork();
   const [pinFor, setPinFor] = React.useState<Employee | null>(null);
+
+  const net = netQ.data;
+  const locked = (net?.allowedIps.length ?? 0) > 0;
+  const offNetwork = locked && net?.onAllowedNetwork === false;
+
+  async function goFullscreen() {
+    try { await document.documentElement.requestFullscreen(); } catch { /* not supported */ }
+  }
 
   const today = istToday();
   const employees = (empQ.data ?? []).filter((e) => e.is_active);
@@ -39,9 +48,22 @@ export default function AttendanceKioskPage() {
 
   return (
     <div className="p-4 md:p-6 lg:p-8 max-w-[1100px] mx-auto">
-      <div className="mb-6 text-center">
+      <div className="mb-6 text-center relative">
         <h1 className="font-serif text-3xl md:text-4xl tracking-tight">Attendance</h1>
         <p className="text-sm text-ink-3 mt-1">Tap your name and enter your PIN to check in or out.</p>
+        <div className="mt-2 flex items-center justify-center gap-3 text-[11px]">
+          {locked ? (
+            <span className={cn("inline-flex items-center gap-1", offNetwork ? "text-rose" : "text-emerald")}>
+              <Icon name={offNetwork ? "alert" : "lock"} size={12} />
+              {offNetwork ? "Not on the office network — marking is blocked here" : "Locked to office network"}
+            </span>
+          ) : (
+            <span className="text-ink-3">Network lock off</span>
+          )}
+          <button onClick={goFullscreen} className="text-ink-3 hover:text-ink inline-flex items-center gap-1">
+            <Icon name="external" size={12} /> Fullscreen
+          </button>
+        </div>
       </div>
 
       {empQ.isLoading ? (

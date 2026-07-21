@@ -58,8 +58,8 @@ export default function BalanceSheetPage() {
 
   const autoAssets =
     (auto?.cashAndBank ?? 0) + (auto?.receivables ?? 0) + (auto?.tdsReceivable ?? 0)
-    + (auto?.employeeLoans ?? 0) + gstCredit;
-  const autoLiab = (auto?.payables ?? 0) + (auto?.salaryDuesPayable ?? 0) + gstPayable;
+    + (auto?.employeeLoans ?? 0) + (auto?.fixedAssets ?? 0) + gstCredit;
+  const autoLiab = (auto?.payables ?? 0) + (auto?.salaryDuesPayable ?? 0) + (auto?.emiLoansPayable ?? 0) + gstPayable;
 
   const manualAssetRows = manual("asset");
   const manualLiabRows  = manual("liability");
@@ -116,6 +116,9 @@ export default function BalanceSheetPage() {
                 {(auto?.employeeLoans ?? 0) > 0 && (
                   <BSLine label="Employee loans / advances" hint="outstanding, owed back" amount={auto?.employeeLoans ?? 0} auto />
                 )}
+                {(auto?.fixedAssets ?? 0) > 0 && (
+                  <BSLine label="Fixed assets (EMI purchases)" hint="vehicles, equipment at cost" amount={auto?.fixedAssets ?? 0} auto />
+                )}
                 {gstCredit > 0 && <BSLine label="GST input credit (ITC)" amount={gstCredit} auto />}
                 {manualAssetRows.map((r) => (
                   <BSLine key={r.id} label={r.label} amount={r.amount} onEdit={() => setEditItem(r)} onDelete={() => { if (window.confirm(`Remove "${r.label}" from the balance sheet?`)) del.mutate(r.id); }} />
@@ -131,6 +134,9 @@ export default function BalanceSheetPage() {
                 <BSLine label="Trade payables" hint="unpaid vendor bills" amount={auto?.payables ?? 0} auto />
                 {(auto?.salaryDuesPayable ?? 0) > 0 && (
                   <BSLine label="Salary dues payable" hint="withheld TDS/PF/ESI, not yet remitted" amount={auto?.salaryDuesPayable ?? 0} auto />
+                )}
+                {(auto?.emiLoansPayable ?? 0) > 0 && (
+                  <BSLine label="EMI / asset loans" hint="outstanding financing on purchases" amount={auto?.emiLoansPayable ?? 0} auto />
                 )}
                 {gstPayable > 0 && (
                   <BSLine label="GST payable" hint={`net, ${auto?.fyLabel ?? "this FY"} — before filing`} amount={gstPayable} auto />

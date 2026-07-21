@@ -1355,6 +1355,45 @@ type AttendanceSettingsInsert = {
 };
 type AttendanceSettingsUpdate = Partial<Omit<AttendanceSettingsInsert, "tenant_id">>;
 
+// Assets bought on EMI (migration 0092).
+type EmiPurchaseRow = {
+  id:              string;
+  tenant_id:       string;
+  name:            string;
+  category:        "vehicle" | "equipment" | "furniture" | "property" | "other";
+  total_cost:      number;
+  down_payment:    number;
+  financed:        number;
+  emi_count:       number;
+  emi_amount:      number;
+  purchased_on:    string;
+  down_account_id: string | null;
+  lender:          string | null;
+  notes:           string | null;
+  status:          "active" | "closed";
+  created_at:      string;
+  updated_at:      string;
+  created_by:      string | null;
+};
+type EmiPurchaseInsert = Partial<EmiPurchaseRow> & { tenant_id: string; name: string; total_cost: number; financed: number; purchased_on: string };
+type EmiPurchaseUpdate = Partial<Omit<EmiPurchaseInsert, "tenant_id">>;
+
+type EmiPaymentRow = {
+  id:              string;
+  tenant_id:       string;
+  purchase_id:     string;
+  amount:          number;
+  principal_part:  number;
+  interest_part:   number;
+  paid_on:         string;
+  bank_account_id: string | null;
+  expense_id:      string | null;
+  notes:           string | null;
+  created_at:      string;
+};
+type EmiPaymentInsert = Partial<EmiPaymentRow> & { tenant_id: string; purchase_id: string; amount: number; principal_part: number; paid_on: string };
+type EmiPaymentUpdate = Partial<Omit<EmiPaymentInsert, "tenant_id">>;
+
 // ============================================================
 // TDS Receivable (migration 0014)
 // ============================================================
@@ -1833,6 +1872,8 @@ export type Database = {
       statutory_dues_payments:{ Row: StatutoryDuesPaymentRow; Insert: StatutoryDuesPaymentInsert; Update: StatutoryDuesPaymentUpdate; Relationships: [] };
       attendance:{ Row: AttendanceRow; Insert: AttendanceInsert; Update: AttendanceUpdate; Relationships: [] };
       attendance_settings:{ Row: AttendanceSettingsRow; Insert: AttendanceSettingsInsert; Update: AttendanceSettingsUpdate; Relationships: [] };
+      emi_purchases:{ Row: EmiPurchaseRow; Insert: EmiPurchaseInsert; Update: EmiPurchaseUpdate; Relationships: [] };
+      emi_payments:{ Row: EmiPaymentRow; Insert: EmiPaymentInsert; Update: EmiPaymentUpdate; Relationships: [] };
       tds_receivable:     { Row: TdsReceivableRow;     Insert: TdsReceivableInsert;     Update: TdsReceivableUpdate;     Relationships: [] };
       customer_users:     { Row: CustomerUserRow;      Insert: CustomerUserInsert;      Update: CustomerUserUpdate;      Relationships: [] };
       support_tickets:    { Row: SupportTicketRow;     Insert: SupportTicketInsert;     Update: SupportTicketUpdate;     Relationships: [] };
@@ -2256,6 +2297,32 @@ export type Database = {
       };
       delete_employee_loan: {
         Args: { p_loan_id: string };
+        Returns: undefined;
+      };
+      record_emi_purchase: {
+        Args: {
+          p_name:         string;
+          p_category:     string;
+          p_total_cost:   number;
+          p_down_payment: number;
+          p_emi_count:    number;
+          p_emi_amount:   number;
+          p_purchased_on: string;
+          p_down_account: string | null;
+          p_lender?:      string | null;
+          p_notes?:       string | null;
+        };
+        Returns: string;
+      };
+      record_emi_payment: {
+        Args: {
+          p_purchase_id:     string;
+          p_amount:          number;
+          p_interest:        number;
+          p_paid_on:         string;
+          p_bank_account_id: string;
+          p_notes?:          string | null;
+        };
         Returns: undefined;
       };
       record_employee_loan_repayment: {

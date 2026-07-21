@@ -34,8 +34,10 @@ export interface BalanceSheetAuto {
   receivables:     number;   // customers' unpaid balances (subscriptions outstanding)
   tdsReceivable:   number;   // pending TDS credits from customers
   employeeLoans:   number;   // outstanding loans/advances to employees (an asset)
+  fixedAssets:     number;   // cost of assets bought on EMI (an asset)
   payables:        number;   // unpaid vendor bills (total − paid)
   salaryDuesPayable: number; // withheld TDS/PF/ESI not yet paid to govt (a liability)
+  emiLoansPayable: number;   // outstanding EMI/asset loans (a liability)
   gstPayable:      number;   // net GST this FY (output − input); may be negative (credit)
   fyLabel:         string;   // e.g. "FY 2026-27" for the GST caveat
 }
@@ -88,6 +90,17 @@ export function useBalanceSheetAuto() {
       const loanRepaid    = (loanReps ?? []).reduce((s, r) => s + (r.amount ?? 0), 0);
       const employeeLoans = Math.max(0, loanPrincipal - loanRepaid);
 
+      // Assets bought on EMI: total cost is a fixed asset; financed-minus-
+      // principal-paid is a loan liability.
+      const { data: emiP, error: emiErr } = await supabase.from("emi_purchases").select("total_cost, financed");
+      if (emiErr) throw emiErr;
+      const { data: emiPay, error: emiPayErr } = await supabase.from("emi_payments").select("principal_part");
+      if (emiPayErr) throw emiPayErr;
+      const fixedAssets     = (emiP ?? []).reduce((s, r) => s + (r.total_cost ?? 0), 0);
+      const emiFinanced     = (emiP ?? []).reduce((s, r) => s + (r.financed ?? 0), 0);
+      const emiPrincipalPaid = (emiPay ?? []).reduce((s, r) => s + (r.principal_part ?? 0), 0);
+      const emiLoansPayable = Math.max(0, emiFinanced - emiPrincipalPaid);
+
       // Trade payables — vendor bills with an unpaid balance.
       const { data: bills, error: bErr } = await supabase
         .from("vendor_bills")
@@ -134,7 +147,7 @@ export function useBalanceSheetAuto() {
 
       const gstPayable = outputGST - billsGst - expGst;
 
-      return { cashAndBank, receivables, tdsReceivable, employeeLoans, payables, salaryDuesPayable, gstPayable, fyLabel };
+      return { cashAndBank, receivables, tdsReceivable, employeeLoans, fixedAssets, payables, salaryDuesPayable, emiLoansPayable, gstPayable, fyLabel };
     },
     staleTime: 30_000,
   });

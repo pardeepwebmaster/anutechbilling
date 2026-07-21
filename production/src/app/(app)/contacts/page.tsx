@@ -105,18 +105,40 @@ export default function ContactsPage() {
     }
   };
 
-  // Bulk actions
+  // Bulk actions — message the exact selected contacts. (The Campaigns tool is
+  // stage-targeted and email-only; here the operator hand-picked people, so we
+  // act on precisely those: Gmail with everyone in BCC for email, and — since
+  // WhatsApp has no bulk-link — copy the numbers for a broadcast list.)
   const startCampaign = (channel: "email" | "whatsapp") => {
-    const ids = [...selected].join(",");
-    if (ids.length === 0) {
+    const chosen = (contacts ?? []).filter((c) => selected.has(c.id));
+    if (chosen.length === 0) {
       toast.error("Select at least one contact");
       return;
     }
-    toast.success(
-      `Starting ${channel} campaign for ${selected.size} contact${selected.size > 1 ? "s" : ""}…`,
-    );
-    router.push(
-      `/campaigns/new?channel=${channel}&contacts=${encodeURIComponent(ids)}` as any,
+
+    if (channel === "email") {
+      const emails = chosen.map((c) => c.email?.trim()).filter((e): e is string => Boolean(e));
+      if (emails.length === 0) {
+        toast.error("None of the selected contacts have an email");
+        return;
+      }
+      const url = `https://mail.google.com/mail/?view=cm&fs=1&bcc=${encodeURIComponent(emails.join(","))}`;
+      window.open(url, "_blank", "noopener,noreferrer");
+      toast.success(`Opening Gmail — ${emails.length} recipient${emails.length > 1 ? "s" : ""} in BCC`);
+      return;
+    }
+
+    // WhatsApp: no bulk-send link exists; copy the numbers for a broadcast list.
+    const phones = chosen
+      .map((c) => (c.phone ?? "").replace(/\D/g, ""))
+      .filter((p) => p.length >= 10);
+    if (phones.length === 0) {
+      toast.error("None of the selected contacts have a phone number");
+      return;
+    }
+    navigator.clipboard?.writeText(phones.join("\n")).then(
+      () => toast.success(`${phones.length} number${phones.length > 1 ? "s" : ""} copied — paste into a WhatsApp broadcast list`),
+      () => toast.error("Clipboard blocked — couldn't copy the numbers"),
     );
   };
 

@@ -2168,49 +2168,52 @@ function LeadListView({
                     transition keeps the layout stable (no shift on hover).
                     Each icon stopsPropagation so they don't open the drawer. */}
                 <td className={cn(
-                  // Fully OPAQUE bg + left border so the scrolled-under columns
-                  // never bleed through behind the action icons. `relative` so the
-                  // absolutely-overlaid action row anchors here.
-                  "relative sticky right-0 p-3 border-l border-hairline shadow-[-8px_0_12px_-8px_rgba(0,0,0,0.14)]",
+                  // `group/act` scopes the reveal to THIS cell (the ⋯), not the
+                  // whole row. Opaque bg + left border so scrolled-under columns
+                  // never bleed through. `relative` anchors the overlaid actions.
+                  "group/act relative sticky right-0 p-3 border-l border-hairline shadow-[-8px_0_12px_-8px_rgba(0,0,0,0.14)]",
                   isSelected ? "bg-amber-soft" : "bg-paper",
                 )} onClick={(e) => e.stopPropagation()}>
-                  {/* At-rest affordance: a muted ⋯ so the column doesn't look
-                      empty. Fades out as the actions slide in on hover/focus. */}
-                  <div
-                    aria-hidden
-                    className="flex items-center justify-end text-ink-3 transition-opacity duration-150 group-hover:opacity-0 group-focus-within:opacity-0"
+                  {/* At-rest ⋯ trigger. It's a real button so a click/tap focuses
+                      it → group-focus-within reveals the actions (touch-friendly);
+                      mouse hover over the cell reveals them too. */}
+                  <button
+                    type="button"
+                    aria-label="Show quick actions"
+                    onClick={(e) => e.stopPropagation()}
+                    className="flex w-full items-center justify-end text-ink-3 transition-opacity duration-150 hover:text-ink group-hover/act:opacity-0 group-focus-within/act:opacity-0"
                   >
-                    <Icon name="more_h" size={16} />
-                  </div>
+                    <Icon name="more_h" size={20} />
+                  </button>
                   {/* Full actions — overlaid so swapping in doesn't shift layout;
-                      slide in from the left on hover / keyboard focus. */}
-                  <div className="absolute inset-0 flex items-center justify-end gap-1 px-2 opacity-0 -translate-x-3 pointer-events-none transition-all duration-200 ease-out group-hover:opacity-100 group-hover:translate-x-0 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:translate-x-0 group-focus-within:pointer-events-auto">
-                    {/* translucent panel behind the icons (≈30% opacity) */}
-                    <span aria-hidden className="absolute inset-y-2 right-1.5 left-1.5 rounded-lg bg-paper-2/30 ring-1 ring-hairline/50" />
+                      slide in from the left when the ⋯ cell is hovered or focused. */}
+                  <div className="absolute inset-0 flex items-center justify-end gap-1 px-2 opacity-0 -translate-x-3 pointer-events-none transition-all duration-200 ease-out group-hover/act:opacity-100 group-hover/act:translate-x-0 group-hover/act:pointer-events-auto group-focus-within/act:opacity-100 group-focus-within/act:translate-x-0 group-focus-within/act:pointer-events-auto">
+                    {/* translucent panel behind the icons (≈20% opacity) */}
+                    <span aria-hidden className="absolute inset-y-1.5 right-1 left-1 rounded-lg bg-paper-2/20 ring-1 ring-hairline/50" />
                     <button
                       type="button"
                       onClick={(e) => { e.stopPropagation(); onSendQuote(lead); }}
-                      className="relative inline-flex items-center justify-center w-9 h-9 rounded-lg text-amber hover:bg-amber-soft/50"
+                      className="relative inline-flex items-center justify-center w-10 h-10 rounded-lg text-amber hover:bg-amber-soft/50"
                       title="Send quote"
                     >
-                      <Icon name="file" size={18} />
+                      <Icon name="file" size={20} />
                     </button>
                     <button
                       type="button"
                       onClick={(e) => { e.stopPropagation(); onFollowUp(lead); }}
-                      className="relative inline-flex items-center justify-center w-9 h-9 rounded-lg text-indigo hover:bg-indigo-50"
+                      className="relative inline-flex items-center justify-center w-10 h-10 rounded-lg text-indigo hover:bg-indigo-50"
                       title="Schedule follow-up"
                     >
-                      <Icon name="clock" size={18} />
+                      <Icon name="clock" size={20} />
                     </button>
                     {hasPhone && (
                       <a
                         href={`tel:${lead.contact_phone}`}
                         onClick={(e) => e.stopPropagation()}
-                        className="relative inline-flex items-center justify-center w-9 h-9 rounded-lg text-emerald hover:bg-emerald-soft/50"
+                        className="relative inline-flex items-center justify-center w-10 h-10 rounded-lg text-emerald hover:bg-emerald-soft/50"
                         title="Call"
                       >
-                        <Icon name="mobile" size={18} />
+                        <Icon name="mobile" size={20} />
                       </a>
                     )}
                     {hasPhone && (
@@ -2219,10 +2222,10 @@ function LeadListView({
                         target="_blank"
                         rel="noopener noreferrer"
                         onClick={(e) => e.stopPropagation()}
-                        className="relative inline-flex items-center justify-center w-9 h-9 rounded-lg text-emerald hover:bg-emerald-soft/50"
+                        className="relative inline-flex items-center justify-center w-10 h-10 rounded-lg text-emerald hover:bg-emerald-soft/50"
                         title="WhatsApp"
                       >
-                        <Icon name="whatsapp" size={18} />
+                        <Icon name="whatsapp" size={20} />
                       </a>
                     )}
                     {hasEmail && (
@@ -2231,10 +2234,10 @@ function LeadListView({
                         target="_blank"
                         rel="noopener noreferrer"
                         onClick={(e) => e.stopPropagation()}
-                        className="relative inline-flex items-center justify-center w-9 h-9 rounded-lg text-indigo hover:bg-indigo-50"
+                        className="relative inline-flex items-center justify-center w-10 h-10 rounded-lg text-indigo hover:bg-indigo-50"
                         title="Email (opens Gmail)"
                       >
-                        <Icon name="mail" size={18} />
+                        <Icon name="mail" size={20} />
                       </a>
                     )}
                   </div>

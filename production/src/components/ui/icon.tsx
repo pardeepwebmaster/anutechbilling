@@ -164,9 +164,8 @@ function WhatsAppMark({ size = 16, className, ...rest }: Omit<IconProps, "name">
  * (instead of silent fail) so we catch typos early in dev.
  */
 /**
- * A realistic "call" button — solid green circle with a white phone handset
- * (the universal answer-call look). Self-coloured, like {@link WhatsAppMark}.
- * Distinct from WhatsApp by its solid circle (vs the speech-bubble) shape.
+ * A phone handset for the Call action — flat (no disc) and in amber, so it
+ * reads clearly apart from the green WhatsApp logo sitting right beside it.
  */
 function CallMark({ size = 16, className, ...rest }: Omit<IconProps, "name">) {
   return (
@@ -178,10 +177,8 @@ function CallMark({ size = 16, className, ...rest }: Omit<IconProps, "name">) {
       aria-hidden="true"
       {...rest}
     >
-      <circle cx="12" cy="12" r="12" fill="#22C55E" />
       <path
-        transform="translate(3.9 3.9) scale(0.675)"
-        fill="#FFF"
+        fill="#EA580C"
         d="M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z"
       />
     </svg>
@@ -189,12 +186,10 @@ function CallMark({ size = 16, className, ...rest }: Omit<IconProps, "name">) {
 }
 
 /**
- * A realistic app-action badge — a solid coloured disc with a white glyph,
- * matching the {@link WhatsAppMark} / {@link CallMark} look. Used for the
- * quote / follow-up / email row actions so the whole action panel reads as
- * one set of tappable coloured buttons.
+ * A flat, single-colour glyph (no disc) — the plain "logo / PNG" look. Used
+ * for the quote and follow-up actions.
  */
-function DiscMark({ size = 16, className, fill, d, ...rest }: Omit<IconProps, "name"> & { fill: string; d: string }) {
+function GlyphMark({ size = 16, className, fill, d, ...rest }: Omit<IconProps, "name"> & { fill: string; d: string }) {
   return (
     <svg
       width={size}
@@ -204,23 +199,44 @@ function DiscMark({ size = 16, className, fill, d, ...rest }: Omit<IconProps, "n
       aria-hidden="true"
       {...rest}
     >
-      <circle cx="12" cy="12" r="12" fill={fill} />
-      <path transform="translate(4.2 4.2) scale(0.65)" fill="#FFF" d={d} />
+      <path fill={fill} d={d} />
     </svg>
   );
 }
 
-// White Material glyph paths (24-grid) for the disc badges.
+/**
+ * The real Gmail logo — the four-colour "M" envelope. Used for the Email
+ * action (which opens Gmail), so it's instantly recognisable.
+ */
+function GmailMark({ size = 16, className, ...rest }: Omit<IconProps, "name">) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 48 48"
+      className={cn("inline-block flex-shrink-0", className)}
+      aria-hidden="true"
+      {...rest}
+    >
+      <path fill="#4caf50" d="M45 16.2l-5 2.75-5 4.75L35 40h7c1.657 0 3-1.343 3-3V16.2z" />
+      <path fill="#1e88e5" d="M3 16.2l3.614 1.71L13 23.7V40H6c-1.657 0-3-1.343-3-3V16.2z" />
+      <polygon fill="#e53935" points="35,11.2 24,19.45 13,11.2 12,17 13,23.7 24,31.95 35,23.7 36,17" />
+      <path fill="#c62828" d="M3 12.298V16.2l10 7.5V11.2L9.876 8.859C9.132 8.301 8.228 8 7.298 8 4.924 8 3 9.924 3 12.298z" />
+      <path fill="#fbc02d" d="M45 12.298V16.2l-10 7.5V11.2l3.124-2.341C38.868 8.301 39.772 8 40.702 8 43.076 8 45 9.924 45 12.298z" />
+    </svg>
+  );
+}
+
+// Flat Material glyph paths (24-grid) for the coloured action glyphs.
 const GLYPH_DOC = "M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z";
 const GLYPH_CLOCK = "M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z";
-const GLYPH_MAIL = "M20 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z";
 
 export function Icon({ name, size = 16, className, ...rest }: IconProps) {
   if (name === "whatsapp") return <WhatsAppMark size={size} className={className} {...rest} />;
   if (name === "call") return <CallMark size={size} className={className} {...rest} />;
-  if (name === "quote") return <DiscMark size={size} className={className} fill="#2563EB" d={GLYPH_DOC} {...rest} />;
-  if (name === "reminder") return <DiscMark size={size} className={className} fill="#7C3AED" d={GLYPH_CLOCK} {...rest} />;
-  if (name === "email") return <DiscMark size={size} className={className} fill="#EA4335" d={GLYPH_MAIL} {...rest} />;
+  if (name === "quote") return <GlyphMark size={size} className={className} fill="#2563EB" d={GLYPH_DOC} {...rest} />;
+  if (name === "reminder") return <GlyphMark size={size} className={className} fill="#7C3AED" d={GLYPH_CLOCK} {...rest} />;
+  if (name === "email") return <GmailMark size={size} className={className} {...rest} />;
   const Component = ICON_MAP[name] ?? AlertTriangle;
   return (
     <Component

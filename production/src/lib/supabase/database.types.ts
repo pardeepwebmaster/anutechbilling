@@ -1132,6 +1132,33 @@ type ExpenseInsert = {
 type ExpenseUpdate = Partial<ExpenseInsert>;
 
 // ============================================================
+// Balance sheet manual lines (migration 0084)
+// ============================================================
+export type BalanceSheetSection = "asset" | "liability" | "equity";
+
+type BalanceSheetItemRow = {
+  id:         string;
+  tenant_id:  string;
+  section:    BalanceSheetSection;
+  label:      string;
+  amount:     number;      // ₹, may be negative (depreciation / drawings)
+  sort_order: number;
+  notes:      string | null;
+  created_at: string;
+  updated_at: string;
+};
+type BalanceSheetItemInsert = {
+  id?:         string;
+  tenant_id:   string;
+  section:     BalanceSheetSection;
+  label:       string;
+  amount:      number;
+  sort_order?: number;
+  notes?:      string | null;
+};
+type BalanceSheetItemUpdate = Partial<Omit<BalanceSheetItemInsert, "tenant_id">>;
+
+// ============================================================
 // TDS Receivable (migration 0014)
 // ============================================================
 export type TdsStatus =
@@ -1600,6 +1627,7 @@ export type Database = {
       quote_send_log:     { Row: QuoteSendLogRow;      Insert: QuoteSendLogInsert;      Update: QuoteSendLogUpdate;      Relationships: [] };
       vendor_bills:       { Row: VendorBillRow;        Insert: VendorBillInsert;        Update: VendorBillUpdate;        Relationships: [] };
       expenses:           { Row: ExpenseRow;           Insert: ExpenseInsert;           Update: ExpenseUpdate;           Relationships: [] };
+      balance_sheet_items:{ Row: BalanceSheetItemRow;  Insert: BalanceSheetItemInsert;  Update: BalanceSheetItemUpdate;  Relationships: [] };
       tds_receivable:     { Row: TdsReceivableRow;     Insert: TdsReceivableInsert;     Update: TdsReceivableUpdate;     Relationships: [] };
       customer_users:     { Row: CustomerUserRow;      Insert: CustomerUserInsert;      Update: CustomerUserUpdate;      Relationships: [] };
       support_tickets:    { Row: SupportTicketRow;     Insert: SupportTicketInsert;     Update: SupportTicketUpdate;     Relationships: [] };

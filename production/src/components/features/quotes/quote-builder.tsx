@@ -41,7 +41,7 @@ import { useItems } from "@/lib/queries/items";
 import { useCurrentUser } from "@/lib/hooks/useCurrentUser";
 import { isInterStateSupply } from "@/lib/gst/place-of-supply";
 import { addOrMergeLine } from "@/lib/quotes/line-items";
-import { rupee, formatDate } from "@/lib/utils";
+import { rupee, formatDate, GST_STATE_BY_CODE } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 import type { QuoteLineItem, LineCommitment } from "@/lib/supabase/database.types";
 
@@ -140,6 +140,15 @@ export function QuoteBuilder() {
   const [leadContact, setLeadContact] = React.useState(leadContactInit);
   const [leadPhone,   setLeadPhone]   = React.useState(leadPhoneInit);
   const [leadEmail,   setLeadEmail]   = React.useState(leadEmailInit);
+  // Prospect place-of-supply (state) + optional GSTIN — drives CGST/SGST vs
+  // IGST for a prospect quote (no customer record exists yet). Persisted back
+  // to the lead on save so it flows to the customer on conversion.
+  const leadStateInit = leadFromQuery?.state_code ?? "";
+  const leadGstinInit = leadFromQuery?.gstin ?? "";
+  const [leadStateCode, setLeadStateCode] = React.useState(leadStateInit);
+  const [leadGstin,     setLeadGstin]     = React.useState(leadGstinInit);
+  React.useEffect(() => { if (leadStateInit) setLeadStateCode(leadStateInit); }, [leadStateInit]);
+  React.useEffect(() => { if (leadGstinInit) setLeadGstin(leadGstinInit); }, [leadGstinInit]);
 
   // Sync local state when the lead loads asynchronously (initial mount the
   // values are empty strings; once allLeads arrives they get populated).
@@ -332,7 +341,11 @@ export function QuoteBuilder() {
   // GST head: compare the customer's state vs OUR (the seller/tenant's) state.
   // Previously hardcoded a seller of "27" (Maharashtra), which was wrong for any
   // other tenant. Now derived consistently via the shared helper. (audit #18-20)
-  const interState = isInterStateSupply(customer?.state_code, currentUser?.tenantStateCode);
+  // Buyer's place of supply: for a prospect (lead mode) there's no customer
+  // record yet, so use the state captured on the quote builder; otherwise the
+  // picked customer's state. Drives CGST+SGST (intra) vs IGST (inter).
+  const buyerStateCode = isLeadMode ? (leadStateCode || null) : (customer?.state_code ?? null);
+  const interState = isInterStateSupply(buyerStateCode, currentUser?.tenantStateCode);
 
   // Selling gross = the (negotiated) rate × qty. This is the actual revenue and
   // what gets billed / drives MRR — so it stays the subtotal.
@@ -526,6 +539,8 @@ export function QuoteBuilder() {
               ...(leadContact !== leadContactInit                       && { contact_name:  leadContact || null   }),
               ...(leadPhone   !== leadPhoneInit                         && { contact_phone: leadPhone   || null   }),
               ...(leadEmail   !== leadEmailInit                         && { contact_email: leadEmail   || null   }),
+              ...(leadStateCode !== leadStateInit && { state_code: leadStateCode || null, state: leadStateCode ? (GST_STATE_BY_CODE[leadStateCode] ?? null) : null }),
+              ...(leadGstin     !== leadGstinInit && { gstin: leadGstin.trim() || null }),
             },
           });
           toast.success(`Lead moved to "Quote Sent" · qualified`);
@@ -540,6 +555,8 @@ export function QuoteBuilder() {
           ...(leadContact !== leadContactInit                       && { contact_name:  leadContact || null }),
           ...(leadPhone   !== leadPhoneInit                         && { contact_phone: leadPhone   || null }),
           ...(leadEmail   !== leadEmailInit                         && { contact_email: leadEmail   || null }),
+          ...(leadStateCode !== leadStateInit && { state_code: leadStateCode || null, state: leadStateCode ? (GST_STATE_BY_CODE[leadStateCode] ?? null) : null }),
+          ...(leadGstin     !== leadGstinInit && { gstin: leadGstin.trim() || null }),
         };
         if (Object.keys(contactPatch).length > 0) {
           try {
@@ -671,6 +688,42 @@ export function QuoteBuilder() {
                   placeholder="contact@company.com"
                 />
               </FormField>
+
+              {/* Place of supply — drives correct GST for the prospect quote.
+                  Without it we'd assume intra-state (CGST+SGST) for everyone. */}
+              <div className="grid grid-cols-2 gap-3">
+                <FormField label="Place of supply (state)" htmlFor="leadState">
+                  <select
+                    id="leadState"
+                    value={leadStateCode}
+                    onChange={(e) => setLeadStateCode(e.target.value)}
+                    className="w-full rounded-md border border-hairline bg-paper px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-amber/40"
+                  >
+                    <option value="">Select state (for GST)</option>
+                    {Object.entries(GST_STATE_BY_CODE)
+                      .sort((a, b) => a[1].localeCompare(b[1]))
+                      .map(([code, name]) => (
+                        <option key={code} value={code}>{name} ({code})</option>
+                      ))}
+                  </select>
+                </FormField>
+                <FormField label="GSTIN (optional)" htmlFor="leadGstin">
+                  <Input
+                    id="leadGstin"
+                    value={leadGstin}
+                    onChange={(e) => setLeadGstin(e.target.value.toUpperCase())}
+                    className="font-mono"
+                    placeholder="27AABCE9876D1Z3"
+                  />
+                </FormField>
+              </div>
+              {leadStateCode && (
+                <p className="text-[11px] flex items-center gap-1 -mt-1">
+                  {interState
+                    ? <span className="text-amber-ink">⚠ Inter-state → IGST {taxRate}% will apply</span>
+                    : <span className="text-emerald">✓ Intra-state → CGST + SGST split</span>}
+                </p>
+              )}
 
               <div className="flex gap-2 text-[11px] text-ink-3 pt-1 border-t border-hairline">
                 <span>Lead ID: <code className="font-mono">{leadId}</code></span>
@@ -1279,7 +1332,19 @@ export function QuoteBuilder() {
           dialog via a ?send= query param. "Duplicate" stays placeholder
           until we wire a real duplicate flow. */}
       {lineItems.length > 0 && (
-        <div className="flex justify-end gap-2 flex-wrap">
+        <div className="sticky bottom-0 z-20 -mx-4 mt-2 flex items-center justify-between gap-3 flex-wrap border-t border-hairline bg-paper/95 px-4 py-3 backdrop-blur md:-mx-6 md:px-6 lg:-mx-8 lg:px-8">
+          <div className="flex items-baseline gap-2">
+            <span className="text-[11px] uppercase tracking-wider text-ink-3 font-semibold">
+              {!showPerInvoice && sharedBillingN === 1 ? "Total payable now" : "Total"}
+            </span>
+            <span className="font-serif text-2xl text-amber tabular-nums">
+              {showPerInvoice ? rupee(Math.round(total / sharedBillingN)) : rupee(total)}
+            </span>
+            {showPerInvoice && (
+              <span className="text-[11px] text-ink-3">/invoice · {rupee(total)}/yr</span>
+            )}
+          </div>
+          <div className="flex gap-2 flex-wrap">
           <Button variant="ghost" icon="copy" onClick={() => handleSubmit("draft")} loading={createQuote.isPending}>
             Save draft
           </Button>
@@ -1318,6 +1383,7 @@ export function QuoteBuilder() {
           >
             Save &amp; send quote
           </Button>
+          </div>
         </div>
       )}
 

@@ -1289,7 +1289,7 @@ export function QuoteBuilder() {
           dialog via a ?send= query param. "Duplicate" stays placeholder
           until we wire a real duplicate flow. */}
       {lineItems.length > 0 && (
-        <div className="order-last sticky bottom-0 z-20 -mx-4 flex items-center justify-between gap-3 flex-wrap border-t border-hairline bg-paper/95 px-4 py-3 backdrop-blur md:-mx-6 md:px-6 lg:-mx-8 lg:px-8">
+        <div className="order-last sticky bottom-0 z-20 -mx-4 flex items-center justify-between gap-3 flex-wrap border-t border-hairline bg-paper px-4 py-3 shadow-[0_-6px_16px_-10px_rgba(0,0,0,0.25)] md:-mx-6 md:px-6 lg:-mx-8 lg:px-8">
           <div className="flex items-baseline gap-2">
             <span className="text-[11px] uppercase tracking-wider text-ink-3 font-semibold">
               {!showPerInvoice && sharedBillingN === 1 ? "Total payable now" : "Total"}

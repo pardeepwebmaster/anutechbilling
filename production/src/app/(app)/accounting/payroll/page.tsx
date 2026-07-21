@@ -28,9 +28,9 @@ import {
   useLeaveEntries, useCreateLeaveEntry, useDeleteLeaveEntry,
   useSalaryPayments, usePaySalary,
   useStatutoryDues, usePayStatutoryDues,
-  useAttendance, useAttendanceNetwork, useSetAttendanceNetwork,
+  useAttendance, useAttendanceNetwork, useSetAttendanceNetwork, getSelfieUrl,
   LEAVE_TYPE_LABEL,
-  type Employee, type LeaveKind,
+  type Employee, type LeaveKind, type Attendance,
 } from "@/lib/queries/payroll";
 
 function todayISO(): string {
@@ -38,6 +38,10 @@ function todayISO(): string {
 }
 function currentPeriod(): string {
   return new Date(Date.now() + 5.5 * 60 * 60 * 1000).toISOString().slice(0, 7); // YYYY-MM
+}
+function fmtTimeIST(iso: string | null): string {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit" });
 }
 function fyStartISO(): string {
   const d = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
@@ -689,7 +693,46 @@ function AttendanceTab() {
           </table>
         </Card>
       )}
+
+      <TodayCheckins attendance={attQ.data ?? []} employees={employees} />
     </>
+  );
+}
+
+function TodayCheckins({ attendance, employees }: { attendance: Attendance[]; employees: Employee[] }) {
+  const today = todayISO();
+  const empName = new Map(employees.map((e) => [e.id, e.name]));
+  const rows = attendance.filter((a) => a.work_date === today);
+  if (rows.length === 0) return null;
+  return (
+    <Card className="mt-4 overflow-hidden">
+      <div className="px-4 py-3 border-b border-hairline text-[10px] uppercase tracking-wider text-ink-3 font-semibold">Today&apos;s check-ins</div>
+      <ul className="divide-y divide-hairline">
+        {rows.map((a) => (
+          <li key={a.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5 text-sm">
+            <span className="font-medium text-ink">{empName.get(a.employee_id) ?? "—"}</span>
+            <span className="ml-auto text-xs text-ink-3">In {fmtTimeIST(a.check_in)}{a.check_out ? ` · Out ${fmtTimeIST(a.check_out)}` : ""}</span>
+            {a.selfie_in && <SelfieButton path={a.selfie_in} label="in" />}
+            {a.selfie_out && <SelfieButton path={a.selfie_out} label="out" />}
+          </li>
+        ))}
+      </ul>
+    </Card>
+  );
+}
+
+function SelfieButton({ path, label }: { path: string; label: string }) {
+  const [loading, setLoading] = React.useState(false);
+  async function view() {
+    setLoading(true);
+    const url = await getSelfieUrl(path);
+    setLoading(false);
+    if (url) window.open(url, "_blank", "noopener");
+  }
+  return (
+    <button onClick={view} disabled={loading} className="inline-flex items-center gap-1 text-[11px] text-indigo hover:underline disabled:opacity-50">
+      <Icon name="eye" size={12} /> {label}
+    </button>
   );
 }
 

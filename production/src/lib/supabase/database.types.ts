@@ -1325,6 +1325,8 @@ type AttendanceRow = {
   check_out:   string | null;
   source:      string;
   marked_ip:   string | null;
+  selfie_in:   string | null;
+  selfie_out:  string | null;
   created_at:  string;
 };
 type AttendanceInsert = {
@@ -1336,6 +1338,8 @@ type AttendanceInsert = {
   check_out?:  string | null;
   source?:     string;
   marked_ip?:  string | null;
+  selfie_in?:  string | null;
+  selfie_out?: string | null;
 };
 type AttendanceUpdate = Partial<Omit<AttendanceInsert, "tenant_id">>;
 

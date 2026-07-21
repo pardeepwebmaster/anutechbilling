@@ -24,6 +24,7 @@ export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => null);
   const employeeId = body?.employeeId as string | undefined;
   const pin = body?.pin as string | undefined;
+  const photo = body?.photo as string | undefined; // optional data:image/jpeg;base64,...
   if (!employeeId || !pin) return NextResponse.json({ error: "Missing employee or PIN" }, { status: 400 });
 
   const ip = clientIp(request);
@@ -47,6 +48,27 @@ export async function POST(request: NextRequest) {
     p_ip: ip || null,
   });
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+  const action = data as string;
 
-  return NextResponse.json({ action: data as string });
+  // Attach the selfie (best-effort — attendance is already recorded).
+  if (photo && (action === "checked_in" || action === "checked_out")) {
+    try {
+      const { data: me } = await supabase.from("users").select("tenant_id").eq("id", authData.user.id).single();
+      const base64 = photo.includes(",") ? photo.split(",")[1] : photo;
+      const buf = Buffer.from(base64, "base64");
+      if (me?.tenant_id && buf.length > 0 && buf.length < 3_000_000) {
+        const workDate = new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
+        const slot = action === "checked_in" ? "in" : "out";
+        const path = `${me.tenant_id}/${workDate}/${employeeId}_${slot}.jpg`;
+        const up = await supabase.storage.from("attendance-selfies").upload(path, buf, { contentType: "image/jpeg", upsert: true });
+        if (!up.error) {
+          await supabase.from("attendance")
+            .update(slot === "in" ? { selfie_in: path } : { selfie_out: path })
+            .eq("employee_id", employeeId).eq("work_date", workDate);
+        }
+      }
+    } catch { /* photo is best-effort; never block attendance */ }
+  }
+
+  return NextResponse.json({ action });
 }

@@ -36,6 +36,36 @@ export default function AttendanceKioskPage() {
   const locked = (net?.allowedIps.length ?? 0) > 0;
   const offNetwork = locked && net?.onAllowedNetwork === false;
 
+  // Camera for check-in selfies (deters buddy-punching). Best-effort: if the
+  // device has no camera or permission is denied, attendance still works.
+  const videoRef = React.useRef<HTMLVideoElement | null>(null);
+  const streamRef = React.useRef<MediaStream | null>(null);
+  const [camOn, setCamOn] = React.useState(false);
+  React.useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const s = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: false });
+        if (cancelled) { s.getTracks().forEach((t) => t.stop()); return; }
+        streamRef.current = s;
+        if (videoRef.current) { videoRef.current.srcObject = s; await videoRef.current.play().catch(() => {}); }
+        setCamOn(true);
+      } catch { setCamOn(false); }
+    })();
+    return () => { cancelled = true; streamRef.current?.getTracks().forEach((t) => t.stop()); };
+  }, []);
+  const capturePhoto = React.useCallback((): string | null => {
+    const v = videoRef.current;
+    if (!v || !camOn || !v.videoWidth) return null;
+    const w = 320, h = Math.round((v.videoHeight / v.videoWidth) * 320) || 240;
+    const canvas = document.createElement("canvas");
+    canvas.width = w; canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    ctx.drawImage(v, 0, 0, w, h);
+    return canvas.toDataURL("image/jpeg", 0.6);
+  }, [camOn]);
+
   async function goFullscreen() {
     try { await document.documentElement.requestFullscreen(); } catch { /* not supported */ }
   }
@@ -60,11 +90,15 @@ export default function AttendanceKioskPage() {
           ) : (
             <span className="text-ink-3">Network lock off</span>
           )}
+          <span className={cn("inline-flex items-center gap-1", camOn ? "text-ink-3" : "text-ink-3/70")}>
+            <Icon name="eye" size={12} /> {camOn ? "Photo taken at check-in" : "Camera off"}
+          </span>
           <button onClick={goFullscreen} className="text-ink-3 hover:text-ink inline-flex items-center gap-1">
             <Icon name="external" size={12} /> Fullscreen
           </button>
         </div>
       </div>
+      <video ref={videoRef} autoPlay muted playsInline className="hidden" aria-hidden="true" />
 
       {empQ.isLoading ? (
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">{[1, 2, 3, 4, 5, 6].map((i) => <Skeleton key={i} className="h-24" />)}</div>
@@ -103,12 +137,12 @@ export default function AttendanceKioskPage() {
         </div>
       )}
 
-      {pinFor && <PinPad employee={pinFor} onClose={() => setPinFor(null)} />}
+      {pinFor && <PinPad employee={pinFor} capture={capturePhoto} onClose={() => setPinFor(null)} />}
     </div>
   );
 }
 
-function PinPad({ employee, onClose }: { employee: Employee; onClose: () => void }) {
+function PinPad({ employee, capture, onClose }: { employee: Employee; capture: () => string | null; onClose: () => void }) {
   const mark = useMarkAttendance();
   const [pin, setPin] = React.useState("");
   const [result, setResult] = React.useState<{ ok: boolean; msg: string } | null>(null);
@@ -119,7 +153,8 @@ function PinPad({ employee, onClose }: { employee: Employee; onClose: () => void
   async function submit() {
     if (pin.length < 4) return;
     try {
-      const action = await mark.mutateAsync({ employeeId: employee.id, pin });
+      const photo = capture();
+      const action = await mark.mutateAsync({ employeeId: employee.id, pin, photo });
       const msg = action === "checked_in" ? "Checked in ✓" : action === "checked_out" ? "Checked out ✓" : "Already done for today";
       setResult({ ok: true, msg });
       setTimeout(onClose, 1400);

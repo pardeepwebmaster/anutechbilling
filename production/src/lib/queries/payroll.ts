@@ -219,6 +219,13 @@ export function useAttendance(period?: string) {
   });
 }
 
+/** Short-lived signed URL for an attendance selfie (tenant-scoped by storage RLS). */
+export async function getSelfieUrl(path: string): Promise<string | null> {
+  const supabase = createClient();
+  const { data } = await supabase.storage.from("attendance-selfies").createSignedUrl(path, 60 * 30);
+  return data?.signedUrl ?? null;
+}
+
 export function useSetEmployeePin() {
   const qc = useQueryClient();
   return useMutation({
@@ -237,11 +244,11 @@ export function useMarkAttendance() {
   return useMutation({
     // Goes through the API route so the office-network (IP) gate is enforced
     // server-side with the real client IP.
-    mutationFn: async (input: { employeeId: string; pin: string }): Promise<string> => {
+    mutationFn: async (input: { employeeId: string; pin: string; photo?: string | null }): Promise<string> => {
       const res = await fetch("/api/attendance/mark", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ employeeId: input.employeeId, pin: input.pin }),
+        body: JSON.stringify({ employeeId: input.employeeId, pin: input.pin, photo: input.photo ?? null }),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.error ?? "Could not mark attendance");

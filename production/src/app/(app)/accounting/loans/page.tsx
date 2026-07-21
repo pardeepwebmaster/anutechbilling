@@ -15,6 +15,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { Icon } from "@/components/ui/icon";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/shared/empty-state";
 import { FAB } from "@/components/ui/fab";
@@ -28,6 +29,7 @@ import {
   useDisburseLoan,
   useRecordLoanRepayment,
   useSettleExpenseAdvance,
+  useUpdateLoanNote,
   useLoanRepayments,
   LOAN_KIND_LABEL,
   type EmployeeLoan,
@@ -51,6 +53,7 @@ export default function EmployeeLoansPage() {
   const [disburseOpen, setDisburseOpen] = React.useState(false);
   const [repayFor, setRepayFor] = React.useState<EmployeeLoan | null>(null);
   const [settleFor, setSettleFor] = React.useState<EmployeeLoan | null>(null);
+  const [purposeFor, setPurposeFor] = React.useState<EmployeeLoan | null>(null);
 
   const openAction = (l: EmployeeLoan) =>
     l.kind === "expense_advance" ? setSettleFor(l) : setRepayFor(l);
@@ -103,6 +106,7 @@ export default function EmployeeLoansPage() {
               <thead className="bg-paper-2/50 text-[10px] uppercase tracking-wider text-ink-3 font-semibold">
                 <tr>
                   <th className="text-left  px-4 py-3">Employee</th>
+                  <th className="text-left  px-4 py-3">Purpose</th>
                   <th className="text-left  px-4 py-3">Disbursed</th>
                   <th className="text-right px-4 py-3">Principal</th>
                   <th className="text-right px-4 py-3">Repaid</th>
@@ -123,7 +127,17 @@ export default function EmployeeLoansPage() {
                           </span>
                         )}
                       </div>
-                      {l.notes && <div className="text-[11px] text-ink-3 font-normal">{l.notes}</div>}
+                    </td>
+                    <td className="px-4 py-3">
+                      <button
+                        type="button"
+                        onClick={() => setPurposeFor(l)}
+                        className="group inline-flex max-w-[220px] items-center gap-1.5 text-left text-ink-2 hover:text-ink"
+                        title="Edit purpose"
+                      >
+                        <span className="truncate">{l.notes || <span className="italic text-ink-3">Add purpose</span>}</span>
+                        <Icon name="edit" size={12} className="shrink-0 text-ink-3 opacity-0 transition-opacity group-hover:opacity-100" />
+                      </button>
                     </td>
                     <td className="px-4 py-3 text-ink-2">{formatDate(l.disbursed_on)}</td>
                     <td className="px-4 py-3 text-right font-mono text-ink-2">{rupee(l.principal)}</td>
@@ -159,9 +173,17 @@ export default function EmployeeLoansPage() {
                     </div>
                     <div className="font-serif text-xl text-ink leading-none">{rupee(l.outstanding)}</div>
                   </div>
-                  <div className="text-[11px] text-ink-3 mb-2">
+                  <div className="text-[11px] text-ink-3 mb-1.5">
                     {formatDate(l.disbursed_on)} · {rupee(l.principal)} lent · {rupee(l.repaid)} repaid
                   </div>
+                  <button
+                    type="button"
+                    onClick={() => setPurposeFor(l)}
+                    className="mb-2 inline-flex items-center gap-1.5 text-xs text-ink-2"
+                  >
+                    <Icon name="edit" size={11} className="text-ink-3" />
+                    <span>{l.notes || <span className="italic text-ink-3">Add purpose</span>}</span>
+                  </button>
                   <div className="flex items-center justify-between">
                     <Badge kind={l.status === "closed" ? "success" : "warning"} dot>
                       {l.status === "closed" ? "Cleared" : "Active"}
@@ -181,7 +203,42 @@ export default function EmployeeLoansPage() {
       {disburseOpen && <DisburseDialog onClose={() => setDisburseOpen(false)} />}
       {repayFor && <RepaymentDialog loan={repayFor} onClose={() => setRepayFor(null)} />}
       {settleFor && <SettleDialog loan={settleFor} onClose={() => setSettleFor(null)} />}
+      {purposeFor && <EditPurposeDialog loan={purposeFor} onClose={() => setPurposeFor(null)} />}
     </div>
+  );
+}
+
+function EditPurposeDialog({ loan, onClose }: { loan: EmployeeLoan; onClose: () => void }) {
+  const update = useUpdateLoanNote();
+  const [text, setText] = React.useState(loan.notes ?? "");
+
+  async function submit() {
+    await update.mutateAsync({ loanId: loan.id, notes: text.trim() || null });
+    onClose();
+  }
+
+  return (
+    <Dialog open onOpenChange={(v) => { if (!v) onClose(); }}>
+      <DialogContent className="md:!max-w-md">
+        <DialogHeader>
+          <DialogTitle>Purpose — {loan.employee_name}</DialogTitle>
+          <DialogDescription>What was this {LOAN_KIND_LABEL[loan.kind].toLowerCase()} for? Shown in the list.</DialogDescription>
+        </DialogHeader>
+        <div>
+          <Input
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            placeholder="e.g. medical advance · Mumbai client visit · festival bonus"
+            autoFocus
+            onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
+          />
+        </div>
+        <DialogFooter>
+          <Button variant="ghost" onClick={onClose} disabled={update.isPending}>Cancel</Button>
+          <Button variant="primary" loading={update.isPending} onClick={submit}>Save</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

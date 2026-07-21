@@ -135,6 +135,26 @@ export function useDisburseLoan() {
   });
 }
 
+/** Edit a loan's purpose/note (non-money — plain update, RLS-scoped). */
+export function useUpdateLoanNote() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { loanId: string; notes: string | null }) => {
+      const supabase = createClient();
+      const { error } = await supabase
+        .from("employee_loans")
+        .update({ notes: input.notes })
+        .eq("id", input.loanId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["employee-loans"] });
+      toast.success("Purpose updated");
+    },
+    onError: (err) => toast.error((err as Error).message),
+  });
+}
+
 /** Record a repayment — reduces outstanding + (cash/bank) a bank credit. */
 export function useRecordLoanRepayment() {
   const qc = useQueryClient();

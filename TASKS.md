@@ -5,6 +5,17 @@
 
 ## Active
 
+### 🧾 HR + Accounting suite (20 Jul 2026) — shipped live (rev 00050→00056), `session/money-spine-hardening-jun1`
+All money movement via atomic SECURITY DEFINER RPCs (§17b) and verified in **rolled-back tenant-scoped txns** (no test data left in prod). Each posts the correct bank/expense/loan legs.
+- [x] ~~**Employee Loans**~~ — `/accounting/loans`. Disburse (cash out of a chosen bank/cash account) + repayments (cash/bank/salary-deduction), auto-close at ₹0. Guarded like quotes/customers. Outstanding shows as a Balance-Sheet asset. Migration 0085. Verified: disburse −, repay +, salary-deduction 0-cash.
+- [x] ~~**Salary + Expense Advances**~~ — `employee_loans.kind` (loan/salary_advance/expense_advance). Expense-advance **settlement** = spent→a Salaries/expense entry (NO fresh cash, cash left at disburse) + unspent cash returned. Migration 0086. Verified: 500 adv → 350 spent (expense) + 150 return, net cash −350.
+- [x] ~~**Payroll & Leave**~~ — `/accounting/payroll` (Employees / Run payroll / Attendance / Leave tabs). `pay_salary`: net = gross − LOP − advance-recovery − TDS/PF/ESI/other; books Salaries expense (earned = gross−LOP) + net-only cash-out + advance salary-deduction; withheld TDS/PF/ESI = "Salary dues payable" liability (Balance Sheet) settled via `pay_statutory_dues`. Leave register; unpaid = LOP. Migration 0087. Verified: 30000 gross, 2000 LOP, 5000 adv recovered (loan closed), 1000 TDS → expense 28000, net 22000 (identity holds).
+- [x] ~~**Attendance — office kiosk + PIN**~~ — `/attendance/kiosk` (shared office device, logged in as owner). Name + bcrypt PIN → check-in/out toggle (IST day). Auto-LOP suggestion in payroll from attendance (Sundays off). Migrations 0088. Verified: PIN set → in → out → already-done, wrong PIN rejected.
+- [x] ~~**Attendance security**~~ — office-network (IP) allowlist enforced **server-side** in `/api/attendance/mark` (real x-forwarded-for; off-site marking blocked); owner "Lock to this network"; IP logged per mark. Migration 0089.
+- [x] ~~**Attendance selfie**~~ — front-camera photo captured on check-in/out (best-effort), private tenant-foldered storage bucket, owner reviews via signed URLs in "Today's check-ins". Deters buddy-punching. Migration 0090.
+- **Decision:** face-recognition attendance considered + **declined** (owner chose PIN+selfie) — biometric DPDP consent, accuracy→wrong-pay risk, photo-spoof without liveness, dep/cost. Revisit if office scales.
+- ⚠️ **Not yet done:** unit tests (Vitest) for the new RPCs — logic is rolled-back-txn verified but not in the automated suite; add before relying heavily. New employees/loans are hard-delete-only (no undo) — acceptable, non-money.
+
 ### ✅ In-app E2E spine verification — PASSED in production (31 May 2026)
 - [x] ~~**Full money-spine walked through live app UI**~~ — lead `L-ZZTESTUI1` (buy-workspace, stage New) → quote `Q-ET-2026-27-0016` (draft → sent → accepted) → customer created → payment ₹1,22,342 (ref `ZZTEST-UPI-0001`) → subscription (10 seats, active) → invoice `INV-ET-2026-27-0006` (paid). DB cross-check: **exactly 1 of each — zero duplicates**. Confirms idempotency, no-dup-sub, one-invoice-per-quote, tenant-scoped doc IDs (the `ET` code in `INV-ET-...`) all working in PROD via real UI flow.
 - [x] ~~**UI copy nit:** lead drawer heading "QUOTES SENT" → "Quotes"~~ ✅ FIXED (31 May) — `leads/page.tsx`

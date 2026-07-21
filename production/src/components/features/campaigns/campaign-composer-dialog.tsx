@@ -466,8 +466,16 @@ export default function CampaignComposerDialog({ open, onOpenChange, recipients 
           {offerEnabled && (
             <div className="grid grid-cols-3 gap-2">
               <div>
-                <Label>Promo code</Label>
-                <Input value={offerCode} onChange={(e) => setOfferCode(e.target.value.toUpperCase())} placeholder="MAY25" className="font-mono" />
+                <Label>Promo code *</Label>
+                <Input
+                  value={offerCode}
+                  onChange={(e) => setOfferCode(e.target.value.toUpperCase())}
+                  placeholder="e.g. MAY25"
+                  className={cn("font-mono", !offerCode.trim() && "border-amber/60")}
+                />
+                {!offerCode.trim() && (
+                  <p className="mt-1 text-[10px] text-amber-ink">Type your code — this shows in the email as {`{{offer_code}}`}.</p>
+                )}
               </div>
               <div>
                 <Label>Discount %</Label>

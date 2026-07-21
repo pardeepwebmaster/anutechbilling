@@ -38,6 +38,13 @@ const schema = z.object({
     sources: z.array(z.string()).optional(),
     search:  z.string().optional(),
   }).default({}),
+  // Explicit, hand-picked recipients (e.g. from the Contacts page selection).
+  // When present, this OVERRIDES the audience filter.
+  recipients: z.array(z.object({
+    email:   z.string().email(),
+    name:    z.string().optional(),
+    company: z.string().optional(),
+  })).max(2000).optional(),
   offer: z.object({
     code:         z.string().min(1).max(50),
     discount_pct: z.coerce.number().min(0).max(100),
@@ -79,39 +86,57 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const { name, subject, body: bodyTemplate, body_html: htmlTemplate, audience, offer } = parsed.data;
+  const { name, subject, body: bodyTemplate, body_html: htmlTemplate, audience, offer, recipients: explicitRecipients } = parsed.data;
   const admin = createAdminClient();
 
-  // ── 1. Resolve leads matching the audience filter ─────────────
-  let leadsQuery = admin
-    .from("leads")
-    .select("id, contact_name, contact_email, company, stage, source")
-    .eq("tenant_id", me.tenant_id)
-    .not("contact_email", "is", null);
+  const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-  if (audience.stages && audience.stages.length > 0) {
-    leadsQuery = leadsQuery.in("stage", audience.stages as ("new"|"contact"|"demo"|"trial"|"quote"|"won"|"lost")[]);
-  }
-  if (audience.sources && audience.sources.length > 0) {
-    leadsQuery = leadsQuery.in("source", audience.sources);
-  }
-  if (audience.search && audience.search.trim()) {
-    const q = audience.search.trim();
-    leadsQuery = leadsQuery.or(`company.ilike.%${q}%,contact_name.ilike.%${q}%`);
-  }
+  // ── 1. Resolve recipients ─────────────────────────────────────
+  // Two modes: an explicit hand-picked list (Contacts page), or the audience
+  // filter over leads. Normalise both to { lead_id, contact_name, contact_email, company }.
+  type Recipient = { lead_id: string | null; contact_name: string | null; contact_email: string; company: string | null };
+  let recipients: Recipient[];
 
-  const { data: leads, error: leadsErr } = await leadsQuery;
-  if (leadsErr) {
-    return NextResponse.json({ error: leadsErr.message }, { status: 500 });
-  }
+  if (explicitRecipients && explicitRecipients.length > 0) {
+    // Dedupe by email; keep only valid addresses.
+    const seen = new Set<string>();
+    recipients = [];
+    for (const r of explicitRecipients) {
+      const email = r.email.trim().toLowerCase();
+      if (!emailRe.test(email) || seen.has(email)) continue;
+      seen.add(email);
+      recipients.push({ lead_id: null, contact_name: r.name ?? null, contact_email: r.email.trim(), company: r.company ?? null });
+    }
+  } else {
+    let leadsQuery = admin
+      .from("leads")
+      .select("id, contact_name, contact_email, company, stage, source")
+      .eq("tenant_id", me.tenant_id)
+      .not("contact_email", "is", null);
 
-  const recipients = (leads ?? []).filter((l) =>
-    l.contact_email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(l.contact_email)
-  );
+    if (audience.stages && audience.stages.length > 0) {
+      leadsQuery = leadsQuery.in("stage", audience.stages as ("new"|"contact"|"demo"|"trial"|"quote"|"won"|"lost")[]);
+    }
+    if (audience.sources && audience.sources.length > 0) {
+      leadsQuery = leadsQuery.in("source", audience.sources);
+    }
+    if (audience.search && audience.search.trim()) {
+      const q = audience.search.trim();
+      leadsQuery = leadsQuery.or(`company.ilike.%${q}%,contact_name.ilike.%${q}%`);
+    }
+
+    const { data: leads, error: leadsErr } = await leadsQuery;
+    if (leadsErr) {
+      return NextResponse.json({ error: leadsErr.message }, { status: 500 });
+    }
+    recipients = (leads ?? [])
+      .filter((l) => l.contact_email && emailRe.test(l.contact_email))
+      .map((l) => ({ lead_id: l.id, contact_name: l.contact_name, contact_email: l.contact_email!, company: l.company }));
+  }
 
   if (recipients.length === 0) {
     return NextResponse.json(
-      { error: "No leads match the audience filter (or none have a valid email)" },
+      { error: "No recipients with a valid email — adjust the selection or filter" },
       { status: 400 }
     );
   }
@@ -164,11 +189,11 @@ export async function POST(req: NextRequest) {
   let sent   = 0;
   let failed = 0;
 
-  for (const lead of recipients) {
-    const firstName = (lead.contact_name ?? "").split(" ")[0] || "there";
+  for (const r of recipients) {
+    const firstName = (r.contact_name ?? "").split(" ")[0] || "there";
     const vars = {
       name:       firstName,
-      company:    lead.company || "",
+      company:    r.company || "",
       offer_code: offer?.code ?? "",
       discount:   offer ? String(offer.discount_pct) : "",
       expires:    offerExpiresFmt,
@@ -185,7 +210,7 @@ export async function POST(req: NextRequest) {
 
     try {
       const result = await sendEmail({
-        to:      lead.contact_email!,
+        to:      r.contact_email,
         from:    fromAddress,
         replyTo: tenant?.email ?? undefined,
         subject: renderedSubject,
@@ -214,9 +239,9 @@ export async function POST(req: NextRequest) {
     await admin.from("campaign_sends").insert({
       tenant_id:       me.tenant_id,
       campaign_id:     campaignId,
-      lead_id:         lead.id,
-      recipient_email: lead.contact_email!,
-      recipient_name:  lead.contact_name,
+      lead_id:         r.lead_id,
+      recipient_email: r.contact_email,
+      recipient_name:  r.contact_name,
       status:          sendStatus,
       provider_id:     providerId,
       error_message:   errorMessage,

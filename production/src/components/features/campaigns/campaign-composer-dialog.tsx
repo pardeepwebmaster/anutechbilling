@@ -27,6 +27,9 @@ import type { CampaignTemplateRow } from "@/lib/supabase/database.types";
 interface Props {
   open: boolean;
   onOpenChange: (v: boolean) => void;
+  /** Hand-picked recipients (e.g. from the Contacts page). When set, the
+   *  stage-audience picker is replaced by "sending to these N contacts". */
+  recipients?: { email: string; name?: string; company?: string }[];
 }
 
 const STAGE_OPTIONS: { id: string; label: string }[] = [
@@ -41,7 +44,12 @@ const STAGE_OPTIONS: { id: string; label: string }[] = [
 
 type BodyMode = "preview" | "html" | "text";
 
-export default function CampaignComposerDialog({ open, onOpenChange }: Props) {
+export default function CampaignComposerDialog({ open, onOpenChange, recipients }: Props) {
+  const presetRecipients = React.useMemo(
+    () => (recipients ?? []).filter((r) => r.email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(r.email)),
+    [recipients],
+  );
+  const hasPreset = presetRecipients.length > 0;
   const [stages, setStages]   = React.useState<string[]>(["new", "contact"]);
   const [search, setSearch]   = React.useState("");
   const [name, setName]       = React.useState("");
@@ -91,7 +99,7 @@ export default function CampaignComposerDialog({ open, onOpenChange }: Props) {
   // ── Live recipient count ───────────────────────────────────────
   const recipientsQuery = useQuery({
     queryKey: ["campaigns", "recipient-count", stages, search],
-    enabled:  open && stages.length > 0,
+    enabled:  open && !hasPreset && stages.length > 0,
     queryFn:  async () => {
       const supabase = createClient();
       let q = supabase
@@ -109,7 +117,7 @@ export default function CampaignComposerDialog({ open, onOpenChange }: Props) {
     },
   });
 
-  const recipientCount = recipientsQuery.data ?? 0;
+  const recipientCount = hasPreset ? presetRecipients.length : (recipientsQuery.data ?? 0);
 
   // ── Live preview HTML (replace template vars with sample values) ─
   const previewHtml = React.useMemo(() => {
@@ -184,8 +192,8 @@ export default function CampaignComposerDialog({ open, onOpenChange }: Props) {
       toast.error("Name, subject and a body (text or HTML) are required");
       return;
     }
-    if (stages.length === 0) { toast.error("Pick at least one stage"); return; }
-    if (recipientCount === 0) { toast.error("No leads match — adjust filter"); return; }
+    if (!hasPreset && stages.length === 0) { toast.error("Pick at least one stage"); return; }
+    if (recipientCount === 0) { toast.error(hasPreset ? "No selected contacts have a valid email" : "No leads match — adjust filter"); return; }
     if (offerEnabled && (!offerCode.trim() || !offerDiscount || !offerExpires)) {
       toast.error("Offer code, discount % and expiry are required when offer is on");
       return;
@@ -204,7 +212,8 @@ export default function CampaignComposerDialog({ open, onOpenChange }: Props) {
           subject:   subject.trim(),
           body:      fallbackText,
           body_html: bodyHtml.trim() || undefined,
-          audience:  { stages, search: search.trim() || undefined },
+          audience:  hasPreset ? {} : { stages, search: search.trim() || undefined },
+          recipients: hasPreset ? presetRecipients : undefined,
           offer:     offerEnabled ? {
             code:         offerCode.trim(),
             discount_pct: Number(offerDiscount) || 0,
@@ -315,38 +324,50 @@ export default function CampaignComposerDialog({ open, onOpenChange }: Props) {
           </div>
         )}
 
-        {/* Audience picker */}
-        <div className="border-t border-hairline pt-3">
-          <div className="flex items-center justify-between mb-2">
-            <p className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold">Audience — pick stages</p>
-            <Badge kind={recipientCount > 0 ? "info" : "muted"} dot>
-              {recipientsQuery.isLoading ? "counting…" : `Sending to ${recipientCount} lead${recipientCount === 1 ? "" : "s"}`}
-            </Badge>
+        {/* Audience */}
+        {hasPreset ? (
+          <div className="border-t border-hairline pt-3">
+            <div className="flex items-center justify-between">
+              <p className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold">Audience — selected contacts</p>
+              <Badge kind="info" dot>Sending to {recipientCount} selected contact{recipientCount === 1 ? "" : "s"}</Badge>
+            </div>
+            <p className="text-[11px] text-ink-3 mt-1.5">
+              You hand-picked these on the Contacts page. Contacts without a valid email are skipped automatically.
+            </p>
           </div>
-          <div className="flex flex-wrap gap-1.5 mb-2">
-            {STAGE_OPTIONS.map((s) => (
-              <button
-                key={s.id}
-                type="button"
-                onClick={() => toggleStage(s.id)}
-                className={cn(
-                  "text-xs px-2.5 py-1 rounded-full border transition-colors",
-                  stages.includes(s.id)
-                    ? "border-amber bg-amber-soft text-amber-ink"
-                    : "border-hairline text-ink-3 hover:text-ink hover:bg-paper-2",
-                )}
-              >
-                {s.label}
-              </button>
-            ))}
+        ) : (
+          <div className="border-t border-hairline pt-3">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold">Audience — pick stages</p>
+              <Badge kind={recipientCount > 0 ? "info" : "muted"} dot>
+                {recipientsQuery.isLoading ? "counting…" : `Sending to ${recipientCount} lead${recipientCount === 1 ? "" : "s"}`}
+              </Badge>
+            </div>
+            <div className="flex flex-wrap gap-1.5 mb-2">
+              {STAGE_OPTIONS.map((s) => (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => toggleStage(s.id)}
+                  className={cn(
+                    "text-xs px-2.5 py-1 rounded-full border transition-colors",
+                    stages.includes(s.id)
+                      ? "border-amber bg-amber-soft text-amber-ink"
+                      : "border-hairline text-ink-3 hover:text-ink hover:bg-paper-2",
+                  )}
+                >
+                  {s.label}
+                </button>
+              ))}
+            </div>
+            <Input
+              placeholder="Optional: filter by company or contact name…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="text-sm"
+            />
           </div>
-          <Input
-            placeholder="Optional: filter by company or contact name…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="text-sm"
-          />
-        </div>
+        )}
 
         {/* Compose */}
         <div className="border-t border-hairline pt-3 space-y-2">
@@ -468,7 +489,7 @@ export default function CampaignComposerDialog({ open, onOpenChange }: Props) {
             onClick={onSubmit}
             disabled={submitting || recipientCount === 0}
           >
-            {submitting ? "Sending…" : `Send to ${recipientCount} lead${recipientCount === 1 ? "" : "s"}`}
+            {submitting ? "Sending…" : `Send to ${recipientCount} ${hasPreset ? "contact" : "lead"}${recipientCount === 1 ? "" : "s"}`}
           </Button>
         </DialogFooter>
       </DialogContent>

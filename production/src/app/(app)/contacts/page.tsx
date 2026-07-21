@@ -10,6 +10,7 @@ import { toast } from "sonner";
 
 import { useAllContacts } from "@/lib/queries/contacts";
 import ImportContactsDialog from "@/components/features/contacts/import-contacts-dialog";
+import CampaignComposerDialog from "@/components/features/campaigns/campaign-composer-dialog";
 import { FAB } from "@/components/ui/fab";
 import { useQueryClient } from "@tanstack/react-query";
 import { GeminiCard } from "@/components/shared/gemini-card";
@@ -41,6 +42,8 @@ export default function ContactsPage() {
   const [search, setSearch] = React.useState("");
   const [selected, setSelected] = React.useState<Set<string>>(new Set());
   const [importOpen, setImportOpen] = React.useState(false);
+  const [emailComposerOpen, setEmailComposerOpen] = React.useState(false);
+  const [composerRecipients, setComposerRecipients] = React.useState<{ email: string; name?: string; company?: string }[]>([]);
 
   // Promote a single imported contact to lead
   async function promoteOne(contactId: string) {
@@ -117,14 +120,15 @@ export default function ContactsPage() {
     }
 
     if (channel === "email") {
-      const emails = chosen.map((c) => c.email?.trim()).filter((e): e is string => Boolean(e));
-      if (emails.length === 0) {
+      const recips = chosen
+        .filter((c) => c.email?.trim())
+        .map((c) => ({ email: c.email!.trim(), name: c.name ?? undefined, company: c.company || undefined }));
+      if (recips.length === 0) {
         toast.error("None of the selected contacts have an email");
         return;
       }
-      const url = `https://mail.google.com/mail/?view=cm&fs=1&bcc=${encodeURIComponent(emails.join(","))}`;
-      window.open(url, "_blank", "noopener,noreferrer");
-      toast.success(`Opening Gmail — ${emails.length} recipient${emails.length > 1 ? "s" : ""} in BCC`);
+      setComposerRecipients(recips);
+      setEmailComposerOpen(true);
       return;
     }
 
@@ -173,6 +177,14 @@ export default function ContactsPage() {
       </div>
 
       <ImportContactsDialog open={importOpen} onOpenChange={setImportOpen} />
+
+      {emailComposerOpen && (
+        <CampaignComposerDialog
+          open={emailComposerOpen}
+          onOpenChange={setEmailComposerOpen}
+          recipients={composerRecipients}
+        />
+      )}
 
       {/* Mobile thumb-zone action — contacts are added via import (no single-add form). */}
       <FAB icon="upload" label="Import contacts" onClick={() => setImportOpen(true)} />

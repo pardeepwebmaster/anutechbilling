@@ -57,11 +57,11 @@ interface RazorpayWebhookBody {
   created_at: number;
 }
 
-/** Verify Razorpay's HMAC SHA256 signature header. */
-function verifySignature(rawBody: string, signature: string | null): boolean {
-  if (!WEBHOOK_SECRET || !signature) return false;
+/** Verify Razorpay's HMAC SHA256 signature header against a given secret. */
+function verifySignature(rawBody: string, signature: string | null, secret: string): boolean {
+  if (!secret || !signature) return false;
   const expected = crypto
-    .createHmac("sha256", WEBHOOK_SECRET)
+    .createHmac("sha256", secret)
     .update(rawBody)
     .digest("hex");
   // timingSafeEqual avoids leaking timing info to attackers
@@ -77,8 +77,24 @@ export async function POST(request: NextRequest) {
   const rawBody   = await request.text();
   const signature = request.headers.get("x-razorpay-signature");
 
-  if (!verifySignature(rawBody, signature)) {
-    console.error("[webhooks/razorpay] signature verification FAILED");
+  const admin = createAdminClient();
+
+  // Resolve the signing secret. Razorpay is configured PER TENANT (the webhook
+  // URL we hand out carries ?tenant=<id>), so verify against THAT tenant's
+  // stored webhook secret. Fall back to a global env secret for legacy setups.
+  const tenantParam = request.nextUrl.searchParams.get("tenant");
+  let signingSecret = WEBHOOK_SECRET;
+  if (tenantParam) {
+    const { data: ts } = await admin
+      .from("tenant_secrets")
+      .select("razorpay_webhook_secret")
+      .eq("tenant_id", tenantParam)
+      .maybeSingle();
+    if (ts?.razorpay_webhook_secret) signingSecret = ts.razorpay_webhook_secret;
+  }
+
+  if (!verifySignature(rawBody, signature, signingSecret)) {
+    console.error("[webhooks/razorpay] signature verification FAILED", { tenant: tenantParam ?? "(none)", hadSecret: Boolean(signingSecret) });
     return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
   }
 
@@ -115,8 +131,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Missing orderId or receipt" }, { status: 400 });
   }
 
-  const admin = createAdminClient();
-
   // ── Look up the quote we created at checkout time ─────────────────────
   const { data: quote, error: qErr } = await admin
     .from("quotes")
@@ -127,6 +141,13 @@ export async function POST(request: NextRequest) {
   if (qErr || !quote) {
     console.error("[webhooks/razorpay] quote not found:", receipt, qErr);
     return NextResponse.json({ error: "Quote not found" }, { status: 404 });
+  }
+
+  // Defense: the quote must belong to the tenant whose secret verified this
+  // event (prevents a valid-for-tenant-A signature acting on tenant-B's quote).
+  if (tenantParam && quote.tenant_id !== tenantParam) {
+    console.error("[webhooks/razorpay] tenant mismatch", { tenantParam, quoteTenant: quote.tenant_id });
+    return NextResponse.json({ error: "Tenant mismatch" }, { status: 403 });
   }
 
   // Idempotency — Razorpay can deliver the same event twice.

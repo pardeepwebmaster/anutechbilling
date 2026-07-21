@@ -1858,7 +1858,10 @@ function RowActions({
   const hasPhone = phoneDigits.length >= 10;
   const hasEmail = Boolean(lead.contact_email);
 
-  const iconBtn = "inline-flex items-center justify-center w-9 h-full rounded-lg hover:bg-white/15";
+  // On the dark panel, uniform light icons read cleanly (colored icons clashed /
+  // the indigo ones were low-contrast). Each keeps a subtle tinted hover so the
+  // action still has a hint of colour on interaction.
+  const iconBtn = "inline-flex items-center justify-center w-9 h-full rounded-lg text-paper/85 transition-colors hover:text-paper";
 
   return (
     <td
@@ -1894,24 +1897,24 @@ function RowActions({
           open ? "opacity-100 translate-x-0 pointer-events-auto" : "opacity-0 -translate-x-2 pointer-events-none",
         )}
       >
-        <button type="button" title="Send quote" onClick={(e) => { e.stopPropagation(); setOpen(false); onSendQuote(lead); }} className={cn(iconBtn, "text-amber")}>
+        <button type="button" title="Send quote" onClick={(e) => { e.stopPropagation(); setOpen(false); onSendQuote(lead); }} className={cn(iconBtn, "hover:bg-amber/25")}>
           <Icon name="file" size={20} />
         </button>
-        <button type="button" title="Schedule follow-up" onClick={(e) => { e.stopPropagation(); setOpen(false); onFollowUp(lead); }} className={cn(iconBtn, "text-indigo")}>
+        <button type="button" title="Schedule follow-up" onClick={(e) => { e.stopPropagation(); setOpen(false); onFollowUp(lead); }} className={cn(iconBtn, "hover:bg-indigo/30")}>
           <Icon name="clock" size={20} />
         </button>
         {hasPhone && (
-          <a href={`tel:${lead.contact_phone}`} onClick={(e) => e.stopPropagation()} className={cn(iconBtn, "text-emerald")} title="Call">
+          <a href={`tel:${lead.contact_phone}`} onClick={(e) => e.stopPropagation()} className={cn(iconBtn, "hover:bg-emerald/25")} title="Call">
             <Icon name="mobile" size={20} />
           </a>
         )}
         {hasPhone && (
-          <a href={`https://wa.me/${waNumber}`} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className={cn(iconBtn, "text-emerald")} title="WhatsApp">
+          <a href={`https://wa.me/${waNumber}`} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className={cn(iconBtn, "hover:bg-emerald/25")} title="WhatsApp">
             <Icon name="whatsapp" size={20} />
           </a>
         )}
         {hasEmail && (
-          <a href={`https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(lead.contact_email ?? "")}`} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className={cn(iconBtn, "text-indigo")} title="Email (opens Gmail)">
+          <a href={`https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(lead.contact_email ?? "")}`} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className={cn(iconBtn, "hover:bg-indigo/30")} title="Email (opens Gmail)">
             <Icon name="mail" size={20} />
           </a>
         )}

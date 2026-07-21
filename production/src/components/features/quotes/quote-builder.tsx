@@ -596,32 +596,8 @@ export function QuoteBuilder() {
             </p>
           </div>
         </div>
-        <div className="flex gap-2 flex-wrap">
-          <Button icon="copy" variant="ghost" onClick={() => handleSubmit("draft")} loading={createQuote.isPending}>
-            Save draft
-          </Button>
-          <Button
-            icon="file"
-            onClick={() => {
-              if (lineItems.length === 0) {
-                toast.error("Add at least one line item to preview");
-                return;
-              }
-              setPreviewOpen(true);
-            }}
-          >
-            Preview
-          </Button>
-          <Button
-            icon="send"
-            variant="primary"
-            onClick={() => handleSubmit("sent")}
-            loading={createQuote.isPending}
-            disabled={(!isLeadMode && !customerId && !prospectName.trim()) || lineItems.length === 0}
-          >
-            Save &amp; send quote
-          </Button>
-        </div>
+        {/* Actions live in the sticky bottom bar (always visible) — no
+            duplicate button row up here. */}
       </div>
 
       {/* AI margin warning */}

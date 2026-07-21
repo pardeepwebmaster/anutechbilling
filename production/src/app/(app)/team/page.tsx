@@ -165,8 +165,6 @@ export default function TeamPage() {
         <InviteDialog
           open={inviteOpen}
           onOpenChange={setInviteOpen}
-          tenantId={me.tenantId}
-          invitedBy={me.userId}
           onInvited={() => qc.invalidateQueries({ queryKey: ["team", "invites"] })}
         />
       )}
@@ -174,8 +172,8 @@ export default function TeamPage() {
   );
 }
 
-function InviteDialog({ open, onOpenChange, tenantId, invitedBy, onInvited }: {
-  open: boolean; onOpenChange: (v: boolean) => void; tenantId: string; invitedBy: string; onInvited: () => void;
+function InviteDialog({ open, onOpenChange, onInvited }: {
+  open: boolean; onOpenChange: (v: boolean) => void; onInvited: () => void;
 }) {
   const [email, setEmail] = React.useState("");
   const [role, setRole] = React.useState<Role>("sales");
@@ -188,14 +186,27 @@ function InviteDialog({ open, onOpenChange, tenantId, invitedBy, onInvited }: {
     if (!clean.includes("@") || clean.length < 5) { toast.error("Enter a valid email."); return; }
     setSaving(true);
     try {
-      const supabase = createClient();
-      const { error } = await supabase.from("team_invites").insert({ tenant_id: tenantId, email: clean, role, invited_by: invitedBy });
-      if (error) {
-        if (error.code === "23505") toast.error("That email is already invited (here or to another workspace).");
-        else throw error;
+      // Server route: creates the invite AND emails the invitee (best-effort).
+      const res = await fetch("/api/team/invite", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ email: clean, role }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(json.error ?? "Invite failed");
         return;
       }
-      toast.success(`Invited ${clean} — they join when they first sign in with Google.`);
+      // Reflect whether the notification email actually went out.
+      if (json.emailStatus === "sent") {
+        toast.success(`Invited ${clean} — an email with sign-in instructions is on its way.`);
+      } else {
+        // stubbed (no Resend key) or failed → invite still works via Google sign-in
+        toast.success(`Invited ${clean} — ask them to sign in with Google using this email.`);
+        if (json.emailStatus === "failed") {
+          setTimeout(() => toast.info("Invite email couldn't be sent (email not configured yet) — the invite still works."), 600);
+        }
+      }
       onInvited();
       onOpenChange(false);
     } catch (e) {

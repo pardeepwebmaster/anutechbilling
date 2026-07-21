@@ -1989,7 +1989,7 @@ function LeadListView({
         Dense 3-row layout: header (co/value), contact, meta+actions.
         Stage quick-change chip + inline action icons are tap-isolated
         from the card via stopPropagation. */}
-    <ul className="xl:hidden space-y-3 pb-2">
+    <ul className="md:hidden space-y-3 pb-2">
       {sorted.map((lead) => {
         const stale = daysSince(lead.updated_at) > 14 && lead.stage !== "won" && lead.stage !== "lost";
         return (
@@ -2020,7 +2020,7 @@ function LeadListView({
         competition bug — table had been crushing to 1.6px on /deals when
         only 1-3 deals existed and rail-below's quick-actions grid was
         taking all the flex space). */}
-    <div className="hidden xl:block w-full max-w-full relative border border-hairline rounded-md overflow-auto bg-paper flex-1 min-h-[400px]">
+    <div className="hidden md:block w-full max-w-full relative border border-hairline rounded-md overflow-auto bg-paper flex-1 min-h-[400px]">
       <table className="w-full">
         <thead className="bg-paper-2 border-b border-hairline">
           <tr>
@@ -2050,8 +2050,10 @@ function LeadListView({
             <SortHeader col="stage" label="Stage" />
             <SortHeader col="created" label="Created" />
             <SortHeader col="age" label="Last update" />
-            {/* Actions column — header is blank, body shows row-hover icons. */}
-            <th className="px-3 py-2 w-32 text-xs font-semibold text-ink-3 uppercase tracking-wider text-right">
+            {/* Actions column — sticky to the right edge so the row's quick
+                actions stay visible even if the table scrolls horizontally on a
+                narrow screen. Header is blank; body shows row-hover icons. */}
+            <th className="sticky right-0 z-10 bg-paper-2 px-3 py-2 w-32 text-xs font-semibold text-ink-3 uppercase tracking-wider text-right">
               <span className="sr-only">Quick actions</span>
             </th>
           </tr>
@@ -2165,7 +2167,10 @@ function LeadListView({
                 {/* Quick-action icons — invisible until row hover. opacity
                     transition keeps the layout stable (no shift on hover).
                     Each icon stopsPropagation so they don't open the drawer. */}
-                <td className="p-3" onClick={(e) => e.stopPropagation()}>
+                <td className={cn(
+                  "sticky right-0 p-3 shadow-[-8px_0_12px_-8px_rgba(0,0,0,0.10)]",
+                  isSelected ? "bg-amber-soft/60 group-hover:bg-amber-soft" : "bg-paper group-hover:bg-paper-2/40",
+                )} onClick={(e) => e.stopPropagation()}>
                   <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                     <button
                       type="button"

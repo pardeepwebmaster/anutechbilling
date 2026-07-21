@@ -16,6 +16,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Icon } from "@/components/ui/icon";
+import {
+  DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/shared/empty-state";
 import { FAB } from "@/components/ui/fab";
@@ -183,25 +186,15 @@ export default function EmployeeLoansPage() {
                       </Badge>
                     </td>
                     <td className="px-4 py-3">
-                      <div className="flex items-center justify-end gap-0.5">
-                        {l.status === "active" ? (
-                          <Button variant="ghost" size="sm" onClick={() => openAction(l)}>{actionLabel(l)}</Button>
-                        ) : (
-                          <span className="mr-1 text-[11px] text-ink-3">Settled</span>
-                        )}
-                        <button type="button" title="Transaction history" onClick={() => setHistoryFor(l)} className="rounded p-1.5 text-ink-3 hover:bg-paper-2 hover:text-ink">
-                          <Icon name="clock" size={15} />
-                        </button>
-                        {l.repaid === 0 && (
-                          <>
-                            <button type="button" title="Edit" onClick={() => setEditFor(l)} className="rounded p-1.5 text-ink-3 hover:bg-paper-2 hover:text-ink">
-                              <Icon name="edit" size={15} />
-                            </button>
-                            <button type="button" title="Delete" onClick={() => confirmDelete(l)} className="rounded p-1.5 text-ink-3 hover:bg-rose-soft hover:text-rose">
-                              <Icon name="trash" size={15} />
-                            </button>
-                          </>
-                        )}
+                      <div className="flex justify-end">
+                        <LoanRowActions
+                          loan={l}
+                          onPrimary={l.status === "active" ? () => openAction(l) : undefined}
+                          primaryLabel={l.status === "active" ? actionLabel(l) : undefined}
+                          onHistory={() => setHistoryFor(l)}
+                          onEdit={l.repaid === 0 ? () => setEditFor(l) : undefined}
+                          onDelete={l.repaid === 0 ? () => confirmDelete(l) : undefined}
+                        />
                       </div>
                     </td>
                   </tr>
@@ -241,24 +234,14 @@ export default function EmployeeLoansPage() {
                     <Badge kind={l.status === "closed" ? "success" : "warning"} dot>
                       {l.status === "closed" ? "Cleared" : "Active"}
                     </Badge>
-                    <div className="flex items-center gap-0.5">
-                      {l.status === "active" && (
-                        <Button variant="ghost" size="sm" onClick={() => openAction(l)}>{actionLabel(l)}</Button>
-                      )}
-                      <button type="button" aria-label="Transaction history" onClick={() => setHistoryFor(l)} className="rounded p-1.5 text-ink-3 hover:bg-paper-2 hover:text-ink">
-                        <Icon name="clock" size={15} />
-                      </button>
-                      {l.repaid === 0 && (
-                        <>
-                          <button type="button" aria-label="Edit" onClick={() => setEditFor(l)} className="rounded p-1.5 text-ink-3 hover:bg-paper-2 hover:text-ink">
-                            <Icon name="edit" size={15} />
-                          </button>
-                          <button type="button" aria-label="Delete" onClick={() => confirmDelete(l)} className="rounded p-1.5 text-ink-3 hover:bg-rose-soft hover:text-rose">
-                            <Icon name="trash" size={15} />
-                          </button>
-                        </>
-                      )}
-                    </div>
+                    <LoanRowActions
+                      loan={l}
+                      onPrimary={l.status === "active" ? () => openAction(l) : undefined}
+                      primaryLabel={l.status === "active" ? actionLabel(l) : undefined}
+                      onHistory={() => setHistoryFor(l)}
+                      onEdit={l.repaid === 0 ? () => setEditFor(l) : undefined}
+                      onDelete={l.repaid === 0 ? () => confirmDelete(l) : undefined}
+                    />
                   </div>
                 </Card>
               </li>
@@ -399,6 +382,47 @@ function EditLoanDialog({ loan, onClose }: { loan: EmployeeLoan; onClose: () => 
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function LoanRowActions({ loan, onPrimary, primaryLabel, onHistory, onEdit, onDelete }: {
+  loan: EmployeeLoan;
+  onPrimary?: () => void; primaryLabel?: string;
+  onHistory: () => void; onEdit?: () => void; onDelete?: () => void;
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          aria-label="Actions"
+          className="ml-auto flex h-8 w-8 items-center justify-center rounded-lg text-ink-3 transition-colors hover:bg-paper-2 hover:text-ink data-[state=open]:bg-paper-2 data-[state=open]:text-ink"
+        >
+          <Icon name="more_h" size={20} />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="min-w-[12rem]">
+        {onPrimary && primaryLabel && (
+          <DropdownMenuItem className="gap-2.5 py-2 cursor-pointer" onClick={onPrimary}>
+            <Icon name={loan.kind === "expense_advance" ? "check_circle" : "rupee"} size={16} /> {primaryLabel}
+          </DropdownMenuItem>
+        )}
+        <DropdownMenuItem className="gap-2.5 py-2 cursor-pointer" onClick={onHistory}>
+          <Icon name="clock" size={16} /> Transaction history
+        </DropdownMenuItem>
+        {(onEdit || onDelete) && <DropdownMenuSeparator />}
+        {onEdit && (
+          <DropdownMenuItem className="gap-2.5 py-2 cursor-pointer" onClick={onEdit}>
+            <Icon name="edit" size={16} /> Edit
+          </DropdownMenuItem>
+        )}
+        {onDelete && (
+          <DropdownMenuItem destructive className="gap-2.5 py-2 cursor-pointer" onClick={onDelete}>
+            <Icon name="trash" size={16} /> Delete
+          </DropdownMenuItem>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 

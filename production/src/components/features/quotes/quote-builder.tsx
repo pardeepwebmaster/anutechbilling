@@ -820,62 +820,42 @@ export function QuoteBuilder() {
                 override still works inside the line items table. */}
             <div>
               <label className="text-xs font-medium text-ink-3 mb-1.5 block">Billing cycle</label>
-              <div className="grid grid-cols-2 gap-2">
-                {[
-                  { id: "yearly",      label: "Annual",      sub: "1 invoice/yr",   pop: true },
-                  { id: "half_yearly", label: "Half-yearly", sub: "2 invoices/yr",  pop: false },
-                  { id: "quarterly",   label: "Quarterly",   sub: "4 invoices/yr",  pop: false },
-                  { id: "monthly",     label: "Monthly",     sub: "12 invoices",    pop: false },
-                ].map((opt) => {
-                  // Determine if this option matches all ANNUAL line items (flex-
-                  // monthly lines keep their own billing and are excluded).
+              <select
+                value={(() => {
+                  // Reflect the shared billing of the annual line items (flex-monthly
+                  // lines keep their own billing and are excluded). Mixed → blank.
                   const annualLines = lineItems.filter((l) => (l.commitment ?? "annual_yearly") !== "monthly");
-                  const matches = annualLines.length > 0 && annualLines.every((l) => {
-                    const c = l.commitment ?? "annual_yearly";
-                    if (opt.id === "yearly")      return c === "annual_yearly";
-                    if (opt.id === "half_yearly") return c === "annual_half_yearly";
-                    if (opt.id === "quarterly")   return c === "annual_quarterly";
-                    if (opt.id === "monthly")     return c === "annual_monthly";
-                    return false;
-                  });
-                  const applyToAll = () => {
-                    const target: LineCommitment =
-                      opt.id === "yearly"      ? "annual_yearly"      :
-                      opt.id === "half_yearly" ? "annual_half_yearly" :
-                      opt.id === "quarterly"   ? "annual_quarterly"   :
-                      "annual_monthly";
-                    // Only reprice the BILLING of annual lines. Flex-monthly lines
-                    // (a different price tier — GW pricing depends on commitment)
-                    // are left untouched; commitment stays a per-line choice.
-                    setLineItems((prev) => prev.map((l) =>
-                      (l.commitment ?? "annual_yearly") === "monthly" ? l : { ...l, commitment: target },
-                    ));
-                  };
-                  return (
-                    <button
-                      key={opt.id}
-                      type="button"
-                      onClick={applyToAll}
-                      disabled={lineItems.length === 0}
-                      className={cn(
-                        "relative rounded-md border px-2 py-2.5 text-left transition-all",
-                        matches
-                          ? "border-amber bg-amber-soft/40 ring-1 ring-amber"
-                          : "border-hairline bg-paper hover:border-amber-soft hover:bg-paper-2/50",
-                        lineItems.length === 0 && "opacity-50 cursor-not-allowed",
-                      )}
-                    >
-                      {opt.pop && (
-                        <span className="absolute -top-2 left-2 bg-amber text-white text-[9px] font-semibold px-1.5 py-0.5 rounded-full uppercase tracking-wider">
-                          Popular
-                        </span>
-                      )}
-                      <div className="text-xs font-semibold text-ink">{opt.label}</div>
-                      <div className="text-[10px] text-ink-3 mt-0.5">{opt.sub}</div>
-                    </button>
-                  );
-                })}
-              </div>
+                  if (annualLines.length === 0) return "";
+                  const c = annualLines[0].commitment ?? "annual_yearly";
+                  if (!annualLines.every((l) => (l.commitment ?? "annual_yearly") === c)) return "";
+                  return c === "annual_yearly" ? "yearly"
+                       : c === "annual_half_yearly" ? "half_yearly"
+                       : c === "annual_quarterly" ? "quarterly"
+                       : c === "annual_monthly" ? "monthly" : "";
+                })()}
+                disabled={lineItems.length === 0}
+                onChange={(e) => {
+                  const id = e.target.value;
+                  if (!id) return;
+                  const target: LineCommitment =
+                    id === "yearly"      ? "annual_yearly"      :
+                    id === "half_yearly" ? "annual_half_yearly" :
+                    id === "quarterly"   ? "annual_quarterly"   :
+                    "annual_monthly";
+                  // Only reprice the BILLING of annual lines; flex-monthly lines keep
+                  // their own (their price tier depends on the commitment).
+                  setLineItems((prev) => prev.map((l) =>
+                    (l.commitment ?? "annual_yearly") === "monthly" ? l : { ...l, commitment: target },
+                  ));
+                }}
+                className="w-full rounded-md border border-hairline bg-paper px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-amber/40 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <option value="">Select billing cycle…</option>
+                <option value="yearly">Annual — 1 invoice/yr (popular)</option>
+                <option value="half_yearly">Half-yearly — 2 invoices/yr</option>
+                <option value="quarterly">Quarterly — 4 invoices/yr</option>
+                <option value="monthly">Monthly — 12 invoices/yr</option>
+              </select>
               <p className="mt-1.5 text-[11px] text-ink-3">
                 Applies to the whole quote. Most Indian customers prefer annual upfront. Each line’s Annual vs Monthly-flex commitment is set in the items table.
               </p>

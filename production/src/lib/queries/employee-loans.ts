@@ -47,8 +47,12 @@ export type LoanRepaymentRow = {
   repaid_on:       string;
   method:          LoanRepaymentMethod;
   bank_account_id: string | null;
+  expense_id:      string | null;
   notes:           string | null;
   created_at:      string;
+  /** For method='expense' rows — the category the money was booked under
+   *  (joined from the linked expenses row). Null for cash/bank repayments. */
+  expense_category: string | null;
 };
 
 /** All loans for the tenant with computed repaid / outstanding. */
@@ -91,11 +95,27 @@ export function useLoanRepayments(loanId: string | undefined) {
       const supabase = createClient();
       const { data, error } = await supabase
         .from("employee_loan_repayments")
-        .select("id, loan_id, amount, repaid_on, method, bank_account_id, notes, created_at")
+        .select("id, loan_id, amount, repaid_on, method, bank_account_id, expense_id, notes, created_at")
         .eq("loan_id", loanId!)
         .order("repaid_on", { ascending: true });
       if (error) throw error;
-      return (data ?? []) as LoanRepaymentRow[];
+
+      const rows = (data ?? []) as Omit<LoanRepaymentRow, "expense_category">[];
+
+      // Join the category from the linked expense (spent portions of an advance).
+      const expenseIds = rows.map((r) => r.expense_id).filter((v): v is string => Boolean(v));
+      const catById = new Map<string, string>();
+      if (expenseIds.length) {
+        const { data: exps, error: expErr } = await supabase
+          .from("expenses").select("id, category").in("id", expenseIds);
+        if (expErr) throw expErr;
+        for (const e of exps ?? []) if (e.category) catById.set(e.id, e.category);
+      }
+
+      return rows.map((r) => ({
+        ...r,
+        expense_category: r.expense_id ? (catById.get(r.expense_id) ?? null) : null,
+      }));
     },
   });
 }

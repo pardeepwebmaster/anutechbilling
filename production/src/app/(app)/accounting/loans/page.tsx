@@ -290,11 +290,18 @@ function LoanHistoryDialog({ loan, onClose }: { loan: EmployeeLoan; onClose: () 
             rows.map((h) => (
               <div key={h.id} className="flex items-start justify-between gap-3 rounded-md border border-hairline px-3 py-2">
                 <div className="min-w-0">
-                  <div className="text-sm font-medium text-ink">{METHOD_LABEL[h.method]}</div>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="text-sm font-medium text-ink">{METHOD_LABEL[h.method]}</span>
+                    {h.method === "expense" && h.expense_category && (
+                      <Badge kind="warning">{h.expense_category}</Badge>
+                    )}
+                  </div>
+                  {h.notes && (
+                    <div className="text-xs text-ink-2">{h.method === "expense" ? "For: " : ""}{h.notes}</div>
+                  )}
                   <div className="text-[11px] text-ink-3">
                     {formatDate(h.repaid_on)}
                     {h.bank_account_id ? ` · ${acctName.get(h.bank_account_id) ?? "account"}` : ""}
-                    {h.notes ? ` · ${h.notes}` : ""}
                   </div>
                 </div>
                 <div className="shrink-0 font-mono text-sm text-emerald">{rupee(h.amount)}</div>

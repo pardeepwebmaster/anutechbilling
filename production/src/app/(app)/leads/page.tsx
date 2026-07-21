@@ -2053,7 +2053,7 @@ function LeadListView({
             {/* Actions column — sticky to the right edge so the row's quick
                 actions stay visible even if the table scrolls horizontally on a
                 narrow screen. Header is blank; body shows row-hover icons. */}
-            <th className="sticky right-0 z-10 bg-paper-2 px-3 py-2 w-32 text-xs font-semibold text-ink-3 uppercase tracking-wider text-right">
+            <th className="sticky right-0 z-10 bg-paper-2 border-l border-hairline px-3 py-2 w-32 text-xs font-semibold text-ink-3 uppercase tracking-wider text-right">
               <span className="sr-only">Quick actions</span>
             </th>
           </tr>
@@ -2168,8 +2168,11 @@ function LeadListView({
                     transition keeps the layout stable (no shift on hover).
                     Each icon stopsPropagation so they don't open the drawer. */}
                 <td className={cn(
-                  "sticky right-0 p-3 shadow-[-8px_0_12px_-8px_rgba(0,0,0,0.10)]",
-                  isSelected ? "bg-amber-soft/60 group-hover:bg-amber-soft" : "bg-paper group-hover:bg-paper-2/40",
+                  // Fully OPAQUE bg + left border so the scrolled-under columns
+                  // never bleed through behind the action icons (was bg-*/40 →
+                  // semi-transparent → icons unreadable over the content behind).
+                  "sticky right-0 p-3 border-l border-hairline shadow-[-8px_0_12px_-8px_rgba(0,0,0,0.14)]",
+                  isSelected ? "bg-amber-soft" : "bg-paper",
                 )} onClick={(e) => e.stopPropagation()}>
                   <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                     <button

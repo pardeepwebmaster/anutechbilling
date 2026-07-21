@@ -2184,31 +2184,33 @@ function LeadListView({
                   </div>
                   {/* Full actions — overlaid so swapping in doesn't shift layout;
                       slide in from the left on hover / keyboard focus. */}
-                  <div className="absolute inset-0 flex items-center justify-end gap-1 px-3 opacity-0 -translate-x-3 pointer-events-none transition-all duration-200 ease-out group-hover:opacity-100 group-hover:translate-x-0 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:translate-x-0 group-focus-within:pointer-events-auto">
+                  <div className="absolute inset-0 flex items-center justify-end gap-1 px-2 opacity-0 -translate-x-3 pointer-events-none transition-all duration-200 ease-out group-hover:opacity-100 group-hover:translate-x-0 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:translate-x-0 group-focus-within:pointer-events-auto">
+                    {/* translucent panel behind the icons (≈30% opacity) */}
+                    <span aria-hidden className="absolute inset-y-2 right-1.5 left-1.5 rounded-lg bg-paper-2/30 ring-1 ring-hairline/50" />
                     <button
                       type="button"
                       onClick={(e) => { e.stopPropagation(); onSendQuote(lead); }}
-                      className="inline-flex items-center justify-center w-7 h-7 rounded-md text-amber hover:bg-amber-soft/40"
+                      className="relative inline-flex items-center justify-center w-9 h-9 rounded-lg text-amber hover:bg-amber-soft/50"
                       title="Send quote"
                     >
-                      <Icon name="file" size={14} />
+                      <Icon name="file" size={18} />
                     </button>
                     <button
                       type="button"
                       onClick={(e) => { e.stopPropagation(); onFollowUp(lead); }}
-                      className="inline-flex items-center justify-center w-7 h-7 rounded-md text-indigo hover:bg-indigo-50"
+                      className="relative inline-flex items-center justify-center w-9 h-9 rounded-lg text-indigo hover:bg-indigo-50"
                       title="Schedule follow-up"
                     >
-                      <Icon name="clock" size={14} />
+                      <Icon name="clock" size={18} />
                     </button>
                     {hasPhone && (
                       <a
                         href={`tel:${lead.contact_phone}`}
                         onClick={(e) => e.stopPropagation()}
-                        className="inline-flex items-center justify-center w-7 h-7 rounded-md text-emerald hover:bg-emerald-soft/40"
+                        className="relative inline-flex items-center justify-center w-9 h-9 rounded-lg text-emerald hover:bg-emerald-soft/50"
                         title="Call"
                       >
-                        <Icon name="mobile" size={14} />
+                        <Icon name="mobile" size={18} />
                       </a>
                     )}
                     {hasPhone && (
@@ -2217,10 +2219,10 @@ function LeadListView({
                         target="_blank"
                         rel="noopener noreferrer"
                         onClick={(e) => e.stopPropagation()}
-                        className="inline-flex items-center justify-center w-7 h-7 rounded-md text-emerald hover:bg-emerald-soft/40"
+                        className="relative inline-flex items-center justify-center w-9 h-9 rounded-lg text-emerald hover:bg-emerald-soft/50"
                         title="WhatsApp"
                       >
-                        <Icon name="whatsapp" size={14} />
+                        <Icon name="whatsapp" size={18} />
                       </a>
                     )}
                     {hasEmail && (
@@ -2229,10 +2231,10 @@ function LeadListView({
                         target="_blank"
                         rel="noopener noreferrer"
                         onClick={(e) => e.stopPropagation()}
-                        className="inline-flex items-center justify-center w-7 h-7 rounded-md text-indigo hover:bg-indigo-50"
+                        className="relative inline-flex items-center justify-center w-9 h-9 rounded-lg text-indigo hover:bg-indigo-50"
                         title="Email (opens Gmail)"
                       >
-                        <Icon name="mail" size={14} />
+                        <Icon name="mail" size={18} />
                       </a>
                     )}
                   </div>

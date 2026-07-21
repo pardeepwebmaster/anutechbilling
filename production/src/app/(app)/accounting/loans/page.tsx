@@ -35,6 +35,7 @@ import {
   type LoanRepaymentMethod,
 } from "@/lib/queries/employee-loans";
 import { EXPENSE_CATEGORIES } from "@/lib/queries/expenses";
+import { useEmployees } from "@/lib/queries/payroll";
 
 function todayISO(): string {
   const ist = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
@@ -199,9 +200,12 @@ const selectCls = "w-full rounded-md border border-hairline bg-paper px-3 py-2 t
 function DisburseDialog({ onClose }: { onClose: () => void }) {
   const accountsQ = useBankAccounts();
   const disburse  = useDisburseLoan();
+  const empQ      = useEmployees();
   const accounts  = (accountsQ.data ?? []).filter((a) => a.is_active);
+  const employees = (empQ.data ?? []).filter((e) => e.is_active);
 
   const [name, setName]         = React.useState("");
+  const [nameOpen, setNameOpen] = React.useState(false);
   const [amount, setAmount]     = React.useState("");
   const [date, setDate]         = React.useState(todayISO());
   const [accountId, setAccountId] = React.useState("");
@@ -249,9 +253,39 @@ function DisburseDialog({ onClose }: { onClose: () => void }) {
             </select>
             <p className="mt-1 text-[11px] text-ink-3">{kindHint}</p>
           </div>
-          <div>
-            <label className="block text-xs font-medium text-ink-2 mb-1">Employee name</label>
-            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Rahul Sharma" autoFocus />
+          <div className="relative">
+            <label className="block text-xs font-medium text-ink-2 mb-1">Employee</label>
+            <Input
+              value={name}
+              onChange={(e) => { setName(e.target.value); setNameOpen(true); }}
+              onFocus={() => setNameOpen(true)}
+              onBlur={() => setTimeout(() => setNameOpen(false), 130)}
+              placeholder={employees.length ? "Search employees…" : "Type a name"}
+              autoFocus
+            />
+            {nameOpen && employees.length > 0 && (() => {
+              const q = name.trim().toLowerCase();
+              const matches = q ? employees.filter((e) => e.name.toLowerCase().includes(q)) : employees;
+              if (matches.length === 0) return null;
+              return (
+                <div className="absolute z-20 mt-1 w-full max-h-52 overflow-y-auto rounded-md border border-hairline bg-paper shadow-lg">
+                  {matches.map((e) => (
+                    <button
+                      key={e.id}
+                      type="button"
+                      onMouseDown={(ev) => { ev.preventDefault(); setName(e.name); setNameOpen(false); }}
+                      className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-paper-2"
+                    >
+                      <span className="text-ink">{e.name}</span>
+                      <span className="text-[11px] text-ink-3">{rupee(e.monthly_gross)}/mo</span>
+                    </button>
+                  ))}
+                </div>
+              );
+            })()}
+            {employees.length === 0 && (
+              <p className="mt-1 text-[11px] text-ink-3">No employees yet — add them in Payroll → Employees. You can still type a name.</p>
+            )}
           </div>
           <div>
             <label className="block text-xs font-medium text-ink-2 mb-1">Amount (₹)</label>

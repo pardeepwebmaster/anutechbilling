@@ -137,7 +137,7 @@ export default function EmployeeLoansPage() {
       ) : (
         <>
           {/* Desktop table */}
-          <Card className="hidden md:block overflow-hidden">
+          <Card className="hidden md:block overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-paper-2/50 text-[10px] uppercase tracking-wider text-ink-3 font-semibold">
                 <tr>

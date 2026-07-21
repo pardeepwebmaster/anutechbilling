@@ -55,7 +55,8 @@ export default function BalanceSheetPage() {
   const gstPayable = gst > 0 ? gst : 0;
 
   const autoAssets =
-    (auto?.cashAndBank ?? 0) + (auto?.receivables ?? 0) + (auto?.tdsReceivable ?? 0) + gstCredit;
+    (auto?.cashAndBank ?? 0) + (auto?.receivables ?? 0) + (auto?.tdsReceivable ?? 0)
+    + (auto?.employeeLoans ?? 0) + gstCredit;
   const autoLiab = (auto?.payables ?? 0) + gstPayable;
 
   const manualAssetRows = manual("asset");
@@ -110,6 +111,9 @@ export default function BalanceSheetPage() {
                 <BSLine label="Cash & bank balances" amount={auto?.cashAndBank ?? 0} auto />
                 <BSLine label="Trade receivables" hint="customers' unpaid balances" amount={auto?.receivables ?? 0} auto />
                 <BSLine label="TDS receivable" hint="credits from customers' TDS" amount={auto?.tdsReceivable ?? 0} auto />
+                {(auto?.employeeLoans ?? 0) > 0 && (
+                  <BSLine label="Employee loans / advances" hint="outstanding, owed back" amount={auto?.employeeLoans ?? 0} auto />
+                )}
                 {gstCredit > 0 && <BSLine label="GST input credit (ITC)" amount={gstCredit} auto />}
                 {manualAssetRows.map((r) => (
                   <BSLine key={r.id} label={r.label} amount={r.amount} onDelete={() => { if (window.confirm(`Remove "${r.label}" from the balance sheet?`)) del.mutate(r.id); }} />

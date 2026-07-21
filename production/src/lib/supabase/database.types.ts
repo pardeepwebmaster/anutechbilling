@@ -1158,6 +1158,56 @@ type BalanceSheetItemInsert = {
 };
 type BalanceSheetItemUpdate = Partial<Omit<BalanceSheetItemInsert, "tenant_id">>;
 
+// Employee loans / advances (migration 0085). A loan is an asset, not an expense.
+type EmployeeLoanRow = {
+  id:              string;
+  tenant_id:       string;
+  employee_name:   string;
+  principal:       number;
+  disbursed_on:    string;
+  bank_account_id: string | null;
+  notes:           string | null;
+  status:          "active" | "closed";
+  created_at:      string;
+  updated_at:      string;
+  created_by:      string | null;
+};
+type EmployeeLoanInsert = {
+  id?:              string;
+  tenant_id:        string;
+  employee_name:    string;
+  principal:        number;
+  disbursed_on:     string;
+  bank_account_id?: string | null;
+  notes?:           string | null;
+  status?:          "active" | "closed";
+  created_by?:      string | null;
+};
+type EmployeeLoanUpdate = Partial<Omit<EmployeeLoanInsert, "tenant_id">>;
+
+type EmployeeLoanRepaymentRow = {
+  id:              string;
+  tenant_id:       string;
+  loan_id:         string;
+  amount:          number;
+  repaid_on:       string;
+  method:          "cash" | "bank" | "salary_deduction";
+  bank_account_id: string | null;
+  notes:           string | null;
+  created_at:      string;
+};
+type EmployeeLoanRepaymentInsert = {
+  id?:              string;
+  tenant_id:        string;
+  loan_id:          string;
+  amount:           number;
+  repaid_on:        string;
+  method:           "cash" | "bank" | "salary_deduction";
+  bank_account_id?: string | null;
+  notes?:           string | null;
+};
+type EmployeeLoanRepaymentUpdate = Partial<Omit<EmployeeLoanRepaymentInsert, "tenant_id">>;
+
 // ============================================================
 // TDS Receivable (migration 0014)
 // ============================================================
@@ -1628,6 +1678,8 @@ export type Database = {
       vendor_bills:       { Row: VendorBillRow;        Insert: VendorBillInsert;        Update: VendorBillUpdate;        Relationships: [] };
       expenses:           { Row: ExpenseRow;           Insert: ExpenseInsert;           Update: ExpenseUpdate;           Relationships: [] };
       balance_sheet_items:{ Row: BalanceSheetItemRow;  Insert: BalanceSheetItemInsert;  Update: BalanceSheetItemUpdate;  Relationships: [] };
+      employee_loans:{ Row: EmployeeLoanRow; Insert: EmployeeLoanInsert; Update: EmployeeLoanUpdate; Relationships: [] };
+      employee_loan_repayments:{ Row: EmployeeLoanRepaymentRow; Insert: EmployeeLoanRepaymentInsert; Update: EmployeeLoanRepaymentUpdate; Relationships: [] };
       tds_receivable:     { Row: TdsReceivableRow;     Insert: TdsReceivableInsert;     Update: TdsReceivableUpdate;     Relationships: [] };
       customer_users:     { Row: CustomerUserRow;      Insert: CustomerUserInsert;      Update: CustomerUserUpdate;      Relationships: [] };
       support_tickets:    { Row: SupportTicketRow;     Insert: SupportTicketInsert;     Update: SupportTicketUpdate;     Relationships: [] };
@@ -2011,6 +2063,27 @@ export type Database = {
           p_amount:       number;
           p_txn_date:     string;
           p_note?:        string | null;
+        };
+        Returns: undefined;
+      };
+      disburse_employee_loan: {
+        Args: {
+          p_employee_name:   string;
+          p_principal:       number;
+          p_disbursed_on:    string;
+          p_bank_account_id: string;
+          p_notes?:          string | null;
+        };
+        Returns: string;
+      };
+      record_employee_loan_repayment: {
+        Args: {
+          p_loan_id:         string;
+          p_amount:          number;
+          p_repaid_on:       string;
+          p_method:          string;
+          p_bank_account_id?: string | null;
+          p_notes?:          string | null;
         };
         Returns: undefined;
       };

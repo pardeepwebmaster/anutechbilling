@@ -33,6 +33,7 @@ export interface BalanceSheetAuto {
   cashAndBank:     number;   // sum of all bank + cash account balances
   receivables:     number;   // customers' unpaid balances (subscriptions outstanding)
   tdsReceivable:   number;   // pending TDS credits from customers
+  employeeLoans:   number;   // outstanding loans/advances to employees (an asset)
   payables:        number;   // unpaid vendor bills (total − paid)
   gstPayable:      number;   // net GST this FY (output − input); may be negative (credit)
   fyLabel:         string;   // e.g. "FY 2026-27" for the GST caveat
@@ -73,6 +74,19 @@ export function useBalanceSheetAuto() {
       if (tdsErr) throw tdsErr;
       const tdsReceivable = (tds ?? []).reduce((s, r) => s + (r.tds_amount ?? 0), 0);
 
+      // Employee loans / advances outstanding — principal − repayments, an asset.
+      const { data: loans, error: loanErr } = await supabase
+        .from("employee_loans")
+        .select("id, principal");
+      if (loanErr) throw loanErr;
+      const { data: loanReps, error: loanRepErr } = await supabase
+        .from("employee_loan_repayments")
+        .select("amount");
+      if (loanRepErr) throw loanRepErr;
+      const loanPrincipal = (loans ?? []).reduce((s, l) => s + (l.principal ?? 0), 0);
+      const loanRepaid    = (loanReps ?? []).reduce((s, r) => s + (r.amount ?? 0), 0);
+      const employeeLoans = Math.max(0, loanPrincipal - loanRepaid);
+
       // Trade payables — vendor bills with an unpaid balance.
       const { data: bills, error: bErr } = await supabase
         .from("vendor_bills")
@@ -110,7 +124,7 @@ export function useBalanceSheetAuto() {
 
       const gstPayable = outputGST - billsGst - expGst;
 
-      return { cashAndBank, receivables, tdsReceivable, payables, gstPayable, fyLabel };
+      return { cashAndBank, receivables, tdsReceivable, employeeLoans, payables, gstPayable, fyLabel };
     },
     staleTime: 30_000,
   });

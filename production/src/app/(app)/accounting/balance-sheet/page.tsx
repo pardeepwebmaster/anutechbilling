@@ -32,6 +32,7 @@ import {
   useBalanceSheetAuto,
   useBalanceSheetItems,
   useCreateBalanceSheetItem,
+  useUpdateBalanceSheetItem,
   useDeleteBalanceSheetItem,
   type BalanceSheetItem,
 } from "@/lib/queries/balance-sheet";
@@ -42,6 +43,7 @@ export default function BalanceSheetPage() {
   const { data: items, isLoading: itemsLoading } = useBalanceSheetItems();
   const del = useDeleteBalanceSheetItem();
   const [addOpen, setAddOpen] = React.useState(false);
+  const [editItem, setEditItem] = React.useState<BalanceSheetItem | null>(null);
   const today = new Date(Date.now() + 5.5 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
   const loading = autoLoading || itemsLoading;
@@ -116,7 +118,7 @@ export default function BalanceSheetPage() {
                 )}
                 {gstCredit > 0 && <BSLine label="GST input credit (ITC)" amount={gstCredit} auto />}
                 {manualAssetRows.map((r) => (
-                  <BSLine key={r.id} label={r.label} amount={r.amount} onDelete={() => { if (window.confirm(`Remove "${r.label}" from the balance sheet?`)) del.mutate(r.id); }} />
+                  <BSLine key={r.id} label={r.label} amount={r.amount} onEdit={() => setEditItem(r)} onDelete={() => { if (window.confirm(`Remove "${r.label}" from the balance sheet?`)) del.mutate(r.id); }} />
                 ))}
               </div>
               <TotalLine label="Total Assets" amount={totalAssets} />
@@ -134,7 +136,7 @@ export default function BalanceSheetPage() {
                   <BSLine label="GST payable" hint={`net, ${auto?.fyLabel ?? "this FY"} — before filing`} amount={gstPayable} auto />
                 )}
                 {manualLiabRows.map((r) => (
-                  <BSLine key={r.id} label={r.label} amount={r.amount} onDelete={() => { if (window.confirm(`Remove "${r.label}" from the balance sheet?`)) del.mutate(r.id); }} />
+                  <BSLine key={r.id} label={r.label} amount={r.amount} onEdit={() => setEditItem(r)} onDelete={() => { if (window.confirm(`Remove "${r.label}" from the balance sheet?`)) del.mutate(r.id); }} />
                 ))}
               </div>
               <TotalLine label="Total Liabilities" amount={totalLiab} muted />
@@ -143,7 +145,7 @@ export default function BalanceSheetPage() {
                 <SectionTitle>Equity (net worth)</SectionTitle>
                 <div className="space-y-1 mt-3">
                   {manualEqRows.map((r) => (
-                    <BSLine key={r.id} label={r.label} amount={r.amount} onDelete={() => { if (window.confirm(`Remove "${r.label}" from the balance sheet?`)) del.mutate(r.id); }} />
+                    <BSLine key={r.id} label={r.label} amount={r.amount} onEdit={() => setEditItem(r)} onDelete={() => { if (window.confirm(`Remove "${r.label}" from the balance sheet?`)) del.mutate(r.id); }} />
                   ))}
                   <BSLine
                     label="Retained earnings"
@@ -176,6 +178,7 @@ export default function BalanceSheetPage() {
       )}
 
       <AddLineDialog open={addOpen} onClose={() => setAddOpen(false)} />
+      {editItem && <EditLineDialog item={editItem} onClose={() => setEditItem(null)} />}
     </div>
   );
 }
@@ -190,9 +193,9 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
 }
 
 function BSLine({
-  label, hint, amount, auto, onDelete,
+  label, hint, amount, auto, onEdit, onDelete,
 }: {
-  label: string; hint?: string; amount: number; auto?: boolean; onDelete?: () => void;
+  label: string; hint?: string; amount: number; auto?: boolean; onEdit?: () => void; onDelete?: () => void;
 }) {
   return (
     <div className="flex items-baseline justify-between gap-3 py-1 group">
@@ -200,6 +203,16 @@ function BSLine({
         <span className="text-sm text-ink truncate">{label}</span>
         {auto && <Badge kind="muted" size="sm">auto</Badge>}
         {hint && <span className="text-[11px] text-ink-3 hidden sm:inline">· {hint}</span>}
+        {onEdit && (
+          <button
+            type="button"
+            onClick={onEdit}
+            className="opacity-0 group-hover:opacity-100 text-ink-3 hover:text-ink transition-opacity"
+            aria-label={`Edit ${label}`}
+          >
+            <Icon name="edit" size={12} />
+          </button>
+        )}
         {onDelete && (
           <button
             type="button"
@@ -242,6 +255,45 @@ const schema = z.object({
   notes:  z.string().optional(),
 });
 type FormData = z.infer<typeof schema>;
+
+function EditLineDialog({ item, onClose }: { item: BalanceSheetItem; onClose: () => void }) {
+  const update = useUpdateBalanceSheetItem();
+  const [label, setLabel] = React.useState(item.label);
+  const [amount, setAmount] = React.useState(String(item.amount));
+
+  async function submit() {
+    const amt = Math.round(Number(amount));
+    if (!label.trim() || !Number.isFinite(amt)) return;
+    await update.mutateAsync({ id: item.id, label: label.trim(), amount: amt });
+    onClose();
+  }
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="md:!max-w-md">
+        <DialogHeader>
+          <DialogTitle>Edit line</DialogTitle>
+          <DialogDescription>Update this manual balance-sheet line — e.g. reduce a loan balance after an EMI.</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div>
+            <label className="block text-xs font-medium text-ink-2 mb-1">Label</label>
+            <Input value={label} onChange={(e) => setLabel(e.target.value)} autoFocus />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-ink-2 mb-1">Amount (₹)</label>
+            <Input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} />
+            <p className="mt-1 text-[11px] text-ink-3">Negative allowed (e.g. depreciation, drawings).</p>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="ghost" onClick={onClose} disabled={update.isPending}>Cancel</Button>
+          <Button variant="primary" loading={update.isPending} disabled={!label.trim()} onClick={submit}>Save</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
 
 function AddLineDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const create = useCreateBalanceSheetItem();

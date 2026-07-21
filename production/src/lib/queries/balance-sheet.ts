@@ -185,6 +185,25 @@ export function useCreateBalanceSheetItem() {
   });
 }
 
+export function useUpdateBalanceSheetItem() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { id: string; label: string; amount: number }) => {
+      const supabase = createClient();
+      const { error } = await supabase
+        .from("balance_sheet_items")
+        .update({ label: input.label, amount: input.amount })
+        .eq("id", input.id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["balance-sheet", "items"] });
+      toast.success("Line updated");
+    },
+    onError: (err) => toast.error((err as Error).message),
+  });
+}
+
 export function useDeleteBalanceSheetItem() {
   const qc = useQueryClient();
   return useMutation({

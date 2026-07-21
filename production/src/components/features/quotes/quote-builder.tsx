@@ -607,9 +607,8 @@ export function QuoteBuilder() {
         </GeminiCard>
       )}
 
-      {/* Top: 2-col cards */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {isLeadMode ? (
+      {/* Customer / prospect details — full width */}
+      {isLeadMode ? (
           /* ───── Prospect Details (read-only, from lead) ───── */
           <Card title="Prospect Details">
             <div className="space-y-3">
@@ -813,7 +812,7 @@ export function QuoteBuilder() {
 
         {/* Quote Settings */}
         <Card title="Quote Settings">
-          <div className="space-y-3">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-6 gap-y-4 items-start">
 
             {/* Billing cycle — prominent quote-level picker.
                 Indian SME customers overwhelmingly prefer ANNUAL UPFRONT.
@@ -882,6 +881,8 @@ export function QuoteBuilder() {
               </p>
             </div>
 
+            {/* Valid / Expires / GST — 3 across, filling the right half */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 self-start">
             <FormField label="Valid for (days)" htmlFor="validity">
               <Input
                 id="validity"
@@ -915,9 +916,9 @@ export function QuoteBuilder() {
                 helper="Default 18% for SaaS · HSN 998313"
               />
             </FormField>
+            </div>
           </div>
         </Card>
-      </div>
 
       {/* Line Items card */}
       <Card flush>

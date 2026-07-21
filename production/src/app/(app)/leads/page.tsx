@@ -1893,28 +1893,28 @@ function RowActions({
         onMouseEnter={show}
         onMouseLeave={scheduleHide}
         className={cn(
-          "absolute right-1 top-1/2 -translate-y-1/2 flex h-[70%] items-center gap-0.5 rounded-xl bg-ink px-1.5 shadow-lg transition-all duration-200 ease-out",
+          "absolute right-1 top-1/2 -translate-y-1/2 flex h-[70%] items-center gap-0.5 rounded-xl bg-amber px-1.5 shadow-lg transition-all duration-200 ease-out",
           open ? "opacity-100 translate-x-0 pointer-events-auto" : "opacity-0 -translate-x-2 pointer-events-none",
         )}
       >
-        <button type="button" title="Send quote" onClick={(e) => { e.stopPropagation(); setOpen(false); onSendQuote(lead); }} className={cn(iconBtn, "hover:bg-amber/25")}>
+        <button type="button" title="Send quote" onClick={(e) => { e.stopPropagation(); setOpen(false); onSendQuote(lead); }} className={cn(iconBtn, "hover:bg-ink/15")}>
           <Icon name="file" size={20} />
         </button>
-        <button type="button" title="Schedule follow-up" onClick={(e) => { e.stopPropagation(); setOpen(false); onFollowUp(lead); }} className={cn(iconBtn, "hover:bg-indigo/30")}>
+        <button type="button" title="Schedule follow-up" onClick={(e) => { e.stopPropagation(); setOpen(false); onFollowUp(lead); }} className={cn(iconBtn, "hover:bg-ink/15")}>
           <Icon name="clock" size={20} />
         </button>
         {hasPhone && (
-          <a href={`tel:${lead.contact_phone}`} onClick={(e) => e.stopPropagation()} className={cn(iconBtn, "hover:bg-emerald/25")} title="Call">
+          <a href={`tel:${lead.contact_phone}`} onClick={(e) => e.stopPropagation()} className={cn(iconBtn, "hover:bg-ink/15")} title="Call">
             <Icon name="mobile" size={20} />
           </a>
         )}
         {hasPhone && (
-          <a href={`https://wa.me/${waNumber}`} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className={cn(iconBtn, "hover:bg-emerald/25")} title="WhatsApp">
+          <a href={`https://wa.me/${waNumber}`} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className={cn(iconBtn, "hover:bg-ink/15")} title="WhatsApp">
             <Icon name="whatsapp" size={20} />
           </a>
         )}
         {hasEmail && (
-          <a href={`https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(lead.contact_email ?? "")}`} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className={cn(iconBtn, "hover:bg-indigo/30")} title="Email (opens Gmail)">
+          <a href={`https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(lead.contact_email ?? "")}`} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className={cn(iconBtn, "hover:bg-ink/15")} title="Email (opens Gmail)">
             <Icon name="mail" size={20} />
           </a>
         )}

@@ -1213,6 +1213,107 @@ type EmployeeLoanRepaymentInsert = {
 };
 type EmployeeLoanRepaymentUpdate = Partial<Omit<EmployeeLoanRepaymentInsert, "tenant_id">>;
 
+// Payroll + leave (migration 0087).
+type EmployeeRow = {
+  id:              string;
+  tenant_id:       string;
+  name:            string;
+  monthly_gross:   number;
+  joining_date:    string | null;
+  leave_allowance: number;
+  pan:             string | null;
+  pf_no:           string | null;
+  esi_no:          string | null;
+  is_active:       boolean;
+  notes:           string | null;
+  created_at:      string;
+  updated_at:      string;
+};
+type EmployeeInsert = {
+  id?:              string;
+  tenant_id:        string;
+  name:             string;
+  monthly_gross?:   number;
+  joining_date?:    string | null;
+  leave_allowance?: number;
+  pan?:             string | null;
+  pf_no?:           string | null;
+  esi_no?:          string | null;
+  is_active?:       boolean;
+  notes?:           string | null;
+};
+type EmployeeUpdate = Partial<Omit<EmployeeInsert, "tenant_id">>;
+
+type LeaveKind = "casual" | "sick" | "earned" | "unpaid";
+type LeaveEntryRow = {
+  id:          string;
+  tenant_id:   string;
+  employee_id: string;
+  from_date:   string;
+  to_date:     string;
+  days:        number;
+  type:        LeaveKind;
+  notes:       string | null;
+  created_at:  string;
+};
+type LeaveEntryInsert = {
+  id?:         string;
+  tenant_id:   string;
+  employee_id: string;
+  from_date:   string;
+  to_date:     string;
+  days:        number;
+  type:        LeaveKind;
+  notes?:      string | null;
+};
+type LeaveEntryUpdate = Partial<Omit<LeaveEntryInsert, "tenant_id">>;
+
+type SalaryPaymentRow = {
+  id:                string;
+  tenant_id:         string;
+  employee_id:       string;
+  period:            string;
+  pay_date:          string;
+  gross:             number;
+  lop_days:          number;
+  lop_amount:        number;
+  advance_recovered: number;
+  tds:               number;
+  pf:                number;
+  esi:               number;
+  other_deduction:   number;
+  net:               number;
+  bank_account_id:   string | null;
+  expense_id:        string | null;
+  advance_loan_id:   string | null;
+  notes:             string | null;
+  created_at:        string;
+};
+type SalaryPaymentInsert = Partial<SalaryPaymentRow> & { tenant_id: string; employee_id: string; period: string; pay_date: string; gross: number; net: number };
+type SalaryPaymentUpdate = Partial<Omit<SalaryPaymentInsert, "tenant_id">>;
+
+type StatutoryDuesKind = "tds" | "pf" | "esi" | "mixed";
+type StatutoryDuesPaymentRow = {
+  id:              string;
+  tenant_id:       string;
+  kind:            StatutoryDuesKind;
+  amount:          number;
+  paid_on:         string;
+  bank_account_id: string | null;
+  notes:           string | null;
+  created_at:      string;
+};
+type StatutoryDuesPaymentInsert = {
+  id?:              string;
+  tenant_id:        string;
+  kind?:            StatutoryDuesKind;
+  amount:           number;
+  paid_on:          string;
+  bank_account_id?: string | null;
+  notes?:           string | null;
+};
+type StatutoryDuesPaymentUpdate = Partial<Omit<StatutoryDuesPaymentInsert, "tenant_id">>;
+
 // ============================================================
 // TDS Receivable (migration 0014)
 // ============================================================
@@ -1685,6 +1786,10 @@ export type Database = {
       balance_sheet_items:{ Row: BalanceSheetItemRow;  Insert: BalanceSheetItemInsert;  Update: BalanceSheetItemUpdate;  Relationships: [] };
       employee_loans:{ Row: EmployeeLoanRow; Insert: EmployeeLoanInsert; Update: EmployeeLoanUpdate; Relationships: [] };
       employee_loan_repayments:{ Row: EmployeeLoanRepaymentRow; Insert: EmployeeLoanRepaymentInsert; Update: EmployeeLoanRepaymentUpdate; Relationships: [] };
+      employees:{ Row: EmployeeRow; Insert: EmployeeInsert; Update: EmployeeUpdate; Relationships: [] };
+      leave_entries:{ Row: LeaveEntryRow; Insert: LeaveEntryInsert; Update: LeaveEntryUpdate; Relationships: [] };
+      salary_payments:{ Row: SalaryPaymentRow; Insert: SalaryPaymentInsert; Update: SalaryPaymentUpdate; Relationships: [] };
+      statutory_dues_payments:{ Row: StatutoryDuesPaymentRow; Insert: StatutoryDuesPaymentInsert; Update: StatutoryDuesPaymentUpdate; Relationships: [] };
       tds_receivable:     { Row: TdsReceivableRow;     Insert: TdsReceivableInsert;     Update: TdsReceivableUpdate;     Relationships: [] };
       customer_users:     { Row: CustomerUserRow;      Insert: CustomerUserInsert;      Update: CustomerUserUpdate;      Relationships: [] };
       support_tickets:    { Row: SupportTicketRow;     Insert: SupportTicketInsert;     Update: SupportTicketUpdate;     Relationships: [] };
@@ -2101,6 +2206,35 @@ export type Database = {
           p_repaid_on:       string;
           p_method:          string;
           p_bank_account_id?: string | null;
+          p_notes?:          string | null;
+        };
+        Returns: undefined;
+      };
+      pay_salary: {
+        Args: {
+          p_employee_id:       string;
+          p_period:            string;
+          p_pay_date:          string;
+          p_gross:             number;
+          p_lop_days:          number;
+          p_lop_amount:        number;
+          p_advance_recovered: number;
+          p_advance_loan_id:   string | null;
+          p_tds:               number;
+          p_pf:                number;
+          p_esi:               number;
+          p_other:             number;
+          p_bank_account_id:   string;
+          p_notes?:            string | null;
+        };
+        Returns: string;
+      };
+      pay_statutory_dues: {
+        Args: {
+          p_amount:          number;
+          p_kind:            string;
+          p_paid_on:         string;
+          p_bank_account_id: string;
           p_notes?:          string | null;
         };
         Returns: undefined;

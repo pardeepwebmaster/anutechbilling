@@ -35,6 +35,7 @@ export interface BalanceSheetAuto {
   tdsReceivable:   number;   // pending TDS credits from customers
   employeeLoans:   number;   // outstanding loans/advances to employees (an asset)
   payables:        number;   // unpaid vendor bills (total − paid)
+  salaryDuesPayable: number; // withheld TDS/PF/ESI not yet paid to govt (a liability)
   gstPayable:      number;   // net GST this FY (output − input); may be negative (credit)
   fyLabel:         string;   // e.g. "FY 2026-27" for the GST caveat
 }
@@ -95,6 +96,15 @@ export function useBalanceSheetAuto() {
       if (bErr) throw bErr;
       const payables = (bills ?? []).reduce((s, b) => s + Math.max(0, (b.total ?? 0) - (b.paid_amount ?? 0)), 0);
 
+      // Salary dues payable — withheld TDS/PF/ESI not yet remitted to govt.
+      const { data: salRows, error: salErr } = await supabase.from("salary_payments").select("tds, pf, esi");
+      if (salErr) throw salErr;
+      const withheld = (salRows ?? []).reduce((s, r) => s + (r.tds ?? 0) + (r.pf ?? 0) + (r.esi ?? 0), 0);
+      const { data: duesPaid, error: dpErr } = await supabase.from("statutory_dues_payments").select("amount");
+      if (dpErr) throw dpErr;
+      const duesPaidTotal = (duesPaid ?? []).reduce((s, r) => s + (r.amount ?? 0), 0);
+      const salaryDuesPayable = Math.max(0, withheld - duesPaidTotal);
+
       // GST payable — net for the current fiscal year (output − input). This is
       // an estimate before any GSTR filing/payment; the page footnotes it.
       const now = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
@@ -124,7 +134,7 @@ export function useBalanceSheetAuto() {
 
       const gstPayable = outputGST - billsGst - expGst;
 
-      return { cashAndBank, receivables, tdsReceivable, employeeLoans, payables, gstPayable, fyLabel };
+      return { cashAndBank, receivables, tdsReceivable, employeeLoans, payables, salaryDuesPayable, gstPayable, fyLabel };
     },
     staleTime: 30_000,
   });

@@ -188,9 +188,39 @@ function CallMark({ size = 16, className, ...rest }: Omit<IconProps, "name">) {
   );
 }
 
+/**
+ * A realistic app-action badge — a solid coloured disc with a white glyph,
+ * matching the {@link WhatsAppMark} / {@link CallMark} look. Used for the
+ * quote / follow-up / email row actions so the whole action panel reads as
+ * one set of tappable coloured buttons.
+ */
+function DiscMark({ size = 16, className, fill, d, ...rest }: Omit<IconProps, "name"> & { fill: string; d: string }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      className={cn("inline-block flex-shrink-0", className)}
+      aria-hidden="true"
+      {...rest}
+    >
+      <circle cx="12" cy="12" r="12" fill={fill} />
+      <path transform="translate(4.2 4.2) scale(0.65)" fill="#FFF" d={d} />
+    </svg>
+  );
+}
+
+// White Material glyph paths (24-grid) for the disc badges.
+const GLYPH_DOC = "M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z";
+const GLYPH_CLOCK = "M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z";
+const GLYPH_MAIL = "M20 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z";
+
 export function Icon({ name, size = 16, className, ...rest }: IconProps) {
   if (name === "whatsapp") return <WhatsAppMark size={size} className={className} {...rest} />;
   if (name === "call") return <CallMark size={size} className={className} {...rest} />;
+  if (name === "quote") return <DiscMark size={size} className={className} fill="#2563EB" d={GLYPH_DOC} {...rest} />;
+  if (name === "reminder") return <DiscMark size={size} className={className} fill="#7C3AED" d={GLYPH_CLOCK} {...rest} />;
+  if (name === "email") return <DiscMark size={size} className={className} fill="#EA4335" d={GLYPH_MAIL} {...rest} />;
   const Component = ICON_MAP[name] ?? AlertTriangle;
   return (
     <Component

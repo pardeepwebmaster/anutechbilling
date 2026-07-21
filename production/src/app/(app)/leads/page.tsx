@@ -1898,10 +1898,10 @@ function RowActions({
         )}
       >
         <button type="button" title="Send quote" onClick={(e) => { e.stopPropagation(); setOpen(false); onSendQuote(lead); }} className={cn(iconBtn, "hover:bg-ink/15")}>
-          <Icon name="file" size={20} />
+          <Icon name="quote" size={20} />
         </button>
         <button type="button" title="Schedule follow-up" onClick={(e) => { e.stopPropagation(); setOpen(false); onFollowUp(lead); }} className={cn(iconBtn, "hover:bg-ink/15")}>
-          <Icon name="clock" size={20} />
+          <Icon name="reminder" size={20} />
         </button>
         {hasPhone && (
           <a href={`tel:${lead.contact_phone}`} onClick={(e) => e.stopPropagation()} className={cn(iconBtn, "hover:bg-ink/15")} title="Call">
@@ -1915,7 +1915,7 @@ function RowActions({
         )}
         {hasEmail && (
           <a href={`https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(lead.contact_email ?? "")}`} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className={cn(iconBtn, "hover:bg-ink/15")} title="Email (opens Gmail)">
-            <Icon name="mail" size={20} />
+            <Icon name="email" size={20} />
           </a>
         )}
       </div>

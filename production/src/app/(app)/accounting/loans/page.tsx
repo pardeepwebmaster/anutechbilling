@@ -57,6 +57,7 @@ export default function EmployeeLoansPage() {
   const [settleFor, setSettleFor] = React.useState<EmployeeLoan | null>(null);
   const [purposeFor, setPurposeFor] = React.useState<EmployeeLoan | null>(null);
   const [editFor, setEditFor] = React.useState<EmployeeLoan | null>(null);
+  const [historyFor, setHistoryFor] = React.useState<EmployeeLoan | null>(null);
   const [typeFilter, setTypeFilter] = React.useState<"all" | EmployeeLoanKind>("all");
   const deleteLoan = useDeleteEmployeeLoan();
 
@@ -188,6 +189,9 @@ export default function EmployeeLoansPage() {
                         ) : (
                           <span className="mr-1 text-[11px] text-ink-3">Settled</span>
                         )}
+                        <button type="button" title="Transaction history" onClick={() => setHistoryFor(l)} className="rounded p-1.5 text-ink-3 hover:bg-paper-2 hover:text-ink">
+                          <Icon name="clock" size={15} />
+                        </button>
                         {l.repaid === 0 && (
                           <>
                             <button type="button" title="Edit" onClick={() => setEditFor(l)} className="rounded p-1.5 text-ink-3 hover:bg-paper-2 hover:text-ink">
@@ -241,6 +245,9 @@ export default function EmployeeLoansPage() {
                       {l.status === "active" && (
                         <Button variant="ghost" size="sm" onClick={() => openAction(l)}>{actionLabel(l)}</Button>
                       )}
+                      <button type="button" aria-label="Transaction history" onClick={() => setHistoryFor(l)} className="rounded p-1.5 text-ink-3 hover:bg-paper-2 hover:text-ink">
+                        <Icon name="clock" size={15} />
+                      </button>
                       {l.repaid === 0 && (
                         <>
                           <button type="button" aria-label="Edit" onClick={() => setEditFor(l)} className="rounded p-1.5 text-ink-3 hover:bg-paper-2 hover:text-ink">
@@ -266,7 +273,58 @@ export default function EmployeeLoansPage() {
       {settleFor && <SettleDialog loan={settleFor} onClose={() => setSettleFor(null)} />}
       {purposeFor && <EditPurposeDialog loan={purposeFor} onClose={() => setPurposeFor(null)} />}
       {editFor && <EditLoanDialog loan={editFor} onClose={() => setEditFor(null)} />}
+      {historyFor && <LoanHistoryDialog loan={historyFor} onClose={() => setHistoryFor(null)} />}
     </div>
+  );
+}
+
+function LoanHistoryDialog({ loan, onClose }: { loan: EmployeeLoan; onClose: () => void }) {
+  const histQ     = useLoanRepayments(loan.id);
+  const accountsQ = useBankAccounts();
+  const acctName  = new Map((accountsQ.data ?? []).map((a) => [a.id, a.name]));
+  const rows      = histQ.data ?? [];
+  const totalRepaid = rows.reduce((s, r) => s + r.amount, 0);
+  const settled   = loan.kind === "expense_advance";
+
+  return (
+    <Dialog open onOpenChange={(v) => { if (!v) onClose(); }}>
+      <DialogContent className="md:!max-w-md">
+        <DialogHeader>
+          <DialogTitle>Transactions — {loan.employee_name}</DialogTitle>
+          <DialogDescription>
+            {LOAN_KIND_LABEL[loan.kind]} · {rupee(loan.principal)} given · {rupee(totalRepaid)} {settled ? "settled" : "repaid"} · {rupee(loan.principal - totalRepaid)} outstanding
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="max-h-[55vh] space-y-2 overflow-y-auto pr-1">
+          {histQ.isLoading ? (
+            <p className="text-xs text-ink-3">Loading…</p>
+          ) : rows.length === 0 ? (
+            <div className="rounded-md border border-dashed border-hairline p-6 text-center text-xs text-ink-3">
+              No {settled ? "settlements" : "repayments"} yet.
+            </div>
+          ) : (
+            rows.map((h) => (
+              <div key={h.id} className="flex items-start justify-between gap-3 rounded-md border border-hairline px-3 py-2">
+                <div className="min-w-0">
+                  <div className="text-sm font-medium text-ink">{METHOD_LABEL[h.method]}</div>
+                  <div className="text-[11px] text-ink-3">
+                    {formatDate(h.repaid_on)}
+                    {h.bank_account_id ? ` · ${acctName.get(h.bank_account_id) ?? "account"}` : ""}
+                    {h.notes ? ` · ${h.notes}` : ""}
+                  </div>
+                </div>
+                <div className="shrink-0 font-mono text-sm text-emerald">{rupee(h.amount)}</div>
+              </div>
+            ))
+          )}
+        </div>
+
+        <DialogFooter>
+          <Button variant="primary" onClick={onClose}>Close</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

@@ -2169,12 +2169,22 @@ function LeadListView({
                     Each icon stopsPropagation so they don't open the drawer. */}
                 <td className={cn(
                   // Fully OPAQUE bg + left border so the scrolled-under columns
-                  // never bleed through behind the action icons (was bg-*/40 →
-                  // semi-transparent → icons unreadable over the content behind).
-                  "sticky right-0 p-3 border-l border-hairline shadow-[-8px_0_12px_-8px_rgba(0,0,0,0.14)]",
+                  // never bleed through behind the action icons. `relative` so the
+                  // absolutely-overlaid action row anchors here.
+                  "relative sticky right-0 p-3 border-l border-hairline shadow-[-8px_0_12px_-8px_rgba(0,0,0,0.14)]",
                   isSelected ? "bg-amber-soft" : "bg-paper",
                 )} onClick={(e) => e.stopPropagation()}>
-                  <div className="flex items-center justify-end gap-1 opacity-0 -translate-x-3 transition-all duration-200 ease-out group-hover:opacity-100 group-hover:translate-x-0 group-focus-within:opacity-100 group-focus-within:translate-x-0">
+                  {/* At-rest affordance: a muted ⋯ so the column doesn't look
+                      empty. Fades out as the actions slide in on hover/focus. */}
+                  <div
+                    aria-hidden
+                    className="flex items-center justify-end text-ink-3 transition-opacity duration-150 group-hover:opacity-0 group-focus-within:opacity-0"
+                  >
+                    <Icon name="more_h" size={16} />
+                  </div>
+                  {/* Full actions — overlaid so swapping in doesn't shift layout;
+                      slide in from the left on hover / keyboard focus. */}
+                  <div className="absolute inset-0 flex items-center justify-end gap-1 px-3 opacity-0 -translate-x-3 pointer-events-none transition-all duration-200 ease-out group-hover:opacity-100 group-hover:translate-x-0 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:translate-x-0 group-focus-within:pointer-events-auto">
                     <button
                       type="button"
                       onClick={(e) => { e.stopPropagation(); onSendQuote(lead); }}

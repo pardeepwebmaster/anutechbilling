@@ -575,7 +575,7 @@ export function QuoteBuilder() {
   };
 
   return (
-    <div className="p-4 md:p-6 lg:p-8 max-w-[1240px] mx-auto space-y-4">
+    <div className="p-4 md:p-6 lg:p-8 max-w-[1240px] mx-auto flex flex-col gap-4">
       {/* Page head */}
       <div className="flex items-end justify-between gap-3 flex-wrap">
         <div className="flex items-start gap-3">
@@ -810,8 +810,8 @@ export function QuoteBuilder() {
           </Card>
         )}
 
-        {/* Quote Settings */}
-        <Card title="Quote Settings">
+        {/* Quote Settings — pushed below Line Items via flex order (see container) */}
+        <Card title="Quote Settings" className="order-last">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-6 gap-y-4 items-start">
 
             {/* Billing cycle — prominent quote-level picker.
@@ -1289,7 +1289,7 @@ export function QuoteBuilder() {
           dialog via a ?send= query param. "Duplicate" stays placeholder
           until we wire a real duplicate flow. */}
       {lineItems.length > 0 && (
-        <div className="sticky bottom-0 z-20 -mx-4 mt-2 flex items-center justify-between gap-3 flex-wrap border-t border-hairline bg-paper/95 px-4 py-3 backdrop-blur md:-mx-6 md:px-6 lg:-mx-8 lg:px-8">
+        <div className="order-last sticky bottom-0 z-20 -mx-4 flex items-center justify-between gap-3 flex-wrap border-t border-hairline bg-paper/95 px-4 py-3 backdrop-blur md:-mx-6 md:px-6 lg:-mx-8 lg:px-8">
           <div className="flex items-baseline gap-2">
             <span className="text-[11px] uppercase tracking-wider text-ink-3 font-semibold">
               {!showPerInvoice && sharedBillingN === 1 ? "Total payable now" : "Total"}

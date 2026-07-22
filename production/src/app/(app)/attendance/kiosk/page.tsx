@@ -125,15 +125,27 @@ function PinPad({ employee, requireSelfie, onClose }: { employee: Employee; requ
   const videoRef = React.useRef<HTMLVideoElement | null>(null);
   const streamRef = React.useRef<MediaStream | null>(null);
   const [camOn, setCamOn] = React.useState(false);
-  const [camErr, setCamErr] = React.useState(false);
+  const [camErrMsg, setCamErrMsg] = React.useState<string | null>(null);
+  const camErr = camErrMsg !== null;
   const startCam = React.useCallback(async () => {
     if (streamRef.current) return;
     try {
       const s = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: false });
       streamRef.current = s;
       if (videoRef.current) { videoRef.current.srcObject = s; await videoRef.current.play().catch(() => {}); }
-      setCamOn(true); setCamErr(false);
-    } catch { setCamErr(true); }
+      setCamOn(true); setCamErrMsg(null);
+    } catch (e) {
+      const name = (e as Error).name || "";
+      setCamErrMsg(
+        name === "NotAllowedError" || name === "SecurityError"
+          ? "Camera blocked — tap the circle above and choose Allow (or enable camera for this site in browser settings)."
+          : name === "NotReadableError" || name === "TrackStartError" || name === "AbortError"
+            ? "Camera is busy — close other apps/tabs using it (Meet, Zoom, WhatsApp), then tap the circle again."
+            : name === "NotFoundError" || name === "OverconstrainedError" || name === "DevicesNotFoundError"
+              ? "No camera found on this device."
+              : `Camera error: ${name || "unknown"} — tap the circle to retry.`,
+      );
+    }
   }, []);
   React.useEffect(() => {
     // Try to start automatically (works when permission is already granted).
@@ -203,9 +215,7 @@ function PinPad({ employee, requireSelfie, onClose }: { employee: Employee; requ
             {camOn
               ? "Look at the camera & enter PIN"
               : camErr
-                ? (requireSelfie
-                    ? "Camera needed — allow it in browser settings to mark attendance"
-                    : "Camera blocked — allow it in browser settings, or just enter PIN")
+                ? `${camErrMsg}${requireSelfie ? "" : " Or just enter PIN."}`
                 : "Enter PIN"}
           </div>
         </div>

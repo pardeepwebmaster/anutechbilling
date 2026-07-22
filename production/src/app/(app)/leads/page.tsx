@@ -23,6 +23,7 @@ import * as React from "react";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { toast } from "sonner";
 import { useLeads, useUpdateLeadStage, useDeleteLead } from "@/lib/queries/leads";
+import { useLeadActivities, useLogLeadActivity } from "@/lib/queries/lead-activities";
 import { LeadsBulkBar } from "@/components/features/leads/leads-bulk-bar";
 import { useQuotesByLead } from "@/lib/queries/quotes";
 import { useTasksForLead, useCompleteTask, useSnoozeTask, useDeleteTask } from "@/lib/queries/tasks";
@@ -1100,6 +1101,21 @@ function LeadsPageInner() {
 // ============================================================
 // Lead detail Sheet (slide-out drawer on card click)
 // ============================================================
+const ACTIVITY_META: Record<string, { icon: React.ComponentProps<typeof Icon>["name"]; label: string }> = {
+  email:    { icon: "mail",    label: "Email sent" },
+  email_in: { icon: "inbox",   label: "Reply received" },
+  call:     { icon: "phone",   label: "Call" },
+  whatsapp: { icon: "whatsapp", label: "WhatsApp" },
+  note:     { icon: "edit",    label: "Note" },
+  quote:    { icon: "file",    label: "Quote" },
+  stage:    { icon: "refresh", label: "Stage change" },
+};
+function fmtActTime(iso: string): string {
+  try {
+    return new Date(iso).toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit" });
+  } catch { return ""; }
+}
+
 function LeadDetailSheet({
   lead,
   onClose,
@@ -1113,6 +1129,8 @@ function LeadDetailSheet({
   const updateStage = useUpdateLeadStage();
   const deleteLead  = useDeleteLead();
   const { data: currentUser } = useCurrentUser();
+  const logActivity = useLogLeadActivity();
+  const { data: activities = [] } = useLeadActivities(lead?.id);
 
   // History: every quote that's been sent to this lead
   const { data: quotesForLead = [] } = useQuotesByLead(lead?.id);
@@ -1183,6 +1201,8 @@ function LeadDetailSheet({
     // does nothing when no desktop mail client is configured).
     const url = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(lead.contact_email)}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
     window.open(url, "_blank", "noopener,noreferrer");
+    logActivity.mutate({ leadId: lead.id, kind: "email", detail: `Emailed ${lead.contact_email} · ${subject}` });
+    toast.success("Logged on the lead's timeline");
   };
 
   const handleArchive = () => {
@@ -1444,6 +1464,35 @@ function LeadDetailSheet({
             <div className="text-sm text-ink-2 whitespace-pre-wrap p-3 bg-paper-2 rounded-md min-h-[80px]">
               {lead.notes || <span className="italic text-ink-3">No notes yet.</span>}
             </div>
+          </div>
+
+          {/* Activity timeline — outbound touches + inbound emails */}
+          <div>
+            <div className="text-xs uppercase tracking-wider text-ink-3 font-semibold mb-1.5">Activity</div>
+            {activities.length === 0 ? (
+              <div className="text-sm text-ink-3 italic p-3 bg-paper-2 rounded-md">
+                No activity yet. Emailing, calling or WhatsApp-ing from here gets logged automatically.
+              </div>
+            ) : (
+              <ul className="space-y-2">
+                {activities.map((a) => {
+                  const meta = ACTIVITY_META[a.kind] ?? { icon: "clock" as const, label: a.kind };
+                  return (
+                    <li key={a.id} className="flex items-start gap-2.5">
+                      <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-paper-2 text-ink-3">
+                        <Icon name={meta.icon} size={12} />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm text-ink">{a.detail || meta.label}</div>
+                        <div className="text-[11px] text-ink-3">
+                          {meta.label} · {formatDate(a.created_at)} {fmtActTime(a.created_at)}
+                        </div>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
           </div>
 
           {/* ── Quotes history (only when this lead has received at least one quote) ── */}

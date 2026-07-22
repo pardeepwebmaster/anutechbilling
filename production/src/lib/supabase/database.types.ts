@@ -1397,6 +1397,18 @@ type ExpenseClaimRow = {
 type ExpenseClaimInsert = Partial<ExpenseClaimRow> & { tenant_id: string; loan_id: string; employee_id: string; amount: number; category: string; spent_on: string };
 type ExpenseClaimUpdate = Partial<Omit<ExpenseClaimInsert, "tenant_id">>;
 
+type LeadActivityRow = {
+  id:         string;
+  tenant_id:  string;
+  lead_id:    string;
+  kind:       string;
+  detail:     string | null;
+  created_at: string;
+  created_by: string | null;
+};
+type LeadActivityInsert = Partial<LeadActivityRow> & { tenant_id: string; lead_id: string; kind: string };
+type LeadActivityUpdate = Partial<Omit<LeadActivityInsert, "tenant_id">>;
+
 type EmiPaymentRow = {
   id:              string;
   tenant_id:       string;
@@ -1894,6 +1906,7 @@ export type Database = {
       emi_purchases:{ Row: EmiPurchaseRow; Insert: EmiPurchaseInsert; Update: EmiPurchaseUpdate; Relationships: [] };
       emi_payments:{ Row: EmiPaymentRow; Insert: EmiPaymentInsert; Update: EmiPaymentUpdate; Relationships: [] };
       expense_claims:{ Row: ExpenseClaimRow; Insert: ExpenseClaimInsert; Update: ExpenseClaimUpdate; Relationships: [] };
+      lead_activities:{ Row: LeadActivityRow; Insert: LeadActivityInsert; Update: LeadActivityUpdate; Relationships: [] };
       tds_receivable:     { Row: TdsReceivableRow;     Insert: TdsReceivableInsert;     Update: TdsReceivableUpdate;     Relationships: [] };
       customer_users:     { Row: CustomerUserRow;      Insert: CustomerUserInsert;      Update: CustomerUserUpdate;      Relationships: [] };
       support_tickets:    { Row: SupportTicketRow;     Insert: SupportTicketInsert;     Update: SupportTicketUpdate;     Relationships: [] };
@@ -2346,6 +2359,10 @@ export type Database = {
       delete_claim_public: {
         Args: { p_tenant_id: string; p_employee_id: string; p_pin: string; p_claim_id: string };
         Returns: undefined;
+      };
+      log_lead_activity: {
+        Args: { p_lead_id: string; p_kind: string; p_detail?: string | null };
+        Returns: string;
       };
       edit_employee_loan: {
         Args: {

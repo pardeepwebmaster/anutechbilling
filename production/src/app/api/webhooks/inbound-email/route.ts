@@ -198,6 +198,11 @@ export async function POST(request: NextRequest) {
     await admin.from("leads").update({
       notes: `${existing.notes ? existing.notes + "\n\n" : ""}[New email ${new Date().toISOString().slice(0, 10)}] ${subject || extracted.summary}`,
     }).eq("id", existing.id);
+    // Log on the lead's activity timeline (visible in the drawer).
+    await admin.from("lead_activities").insert({
+      tenant_id: tenantId, lead_id: existing.id, kind: "email_in",
+      detail: `Reply from ${fromEmail}${subject ? ` · ${subject}` : ""}`,
+    });
     await finalize("appended_to_lead", existing.id);
     return NextResponse.json({ received: true, appendedToLead: existing.id });
   }
@@ -223,6 +228,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Could not create lead" }, { status: 500 });
   }
   await finalize("lead_created", leadId);
+  await admin.from("lead_activities").insert({
+    tenant_id: tenantId, lead_id: leadId, kind: "email_in",
+    detail: `Email from ${fromEmail}${subject ? ` · ${subject}` : ""}`,
+  });
 
   // ── 7. Notify the reseller owner (best-effort) ─────────────────────────
   const { data: tenant } = await admin.from("tenants").select("email, name").eq("id", tenantId).maybeSingle();

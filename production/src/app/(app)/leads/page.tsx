@@ -1131,6 +1131,8 @@ function LeadDetailSheet({
   const { data: currentUser } = useCurrentUser();
   const logActivity = useLogLeadActivity();
   const { data: activities = [] } = useLeadActivities(lead?.id);
+  const [drawerTab, setDrawerTab] = React.useState<"details" | "activity">("details");
+  React.useEffect(() => { setDrawerTab("details"); }, [lead?.id]);
 
   // History: every quote that's been sent to this lead
   const { data: quotesForLead = [] } = useQuotesByLead(lead?.id);
@@ -1446,6 +1448,25 @@ function LeadDetailSheet({
             </div>
           )}
 
+          {/* Tabs — keep the ever-growing Activity log out of the main detail view */}
+          <div className="flex gap-1 border-b border-hairline">
+            {(["details", "activity"] as const).map((t) => (
+              <button
+                key={t}
+                type="button"
+                onClick={() => setDrawerTab(t)}
+                className={cn(
+                  "px-3 py-2 text-xs font-semibold border-b-2 -mb-px transition-colors",
+                  drawerTab === t ? "border-amber text-amber-ink" : "border-transparent text-ink-3 hover:text-ink",
+                )}
+              >
+                {t === "activity" ? `Activity${activities.length ? ` (${activities.length})` : ""}` : "Details"}
+              </button>
+            ))}
+          </div>
+
+          {drawerTab === "details" && (
+          <>
           {/* Grid of facts */}
           <div className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
             <Fact label="Plan" value={lead.plan} />
@@ -1465,8 +1486,11 @@ function LeadDetailSheet({
               {lead.notes || <span className="italic text-ink-3">No notes yet.</span>}
             </div>
           </div>
+          </>
+          )}
 
-          {/* Activity timeline — outbound touches + inbound emails */}
+          {/* Activity timeline — outbound touches + inbound emails — its own tab */}
+          {drawerTab === "activity" && (
           <div>
             <div className="text-xs uppercase tracking-wider text-ink-3 font-semibold mb-1.5">Activity</div>
             {activities.length === 0 ? (
@@ -1494,7 +1518,10 @@ function LeadDetailSheet({
               </ul>
             )}
           </div>
+          )}
 
+          {drawerTab === "details" && (
+          <>
           {/* ── Quotes history (only when this lead has received at least one quote) ── */}
           {hasQuotes && (
             <div>
@@ -1723,6 +1750,8 @@ function LeadDetailSheet({
               </div>
             );
           })()}
+          </>
+          )}
         </div>
 
         <SheetFooter className="!p-4 border-t border-hairline !flex-col !items-stretch gap-2">

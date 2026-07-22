@@ -2316,6 +2316,10 @@ export type Database = {
         };
         Returns: string;
       };
+      verify_claim_access: {
+        Args: { p_tenant_id: string; p_employee_id: string; p_pin: string };
+        Returns: number;
+      };
       approve_expense_claim: {
         Args: { p_claim_id: string };
         Returns: undefined;

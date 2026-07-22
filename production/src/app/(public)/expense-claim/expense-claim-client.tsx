@@ -3,35 +3,32 @@
 /**
  * ExpenseClaimClient — the public expense-claim form (rendered by /expense-claim).
  *
- * Employee picks their name, enters their attendance PIN, and logs what they
- * spent (amount, category, purpose, date, optional receipt photo). POSTs to
- * /api/public/expense-claim which verifies the PIN + advance server-side and
- * files a PENDING claim for the owner to approve. No login.
+ * Two steps so logging many expenses stays quick:
+ *   1. Identify — pick your name + enter your attendance PIN once. We verify it
+ *      and show how much of your advance is left to claim.
+ *   2. Log — add expense after expense (amount, category, purpose, date, optional
+ *      receipt) WITHOUT re-entering the PIN. Each one is filed as a PENDING claim
+ *      for the office to approve; the running balance and list update live.
+ *
+ * The PIN is held in memory for the session only (never stored) and sent with
+ * each submit over HTTPS. Every claim still needs owner approval before it hits
+ * the books.
  */
 import * as React from "react";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
 
 import { Input } from "@/components/ui/input";
 import { FormField } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
+import { rupee } from "@/lib/utils";
 import { EXPENSE_CATEGORIES } from "@/lib/queries/expenses";
 
 function todayISO(): string {
   return new Date(Date.now() + 5.5 * 60 * 60 * 1000).toISOString().slice(0, 10);
 }
 
-const schema = z.object({
-  employeeId: z.string().min(1, "Pick your name"),
-  pin:        z.string().regex(/^\d{4,6}$/, "Enter your 4–6 digit PIN"),
-  amount:     z.coerce.number().int("Whole rupees only").positive("Enter an amount"),
-  category:   z.string().min(1, "Choose a category"),
-  purpose:    z.string().max(200).optional().or(z.literal("")),
-  spentOn:    z.string().min(1, "Pick a date"),
-});
-type FormData = z.infer<typeof schema>;
+type Session = { employeeId: string; employeeName: string; pin: string; remaining: number };
+type Logged = { id: string; category: string; amount: number; spentOn: string };
 
 export function ExpenseClaimClient({
   tid, sig, brandName, employees,
@@ -41,44 +38,8 @@ export function ExpenseClaimClient({
   brandName: string;
   employees: Array<{ id: string; name: string }>;
 }) {
-  const [done, setDone]       = React.useState(false);
-  const [serverError, setErr] = React.useState<string | null>(null);
-  const [photo, setPhoto]     = React.useState<string | null>(null);
-
-  const {
-    register, handleSubmit, reset,
-    formState: { errors, isSubmitting },
-  } = useForm<FormData>({
-    resolver: zodResolver(schema),
-    defaultValues: { spentOn: todayISO(), category: "" },
-  });
-
-  async function onPhoto(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) { setPhoto(null); return; }
-    if (file.size > 4_000_000) { setErr("Receipt photo is too large (max 4 MB)."); e.target.value = ""; return; }
-    const reader = new FileReader();
-    reader.onload = () => setPhoto(typeof reader.result === "string" ? reader.result : null);
-    reader.readAsDataURL(file);
-  }
-
-  const onSubmit = async (data: FormData) => {
-    setErr(null);
-    try {
-      const res = await fetch("/api/public/expense-claim", {
-        method:  "POST",
-        headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({ tid, sig, ...data, purpose: data.purpose || null, photo }),
-      });
-      const json = await res.json();
-      if (!res.ok) { setErr(json.error ?? "Something went wrong. Please try again."); return; }
-      setDone(true);
-      reset();
-      setPhoto(null);
-    } catch {
-      setErr("Network error. Please check your connection and try again.");
-    }
-  };
+  const [session, setSession] = React.useState<Session | null>(null);
+  const [logged, setLogged]   = React.useState<Logged[]>([]);
 
   return (
     <div className="min-h-screen bg-paper-2">
@@ -95,107 +56,274 @@ export function ExpenseClaimClient({
         </div>
 
         <div className="rounded-2xl border border-hairline bg-paper p-6 shadow-sm md:p-8">
-          {done ? (
-            <div className="py-6 text-center">
-              <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-emerald-soft">
-                <Icon name="check" size={28} className="text-emerald" />
-              </div>
-              <h1 className="font-serif text-2xl text-ink">Sent for approval</h1>
-              <p className="mx-auto mt-2 max-w-sm text-sm text-ink-2">
-                Your expense has been submitted to {brandName}. It will be adjusted against your
-                advance once the office approves it.
-              </p>
-              <Button variant="outline" className="mt-5" onClick={() => setDone(false)}>
-                Submit another
-              </Button>
-            </div>
+          {session ? (
+            <LogStep
+              tid={tid}
+              sig={sig}
+              brandName={brandName}
+              session={session}
+              setSession={setSession}
+              logged={logged}
+              setLogged={setLogged}
+              onSwitch={() => { setSession(null); setLogged([]); }}
+              employeeName={employees.find((e) => e.id === session.employeeId)?.name ?? session.employeeName}
+            />
           ) : (
-            <>
-              <div className="mb-5">
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-ink-3">Expense advance</p>
-                <h1 className="mt-1 font-serif text-2xl leading-tight text-ink">Log an expense</h1>
-                <p className="mt-1 text-sm text-ink-3">
-                  Enter what you spent from your advance. The office will review and approve it.
-                </p>
-              </div>
-
-              <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-                <FormField label="Your name" required htmlFor="employeeId">
-                  <select
-                    id="employeeId"
-                    defaultValue=""
-                    {...register("employeeId")}
-                    className="w-full rounded-md border border-hairline bg-paper px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-amber/40"
-                  >
-                    <option value="" disabled>Select your name</option>
-                    {employees.map((e) => (
-                      <option key={e.id} value={e.id}>{e.name}</option>
-                    ))}
-                  </select>
-                  {errors.employeeId && <p className="mt-1 text-xs text-rose">{errors.employeeId.message}</p>}
-                </FormField>
-
-                <FormField label="Your PIN" required htmlFor="pin">
-                  <Input id="pin" type="password" inputMode="numeric" autoComplete="off"
-                    placeholder="4–6 digit attendance PIN" error={errors.pin?.message} {...register("pin")} />
-                </FormField>
-
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <FormField label="Amount spent (₹)" required htmlFor="amount">
-                    <Input id="amount" type="number" min={1} inputMode="numeric"
-                      placeholder="e.g. 1200" error={errors.amount?.message} {...register("amount")} />
-                  </FormField>
-                  <FormField label="Date" required htmlFor="spentOn">
-                    <Input id="spentOn" type="date" error={errors.spentOn?.message} {...register("spentOn")} />
-                  </FormField>
-                </div>
-
-                <FormField label="Category" required htmlFor="category">
-                  <select
-                    id="category"
-                    defaultValue=""
-                    {...register("category")}
-                    className="w-full rounded-md border border-hairline bg-paper px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-amber/40"
-                  >
-                    <option value="" disabled>Select category</option>
-                    {EXPENSE_CATEGORIES.map((c) => (
-                      <option key={c} value={c}>{c}</option>
-                    ))}
-                  </select>
-                  {errors.category && <p className="mt-1 text-xs text-rose">{errors.category.message}</p>}
-                </FormField>
-
-                <FormField label="What was it for? (optional)" htmlFor="purpose">
-                  <Input id="purpose" placeholder="e.g. Client visit auto fare" {...register("purpose")} />
-                </FormField>
-
-                <div>
-                  <label className="mb-1.5 block text-sm font-medium text-ink">Receipt photo (optional)</label>
-                  <input
-                    type="file" accept="image/*" capture="environment" onChange={onPhoto}
-                    className="block w-full text-sm text-ink-2 file:mr-3 file:rounded-md file:border-0 file:bg-paper-2 file:px-3 file:py-2 file:text-sm file:text-ink hover:file:bg-hairline"
-                  />
-                  {photo && <p className="mt-1 text-xs text-emerald">Receipt attached ✓</p>}
-                </div>
-
-                {serverError && (
-                  <div className="rounded-md border border-rose/40 bg-rose-soft px-3 py-2 text-sm text-rose">
-                    {serverError}
-                  </div>
-                )}
-
-                <Button type="submit" variant="primary" className="w-full" loading={isSubmitting}>
-                  Submit for approval
-                </Button>
-              </form>
-            </>
+            <IdentifyStep tid={tid} sig={sig} employees={employees} onVerified={setSession} />
           )}
         </div>
 
         <p className="mt-4 text-center text-[11px] text-ink-3">
-          Your submission is reviewed by the office before it is recorded.
+          Every submission is reviewed by the office before it is recorded.
         </p>
       </div>
     </div>
+  );
+}
+
+/* ── Step 1: pick name + PIN ─────────────────────────────────────────────── */
+function IdentifyStep({
+  tid, sig, employees, onVerified,
+}: {
+  tid: string;
+  sig: string;
+  employees: Array<{ id: string; name: string }>;
+  onVerified: (s: Session) => void;
+}) {
+  const [employeeId, setEmployeeId] = React.useState("");
+  const [pin, setPin]   = React.useState("");
+  const [busy, setBusy] = React.useState(false);
+  const [err, setErr]   = React.useState<string | null>(null);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setErr(null);
+    if (!employeeId) { setErr("Pick your name"); return; }
+    if (!/^\d{4,6}$/.test(pin)) { setErr("Enter your 4–6 digit PIN"); return; }
+    setBusy(true);
+    try {
+      const res = await fetch("/api/public/expense-claim/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tid, sig, employeeId, pin }),
+      });
+      const json = await res.json();
+      if (!res.ok) { setErr(json.error ?? "Could not verify. Please try again."); return; }
+      const name = employees.find((x) => x.id === employeeId)?.name ?? "";
+      onVerified({ employeeId, employeeName: name, pin, remaining: Number(json.remaining ?? 0) });
+    } catch {
+      setErr("Network error. Please check your connection and try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      <div className="mb-5">
+        <p className="text-[10px] font-semibold uppercase tracking-wider text-ink-3">Expense advance</p>
+        <h1 className="mt-1 font-serif text-2xl leading-tight text-ink">Log your expenses</h1>
+        <p className="mt-1 text-sm text-ink-3">
+          Enter your PIN once, then add as many expenses as you need. The office reviews them.
+        </p>
+      </div>
+
+      <form onSubmit={submit} className="space-y-4">
+        <FormField label="Your name" required htmlFor="employeeId">
+          <select
+            id="employeeId"
+            value={employeeId}
+            onChange={(e) => setEmployeeId(e.target.value)}
+            className="w-full rounded-md border border-hairline bg-paper px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-amber/40"
+          >
+            <option value="" disabled>Select your name</option>
+            {employees.map((e) => (
+              <option key={e.id} value={e.id}>{e.name}</option>
+            ))}
+          </select>
+        </FormField>
+
+        <FormField label="Your PIN" required htmlFor="pin">
+          <Input id="pin" type="password" inputMode="numeric" autoComplete="off"
+            placeholder="4–6 digit attendance PIN" value={pin}
+            onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 6))} />
+        </FormField>
+
+        {err && (
+          <div className="rounded-md border border-rose/40 bg-rose-soft px-3 py-2 text-sm text-rose">{err}</div>
+        )}
+
+        <Button type="submit" variant="primary" className="w-full" loading={busy}>Continue</Button>
+      </form>
+    </>
+  );
+}
+
+/* ── Step 2: log expenses (repeat) ───────────────────────────────────────── */
+function LogStep({
+  tid, sig, brandName, session, setSession, logged, setLogged, onSwitch, employeeName,
+}: {
+  tid: string;
+  sig: string;
+  brandName: string;
+  session: Session;
+  setSession: React.Dispatch<React.SetStateAction<Session | null>>;
+  logged: Logged[];
+  setLogged: React.Dispatch<React.SetStateAction<Logged[]>>;
+  onSwitch: () => void;
+  employeeName: string;
+}) {
+  const [amount, setAmount]     = React.useState("");
+  const [spentOn, setSpentOn]   = React.useState(todayISO());
+  const [category, setCategory] = React.useState("");
+  const [purpose, setPurpose]   = React.useState("");
+  const [photo, setPhoto]       = React.useState<string | null>(null);
+  const [busy, setBusy]         = React.useState(false);
+  const [err, setErr]           = React.useState<string | null>(null);
+  const [flash, setFlash]       = React.useState<string | null>(null);
+
+  const remaining = session.remaining;
+
+  function onPhoto(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) { setPhoto(null); return; }
+    if (file.size > 4_000_000) { setErr("Receipt photo is too large (max 4 MB)."); e.target.value = ""; return; }
+    const reader = new FileReader();
+    reader.onload = () => setPhoto(typeof reader.result === "string" ? reader.result : null);
+    reader.readAsDataURL(file);
+  }
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (busy) return;
+    setErr(null); setFlash(null);
+    const amt = Math.round(Number(amount));
+    if (!Number.isFinite(amt) || amt <= 0) { setErr("Enter a valid amount"); return; }
+    if (!category) { setErr("Choose a category"); return; }
+    if (amt > remaining) { setErr(`That's more than your remaining advance (${rupee(remaining)})`); return; }
+    setBusy(true);
+    try {
+      const res = await fetch("/api/public/expense-claim", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tid, sig, employeeId: session.employeeId, pin: session.pin,
+          amount: amt, category, purpose: purpose || null, spentOn, photo,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) { setErr(json.error ?? "Something went wrong. Please try again."); return; }
+      setLogged((prev) => [{ id: json.claimId, category, amount: amt, spentOn }, ...prev]);
+      setSession((s) => (s ? { ...s, remaining: Number(json.remaining ?? Math.max(0, s.remaining - amt)) } : s));
+      setFlash(`Added ${rupee(amt)} · ${category}`);
+      // Reset the entry fields for the next expense (keep the session).
+      setAmount(""); setCategory(""); setPurpose(""); setPhoto(null); setSpentOn(todayISO());
+    } catch {
+      setErr("Network error. Please check your connection and try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const spent = logged.reduce((s, l) => s + l.amount, 0);
+  const noneLeft = remaining <= 0;
+
+  return (
+    <>
+      {/* Who + remaining */}
+      <div className="mb-4 flex items-start justify-between gap-3">
+        <div>
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-ink-3">Logging for</p>
+          <h1 className="mt-0.5 font-serif text-xl leading-tight text-ink">{employeeName}</h1>
+        </div>
+        <button type="button" onClick={onSwitch} className="text-xs text-ink-3 underline hover:text-ink">
+          Not you?
+        </button>
+      </div>
+
+      <div className="mb-5 rounded-xl border border-hairline bg-paper-2 px-4 py-3">
+        <div className="flex items-center justify-between">
+          <span className="text-xs text-ink-3">Left to claim</span>
+          <span className="font-serif text-2xl text-ink">{rupee(remaining)}</span>
+        </div>
+        {logged.length > 0 && (
+          <div className="mt-1 text-[11px] text-ink-3">{logged.length} logged this session · {rupee(spent)}</div>
+        )}
+      </div>
+
+      {noneLeft ? (
+        <div className="rounded-lg border border-emerald/30 bg-emerald-soft px-4 py-5 text-center">
+          <Icon name="check_circle" size={28} className="mx-auto text-emerald" />
+          <p className="mt-2 text-sm text-ink-2">Your advance is fully claimed. Thank you!</p>
+        </div>
+      ) : (
+        <form onSubmit={submit} className="space-y-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <FormField label="Amount spent (₹)" required htmlFor="amount">
+              <Input id="amount" type="number" min={1} inputMode="numeric" placeholder="e.g. 1200"
+                value={amount} onChange={(e) => setAmount(e.target.value)} />
+            </FormField>
+            <FormField label="Date" required htmlFor="spentOn">
+              <Input id="spentOn" type="date" value={spentOn} onChange={(e) => setSpentOn(e.target.value)} />
+            </FormField>
+          </div>
+
+          <FormField label="Category" required htmlFor="category">
+            <select
+              id="category"
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+              className="w-full rounded-md border border-hairline bg-paper px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-amber/40"
+            >
+              <option value="" disabled>Select category</option>
+              {EXPENSE_CATEGORIES.map((c) => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
+          </FormField>
+
+          <FormField label="What was it for? (optional)" htmlFor="purpose">
+            <Input id="purpose" placeholder="e.g. Client visit auto fare"
+              value={purpose} onChange={(e) => setPurpose(e.target.value)} />
+          </FormField>
+
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-ink">Receipt photo (optional)</label>
+            <input
+              type="file" accept="image/*" capture="environment" onChange={onPhoto}
+              className="block w-full text-sm text-ink-2 file:mr-3 file:rounded-md file:border-0 file:bg-paper-2 file:px-3 file:py-2 file:text-sm file:text-ink hover:file:bg-hairline"
+            />
+            {photo && <p className="mt-1 text-xs text-emerald">Receipt attached ✓</p>}
+          </div>
+
+          {err && (
+            <div className="rounded-md border border-rose/40 bg-rose-soft px-3 py-2 text-sm text-rose">{err}</div>
+          )}
+          {flash && (
+            <div className="rounded-md border border-emerald/30 bg-emerald-soft px-3 py-2 text-sm text-emerald">{flash} — added ✓</div>
+          )}
+
+          <Button type="submit" variant="primary" className="w-full" loading={busy}>Add expense</Button>
+        </form>
+      )}
+
+      {/* Session list */}
+      {logged.length > 0 && (
+        <div className="mt-6 border-t border-hairline pt-4">
+          <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-ink-3">Submitted just now</p>
+          <ul className="space-y-1.5">
+            {logged.map((l) => (
+              <li key={l.id} className="flex items-center justify-between rounded-md bg-paper-2 px-3 py-2 text-sm">
+                <span className="text-ink-2">{l.category}</span>
+                <span className="font-mono text-ink">{rupee(l.amount)}</span>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-3 text-center text-xs text-ink-3">
+            All sent to {brandName} for approval. You can close this page.
+          </p>
+        </div>
+      )}
+    </>
   );
 }

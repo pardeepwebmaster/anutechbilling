@@ -72,7 +72,15 @@ export async function POST(request: NextRequest) {
     // RPC raises friendly messages (Wrong PIN, no open advance, over-limit).
     return NextResponse.json({ error: error.message }, { status: 400 });
   }
-  return NextResponse.json({ ok: true, claimId: data as string });
+
+  // Fresh claimable balance so the form can update without a reload.
+  const { data: remaining } = await admin.rpc("verify_claim_access", {
+    p_tenant_id:   tid,
+    p_employee_id: employeeId,
+    p_pin:         pin,
+  });
+
+  return NextResponse.json({ ok: true, claimId: data as string, remaining: Number(remaining ?? 0) });
 }
 
 /** Deterministic small hash for a stable-ish receipt filename (no Math.random). */

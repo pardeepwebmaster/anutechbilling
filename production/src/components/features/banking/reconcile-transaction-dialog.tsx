@@ -30,13 +30,16 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Icon } from "@/components/ui/icon";
+import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   useSuggestMatches,
   useReconcileTransaction,
+  useBookTxnAsExpense,
   type BankTransactionRow,
   type MatchSuggestion,
 } from "@/lib/queries/bank";
+import { EXPENSE_CATEGORIES } from "@/lib/queries/expenses";
 import { rupee, formatDate } from "@/lib/utils";
 
 interface Props {
@@ -48,6 +51,30 @@ interface Props {
 export function ReconcileTransactionDialog({ open, onOpenChange, transaction }: Props) {
   const { data: suggestions, isLoading: sugLoading } = useSuggestMatches(transaction?.id ?? null);
   const reconcile = useReconcileTransaction();
+  const bookExpense = useBookTxnAsExpense();
+
+  // "Book as expense" form (money-out lines only).
+  const [bookCategory, setBookCategory] = React.useState("");
+  const [bookVendor, setBookVendor]     = React.useState("");
+  const [bookGst, setBookGst]           = React.useState("");
+  React.useEffect(() => {
+    setBookCategory(""); setBookVendor(""); setBookGst("");
+  }, [transaction?.id]);
+
+  const handleBookExpense = async () => {
+    if (!transaction || !bookCategory) return;
+    try {
+      await bookExpense.mutateAsync({
+        transactionId: transaction.id,
+        accountId:     transaction.bank_account_id,
+        category:      bookCategory,
+        vendor:        bookVendor || null,
+        gst:           Math.max(0, Math.round(Number(bookGst) || 0)),
+        notes:         transaction.description,
+      });
+      onOpenChange(false);
+    } catch { /* hook toasts the error */ }
+  };
 
   const handleMatch = async (s: MatchSuggestion) => {
     if (!transaction) return;
@@ -187,6 +214,42 @@ export function ReconcileTransactionDialog({ open, onOpenChange, transaction }: 
                 </ul>
               )}
             </div>
+
+            {/* Book directly as an expense — money-out lines only. Creates the
+                expense (P&L) and reconciles this line, with NO extra cash leg. */}
+            {!isCredit && (
+              <div className="rounded-md border border-amber/40 bg-amber-soft/25 p-3">
+                <p className="text-xs font-semibold text-ink-2 mb-1">Book as a new expense</p>
+                <p className="text-[11px] text-ink-3 mb-3 leading-relaxed">
+                  Not in your books yet? Record this {rupee(amount)} as an expense and reconcile it in one step. No double entry — this bank line is the cash-out.
+                </p>
+                <div className="space-y-2">
+                  <select
+                    value={bookCategory}
+                    onChange={(e) => setBookCategory(e.target.value)}
+                    className="w-full rounded-md border border-hairline bg-paper px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-amber/40"
+                  >
+                    <option value="" disabled>Choose category…</option>
+                    {EXPENSE_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Input value={bookVendor} onChange={(e) => setBookVendor(e.target.value)} placeholder="Vendor / payee (optional)" />
+                    <Input value={bookGst} onChange={(e) => setBookGst(e.target.value)} type="number" min={0} placeholder="GST paid ₹ (optional)" />
+                  </div>
+                </div>
+                <Button
+                  size="sm"
+                  variant="primary"
+                  icon="check"
+                  className="mt-3"
+                  disabled={!bookCategory || bookExpense.isPending}
+                  loading={bookExpense.isPending}
+                  onClick={handleBookExpense}
+                >
+                  Book {rupee(amount)} expense
+                </Button>
+              </div>
+            )}
 
             {/* Manual reconcile escape hatch */}
             <div className="rounded-md border border-hairline bg-paper-2/30 p-3">

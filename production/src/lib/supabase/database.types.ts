@@ -2366,6 +2366,10 @@ export type Database = {
         Args: { p_lead_id: string; p_kind: string; p_detail?: string | null };
         Returns: string;
       };
+      book_bank_txn_as_expense: {
+        Args: { p_txn_id: string; p_category: string; p_vendor: string | null; p_gst: number; p_notes?: string | null };
+        Returns: string;
+      };
       edit_employee_loan: {
         Args: {
           p_loan_id:         string;

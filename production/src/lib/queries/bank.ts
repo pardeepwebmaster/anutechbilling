@@ -318,6 +318,37 @@ export function useReconcileTransaction() {
 }
 
 /**
+ * Book an unmatched money-OUT bank line straight as a company expense (+ mark
+ * it reconciled). No new cash leg — the imported line IS the cash movement.
+ */
+export function useBookTxnAsExpense() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: {
+      transactionId: string; accountId: string;
+      category: string; vendor?: string | null; gst?: number; notes?: string | null;
+    }) => {
+      const supabase = createClient();
+      const { error } = await supabase.rpc("book_bank_txn_as_expense", {
+        p_txn_id:   input.transactionId,
+        p_category: input.category,
+        p_vendor:   input.vendor ?? null,
+        p_gst:      input.gst ?? 0,
+        p_notes:    input.notes ?? null,
+      });
+      if (error) throw error;
+    },
+    onSuccess: (_d, input) => {
+      qc.invalidateQueries({ queryKey: ["bank_transactions", input.accountId] });
+      qc.invalidateQueries({ queryKey: ["expenses"] });
+      qc.invalidateQueries({ queryKey: ["balance-sheet"] });
+      toast.success("Booked as expense & reconciled");
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : "Couldn't book expense"),
+  });
+}
+
+/**
  * Server-side match-suggestion helper. Returns nearest payments/expenses by
  * amount + date proximity. Used in the reconcile picker so the operator
  * sees "Match to TechVista ₹5,21,088 (exact)" without typing.

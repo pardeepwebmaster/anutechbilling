@@ -29,6 +29,20 @@ export function useLeads() {
   });
 }
 
+/** A single lead by id — used e.g. to prefill a prospect quote's WhatsApp number. */
+export function useLead(id: string | undefined) {
+  return useQuery({
+    queryKey: ["leads", id],
+    enabled: Boolean(id),
+    queryFn: async (): Promise<Lead | null> => {
+      const supabase = createClient();
+      const { data, error } = await supabase.from("leads").select("*").eq("id", id!).maybeSingle();
+      if (error) throw error;
+      return (data ?? null) as Lead | null;
+    },
+  });
+}
+
 // ============================================================
 // Update stage (drag-and-drop)
 // ============================================================

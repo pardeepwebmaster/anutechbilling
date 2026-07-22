@@ -27,6 +27,7 @@ import { SendQuoteDialog } from "@/components/features/quotes/send-quote-dialog"
 import SendWhatsAppDialog from "@/components/features/whatsapp/send-whatsapp-dialog";
 import { usePaymentsByQuote, totalReceived as sumReceived } from "@/lib/queries/payments";
 import { useCustomer } from "@/lib/queries/customers";
+import { useLead } from "@/lib/queries/leads";
 import { useCurrentUser } from "@/lib/hooks/useCurrentUser";
 import { rupee, formatDate, daysBetween } from "@/lib/utils";
 import { cn } from "@/lib/utils";
@@ -61,6 +62,16 @@ export default function QuoteDetailPage() {
   const { data: quote, isLoading, error } = useQuote(params.id);
   const { data: paymentHistory } = usePaymentsByQuote(params.id);
   const { data: customer } = useCustomer(quote?.customer_id ?? undefined);
+  // Prospect quotes have no customer yet — fall back to the lead's phone so the
+  // WhatsApp recipient still prefills (quotes usually go to that same contact).
+  const { data: lead } = useLead(quote?.lead_id ?? undefined);
+  const recipientPhone = React.useMemo(() => {
+    const raw = customer?.contact_phone || lead?.contact_phone || "";
+    const d = raw.replace(/\D/g, "");
+    if (!d) return "";
+    // WhatsApp needs a country code — assume India (+91) for a bare 10-digit number.
+    return d.startsWith("91") ? `+${d}` : d.length === 10 ? `+91${d}` : `+${d}`;
+  }, [customer?.contact_phone, lead?.contact_phone]);
   const { data: me } = useCurrentUser();
   const qc = useQueryClient();
   const deleteQuote = useDeleteQuote();
@@ -80,7 +91,7 @@ export default function QuoteDetailPage() {
   React.useEffect(() => {
     if (sendIntentHandled.current) return;
     if (!quote)                     return;            // wait for data
-    if (sendIntent === "whatsapp" && customer?.contact_phone) {
+    if (sendIntent === "whatsapp") {
       setWhatsOpen(true);
       sendIntentHandled.current = true;
       router.replace(`/quotes/${quote.id}` as never);   // clean the URL
@@ -89,7 +100,7 @@ export default function QuoteDetailPage() {
       sendIntentHandled.current = true;
       router.replace(`/quotes/${quote.id}` as never);
     }
-  }, [sendIntent, quote, customer?.contact_phone, router]);
+  }, [sendIntent, quote, router]);
 
   const totalReceivedSoFar = sumReceived(paymentHistory ?? []);
 
@@ -756,7 +767,7 @@ export default function QuoteDetailPage() {
         <SendWhatsAppDialog
           open={whatsOpen}
           onOpenChange={setWhatsOpen}
-          defaultTo={customer?.contact_phone ?? ""}
+          defaultTo={recipientPhone}
           defaultText={
             `Hi ${quote.customer_name},\n\n` +
             `Your quote ${quote.id} for ${rupee(quote.amount)} is attached. ` +
@@ -780,9 +791,9 @@ export default function QuoteDetailPage() {
               tenantAddress: me?.tenantAddress,
               quoteId:       quote.id,
               customerName:  quote.customer_name,
-              contactName:   customer?.contact_name ?? null,
-              contactEmail:  customer?.contact_email ?? null,
-              contactPhone:  customer?.contact_phone ?? null,
+              contactName:   customer?.contact_name ?? lead?.contact_name ?? null,
+              contactEmail:  customer?.contact_email ?? lead?.contact_email ?? null,
+              contactPhone:  recipientPhone || null,
               createdDate:   quote.created_at,
               expiresDate:   quote.expires_date,
               validityDays:  quote.expires_date

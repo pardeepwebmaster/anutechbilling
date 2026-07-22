@@ -165,12 +165,14 @@ function parseStatement(text: string): { rows: ParsedRow[]; skipped: number; war
   const raw = parseCSV(text);
   if (raw.length === 0) return { rows: [], skipped: 0, warnings: ["Empty file"] };
 
-  // Find the first row that looks like a header. Bank statements often have
-  // 5-10 lines of metadata (account name, statement period etc.) before the
-  // actual table.
+  // Find the first row that looks like a header. Bank statements can have a
+  // LONG preamble (HDFC often runs 20-30 lines of bank name, address, account
+  // details, statement period and opening balance before the table), so scan
+  // the whole file — a data row won't match the date+description+amount header
+  // aliases, so there's no false-positive risk.
   let headerIdx = -1;
   let mapping: ReturnType<typeof detectColumns> | null = null;
-  for (let i = 0; i < Math.min(15, raw.length); i++) {
+  for (let i = 0; i < raw.length; i++) {
     const m = detectColumns(raw[i]);
     if (m) { headerIdx = i; mapping = m; break; }
   }

@@ -119,32 +119,35 @@ export default function ExpensesPage() {
         </Card>
       ) : (
         <>
-          {/* Desktop table */}
-          <Card className="hidden md:block overflow-hidden">
-            <table className="w-full text-sm">
+          {/* Desktop table — scrolls horizontally rather than clipping so the
+              Amount / Actions columns are never cut off on narrower laptops. */}
+          <Card className="hidden md:block overflow-x-auto">
+            <table className="w-full min-w-[860px] text-sm">
               <thead className="bg-paper-2/50 text-[10px] uppercase tracking-wider text-ink-3 font-semibold">
                 <tr>
-                  <th className="text-left  px-4 py-3">Date</th>
-                  <th className="text-left  px-4 py-3">Category</th>
-                  <th className="text-left  px-4 py-3">Vendor / payee</th>
-                  <th className="text-left  px-4 py-3">Description</th>
-                  <th className="text-left  px-4 py-3">Method</th>
-                  <th className="text-right px-4 py-3">GST</th>
-                  <th className="text-right px-4 py-3">Amount</th>
-                  <th className="text-right px-4 py-3">Actions</th>
+                  <th className="text-left  px-3 py-3 whitespace-nowrap">Date</th>
+                  <th className="text-left  px-3 py-3">Category</th>
+                  <th className="text-left  px-3 py-3">Vendor / payee</th>
+                  <th className="text-left  px-3 py-3">Description</th>
+                  <th className="text-left  px-3 py-3">Method</th>
+                  <th className="text-right px-3 py-3">GST</th>
+                  <th className="text-right px-3 py-3">Amount</th>
+                  <th className="text-right px-3 py-3">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-hairline">
                 {rows.map((e) => (
                   <tr key={e.id} className="hover:bg-paper-2/40">
-                    <td className="px-4 py-3 text-ink-2">{formatDate(e.expense_date)}</td>
-                    <td className="px-4 py-3 text-ink">{e.category}</td>
-                    <td className="px-4 py-3 text-ink-2">{e.vendor_name ?? "—"}</td>
-                    <td className="px-4 py-3 text-ink-3 truncate max-w-[280px]">{e.description ?? "—"}</td>
-                    <td className="px-4 py-3 text-ink-3 text-xs">{e.payment_method ?? "—"}</td>
-                    <td className="px-4 py-3 text-right text-emerald font-mono">{e.gst_paid > 0 ? rupee(e.gst_paid) : "—"}</td>
-                    <td className="px-4 py-3 text-right font-semibold text-ink font-mono">{rupee(e.amount)}</td>
-                    <td className="px-4 py-3 text-right">
+                    <td className="px-3 py-3 text-ink-2 whitespace-nowrap">{formatDate(e.expense_date)}</td>
+                    <td className="px-3 py-3 text-ink whitespace-nowrap">{e.category}</td>
+                    <td className="px-3 py-3 text-ink-2 whitespace-nowrap">{e.vendor_name ?? "—"}</td>
+                    <td className="px-3 py-3 text-ink-3">
+                      <span className="block max-w-[280px] truncate" title={e.description ?? undefined}>{e.description ?? "—"}</span>
+                    </td>
+                    <td className="px-3 py-3 text-ink-3 text-xs whitespace-nowrap">{e.payment_method ?? "—"}</td>
+                    <td className="px-3 py-3 text-right text-emerald font-mono whitespace-nowrap">{e.gst_paid > 0 ? rupee(e.gst_paid) : "—"}</td>
+                    <td className="px-3 py-3 text-right font-semibold text-ink font-mono whitespace-nowrap">{rupee(e.amount)}</td>
+                    <td className="px-3 py-3 text-right">
                       <IconButton
                         icon="trash"
                         aria-label="Delete expense"

@@ -78,6 +78,33 @@ export function useUpsertEmployee() {
   });
 }
 
+/** Delete an employee. Blocked if they have salary history (deactivate instead
+ *  so payroll records stay intact). Fresh employees delete cleanly (their
+ *  attendance/leave cascade away). */
+export function useDeleteEmployee() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const supabase = createClient();
+      const { count, error: cErr } = await supabase
+        .from("salary_payments").select("id", { count: "exact", head: true }).eq("employee_id", id);
+      if (cErr) throw cErr;
+      if ((count ?? 0) > 0) {
+        throw new Error("This employee has salary payments on record. Set them Inactive (Edit) instead of deleting, so your payroll history stays intact.");
+      }
+      const { error } = await supabase.from("employees").delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["employees"] });
+      qc.invalidateQueries({ queryKey: ["attendance"] });
+      qc.invalidateQueries({ queryKey: ["leave-entries"] });
+      toast.success("Employee removed");
+    },
+    onError: (err) => toast.error((err as Error).message),
+  });
+}
+
 // ── Leave ─────────────────────────────────────────────────────────────────
 export function useLeaveEntries() {
   return useQuery({

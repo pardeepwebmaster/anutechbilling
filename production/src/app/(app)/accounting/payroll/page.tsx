@@ -28,7 +28,7 @@ import { downloadPayslipPDF } from "@/lib/pdf";
 import { periodLabel } from "@/lib/pdf/PayslipPDF";
 import { toast } from "sonner";
 import {
-  useEmployees, useUpsertEmployee, useSetEmployeePin,
+  useEmployees, useUpsertEmployee, useDeleteEmployee, useSetEmployeePin,
   useLeaveEntries, useCreateLeaveEntry, useDeleteLeaveEntry,
   useSalaryPayments, usePaySalary,
   useStatutoryDues, usePayStatutoryDues,
@@ -113,8 +113,15 @@ export default function PayrollPage() {
 function EmployeesTab() {
   const q = useEmployees();
   const leaveQ = useLeaveEntries();
+  const del = useDeleteEmployee();
   const [edit, setEdit] = React.useState<Employee | null | "new">(null);
   const rows = q.data ?? [];
+
+  const confirmDelete = (e: Employee) => {
+    if (window.confirm(`Remove ${e.name}? This deletes the employee and their attendance/leave records. (Blocked if they have salary payments — deactivate those instead.)`)) {
+      del.mutate(e.id);
+    }
+  };
 
   const paidLeaveTaken = (empId: string) => {
     const fy = fyStartISO();
@@ -153,7 +160,15 @@ function EmployeesTab() {
                   <td className="px-4 py-3 text-ink-2">{e.joining_date ? formatDate(e.joining_date) : "—"}</td>
                   <td className="px-4 py-3 text-right font-mono">{Math.max(0, e.leave_allowance - paidLeaveTaken(e.id))} / {e.leave_allowance}</td>
                   <td className="px-4 py-3"><Badge kind={e.is_active ? "success" : "muted"} dot>{e.is_active ? "Active" : "Inactive"}</Badge></td>
-                  <td className="px-4 py-3 text-right"><Button variant="ghost" size="sm" onClick={() => setEdit(e)}>Edit</Button></td>
+                  <td className="px-4 py-3 text-right">
+                    <div className="inline-flex items-center gap-1 justify-end">
+                      <Button variant="ghost" size="sm" onClick={() => setEdit(e)}>Edit</Button>
+                      <Button variant="ghost" size="sm" icon="trash" aria-label={`Delete ${e.name}`}
+                        className="!text-rose hover:!bg-rose/10"
+                        loading={del.isPending}
+                        onClick={() => confirmDelete(e)} />
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>

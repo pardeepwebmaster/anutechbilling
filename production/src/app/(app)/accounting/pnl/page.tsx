@@ -18,13 +18,13 @@
 "use client";
 
 import * as React from "react";
-import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { rupee } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
+import { PnLDrilldownDialog, type PnLDrillKind } from "@/components/features/accounting/pnl-drilldown-dialog";
 
 // ────────────────────────────────────────────────────────────────
 // Range helpers — all IST-safe (Indian FY runs Apr 1 → Mar 31)
@@ -176,6 +176,7 @@ function usePnL(range: DateRange) {
 export default function PnLPage() {
   const [range, setRange] = React.useState<DateRange>(thisFY());
   const { data, isLoading } = usePnL(range);
+  const [drill, setDrill] = React.useState<PnLDrillKind | null>(null);
 
   return (
     <div className="p-4 md:p-6 lg:p-8 max-w-[1240px] mx-auto">
@@ -246,8 +247,8 @@ export default function PnLPage() {
             </div>
           ) : data ? (
             <div className="space-y-2.5">
-              <Row label="Revenue"        amount={data.revenue}     hint={`${data.revenueCount} invoice${data.revenueCount === 1 ? "" : "s"}`} hintHref="/invoices" tone="ink" />
-              <Row label="− COGS"         amount={-data.cogs}       hint={`${data.cogsCount} vendor bill${data.cogsCount === 1 ? "" : "s"}`} hintHref="/accounting/bills" tone="rose" />
+              <Row label="Revenue"        amount={data.revenue}     hint={`${data.revenueCount} invoice${data.revenueCount === 1 ? "" : "s"}`} onHint={() => setDrill("revenue")} tone="ink" />
+              <Row label="− COGS"         amount={-data.cogs}       hint={`${data.cogsCount} vendor bill${data.cogsCount === 1 ? "" : "s"}`} onHint={() => setDrill("cogs")} tone="rose" />
 
               <Divider />
               <Row label="Gross Margin"
@@ -259,7 +260,7 @@ export default function PnLPage() {
               <Row label="− Operating expenses"
                    amount={-data.expenses}
                    hint={`${data.expensesCount} ${data.expensesCount === 1 ? "entry" : "entries"}`}
-                   hintHref="/accounting/expenses"
+                   onHint={() => setDrill("expenses")}
                    tone="rose" />
 
               <Divider thick />
@@ -328,6 +329,13 @@ export default function PnLPage() {
           </ul>
         </Card>
       )}
+
+      <PnLDrilldownDialog
+        open={drill !== null}
+        onOpenChange={(o) => { if (!o) setDrill(null); }}
+        kind={drill}
+        range={range}
+      />
     </div>
   );
 }
@@ -337,13 +345,13 @@ export default function PnLPage() {
 // ────────────────────────────────────────────────────────────────
 
 function Row({
-  label, amount, hint, hintHref, tone, emphasis, xl,
+  label, amount, hint, onHint, tone, emphasis, xl,
 }: {
   label: string;
   amount: number;
   hint?: string;
-  /** When set, the hint becomes a link to the underlying records (e.g. invoices). */
-  hintHref?: string;
+  /** When set, the hint becomes a button that opens the drill-down popup. */
+  onHint?: () => void;
   tone: "ink" | "emerald" | "rose";
   emphasis?: boolean;
   xl?: boolean;
@@ -358,8 +366,8 @@ function Row({
           {label}
         </div>
         {hint && (
-          hintHref
-            ? <Link href={hintHref as never} className="text-[11px] text-amber-ink hover:underline mt-0.5 inline-block">{hint} →</Link>
+          onHint
+            ? <button type="button" onClick={onHint} className="text-[11px] text-amber-ink hover:underline mt-0.5 inline-flex items-center gap-0.5">{hint} <span aria-hidden>→</span></button>
             : <div className="text-[11px] text-ink-3 mt-0.5">{hint}</div>
         )}
       </div>

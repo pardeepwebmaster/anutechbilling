@@ -224,29 +224,38 @@ export default function BankAccountDetailPage() {
           />
         </Card>
       ) : (
-        <Card flush>
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-hairline text-left text-[11px] uppercase tracking-wider text-ink-3">
-                <th className="px-4 py-2 font-semibold">Date</th>
-                <th className="px-4 py-2 font-semibold">Description</th>
-                <th className="px-4 py-2 font-semibold text-right">Debit</th>
-                <th className="px-4 py-2 font-semibold text-right">Credit</th>
-                <th className="px-4 py-2 font-semibold">Status</th>
-                <th className="px-4 py-2 font-semibold text-right">Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {visibleTxns.map((txn) => (
-                <TransactionRow
-                  key={txn.id}
-                  txn={txn}
-                  onReconcile={() => setReconcileTxn(txn)}
-                />
-              ))}
-            </tbody>
-          </table>
-        </Card>
+        <>
+          {/* Desktop / tablet table — scrolls rather than clipping the date */}
+          <Card flush className="hidden md:block overflow-x-auto">
+            <table className="w-full min-w-[680px] text-sm">
+              <thead>
+                <tr className="border-b border-hairline text-left text-[11px] uppercase tracking-wider text-ink-3">
+                  <th className="px-4 py-2 font-semibold whitespace-nowrap">Date</th>
+                  <th className="px-4 py-2 font-semibold">Description</th>
+                  <th className="px-4 py-2 font-semibold text-right">Amount</th>
+                  <th className="px-4 py-2 font-semibold">Status</th>
+                  <th className="px-4 py-2 font-semibold text-right">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {visibleTxns.map((txn) => (
+                  <TransactionRow
+                    key={txn.id}
+                    txn={txn}
+                    onReconcile={() => setReconcileTxn(txn)}
+                  />
+                ))}
+              </tbody>
+            </table>
+          </Card>
+
+          {/* Mobile cards */}
+          <ul className="md:hidden space-y-2.5">
+            {visibleTxns.map((txn) => (
+              <TransactionCard key={txn.id} txn={txn} onReconcile={() => setReconcileTxn(txn)} />
+            ))}
+          </ul>
+        </>
       )}
 
       <ImportStatementDialog open={importOpen} onOpenChange={setImportOpen} accountId={account.id} />
@@ -266,7 +275,30 @@ export default function BankAccountDetailPage() {
 }
 
 // ============================================================
-// Row
+// Shared bits (used by both the desktop row and the mobile card)
+// ============================================================
+function TxnAmount({ txn }: { txn: BankTransactionRow }) {
+  if (txn.debit > 0)  return <span className="text-rose">-{rupee(txn.debit)}</span>;
+  if (txn.credit > 0) return <span className="text-emerald">+{rupee(txn.credit)}</span>;
+  return <span className="text-ink-3">—</span>;
+}
+
+function txnStatusLabel(t: BankTransactionRow["matched_to_type"]): string {
+  return t === "payment"     ? "Matched payment" :
+         t === "expense"     ? "Matched expense" :
+         t === "vendor_bill" ? "Matched bill"    :
+         t === "transfer"    ? "Inter-account"   :
+         t                   ? "Reconciled"      : "Unmatched";
+}
+
+function TxnStatusBadge({ txn }: { txn: BankTransactionRow }) {
+  return txn.matched_to_type
+    ? <Badge kind="success" size="sm" dot>{txnStatusLabel(txn.matched_to_type)}</Badge>
+    : <Badge kind="warning" size="sm" dot>Unmatched</Badge>;
+}
+
+// ============================================================
+// Row (desktop)
 // ============================================================
 function TransactionRow({
   txn,
@@ -283,30 +315,15 @@ function TransactionRow({
         {formatDate(txn.txn_date)}
       </td>
       <td className="px-4 py-3 min-w-0">
-        <div className="font-medium text-ink truncate max-w-md">{txn.description}</div>
+        <div className="font-medium text-ink truncate max-w-[320px]">{txn.description}</div>
         {txn.reference && (
           <div className="text-[10px] text-ink-3 font-mono mt-0.5">{txn.reference}</div>
         )}
       </td>
-      <td className="px-4 py-3 text-right tabular-nums text-rose">
-        {txn.debit > 0 ? rupee(txn.debit) : <span className="text-ink-3">—</span>}
+      <td className="px-4 py-3 text-right tabular-nums whitespace-nowrap font-medium">
+        <TxnAmount txn={txn} />
       </td>
-      <td className="px-4 py-3 text-right tabular-nums text-emerald">
-        {txn.credit > 0 ? rupee(txn.credit) : <span className="text-ink-3">—</span>}
-      </td>
-      <td className="px-4 py-3">
-        {txn.matched_to_type ? (
-          <Badge kind="success" size="sm" dot>
-            {txn.matched_to_type === "payment"     ? "Matched payment" :
-             txn.matched_to_type === "expense"     ? "Matched expense" :
-             txn.matched_to_type === "vendor_bill" ? "Matched bill"    :
-             txn.matched_to_type === "transfer"    ? "Inter-account"   :
-                                                      "Reconciled"}
-          </Badge>
-        ) : (
-          <Badge kind="warning" size="sm" dot>Unmatched</Badge>
-        )}
-      </td>
+      <td className="px-4 py-3"><TxnStatusBadge txn={txn} /></td>
       <td className="px-4 py-3 text-right">
         {txn.matched_to_type === "transfer" ? (
           // Inter-account transfers are auto-reconciled self-balancing pairs —
@@ -335,5 +352,49 @@ function TransactionRow({
         )}
       </td>
     </tr>
+  );
+}
+
+// ============================================================
+// Card (mobile)
+// ============================================================
+function TransactionCard({ txn, onReconcile }: { txn: BankTransactionRow; onReconcile: () => void }) {
+  const reconcile = useReconcileTransaction();
+  return (
+    <li>
+      <Card className="p-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-sm font-medium leading-snug text-ink break-words">{txn.description}</div>
+            <div className="mt-0.5 text-[11px] text-ink-3">
+              {formatDate(txn.txn_date)}
+              {txn.reference ? <span className="font-mono"> · {txn.reference}</span> : ""}
+            </div>
+          </div>
+          <div className="shrink-0 text-right font-serif text-base tabular-nums">
+            <TxnAmount txn={txn} />
+          </div>
+        </div>
+        <div className="mt-2 flex items-center justify-between gap-2">
+          <TxnStatusBadge txn={txn} />
+          {txn.matched_to_type === "transfer" ? (
+            <span className="text-[11px] text-ink-3">Auto</span>
+          ) : txn.matched_to_type ? (
+            <button
+              type="button"
+              onClick={() => reconcile.mutate({ transactionId: txn.id, matchedToType: null, matchedToId: null })}
+              disabled={reconcile.isPending}
+              className="text-xs text-ink-3 hover:text-rose"
+            >
+              Un-reconcile
+            </button>
+          ) : (
+            <Button size="sm" variant="default" onClick={onReconcile} disabled={reconcile.isPending}>
+              Reconcile
+            </Button>
+          )}
+        </div>
+      </Card>
+    </li>
   );
 }

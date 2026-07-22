@@ -789,8 +789,74 @@ function AttendanceTab() {
         </Card>
       )}
 
+      {employees.length > 0 && (
+        <AttendanceRegister period={period} employees={employees} attendance={attQ.data ?? []} />
+      )}
+
       <TodayCheckins attendance={attQ.data ?? []} employees={employees} />
     </>
+  );
+}
+
+/** Monthly attendance register (muster): employees × days, P = present. */
+function AttendanceRegister({ period, employees, attendance }: { period: string; employees: Employee[]; attendance: Attendance[] }) {
+  const [yy, mm] = period.split("-").map(Number);
+  if (!yy || !mm) return null;
+  const days = new Date(yy, mm, 0).getDate();          // last day of this month
+  const today = todayISO();
+  const monthLabel = new Date(yy, mm - 1, 1).toLocaleDateString("en-IN", { month: "long", year: "numeric" });
+  const dayList = Array.from({ length: days }, (_, i) => i + 1);
+
+  // "employeeId|YYYY-MM-DD" → attendance record
+  const byKey = new Map<string, Attendance>();
+  for (const a of attendance) byKey.set(`${a.employee_id}|${a.work_date}`, a);
+  const dateFor = (d: number) => `${period}-${String(d).padStart(2, "0")}`;
+
+  return (
+    <Card className="mt-4 overflow-hidden">
+      <div className="flex items-center justify-between border-b border-hairline px-4 py-3">
+        <div className="text-[10px] font-semibold uppercase tracking-wider text-ink-3">Attendance register · {monthLabel}</div>
+        <div className="text-[11px] text-ink-3"><span className="font-semibold text-emerald">P</span> = present · – = absent</div>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="text-sm">
+          <thead className="bg-paper-2/50 text-[10px] text-ink-3">
+            <tr>
+              <th className="sticky left-0 z-10 bg-paper-2 px-3 py-2 text-left min-w-[130px]">Employee</th>
+              {dayList.map((d) => (
+                <th key={d} className={cn("px-1.5 py-2 text-center font-medium tabular-nums", dateFor(d) === today && "text-amber-ink font-bold")}>{d}</th>
+              ))}
+              <th className="px-3 py-2 text-right">Present</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-hairline">
+            {employees.map((e) => {
+              const present = dayList.filter((d) => byKey.get(`${e.id}|${dateFor(d)}`)?.check_in).length;
+              return (
+                <tr key={e.id} className="hover:bg-paper-2/30">
+                  <td className="sticky left-0 z-10 bg-paper px-3 py-2 font-medium text-ink whitespace-nowrap">{e.name}</td>
+                  {dayList.map((d) => {
+                    const rec = byKey.get(`${e.id}|${dateFor(d)}`);
+                    const isPresent = Boolean(rec?.check_in);
+                    const future = dateFor(d) > today;
+                    return (
+                      <td
+                        key={d}
+                        className="px-1.5 py-2 text-center"
+                        title={isPresent ? `In ${fmtTimeIST(rec!.check_in)}${rec!.check_out ? ` · Out ${fmtTimeIST(rec!.check_out)}` : ""}` : undefined}
+                      >
+                        {isPresent ? <span className="font-semibold text-emerald">P</span> : future ? <span className="text-ink-3/25">·</span> : <span className="text-ink-3/40">–</span>}
+                      </td>
+                    );
+                  })}
+                  <td className="px-3 py-2 text-right font-mono font-semibold text-ink">{present}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </Card>
   );
 }
 

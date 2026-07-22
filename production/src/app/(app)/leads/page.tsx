@@ -1242,6 +1242,7 @@ function LeadDetailSheet({
     tone: "amber" | "rose" | "emerald" | "indigo";
     onClick: () => void;
     hint?: string;
+    help?: string;
   };
   const nextAction: NextAction | null = (() => {
     // 1. Paid quote → issue invoice / view invoice / record remainder
@@ -1310,6 +1311,7 @@ function LeadDetailSheet({
         tone: "indigo",
         onClick: handleReviseQuote,
         hint: `Sent ${quoteAgeDays === 0 ? "today" : `${quoteAgeDays}d ago`}`,
+        help: "Opens an editable copy of the last quote as a new version — change the price/seats and send again. The original stays untouched.",
       };
     }
     // 4. No quote yet → by stage
@@ -1442,6 +1444,7 @@ function LeadDetailSheet({
                   urgency (rose = overdue, amber = pending, emerald = success,
                   indigo = informational). */}
               {nextAction && (
+                <>
                 <button
                   type="button"
                   onClick={nextAction.onClick}
@@ -1461,6 +1464,13 @@ function LeadDetailSheet({
                     </span>
                   )}
                 </button>
+                {nextAction.help && (
+                  <p className="mt-1.5 flex items-start gap-1 text-[11px] leading-snug text-ink-3">
+                    <Icon name="info" size={11} className="mt-0.5 shrink-0" />
+                    {nextAction.help}
+                  </p>
+                )}
+                </>
               )}
             </div>
           )}

@@ -36,35 +36,9 @@ export default function AttendanceKioskPage() {
   const locked = (net?.allowedIps.length ?? 0) > 0;
   const offNetwork = locked && net?.onAllowedNetwork === false;
 
-  // Camera for check-in selfies (deters buddy-punching). Best-effort: if the
-  // device has no camera or permission is denied, attendance still works.
-  const videoRef = React.useRef<HTMLVideoElement | null>(null);
-  const streamRef = React.useRef<MediaStream | null>(null);
-  const [camOn, setCamOn] = React.useState(false);
-  React.useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const s = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: false });
-        if (cancelled) { s.getTracks().forEach((t) => t.stop()); return; }
-        streamRef.current = s;
-        if (videoRef.current) { videoRef.current.srcObject = s; await videoRef.current.play().catch(() => {}); }
-        setCamOn(true);
-      } catch { setCamOn(false); }
-    })();
-    return () => { cancelled = true; streamRef.current?.getTracks().forEach((t) => t.stop()); };
-  }, []);
-  const capturePhoto = React.useCallback((): string | null => {
-    const v = videoRef.current;
-    if (!v || !camOn || !v.videoWidth) return null;
-    const w = 320, h = Math.round((v.videoHeight / v.videoWidth) * 320) || 240;
-    const canvas = document.createElement("canvas");
-    canvas.width = w; canvas.height = h;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return null;
-    ctx.drawImage(v, 0, 0, w, h);
-    return canvas.toDataURL("image/jpeg", 0.6);
-  }, [camOn]);
+  // Selfies are captured inside the PIN pad — the camera starts on the tap that
+  // opens it (a user gesture, required by mobile browsers) and shows a live
+  // preview (a visible <video>, so mobile actually renders frames to capture).
 
   async function goFullscreen() {
     try { await document.documentElement.requestFullscreen(); } catch { /* not supported */ }
@@ -90,15 +64,14 @@ export default function AttendanceKioskPage() {
           ) : (
             <span className="text-ink-3">Network lock off</span>
           )}
-          <span className={cn("inline-flex items-center gap-1", camOn ? "text-ink-3" : "text-ink-3/70")}>
-            <Icon name="eye" size={12} /> {camOn ? "Photo taken at check-in" : "Camera off"}
+          <span className="inline-flex items-center gap-1 text-ink-3">
+            <Icon name="eye" size={12} /> Selfie taken at check-in
           </span>
           <button onClick={goFullscreen} className="text-ink-3 hover:text-ink inline-flex items-center gap-1">
             <Icon name="external" size={12} /> Fullscreen
           </button>
         </div>
       </div>
-      <video ref={videoRef} autoPlay muted playsInline className="hidden" aria-hidden="true" />
 
       {empQ.isLoading ? (
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">{[1, 2, 3, 4, 5, 6].map((i) => <Skeleton key={i} className="h-24" />)}</div>
@@ -137,15 +110,45 @@ export default function AttendanceKioskPage() {
         </div>
       )}
 
-      {pinFor && <PinPad employee={pinFor} capture={capturePhoto} onClose={() => setPinFor(null)} />}
+      {pinFor && <PinPad employee={pinFor} onClose={() => setPinFor(null)} />}
     </div>
   );
 }
 
-function PinPad({ employee, capture, onClose }: { employee: Employee; capture: () => string | null; onClose: () => void }) {
+function PinPad({ employee, onClose }: { employee: Employee; onClose: () => void }) {
   const mark = useMarkAttendance();
   const [pin, setPin] = React.useState("");
   const [result, setResult] = React.useState<{ ok: boolean; msg: string } | null>(null);
+
+  // Camera lives here: opening the pad is the user gesture mobile browsers need,
+  // and the live preview below is a visible <video> so frames actually render.
+  const videoRef = React.useRef<HTMLVideoElement | null>(null);
+  const streamRef = React.useRef<MediaStream | null>(null);
+  const [camOn, setCamOn] = React.useState(false);
+  React.useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const s = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: false });
+        if (cancelled) { s.getTracks().forEach((t) => t.stop()); return; }
+        streamRef.current = s;
+        if (videoRef.current) { videoRef.current.srcObject = s; await videoRef.current.play().catch(() => {}); }
+        setCamOn(true);
+      } catch { setCamOn(false); }
+    })();
+    return () => { cancelled = true; streamRef.current?.getTracks().forEach((t) => t.stop()); };
+  }, []);
+  function capture(): string | null {
+    const v = videoRef.current;
+    if (!v || !camOn || !v.videoWidth) return null;
+    const w = 320, h = Math.round((v.videoHeight / v.videoWidth) * 320) || 240;
+    const canvas = document.createElement("canvas");
+    canvas.width = w; canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    ctx.drawImage(v, 0, 0, w, h);
+    return canvas.toDataURL("image/jpeg", 0.6);
+  }
 
   const push = (d: string) => { if (pin.length < 6 && !result) setPin((p) => p + d); };
   const back = () => setPin((p) => p.slice(0, -1));
@@ -168,8 +171,21 @@ function PinPad({ employee, capture, onClose }: { employee: Employee; capture: (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 p-4" onClick={onClose}>
       <Card className="w-full max-w-xs p-5" onClick={(e) => e.stopPropagation()}>
         <div className="text-center mb-4">
+          <video
+            ref={videoRef}
+            autoPlay muted playsInline
+            className={cn(
+              "mx-auto mb-3 h-20 w-20 rounded-full border border-hairline bg-paper-2 object-cover [transform:scaleX(-1)]",
+              camOn ? "" : "hidden",
+            )}
+          />
+          {!camOn && (
+            <div className="mx-auto mb-3 flex h-20 w-20 items-center justify-center rounded-full border border-dashed border-hairline bg-paper-2 text-ink-3">
+              <Icon name="user" size={26} />
+            </div>
+          )}
           <div className="font-serif text-2xl text-ink">{employee.name}</div>
-          <div className="text-xs text-ink-3 mt-0.5">Enter PIN</div>
+          <div className="text-xs text-ink-3 mt-0.5">{camOn ? "Look at the camera & enter PIN" : "Enter PIN"}</div>
         </div>
 
         {result ? (

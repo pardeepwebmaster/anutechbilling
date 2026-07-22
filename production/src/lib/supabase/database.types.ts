@@ -1344,14 +1344,16 @@ type AttendanceInsert = {
 type AttendanceUpdate = Partial<Omit<AttendanceInsert, "tenant_id">>;
 
 type AttendanceSettingsRow = {
-  tenant_id:   string;
-  allowed_ips: string[];
-  updated_at:  string;
+  tenant_id:      string;
+  allowed_ips:    string[];
+  require_selfie: boolean;
+  updated_at:     string;
 };
 type AttendanceSettingsInsert = {
-  tenant_id:    string;
-  allowed_ips?: string[];
-  updated_at?:  string;
+  tenant_id:      string;
+  allowed_ips?:   string[];
+  require_selfie?: boolean;
+  updated_at?:    string;
 };
 type AttendanceSettingsUpdate = Partial<Omit<AttendanceSettingsInsert, "tenant_id">>;
 

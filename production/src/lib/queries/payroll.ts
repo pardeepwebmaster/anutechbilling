@@ -265,7 +265,7 @@ export function useAttendanceNetwork() {
     queryFn: async () => {
       const res = await fetch("/api/attendance/network");
       if (!res.ok) throw new Error("Failed to load network settings");
-      return res.json() as Promise<{ allowedIps: string[]; currentIp: string; onAllowedNetwork: boolean }>;
+      return res.json() as Promise<{ allowedIps: string[]; currentIp: string; onAllowedNetwork: boolean; requireSelfie: boolean }>;
     },
     staleTime: 10_000,
   });
@@ -274,7 +274,7 @@ export function useAttendanceNetwork() {
 export function useSetAttendanceNetwork() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (input: { action: "lock" | "clear" | "remove"; ip?: string }) => {
+    mutationFn: async (input: { action: "lock" | "clear" | "remove" | "require_selfie"; ip?: string; value?: boolean }) => {
       const res = await fetch("/api/attendance/network", {
         method: "POST",
         headers: { "Content-Type": "application/json" },

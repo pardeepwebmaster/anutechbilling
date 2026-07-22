@@ -110,12 +110,12 @@ export default function AttendanceKioskPage() {
         </div>
       )}
 
-      {pinFor && <PinPad employee={pinFor} onClose={() => setPinFor(null)} />}
+      {pinFor && <PinPad employee={pinFor} requireSelfie={net?.requireSelfie ?? true} onClose={() => setPinFor(null)} />}
     </div>
   );
 }
 
-function PinPad({ employee, onClose }: { employee: Employee; onClose: () => void }) {
+function PinPad({ employee, requireSelfie, onClose }: { employee: Employee; requireSelfie: boolean; onClose: () => void }) {
   const mark = useMarkAttendance();
   const [pin, setPin] = React.useState("");
   const [result, setResult] = React.useState<{ ok: boolean; msg: string } | null>(null);
@@ -159,8 +159,13 @@ function PinPad({ employee, onClose }: { employee: Employee; onClose: () => void
 
   async function submit() {
     if (pin.length < 4) return;
+    const photo = capture();
+    if (requireSelfie && !photo) {
+      setResult({ ok: false, msg: "Turn on the camera — a selfie is required" });
+      setTimeout(() => setResult(null), 1600);
+      return;
+    }
     try {
-      const photo = capture();
       const action = await mark.mutateAsync({ employeeId: employee.id, pin, photo });
       const msg = action === "checked_in" ? "Checked in ✓" : action === "checked_out" ? "Checked out ✓" : "Already done for today";
       setResult({ ok: true, msg });
@@ -195,7 +200,13 @@ function PinPad({ employee, onClose }: { employee: Employee; onClose: () => void
           )}
           <div className="font-serif text-2xl text-ink">{employee.name}</div>
           <div className="text-xs text-ink-3 mt-0.5">
-            {camOn ? "Look at the camera & enter PIN" : camErr ? "Camera blocked — allow it in browser settings, or just enter PIN" : "Enter PIN"}
+            {camOn
+              ? "Look at the camera & enter PIN"
+              : camErr
+                ? (requireSelfie
+                    ? "Camera needed — allow it in browser settings to mark attendance"
+                    : "Camera blocked — allow it in browser settings, or just enter PIN")
+                : "Enter PIN"}
           </div>
         </div>
 

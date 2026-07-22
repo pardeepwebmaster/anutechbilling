@@ -27,13 +27,14 @@ export async function GET(request: NextRequest) {
   const u = await me(supabase);
   if (!u) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
 
-  const { data } = await supabase.from("attendance_settings").select("allowed_ips").maybeSingle();
+  const { data } = await supabase.from("attendance_settings").select("allowed_ips, require_selfie").maybeSingle();
   const allowedIps: string[] = data?.allowed_ips ?? [];
   const currentIp = clientIp(request);
   return NextResponse.json({
     allowedIps,
     currentIp,
     onAllowedNetwork: allowedIps.length === 0 || allowedIps.includes(currentIp),
+    requireSelfie: data?.require_selfie ?? true,
   });
 }
 
@@ -49,8 +50,9 @@ export async function POST(request: NextRequest) {
   const action = body?.action as string | undefined;
   const currentIp = clientIp(request);
 
-  const { data: existing } = await supabase.from("attendance_settings").select("allowed_ips").maybeSingle();
+  const { data: existing } = await supabase.from("attendance_settings").select("allowed_ips, require_selfie").maybeSingle();
   let allowed: string[] = existing?.allowed_ips ?? [];
+  let requireSelfie: boolean = existing?.require_selfie ?? true;
 
   if (action === "lock") {
     if (!currentIp) return NextResponse.json({ error: "Couldn't read this network's IP" }, { status: 400 });
@@ -60,14 +62,16 @@ export async function POST(request: NextRequest) {
     allowed = allowed.filter((a) => a !== ip);
   } else if (action === "clear") {
     allowed = [];
+  } else if (action === "require_selfie") {
+    requireSelfie = Boolean(body?.value);
   } else {
     return NextResponse.json({ error: "Unknown action" }, { status: 400 });
   }
 
   const { error } = await supabase
     .from("attendance_settings")
-    .upsert({ tenant_id: u.tenant_id, allowed_ips: allowed, updated_at: new Date().toISOString() });
+    .upsert({ tenant_id: u.tenant_id, allowed_ips: allowed, require_selfie: requireSelfie, updated_at: new Date().toISOString() });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  return NextResponse.json({ allowedIps: allowed, currentIp });
+  return NextResponse.json({ allowedIps: allowed, currentIp, requireSelfie });
 }

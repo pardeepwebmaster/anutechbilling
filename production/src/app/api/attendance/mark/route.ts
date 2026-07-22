@@ -29,16 +29,25 @@ export async function POST(request: NextRequest) {
 
   const ip = clientIp(request);
 
-  // Office-network gate (opt-in): enforce only if the tenant locked an allowlist.
+  // Office-network gate (opt-in) + selfie requirement (anti buddy-punching).
   const { data: settings } = await supabase
     .from("attendance_settings")
-    .select("allowed_ips")
+    .select("allowed_ips, require_selfie")
     .maybeSingle();
   const allowed = settings?.allowed_ips ?? [];
   if (allowed.length > 0 && !allowed.includes(ip)) {
     return NextResponse.json(
       { error: "You're not on the office network — attendance can only be marked at the office." },
       { status: 403 },
+    );
+  }
+  // Selfie required (default): a PIN alone can't mark — every mark needs a photo
+  // of who did it, so knowing someone else's PIN isn't enough to punch them in.
+  const requireSelfie = settings?.require_selfie ?? true;
+  if (requireSelfie && !photo) {
+    return NextResponse.json(
+      { error: "A selfie is required to mark attendance. Please allow the camera and try again." },
+      { status: 400 },
     );
   }
 

@@ -694,6 +694,29 @@ function NetworkCard() {
           )}
         </div>
       )}
+
+      {/* Selfie requirement — the real anti buddy-punching control */}
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-hairline pt-3">
+        <div>
+          <div className="text-sm font-medium text-ink flex items-center gap-2">
+            <Icon name="eye" size={14} className={d?.requireSelfie ? "text-emerald" : "text-ink-3"} />
+            Selfie required to mark {d?.requireSelfie ? "· ON" : "· OFF"}
+          </div>
+          <p className="text-[11px] text-ink-3 mt-0.5 max-w-xl">
+            {d?.requireSelfie
+              ? "Every check-in captures a photo — knowing someone's PIN alone can't mark them present (no buddy-punching)."
+              : "PIN-only marking is allowed. Anyone who knows a PIN could mark that person present. Turn on to require a photo."}
+          </p>
+        </div>
+        <Button
+          variant={d?.requireSelfie ? "ghost" : "primary"}
+          size="sm"
+          loading={setNet.isPending}
+          onClick={() => setNet.mutate({ action: "require_selfie", value: !(d?.requireSelfie ?? true) })}
+        >
+          {d?.requireSelfie ? "Turn off" : "Require selfie"}
+        </Button>
+      </div>
     </Card>
   );
 }

@@ -1116,6 +1116,18 @@ function fmtActTime(iso: string): string {
   } catch { return ""; }
 }
 
+/** Open a WhatsApp chat — WhatsApp Web on desktop, the app on mobile. */
+function openWhatsApp(rawNumber: string, text?: string) {
+  const num = (rawNumber || "").replace(/\D/g, "");
+  if (!num) return;
+  const isMobile = typeof navigator !== "undefined" && /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+  const q = text ? `${isMobile ? "?" : "&"}text=${encodeURIComponent(text)}` : "";
+  const url = isMobile
+    ? `https://wa.me/${num}${q}`
+    : `https://web.whatsapp.com/send?phone=${num}${q}`;
+  window.open(url, "_blank", "noopener,noreferrer");
+}
+
 function LeadDetailSheet({
   lead,
   onClose,
@@ -1386,12 +1398,17 @@ function LeadDetailSheet({
                     const waNumber = phoneDigits.startsWith("91") ? phoneDigits : (phoneDigits.length === 10 ? `91${phoneDigits}` : phoneDigits);
                     const greeting = lead.contact_name ? `Hi ${lead.contact_name},` : "Hello,";
                     const ref = lead.plan ? `about ${lead.plan} for ${lead.company}` : `regarding ${lead.company}`;
-                    const waText = encodeURIComponent(`${greeting} Following up ${ref}. When's a good time for a quick call?`);
+                    const waMsg = `${greeting} Following up ${ref}. When's a good time for a quick call?`;
                     return (
                       <a
-                        href={`https://wa.me/${waNumber}?text=${waText}`}
+                        href={`https://wa.me/${waNumber}?text=${encodeURIComponent(waMsg)}`}
                         target="_blank"
                         rel="noopener noreferrer"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          openWhatsApp(waNumber, waMsg);
+                          logActivity.mutate({ leadId: lead.id, kind: "whatsapp", detail: `WhatsApp to ${lead.contact_phone}` });
+                        }}
                         className="inline-flex items-center justify-center gap-1.5 py-2 rounded-md bg-paper border border-hairline hover:bg-emerald-soft/40 text-emerald text-xs font-semibold transition-colors"
                       >
                         <Icon name="whatsapp" size={13} /> WhatsApp
@@ -1978,7 +1995,11 @@ function RowActions({
           {hasPhone && (
             <DropdownMenuItem asChild className={itemCls}>
               <a href={`https://wa.me/${waNumber}`} target="_blank" rel="noopener noreferrer"
-                 onClick={() => logActivity.mutate({ leadId: lead.id, kind: "whatsapp", detail: `WhatsApp to ${lead.contact_phone}` })}>
+                 onClick={(e) => {
+                   e.preventDefault();
+                   openWhatsApp(waNumber);
+                   logActivity.mutate({ leadId: lead.id, kind: "whatsapp", detail: `WhatsApp to ${lead.contact_phone}` });
+                 }}>
                 <Icon name="whatsapp" size={20} /> WhatsApp
               </a>
             </DropdownMenuItem>

@@ -26,7 +26,7 @@ import { useLeads, useUpdateLeadStage, useDeleteLead } from "@/lib/queries/leads
 import { useLeadActivities, useLogLeadActivity } from "@/lib/queries/lead-activities";
 import { LeadsBulkBar } from "@/components/features/leads/leads-bulk-bar";
 import { useQuotesByLead } from "@/lib/queries/quotes";
-import { useTasksForLead, useCompleteTask, useSnoozeTask, useDeleteTask } from "@/lib/queries/tasks";
+import { useTasks, useTasksForLead, useCompleteTask, useSnoozeTask, useDeleteTask } from "@/lib/queries/tasks";
 import { useCurrentUser } from "@/lib/hooks/useCurrentUser";
 import { AddTaskDialog } from "@/components/features/tasks/add-task-dialog";
 import { LeadCard } from "@/components/features/leads/lead-card";
@@ -2051,6 +2051,26 @@ function LeadListView({
   const updateStage = useUpdateLeadStage();
   const deleteLead  = useDeleteLead();
 
+  // Open follow-up tasks per lead — surfaced as a chip on the row so the rep
+  // sees at a glance which leads have a pending task (earliest/most-overdue).
+  const { data: allTasks = [] } = useTasks("all");
+  const openTaskByLead = React.useMemo(() => {
+    const m = new Map<string, { due: string; overdue: boolean; count: number }>();
+    const now = Date.now();
+    for (const t of allTasks) {
+      if (!t.lead_id || (t.status !== "pending" && t.status !== "snoozed")) continue;
+      const prev = m.get(t.lead_id);
+      if (!prev) m.set(t.lead_id, { due: t.due_at, overdue: new Date(t.due_at).getTime() < now, count: 1 });
+      else {
+        prev.count += 1;
+        if (new Date(t.due_at).getTime() < new Date(prev.due).getTime()) {
+          prev.due = t.due_at; prev.overdue = new Date(t.due_at).getTime() < now;
+        }
+      }
+    }
+    return m;
+  }, [allTasks]);
+
   // Bulk-select state — desktop power-table only. A Set of lead IDs makes
   // toggle / has() / size O(1). Resets on the leads array changing
   // identity (e.g. after a refetch) to avoid keeping stale IDs.
@@ -2165,6 +2185,7 @@ function LeadListView({
             key={lead.id}
             lead={lead}
             stale={stale}
+            task={openTaskByLead.get(lead.id)}
             onTap={onRowClick}
             onChangeStage={(s) => updateStage.mutate({ id: lead.id, stage: s })}
             onSendQuote={onSendQuote}
@@ -2278,6 +2299,20 @@ function LeadListView({
                     <div className="min-w-0">
                       <div className="font-medium text-ink truncate">{lead.company}</div>
                       <div className="text-[10px] text-ink-3 font-mono">{lead.id}</div>
+                      {(() => {
+                        const tk = openTaskByLead.get(lead.id);
+                        if (!tk) return null;
+                        return (
+                          <span className={cn(
+                            "mt-1 inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium",
+                            tk.overdue ? "bg-rose-soft text-rose" : "bg-amber-soft text-amber-ink",
+                          )}>
+                            <Icon name="clock" size={10} />
+                            {tk.overdue ? "Task overdue" : "Task"} · {formatDate(tk.due)}
+                            {tk.count > 1 ? ` (+${tk.count - 1})` : ""}
+                          </span>
+                        );
+                      })()}
                     </div>
                   </div>
                 </td>

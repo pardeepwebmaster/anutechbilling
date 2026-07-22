@@ -43,7 +43,7 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
-import { rupee, cn } from "@/lib/utils";
+import { rupee, cn, formatDate } from "@/lib/utils";
 import type { Lead } from "@/lib/supabase/database.types";
 
 // LEAD_STAGES mirrors the array in leads/page.tsx — kept here as a small
@@ -73,9 +73,11 @@ interface SwipeLeadCardProps {
   onSendQuote?: (lead: Lead) => void;
   /** True if the lead's last update is > 14 days old (shows a red stale dot). */
   stale?: boolean;
+  /** Earliest open follow-up task on this lead, if any (shows a chip). */
+  task?: { due: string; overdue: boolean; count: number };
 }
 
-export function SwipeLeadCard({ lead, onTap, onChangeStage, onSendQuote, stale }: SwipeLeadCardProps) {
+export function SwipeLeadCard({ lead, onTap, onChangeStage, onSendQuote, stale, task }: SwipeLeadCardProps) {
   const stageMeta = LEAD_STAGES.find((s) => s.id === lead.stage);
 
   // Quote-first funnel gating (mirrors the drawer + desktop row select):
@@ -198,6 +200,16 @@ export function SwipeLeadCard({ lead, onTap, onChangeStage, onSendQuote, stale }
                   {lead.contact_phone && lead.contact_name && " · "}
                   {lead.contact_phone}
                 </p>
+              )}
+              {task && (
+                <span className={cn(
+                  "mt-1 inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium",
+                  task.overdue ? "bg-rose-soft text-rose" : "bg-amber-soft text-amber-ink",
+                )}>
+                  <Icon name="clock" size={10} />
+                  {task.overdue ? "Task overdue" : "Task"} · {formatDate(task.due)}
+                  {task.count > 1 ? ` (+${task.count - 1})` : ""}
+                </span>
               )}
             </div>
             {/* Right-rail: ₹ value + seats stacked. */}

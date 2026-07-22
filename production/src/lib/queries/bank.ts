@@ -277,7 +277,7 @@ export function useReconcileTransaction() {
   return useMutation({
     mutationFn: async (input: {
       transactionId: string;
-      matchedToType: "payment" | "expense" | "vendor_bill" | "transfer" | "manual" | null;
+      matchedToType: "payment" | "expense" | "vendor_bill" | "transfer" | "salary" | "manual" | null;
       matchedToId:   string | null;
       confidence?:   "exact" | "high" | "low" | "manual";
     }) => {
@@ -354,7 +354,7 @@ export function useBookTxnAsExpense() {
  * sees "Match to TechVista ₹5,21,088 (exact)" without typing.
  */
 export type MatchSuggestion = {
-  match_type:       "payment" | "expense";
+  match_type:       "payment" | "expense" | "salary";
   match_id:         string;
   match_label:      string;
   match_amount:     number;

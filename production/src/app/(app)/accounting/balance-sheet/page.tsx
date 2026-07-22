@@ -59,7 +59,7 @@ export default function BalanceSheetPage() {
   const autoAssets =
     (auto?.cashAndBank ?? 0) + (auto?.receivables ?? 0) + (auto?.tdsReceivable ?? 0)
     + (auto?.employeeLoans ?? 0) + (auto?.fixedAssets ?? 0) + gstCredit;
-  const autoLiab = (auto?.payables ?? 0) + (auto?.salaryDuesPayable ?? 0) + (auto?.emiLoansPayable ?? 0) + gstPayable;
+  const autoLiab = (auto?.payables ?? 0) + (auto?.salaryPayable ?? 0) + (auto?.salaryDuesPayable ?? 0) + (auto?.emiLoansPayable ?? 0) + gstPayable;
 
   const manualAssetRows = manual("asset");
   const manualLiabRows  = manual("liability");
@@ -132,6 +132,9 @@ export default function BalanceSheetPage() {
               <SectionTitle>Liabilities</SectionTitle>
               <div className="space-y-1 mt-3">
                 <BSLine label="Trade payables" hint="unpaid vendor bills" amount={auto?.payables ?? 0} auto />
+                {(auto?.salaryPayable ?? 0) > 0 && (
+                  <BSLine label="Salary payable" hint="payroll run, not yet paid out" amount={auto?.salaryPayable ?? 0} auto />
+                )}
                 {(auto?.salaryDuesPayable ?? 0) > 0 && (
                   <BSLine label="Salary dues payable" hint="withheld TDS/PF/ESI, not yet remitted" amount={auto?.salaryDuesPayable ?? 0} auto />
                 )}

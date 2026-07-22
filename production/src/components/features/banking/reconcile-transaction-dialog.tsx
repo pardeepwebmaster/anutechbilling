@@ -187,10 +187,10 @@ export function ReconcileTransactionDialog({ open, onOpenChange, transaction }: 
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2 mb-0.5">
                           <Badge
-                            kind={s.match_type === "payment" ? "success" : "muted"}
+                            kind={s.match_type === "payment" ? "success" : s.match_type === "salary" ? "warning" : "muted"}
                             size="sm"
                           >
-                            {s.match_type === "payment" ? "Payment" : "Expense"}
+                            {s.match_type === "payment" ? "Payment" : s.match_type === "salary" ? "Salary" : "Expense"}
                           </Badge>
                           <ConfidencePill confidence={s.match_confidence} />
                         </div>

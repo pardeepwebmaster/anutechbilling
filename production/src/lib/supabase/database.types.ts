@@ -307,7 +307,7 @@ export type BankTransactionSource =
   | "manual" | "csv_upload" | "api_fetch";
 
 export type BankMatchToType =
-  | "payment" | "expense" | "vendor_bill" | "transfer" | "manual";
+  | "payment" | "expense" | "vendor_bill" | "transfer" | "salary" | "manual";
 
 export type BankMatchConfidence =
   | "exact" | "high" | "low" | "manual";
@@ -1288,6 +1288,8 @@ type SalaryPaymentRow = {
   expense_id:        string | null;
   advance_loan_id:   string | null;
   notes:             string | null;
+  paid_status:       "unpaid" | "paid";
+  reconciled_txn_id: string | null;
   created_at:        string;
 };
 type SalaryPaymentInsert = Partial<SalaryPaymentRow> & { tenant_id: string; employee_id: string; period: string; pay_date: string; gross: number; net: number };

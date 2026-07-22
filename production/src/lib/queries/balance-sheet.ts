@@ -36,6 +36,7 @@ export interface BalanceSheetAuto {
   employeeLoans:   number;   // outstanding loans/advances to employees (an asset)
   fixedAssets:     number;   // cost of assets bought on EMI (an asset)
   payables:        number;   // unpaid vendor bills (total − paid)
+  salaryPayable:   number;   // net salary accrued (payroll run) but not yet paid out — a liability
   salaryDuesPayable: number; // withheld TDS/PF/ESI not yet paid to govt (a liability)
   emiLoansPayable: number;   // outstanding EMI/asset loans (a liability)
   gstPayable:      number;   // net GST this FY (output − input); may be negative (credit)
@@ -109,10 +110,21 @@ export function useBalanceSheetAuto() {
       if (bErr) throw bErr;
       const payables = (bills ?? []).reduce((s, b) => s + Math.max(0, (b.total ?? 0) - (b.paid_amount ?? 0)), 0);
 
-      // Salary dues payable — withheld TDS/PF/ESI not yet remitted to govt.
-      const { data: salRows, error: salErr } = await supabase.from("salary_payments").select("tds, pf, esi");
+      // Salary payable — net pay of salaries run but not yet paid (accrual).
+      // Withheld TDS/PF/ESI on the SAME rows is separately a statutory due, so
+      // we only count the tds/pf/esi of paid rows toward that (unpaid rows'
+      // whole net, incl. deductions, sits here until the bank debit clears).
+      const { data: salRows, error: salErr } = await supabase
+        .from("salary_payments").select("net, tds, pf, esi, paid_status");
       if (salErr) throw salErr;
-      const withheld = (salRows ?? []).reduce((s, r) => s + (r.tds ?? 0) + (r.pf ?? 0) + (r.esi ?? 0), 0);
+      const salaryPayable = (salRows ?? [])
+        .filter((r) => r.paid_status === "unpaid")
+        .reduce((s, r) => s + (r.net ?? 0), 0);
+      // Salary dues payable — withheld TDS/PF/ESI on ALREADY-PAID salaries
+      // (once paid, the net is out but the statutory portion is still owed to govt).
+      const withheld = (salRows ?? [])
+        .filter((r) => r.paid_status === "paid")
+        .reduce((s, r) => s + (r.tds ?? 0) + (r.pf ?? 0) + (r.esi ?? 0), 0);
       const { data: duesPaid, error: dpErr } = await supabase.from("statutory_dues_payments").select("amount");
       if (dpErr) throw dpErr;
       const duesPaidTotal = (duesPaid ?? []).reduce((s, r) => s + (r.amount ?? 0), 0);
@@ -147,7 +159,7 @@ export function useBalanceSheetAuto() {
 
       const gstPayable = outputGST - billsGst - expGst;
 
-      return { cashAndBank, receivables, tdsReceivable, employeeLoans, fixedAssets, payables, salaryDuesPayable, emiLoansPayable, gstPayable, fyLabel };
+      return { cashAndBank, receivables, tdsReceivable, employeeLoans, fixedAssets, payables, salaryPayable, salaryDuesPayable, emiLoansPayable, gstPayable, fyLabel };
     },
     staleTime: 30_000,
   });

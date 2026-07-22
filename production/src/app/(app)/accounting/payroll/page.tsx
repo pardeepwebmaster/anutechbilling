@@ -286,7 +286,7 @@ function PayrollTab() {
               <tr>
                 <th className="text-left px-4 py-3">Employee</th>
                 <th className="text-right px-4 py-3">Monthly salary</th>
-                <th className="text-right px-4 py-3">Net paid</th>
+                <th className="text-right px-4 py-3">Net</th>
                 <th className="text-right px-4 py-3">Action</th>
               </tr>
             </thead>
@@ -301,7 +301,11 @@ function PayrollTab() {
                     <td className="px-4 py-3">
                       {p ? (
                         <div className="flex items-center justify-end gap-2">
-                          <Badge kind="success" dot>Paid</Badge>
+                          {p.paid_status === "paid" ? (
+                            <Badge kind="success" dot>Paid</Badge>
+                          ) : (
+                            <Badge kind="warning" dot title="Payroll run — awaiting the bank debit to be reconciled">Unpaid</Badge>
+                          )}
                           <PayslipButton employee={e} payment={p} me={meQ.data ?? null} paidVia={p.bank_account_id ? acctName.get(p.bank_account_id) ?? null : null} />
                         </div>
                       ) : (

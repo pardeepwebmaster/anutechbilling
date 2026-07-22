@@ -1378,6 +1378,25 @@ type EmiPurchaseRow = {
 type EmiPurchaseInsert = Partial<EmiPurchaseRow> & { tenant_id: string; name: string; total_cost: number; financed: number; purchased_on: string };
 type EmiPurchaseUpdate = Partial<Omit<EmiPurchaseInsert, "tenant_id">>;
 
+type ExpenseClaimRow = {
+  id:            string;
+  tenant_id:     string;
+  loan_id:       string;
+  employee_id:   string;
+  amount:        number;
+  category:      string;
+  purpose:       string | null;
+  spent_on:      string;
+  receipt_path:  string | null;
+  status:        "pending" | "approved" | "rejected";
+  expense_id:    string | null;
+  reject_reason: string | null;
+  reviewed_at:   string | null;
+  created_at:    string;
+};
+type ExpenseClaimInsert = Partial<ExpenseClaimRow> & { tenant_id: string; loan_id: string; employee_id: string; amount: number; category: string; spent_on: string };
+type ExpenseClaimUpdate = Partial<Omit<ExpenseClaimInsert, "tenant_id">>;
+
 type EmiPaymentRow = {
   id:              string;
   tenant_id:       string;
@@ -1874,6 +1893,7 @@ export type Database = {
       attendance_settings:{ Row: AttendanceSettingsRow; Insert: AttendanceSettingsInsert; Update: AttendanceSettingsUpdate; Relationships: [] };
       emi_purchases:{ Row: EmiPurchaseRow; Insert: EmiPurchaseInsert; Update: EmiPurchaseUpdate; Relationships: [] };
       emi_payments:{ Row: EmiPaymentRow; Insert: EmiPaymentInsert; Update: EmiPaymentUpdate; Relationships: [] };
+      expense_claims:{ Row: ExpenseClaimRow; Insert: ExpenseClaimInsert; Update: ExpenseClaimUpdate; Relationships: [] };
       tds_receivable:     { Row: TdsReceivableRow;     Insert: TdsReceivableInsert;     Update: TdsReceivableUpdate;     Relationships: [] };
       customer_users:     { Row: CustomerUserRow;      Insert: CustomerUserInsert;      Update: CustomerUserUpdate;      Relationships: [] };
       support_tickets:    { Row: SupportTicketRow;     Insert: SupportTicketInsert;     Update: SupportTicketUpdate;     Relationships: [] };
@@ -2281,6 +2301,27 @@ export type Database = {
           p_date:           string;
           p_notes?:         string | null;
         };
+        Returns: undefined;
+      };
+      submit_expense_claim: {
+        Args: {
+          p_tenant_id:    string;
+          p_employee_id:  string;
+          p_pin:          string;
+          p_amount:       number;
+          p_category:     string;
+          p_purpose:      string | null;
+          p_spent_on:     string;
+          p_receipt_path?: string | null;
+        };
+        Returns: string;
+      };
+      approve_expense_claim: {
+        Args: { p_claim_id: string };
+        Returns: undefined;
+      };
+      reject_expense_claim: {
+        Args: { p_claim_id: string; p_reason?: string | null };
         Returns: undefined;
       };
       edit_employee_loan: {

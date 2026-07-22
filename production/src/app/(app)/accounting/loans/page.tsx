@@ -43,6 +43,11 @@ import {
 } from "@/lib/queries/employee-loans";
 import { EXPENSE_CATEGORIES } from "@/lib/queries/expenses";
 import { useEmployees } from "@/lib/queries/payroll";
+import {
+  useExpenseClaims, useApproveClaim, useRejectClaim, useClaimLink, getClaimReceiptUrl,
+  type ExpenseClaim,
+} from "@/lib/queries/expense-claims";
+import { toast } from "sonner";
 
 function todayISO(): string {
   const ist = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
@@ -62,7 +67,11 @@ export default function EmployeeLoansPage() {
   const [editFor, setEditFor] = React.useState<EmployeeLoan | null>(null);
   const [historyFor, setHistoryFor] = React.useState<EmployeeLoan | null>(null);
   const [typeFilter, setTypeFilter] = React.useState<"all" | EmployeeLoanKind>("all");
+  const [claimLinkOpen, setClaimLinkOpen] = React.useState(false);
+  const [rejectClaimFor, setRejectClaimFor] = React.useState<ExpenseClaim | null>(null);
   const deleteLoan = useDeleteEmployeeLoan();
+  const pendingClaimsQ = useExpenseClaims("pending");
+  const pendingClaims = pendingClaimsQ.data ?? [];
 
   const confirmDelete = (l: EmployeeLoan) => {
     if (window.confirm(`Delete this ${LOAN_KIND_LABEL[l.kind].toLowerCase()} to ${l.employee_name} (${rupee(l.principal)})? The disbursed cash will be restored to the account.`)) {
@@ -93,10 +102,19 @@ export default function EmployeeLoansPage() {
             Money lent to staff — an asset the company is owed back, not an expense. Cash moves through your bank/cash accounts and the outstanding shows on the Balance Sheet.
           </p>
         </div>
-        <Button variant="primary" icon="plus" className="hidden md:inline-flex" onClick={() => setDisburseOpen(true)}>
-          Give loan
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" icon="link" onClick={() => setClaimLinkOpen(true)}>
+            Expense claim link
+          </Button>
+          <Button variant="primary" icon="plus" className="hidden md:inline-flex" onClick={() => setDisburseOpen(true)}>
+            Give loan
+          </Button>
+        </div>
       </div>
+
+      {pendingClaims.length > 0 && (
+        <PendingClaimsPanel claims={pendingClaims} onReject={(c) => setRejectClaimFor(c)} />
+      )}
 
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 md:gap-4 mb-6">
         <KPI label="Outstanding (owed back)" value={rupee(totalOutstanding)} tone="amber" />
@@ -257,7 +275,142 @@ export default function EmployeeLoansPage() {
       {purposeFor && <EditPurposeDialog loan={purposeFor} onClose={() => setPurposeFor(null)} />}
       {editFor && <EditLoanDialog loan={editFor} onClose={() => setEditFor(null)} />}
       {historyFor && <LoanHistoryDialog loan={historyFor} onClose={() => setHistoryFor(null)} />}
+      {claimLinkOpen && <ClaimLinkDialog onClose={() => setClaimLinkOpen(false)} />}
+      {rejectClaimFor && <RejectClaimDialog claim={rejectClaimFor} onClose={() => setRejectClaimFor(null)} />}
     </div>
+  );
+}
+
+/** Pending employee expense claims — owner approves (settles the advance) or rejects. */
+function PendingClaimsPanel({ claims, onReject }: { claims: ExpenseClaim[]; onReject: (c: ExpenseClaim) => void }) {
+  const approve = useApproveClaim();
+  return (
+    <Card className="mb-6 border-amber/40 bg-amber-soft/30 p-4 md:p-5">
+      <div className="mb-3 flex items-center gap-2">
+        <Icon name="inbox" size={16} className="text-amber-ink" />
+        <h2 className="font-medium text-ink">Expense claims to review</h2>
+        <Badge kind="warning">{claims.length}</Badge>
+      </div>
+      <ul className="space-y-2">
+        {claims.map((c) => (
+          <li key={c.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-hairline bg-paper px-3 py-2.5">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-medium text-ink">{c.employee_name}</span>
+                <Badge kind="warning">{c.category}</Badge>
+                <span className="font-mono text-sm text-ink">{rupee(c.amount)}</span>
+              </div>
+              <div className="mt-0.5 text-xs text-ink-3">
+                {formatDate(c.spent_on)}
+                {c.purpose ? ` · ${c.purpose}` : ""}
+                {c.receipt_path ? " · 📎 receipt" : ""}
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              {c.receipt_path && <ReceiptLink path={c.receipt_path} />}
+              <Button variant="ghost" size="sm" onClick={() => onReject(c)}>Reject</Button>
+              <Button variant="primary" size="sm" loading={approve.isPending} onClick={() => approve.mutate(c.id)}>
+                Approve
+              </Button>
+            </div>
+          </li>
+        ))}
+      </ul>
+      <p className="mt-2 text-[11px] text-ink-3">
+        Approving books the expense under its category and reduces that employee&apos;s advance. No cash moves — it already left when the advance was given.
+      </p>
+    </Card>
+  );
+}
+
+function ReceiptLink({ path }: { path: string }) {
+  const [loading, setLoading] = React.useState(false);
+  async function open() {
+    setLoading(true);
+    try {
+      const url = await getClaimReceiptUrl(path);
+      if (url) window.open(url, "_blank", "noopener,noreferrer");
+      else toast.error("Couldn't open the receipt");
+    } finally { setLoading(false); }
+  }
+  return <Button variant="ghost" size="sm" icon="eye" loading={loading} onClick={open}>Receipt</Button>;
+}
+
+function RejectClaimDialog({ claim, onClose }: { claim: ExpenseClaim; onClose: () => void }) {
+  const reject = useRejectClaim();
+  const [reason, setReason] = React.useState("");
+  return (
+    <Dialog open onOpenChange={(v) => { if (!v) onClose(); }}>
+      <DialogContent className="md:!max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Reject claim</DialogTitle>
+          <DialogDescription>
+            {claim.employee_name} · {claim.category} · {rupee(claim.amount)}. Nothing is booked and the advance is unchanged.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="py-1">
+          <label className="mb-1 block text-sm text-ink-2">Reason (optional)</label>
+          <Input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. No receipt attached" />
+        </div>
+        <DialogFooter>
+          <Button variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button
+            variant="danger"
+            loading={reject.isPending}
+            onClick={() => reject.mutate({ claimId: claim.id, reason: reason || null }, { onSuccess: onClose })}
+          >
+            Reject claim
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ClaimLinkDialog({ onClose }: { onClose: () => void }) {
+  const linkQ = useClaimLink();
+  const link  = linkQ.data ?? "";
+  const [copied, setCopied] = React.useState(false);
+
+  async function copy() {
+    try { await navigator.clipboard.writeText(link); setCopied(true); setTimeout(() => setCopied(false), 2000); }
+    catch { toast.error("Couldn't copy"); }
+  }
+  const waHref = `https://wa.me/?text=${encodeURIComponent(`Log your expenses from your advance here: ${link}`)}`;
+
+  return (
+    <Dialog open onOpenChange={(v) => { if (!v) onClose(); }}>
+      <DialogContent className="md:!max-w-md">
+        <DialogHeader>
+          <DialogTitle>Expense claim link</DialogTitle>
+          <DialogDescription>
+            Share this with staff who have an expense advance. They pick their name, enter their attendance PIN, and log what they spent — you approve it here before it&apos;s recorded.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="py-1">
+          {linkQ.isLoading ? (
+            <Skeleton className="h-10 w-full" />
+          ) : (
+            <>
+              <div className="flex items-center gap-2">
+                <Input readOnly value={link} className="font-mono text-xs" onFocus={(e) => e.currentTarget.select()} />
+                <Button variant="outline" onClick={copy}>{copied ? "Copied" : "Copy"}</Button>
+              </div>
+              <a href={waHref} target="_blank" rel="noopener noreferrer"
+                 className="mt-3 inline-flex items-center gap-1.5 text-sm text-emerald hover:underline">
+                <Icon name="whatsapp" size={15} /> Share on WhatsApp
+              </a>
+              <p className="mt-3 text-[11px] text-ink-3">
+                Anyone with this link can open the form, but they must enter a valid employee PIN and every claim needs your approval — so it stays safe.
+              </p>
+            </>
+          )}
+        </div>
+        <DialogFooter>
+          <Button variant="primary" onClick={onClose}>Done</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

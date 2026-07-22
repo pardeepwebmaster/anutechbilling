@@ -129,8 +129,26 @@ function PinPad({ employee, requireSelfie, onClose }: { employee: Employee; requ
   const camErr = camErrMsg !== null;
   const startCam = React.useCallback(async () => {
     if (streamRef.current) return;
+    // Browser too old / insecure context → no camera API at all.
+    if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+      setCamErrMsg("This browser can't open the camera here. Open the site in Chrome (https), not an in-app browser.");
+      return;
+    }
+    // Try the front camera first; many laptops don't advertise a facingMode,
+    // so fall back to ANY camera before giving up.
+    async function grab(): Promise<MediaStream> {
+      try {
+        return await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: false });
+      } catch (e1) {
+        const n = (e1 as Error).name;
+        if (n === "OverconstrainedError" || n === "NotFoundError" || n === "DevicesNotFoundError" || n === "TypeError") {
+          return await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        }
+        throw e1;
+      }
+    }
     try {
-      const s = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: false });
+      const s = await grab();
       streamRef.current = s;
       if (videoRef.current) { videoRef.current.srcObject = s; await videoRef.current.play().catch(() => {}); }
       setCamOn(true); setCamErrMsg(null);

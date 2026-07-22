@@ -125,19 +125,23 @@ function PinPad({ employee, onClose }: { employee: Employee; onClose: () => void
   const videoRef = React.useRef<HTMLVideoElement | null>(null);
   const streamRef = React.useRef<MediaStream | null>(null);
   const [camOn, setCamOn] = React.useState(false);
-  React.useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const s = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: false });
-        if (cancelled) { s.getTracks().forEach((t) => t.stop()); return; }
-        streamRef.current = s;
-        if (videoRef.current) { videoRef.current.srcObject = s; await videoRef.current.play().catch(() => {}); }
-        setCamOn(true);
-      } catch { setCamOn(false); }
-    })();
-    return () => { cancelled = true; streamRef.current?.getTracks().forEach((t) => t.stop()); };
+  const [camErr, setCamErr] = React.useState(false);
+  const startCam = React.useCallback(async () => {
+    if (streamRef.current) return;
+    try {
+      const s = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: false });
+      streamRef.current = s;
+      if (videoRef.current) { videoRef.current.srcObject = s; await videoRef.current.play().catch(() => {}); }
+      setCamOn(true); setCamErr(false);
+    } catch { setCamErr(true); }
   }, []);
+  React.useEffect(() => {
+    // Try to start automatically (works when permission is already granted).
+    // If the browser needs a gesture/permission, the placeholder below is a
+    // button that retries getUserMedia from a direct tap (reliable on mobile).
+    void startCam();
+    return () => { streamRef.current?.getTracks().forEach((t) => t.stop()); streamRef.current = null; };
+  }, [startCam]);
   function capture(): string | null {
     const v = videoRef.current;
     if (!v || !camOn || !v.videoWidth) return null;
@@ -180,12 +184,19 @@ function PinPad({ employee, onClose }: { employee: Employee; onClose: () => void
             )}
           />
           {!camOn && (
-            <div className="mx-auto mb-3 flex h-20 w-20 items-center justify-center rounded-full border border-dashed border-hairline bg-paper-2 text-ink-3">
-              <Icon name="user" size={26} />
-            </div>
+            <button
+              type="button"
+              onClick={startCam}
+              className="mx-auto mb-3 flex h-20 w-20 flex-col items-center justify-center gap-1 rounded-full border border-dashed border-hairline bg-paper-2 text-ink-3 hover:border-amber/50 hover:text-amber-ink"
+            >
+              <Icon name="eye" size={22} />
+              <span className="text-[9px] leading-tight">Tap for camera</span>
+            </button>
           )}
           <div className="font-serif text-2xl text-ink">{employee.name}</div>
-          <div className="text-xs text-ink-3 mt-0.5">{camOn ? "Look at the camera & enter PIN" : "Enter PIN"}</div>
+          <div className="text-xs text-ink-3 mt-0.5">
+            {camOn ? "Look at the camera & enter PIN" : camErr ? "Camera blocked — allow it in browser settings, or just enter PIN" : "Enter PIN"}
+          </div>
         </div>
 
         {result ? (

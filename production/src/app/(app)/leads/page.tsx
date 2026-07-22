@@ -1894,6 +1894,7 @@ function RowActions({
     : (phoneDigits.length === 10 ? `91${phoneDigits}` : phoneDigits);
   const hasPhone = phoneDigits.length >= 10;
   const hasEmail = Boolean(lead.contact_email);
+  const logActivity = useLogLeadActivity();
 
   const itemCls = "gap-2.5 py-2 cursor-pointer";
 
@@ -1928,7 +1929,8 @@ function RowActions({
 
           {hasPhone && (
             <DropdownMenuItem asChild className={itemCls}>
-              <a href={`tel:${lead.contact_phone}`}>
+              <a href={`tel:${lead.contact_phone}`}
+                 onClick={() => logActivity.mutate({ leadId: lead.id, kind: "call", detail: `Called ${lead.contact_phone}` })}>
                 <Icon name="call" size={20} /> Call
                 <span className="ml-auto font-mono text-[11px] text-ink-3">{lead.contact_phone}</span>
               </a>
@@ -1936,7 +1938,8 @@ function RowActions({
           )}
           {hasPhone && (
             <DropdownMenuItem asChild className={itemCls}>
-              <a href={`https://wa.me/${waNumber}`} target="_blank" rel="noopener noreferrer">
+              <a href={`https://wa.me/${waNumber}`} target="_blank" rel="noopener noreferrer"
+                 onClick={() => logActivity.mutate({ leadId: lead.id, kind: "whatsapp", detail: `WhatsApp to ${lead.contact_phone}` })}>
                 <Icon name="whatsapp" size={20} /> WhatsApp
               </a>
             </DropdownMenuItem>
@@ -1947,6 +1950,7 @@ function RowActions({
                 href={`https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(lead.contact_email ?? "")}`}
                 target="_blank"
                 rel="noopener noreferrer"
+                onClick={() => logActivity.mutate({ leadId: lead.id, kind: "email", detail: `Emailed ${lead.contact_email}` })}
               >
                 <Icon name="email" size={20} /> Email
                 <span className="ml-auto max-w-[9rem] truncate text-[11px] text-ink-3">{lead.contact_email}</span>

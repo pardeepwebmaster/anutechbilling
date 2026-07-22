@@ -9,6 +9,7 @@
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
+import { toast } from "sonner";
 import type { Database } from "@/lib/supabase/database.types";
 
 export type LeadActivityRow = Database["public"]["Tables"]["lead_activities"]["Row"];
@@ -45,6 +46,6 @@ export function useLogLeadActivity() {
       if (error) throw error;
     },
     onSuccess: (_d, v) => { qc.invalidateQueries({ queryKey: ["lead-activities", v.leadId] }); },
-    // Silent: logging is a side-effect of an action the user already sees confirmed.
+    onError: (err) => toast.error(`Couldn't log activity: ${(err as Error).message}`),
   });
 }

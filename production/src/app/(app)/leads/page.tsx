@@ -1131,7 +1131,7 @@ function LeadDetailSheet({
   const { data: currentUser } = useCurrentUser();
   const logActivity = useLogLeadActivity();
   const { data: activities = [] } = useLeadActivities(lead?.id);
-  const [drawerTab, setDrawerTab] = React.useState<"details" | "activity">("details");
+  const [drawerTab, setDrawerTab] = React.useState<"details" | "followups" | "activity">("details");
   React.useEffect(() => { setDrawerTab("details"); }, [lead?.id]);
 
   // History: every quote that's been sent to this lead
@@ -1450,7 +1450,7 @@ function LeadDetailSheet({
 
           {/* Tabs — keep the ever-growing Activity log out of the main detail view */}
           <div className="flex gap-1 border-b border-hairline">
-            {(["details", "activity"] as const).map((t) => (
+            {(["details", "followups", "activity"] as const).map((t) => (
               <button
                 key={t}
                 type="button"
@@ -1460,7 +1460,11 @@ function LeadDetailSheet({
                   drawerTab === t ? "border-amber text-amber-ink" : "border-transparent text-ink-3 hover:text-ink",
                 )}
               >
-                {t === "activity" ? `Activity${activities.length ? ` (${activities.length})` : ""}` : "Details"}
+                {t === "activity"
+                  ? `Activity${activities.length ? ` (${activities.length})` : ""}`
+                  : t === "followups"
+                    ? `Follow-ups${openTasks.length ? ` (${openTasks.length})` : ""}`
+                    : "Details"}
               </button>
             ))}
           </div>
@@ -1582,12 +1586,15 @@ function LeadDetailSheet({
               </p>
             </div>
           )}
+          </>
+          )}
 
-          {/* ── Follow-ups ──────────────────────────────────────────────
+          {/* ── Follow-ups — its own tab ────────────────────────────────
               Sales rep talks to the lead → captures next-action with date.
               List is split: open (pending/snoozed) shown prominently, done
               tucked away as a collapsed audit trail. Overdue rows tinted
               rose so they pull the eye. */}
+          {drawerTab === "followups" && (
           <div>
             <div className="mb-2 flex items-center justify-between">
               <div className="text-xs uppercase tracking-wider text-ink-3 font-semibold inline-flex items-center gap-2">
@@ -1684,7 +1691,10 @@ function LeadDetailSheet({
               </div>
             )}
           </div>
+          )}
 
+          {drawerTab === "details" && (
+          <>
           {/* Quick stage change
               For a raw lead (no plan picked yet), only "new" / "contact" are
               logically valid — demo/trial/quote/won all require a plan to

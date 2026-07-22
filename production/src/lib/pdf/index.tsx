@@ -13,6 +13,7 @@
 import type { QuotePDFProps } from "./QuotePDF";
 import type { InvoicePDFProps } from "./InvoicePDF";
 import type { ReceiptVoucherPDFProps } from "./ReceiptVoucherPDF";
+import type { PayslipPDFProps } from "./PayslipPDF";
 
 // ─── Quote ────────────────────────────────────────────────────────────────
 
@@ -76,6 +77,20 @@ export async function renderReceiptVoucherPDF(props: ReceiptVoucherPDFProps): Pr
   const { pdf } = await import("@react-pdf/renderer");
   const { ReceiptVoucherPDF } = await import("./ReceiptVoucherPDF");
   return await pdf(<ReceiptVoucherPDF {...props} />).toBlob();
+}
+
+// ─── Payslip ──────────────────────────────────────────────────────────────
+
+export async function downloadPayslipPDF(props: PayslipPDFProps, filename: string): Promise<Blob> {
+  const blob = await renderPayslipPDF(props);
+  triggerDownload(blob, filename);
+  return blob;
+}
+
+export async function renderPayslipPDF(props: PayslipPDFProps): Promise<Blob> {
+  const { pdf } = await import("@react-pdf/renderer");
+  const { PayslipPDF } = await import("./PayslipPDF");
+  return await pdf(<PayslipPDF {...props} />).toBlob();
 }
 
 // ─── Internal helpers ─────────────────────────────────────────────────────

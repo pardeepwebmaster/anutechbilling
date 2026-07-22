@@ -23,6 +23,10 @@ import {
 import { rupee, formatDate, cn } from "@/lib/utils";
 import { useBankAccounts } from "@/lib/queries/bank";
 import { useEmployeeLoans } from "@/lib/queries/employee-loans";
+import { useCurrentUser } from "@/lib/hooks/useCurrentUser";
+import { downloadPayslipPDF } from "@/lib/pdf";
+import { periodLabel } from "@/lib/pdf/PayslipPDF";
+import { toast } from "sonner";
 import {
   useEmployees, useUpsertEmployee, useSetEmployeePin,
   useLeaveEntries, useCreateLeaveEntry, useDeleteLeaveEntry,
@@ -30,8 +34,9 @@ import {
   useStatutoryDues, usePayStatutoryDues,
   useAttendance, useAttendanceNetwork, useSetAttendanceNetwork, getSelfieUrl,
   LEAVE_TYPE_LABEL,
-  type Employee, type LeaveKind, type Attendance,
+  type Employee, type LeaveKind, type Attendance, type SalaryPayment,
 } from "@/lib/queries/payroll";
+import type { CurrentUserInfo } from "@/lib/hooks/useCurrentUser";
 
 function todayISO(): string {
   return new Date(Date.now() + 5.5 * 60 * 60 * 1000).toISOString().slice(0, 10);
@@ -235,11 +240,14 @@ function PayrollTab() {
   const [period, setPeriod] = React.useState(currentPeriod());
   const empQ = useEmployees();
   const payQ = useSalaryPayments(period);
+  const meQ = useCurrentUser();
+  const accountsQ = useBankAccounts();
   const [payFor, setPayFor] = React.useState<Employee | null>(null);
 
   const employees = (empQ.data ?? []).filter((e) => e.is_active);
   const paidByEmp = new Map((payQ.data ?? []).map((p) => [p.employee_id, p]));
   const totalNet = (payQ.data ?? []).reduce((s, p) => s + p.net, 0);
+  const acctName = new Map((accountsQ.data ?? []).map((a) => [a.id, a.name]));
 
   return (
     <>
@@ -275,11 +283,16 @@ function PayrollTab() {
                     <td className="px-4 py-3 font-medium text-ink">{e.name}</td>
                     <td className="px-4 py-3 text-right font-mono text-ink-2">{rupee(e.monthly_gross)}</td>
                     <td className="px-4 py-3 text-right font-mono">{p ? rupee(p.net) : <span className="text-ink-3">—</span>}</td>
-                    <td className="px-4 py-3 text-right">
+                    <td className="px-4 py-3">
                       {p ? (
-                        <Badge kind="success" dot>Paid</Badge>
+                        <div className="flex items-center justify-end gap-2">
+                          <Badge kind="success" dot>Paid</Badge>
+                          <PayslipButton employee={e} payment={p} me={meQ.data ?? null} paidVia={p.bank_account_id ? acctName.get(p.bank_account_id) ?? null : null} />
+                        </div>
                       ) : (
-                        <Button variant="primary" size="sm" onClick={() => setPayFor(e)}>Pay salary</Button>
+                        <div className="text-right">
+                          <Button variant="primary" size="sm" onClick={() => setPayFor(e)}>Pay salary</Button>
+                        </div>
                       )}
                     </td>
                   </tr>
@@ -291,6 +304,65 @@ function PayrollTab() {
       )}
       {payFor && <PaySalaryDialog employee={payFor} period={period} onClose={() => setPayFor(null)} />}
     </>
+  );
+}
+
+/** Download this month's payslip as a PDF the owner can share on WhatsApp/email. */
+function PayslipButton({
+  employee, payment, me, paidVia,
+}: {
+  employee: Employee;
+  payment: SalaryPayment;
+  me: CurrentUserInfo | null;
+  paidVia: string | null;
+}) {
+  const [busy, setBusy] = React.useState(false);
+
+  async function download() {
+    setBusy(true);
+    try {
+      const safeName = employee.name.replace(/[^a-zA-Z0-9]+/g, "-").replace(/^-|-$/g, "");
+      await downloadPayslipPDF(
+        {
+          company: {
+            name:    me?.tenantName ?? "Company",
+            address: me?.tenantAddress ?? null,
+            email:   me?.tenantEmail ?? null,
+            phone:   me?.tenantPhone ?? null,
+            gstin:   me?.tenantGstin ?? null,
+          },
+          employee: {
+            name:  employee.name,
+            pan:   employee.pan,
+            pfNo:  employee.pf_no,
+            esiNo: employee.esi_no,
+          },
+          period:           payment.period,
+          payDate:          payment.pay_date,
+          paidVia,
+          gross:            payment.gross,
+          lopDays:          payment.lop_days,
+          lopAmount:        payment.lop_amount,
+          advanceRecovered: payment.advance_recovered,
+          tds:              payment.tds,
+          pf:               payment.pf,
+          esi:              payment.esi,
+          other:            payment.other_deduction,
+          net:              payment.net,
+        },
+        `Payslip-${safeName}-${periodLabel(payment.period).replace(" ", "-")}.pdf`,
+      );
+    } catch (err) {
+      toast.error((err as Error).message || "Could not build the payslip");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Button variant="ghost" size="sm" icon="download" loading={busy} onClick={download}>
+      Payslip
+    </Button>
   );
 }
 

@@ -113,6 +113,7 @@ export const APP_NAV: NavSection[] = [
     items: [
       { id: "online-orders", href: "/online-orders", label: "Online Orders", icon: "cart",    roles: ["owner", "manager"] },
       { id: "quotes",        href: "/quotes",        label: "Quotes",        icon: "file",    roles: ["owner", "manager", "sales"] },
+      { id: "projects",      href: "/projects",      label: "Project Sales", icon: "package", roles: ["owner", "manager", "sales"] },
       { id: "payments",      href: "/payments",      label: "Payments",      icon: "rupee",   roles: ["owner", "manager"] },
       { id: "invoices",      href: "/invoices",      label: "Invoices",      icon: "receipt", roles: ["owner", "manager"] },
       { id: "subscriptions", href: "/subscriptions", label: "Subscriptions", icon: "refresh", roles: ["owner", "manager"] },
@@ -223,6 +224,8 @@ export const SCREEN_TITLES: Record<string, string[]> = {
   "/quotes":          ["Revenue", "Quotes"],
   "/quotes/new":      ["Revenue", "Quotes", "New"],
   "/quotes/[id]":     ["Revenue", "Quotes", "Detail"],
+  "/projects":        ["Revenue", "Project Sales"],
+  "/projects/[id]":   ["Revenue", "Project Sales", "Detail"],
   "/payments":        ["Revenue", "Payments"],
   "/invoices":        ["Revenue", "Invoices"],
   "/invoices/[id]":   ["Revenue", "Invoices", "Detail"],

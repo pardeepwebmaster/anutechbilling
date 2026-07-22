@@ -32,6 +32,7 @@ export type BalanceSheetItem = {
 export interface BalanceSheetAuto {
   cashAndBank:     number;   // sum of all bank + cash account balances
   receivables:     number;   // customers' unpaid balances (subscriptions outstanding)
+  projectReceivable: number; // one-time / project sales: total − payments received
   tdsReceivable:   number;   // pending TDS credits from customers
   employeeLoans:   number;   // outstanding loans/advances to employees (an asset)
   fixedAssets:     number;   // cost of assets bought on EMI (an asset)
@@ -69,6 +70,19 @@ export function useBalanceSheetAuto() {
         .is("written_off_at", null);
       if (subErr) throw subErr;
       const receivables = (subs ?? []).reduce((s, r) => s + (r.outstanding_amount ?? 0), 0);
+
+      // Project-sale receivable — one-time deals (custom software etc.):
+      // sum of (project total − payments received), floored at 0.
+      const { data: projs, error: prjErr } = await supabase
+        .from("project_sales").select("id, total_amount").neq("status", "cancelled");
+      if (prjErr) throw prjErr;
+      const { data: projPays, error: ppErr } = await supabase
+        .from("project_payments").select("project_id, amount");
+      if (ppErr) throw ppErr;
+      const paidByProject = new Map<string, number>();
+      for (const p of projPays ?? []) paidByProject.set(p.project_id, (paidByProject.get(p.project_id) ?? 0) + (p.amount ?? 0));
+      const projectReceivable = (projs ?? []).reduce(
+        (s, pr) => s + Math.max(0, (pr.total_amount ?? 0) - (paidByProject.get(pr.id) ?? 0)), 0);
 
       // TDS receivable — credits not yet claimed / written off.
       const { data: tds, error: tdsErr } = await supabase
@@ -159,7 +173,7 @@ export function useBalanceSheetAuto() {
 
       const gstPayable = outputGST - billsGst - expGst;
 
-      return { cashAndBank, receivables, tdsReceivable, employeeLoans, fixedAssets, payables, salaryPayable, salaryDuesPayable, emiLoansPayable, gstPayable, fyLabel };
+      return { cashAndBank, receivables, projectReceivable, tdsReceivable, employeeLoans, fixedAssets, payables, salaryPayable, salaryDuesPayable, emiLoansPayable, gstPayable, fyLabel };
     },
     staleTime: 30_000,
   });

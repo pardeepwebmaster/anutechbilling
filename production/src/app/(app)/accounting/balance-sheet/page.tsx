@@ -57,7 +57,7 @@ export default function BalanceSheetPage() {
   const gstPayable = gst > 0 ? gst : 0;
 
   const autoAssets =
-    (auto?.cashAndBank ?? 0) + (auto?.receivables ?? 0) + (auto?.tdsReceivable ?? 0)
+    (auto?.cashAndBank ?? 0) + (auto?.receivables ?? 0) + (auto?.projectReceivable ?? 0) + (auto?.tdsReceivable ?? 0)
     + (auto?.employeeLoans ?? 0) + (auto?.fixedAssets ?? 0) + gstCredit;
   const autoLiab = (auto?.payables ?? 0) + (auto?.salaryPayable ?? 0) + (auto?.salaryDuesPayable ?? 0) + (auto?.emiLoansPayable ?? 0) + gstPayable;
 
@@ -112,6 +112,9 @@ export default function BalanceSheetPage() {
               <div className="space-y-1 mt-3">
                 <BSLine label="Cash & bank balances" amount={auto?.cashAndBank ?? 0} auto />
                 <BSLine label="Trade receivables" hint="customers' unpaid balances" amount={auto?.receivables ?? 0} auto />
+                {(auto?.projectReceivable ?? 0) > 0 && (
+                  <BSLine label="Project receivables" hint="one-time / custom project sales, unpaid" amount={auto?.projectReceivable ?? 0} auto />
+                )}
                 <BSLine label="TDS receivable" hint="credits from customers' TDS" amount={auto?.tdsReceivable ?? 0} auto />
                 {(auto?.employeeLoans ?? 0) > 0 && (
                   <BSLine label="Employee loans / advances" hint="outstanding, owed back" amount={auto?.employeeLoans ?? 0} auto />

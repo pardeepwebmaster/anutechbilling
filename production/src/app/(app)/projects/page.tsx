@@ -1,0 +1,134 @@
+/**
+ * Project Sales — one-time / custom-software deals billed in milestones.
+ *
+ * Separate from subscription reselling: each project has a taxable contract
+ * value + GST, an installment schedule, and its own receivable. No renewal.
+ */
+"use client";
+
+import * as React from "react";
+import { useRouter } from "next/navigation";
+import type { Route } from "next";
+
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
+import { EmptyState } from "@/components/shared/empty-state";
+import { FAB } from "@/components/ui/fab";
+import { useProjectSales, type ProjectSaleWithTotals } from "@/lib/queries/projects";
+import { rupee } from "@/lib/utils";
+import { CreateProjectDialog } from "@/components/features/projects/create-project-dialog";
+
+export default function ProjectsPage() {
+  const router = useRouter();
+  const { data: projects, isLoading } = useProjectSales();
+  const [addOpen, setAddOpen] = React.useState(false);
+
+  const totalValue = (projects ?? []).reduce((s, p) => s + p.total_amount, 0);
+  const totalRecv  = (projects ?? []).reduce((s, p) => s + p.receivable, 0);
+
+  return (
+    <div className="p-4 md:p-6 lg:p-8 max-w-[1800px] mx-auto">
+      <div className="flex items-end justify-between gap-3 flex-wrap mb-6">
+        <div>
+          <p className="text-xs uppercase tracking-wider text-ink-3 font-semibold mb-1">Revenue</p>
+          <h1 className="font-serif text-3xl md:text-4xl leading-tight">Project Sales</h1>
+          <p className="text-sm text-ink-3 mt-1">
+            One-time sales like custom software — billed in milestones, with proper GST invoices. No subscription.
+          </p>
+        </div>
+        <Button variant="primary" icon="plus" onClick={() => setAddOpen(true)} className="hidden md:inline-flex">
+          New project
+        </Button>
+      </div>
+
+      {!isLoading && projects && projects.length > 0 && (
+        <Card className="mb-6">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <Stat label="Projects" value={String(projects.length)} />
+            <Stat label="Total contract value" value={rupee(totalValue, { compact: true })} />
+            <Stat label="Outstanding" value={rupee(totalRecv, { compact: true })} tone={totalRecv > 0 ? "rose" : "ink"} />
+            <Stat label="Collected" value={rupee(totalValue - totalRecv, { compact: true })} tone="emerald" />
+          </div>
+        </Card>
+      )}
+
+      {isLoading ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {[1, 2, 3].map((i) => <Skeleton key={i} className="h-40 rounded-lg" />)}
+        </div>
+      ) : !projects || projects.length === 0 ? (
+        <Card>
+          <EmptyState
+            icon="package"
+            title="No project sales yet."
+            body="Sell custom software or any one-time project as a product. Create a project, set the milestone schedule, and raise a GST tax invoice per milestone."
+            action={<Button variant="primary" icon="plus" onClick={() => setAddOpen(true)}>New project</Button>}
+          />
+        </Card>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {projects.map((p) => (
+            <ProjectCard key={p.id} project={p} onOpen={() => router.push(`/projects/${p.id}` as Route)} />
+          ))}
+        </div>
+      )}
+
+      <CreateProjectDialog open={addOpen} onOpenChange={setAddOpen} />
+      <FAB icon="plus" label="New project" onClick={() => setAddOpen(true)} />
+    </div>
+  );
+}
+
+function Stat({ label, value, tone = "ink" }: { label: string; value: string; tone?: "ink" | "rose" | "emerald" }) {
+  const c = tone === "rose" ? "text-rose" : tone === "emerald" ? "text-emerald" : "text-ink";
+  return (
+    <div>
+      <p className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold">{label}</p>
+      <p className={`font-serif text-2xl mt-1 ${c}`}>{value}</p>
+    </div>
+  );
+}
+
+function ProjectCard({ project, onOpen }: { project: ProjectSaleWithTotals; onOpen: () => void }) {
+  const pct = project.total_amount > 0 ? Math.round((project.paid / project.total_amount) * 100) : 0;
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className="text-left w-full rounded-lg border border-hairline bg-paper hover:border-hairline-strong hover:shadow-md transition-all p-5"
+    >
+      <div className="flex items-start justify-between gap-3 mb-2">
+        <div className="min-w-0">
+          <p className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold">{project.customer_name}</p>
+          <h3 className="font-semibold text-ink truncate mt-0.5">{project.title}</h3>
+        </div>
+        <Badge
+          kind={project.status === "completed" ? "success" : project.status === "cancelled" ? "muted" : "warning"}
+          size="sm"
+        >
+          {project.status === "completed" ? "Completed" : project.status === "cancelled" ? "Cancelled" : "Active"}
+        </Badge>
+      </div>
+
+      <div className="border-t border-hairline pt-3 space-y-2">
+        <div className="flex items-baseline justify-between">
+          <span className="text-[11px] text-ink-3">Contract (incl GST)</span>
+          <span className="font-mono text-sm text-ink">{rupee(project.total_amount)}</span>
+        </div>
+        <div className="flex items-baseline justify-between">
+          <span className="text-[11px] text-ink-3">Outstanding</span>
+          <span className={`font-mono text-sm ${project.receivable > 0 ? "text-rose" : "text-emerald"}`}>
+            {rupee(project.receivable)}
+          </span>
+        </div>
+        {/* collected progress */}
+        <div className="h-1.5 rounded-full bg-paper-2 overflow-hidden">
+          <div className="h-full bg-emerald" style={{ width: `${pct}%` }} />
+        </div>
+        <p className="text-[10px] text-ink-3">{pct}% collected</p>
+      </div>
+    </button>
+  );
+}

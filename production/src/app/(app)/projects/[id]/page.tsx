@@ -1,0 +1,175 @@
+/**
+ * Project Sale detail — the deal, its milestone schedule, and payments.
+ *
+ * Per milestone the operator can: raise a GST Tax Invoice, then record the
+ * payment (optionally linking the real bank credit line). Receivable = total −
+ * payments received. Revenue lands in the normal invoices table on raise.
+ */
+"use client";
+
+import * as React from "react";
+import { useParams } from "next/navigation";
+import Link from "next/link";
+
+import { Card } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Icon } from "@/components/ui/icon";
+import { Skeleton } from "@/components/ui/skeleton";
+import { EmptyState } from "@/components/shared/empty-state";
+import {
+  useProjectSale,
+  useRaiseMilestoneInvoice,
+  type ProjectMilestoneRow,
+} from "@/lib/queries/projects";
+import { rupee, formatDate } from "@/lib/utils";
+import { RecordProjectPaymentDialog } from "@/components/features/projects/record-project-payment-dialog";
+
+export default function ProjectDetailPage() {
+  const params = useParams<{ id: string }>();
+  const id = params?.id;
+  const { data, isLoading } = useProjectSale(id);
+  const raise = useRaiseMilestoneInvoice();
+  const [payFor, setPayFor] = React.useState<ProjectMilestoneRow | null>(null);
+
+  if (isLoading) {
+    return (
+      <div className="p-4 md:p-6 lg:p-8 max-w-[1000px] mx-auto space-y-4">
+        <Skeleton className="h-24 w-full" />
+        <Skeleton className="h-64 w-full" />
+      </div>
+    );
+  }
+  if (!data?.project) {
+    return (
+      <div className="p-4 md:p-6 lg:p-8 max-w-[1000px] mx-auto">
+        <Card><EmptyState icon="alert" title="Project not found" body="This project sale doesn't exist or isn't in your workspace." /></Card>
+      </div>
+    );
+  }
+
+  const { project, milestones, payments, paid, receivable } = data;
+
+  const handleRaise = async (m: ProjectMilestoneRow) => {
+    await raise.mutateAsync({ milestoneId: m.id, projectId: project.id }).catch(() => {});
+  };
+
+  return (
+    <div className="p-4 md:p-6 lg:p-8 max-w-[1000px] mx-auto">
+      <Link href="/projects" className="text-xs text-ink-3 hover:text-ink inline-flex items-center gap-1 mb-3">
+        <Icon name="arrow_left" size={12} /> Project Sales
+      </Link>
+
+      {/* Header */}
+      <div className="mb-6">
+        <div className="flex items-start justify-between gap-3 flex-wrap">
+          <div>
+            <p className="text-xs uppercase tracking-wider text-ink-3 font-semibold">{project.customer_name}</p>
+            <h1 className="font-serif text-3xl md:text-4xl leading-tight">{project.title}</h1>
+            {project.description && <p className="text-sm text-ink-3 mt-1 max-w-prose">{project.description}</p>}
+          </div>
+          <Badge kind={project.status === "completed" ? "success" : project.status === "cancelled" ? "muted" : "warning"}>
+            {project.status === "completed" ? "Completed" : project.status === "cancelled" ? "Cancelled" : "Active"}
+          </Badge>
+        </div>
+      </div>
+
+      {/* Money summary */}
+      <Card className="mb-6">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <Sum label="Taxable value"       value={rupee(project.taxable_amount)} />
+          <Sum label={`GST @ ${project.gst_rate}%`} value={rupee(project.gst_amount)} sub={project.inter_state ? "IGST" : "CGST + SGST"} />
+          <Sum label="Total (incl GST)"     value={rupee(project.total_amount)} strong />
+          <Sum label="Outstanding"          value={rupee(receivable)} tone={receivable > 0 ? "rose" : "emerald"} />
+        </div>
+        <p className="text-[11px] text-ink-3 mt-3">
+          Collected {rupee(paid)} of {rupee(project.total_amount)} · SAC {project.sac_code}
+        </p>
+      </Card>
+
+      {/* Milestones */}
+      <Card className="mb-6 overflow-hidden">
+        <div className="px-5 py-3 border-b border-hairline">
+          <h2 className="text-sm font-semibold text-ink">Milestones</h2>
+        </div>
+        <div className="divide-y divide-hairline">
+          {milestones.map((m) => (
+            <div key={m.id} className="px-5 py-3 flex items-center gap-3 flex-wrap">
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium text-ink">{m.seq}. {m.label}</p>
+                <p className="text-[11px] text-ink-3">
+                  {m.due_date ? `Due ${formatDate(m.due_date)}` : "No due date"}
+                  {m.invoice_id && <> · Invoice <span className="font-mono">{m.invoice_id}</span></>}
+                </p>
+              </div>
+              <div className="font-mono text-sm text-ink whitespace-nowrap">{rupee(m.total_amount)}</div>
+              <MilestoneStatus status={m.status} />
+              <div className="flex gap-2">
+                {m.status === "pending" && (
+                  <Button size="sm" variant="outline" loading={raise.isPending} onClick={() => handleRaise(m)}>
+                    Raise invoice
+                  </Button>
+                )}
+                {m.status !== "paid" && (
+                  <Button size="sm" variant="primary" onClick={() => setPayFor(m)}>
+                    Record payment
+                  </Button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      </Card>
+
+      {/* Payments */}
+      <Card className="overflow-hidden">
+        <div className="px-5 py-3 border-b border-hairline">
+          <h2 className="text-sm font-semibold text-ink">Payments received</h2>
+        </div>
+        {payments.length === 0 ? (
+          <p className="px-5 py-6 text-sm text-ink-3 text-center">No payments recorded yet.</p>
+        ) : (
+          <div className="divide-y divide-hairline">
+            {payments.map((p) => (
+              <div key={p.id} className="px-5 py-3 flex items-center gap-3">
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm text-ink">{rupee(p.amount)}</p>
+                  <p className="text-[11px] text-ink-3">
+                    {formatDate(p.received_at)}{p.method ? ` · ${p.method}` : ""}{p.reference ? ` · ${p.reference}` : ""}
+                    {p.bank_txn_id && <> · <span className="text-emerald">bank-reconciled</span></>}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+
+      <RecordProjectPaymentDialog
+        open={payFor !== null}
+        onOpenChange={(o) => { if (!o) setPayFor(null); }}
+        milestone={payFor}
+        projectId={project.id}
+      />
+    </div>
+  );
+}
+
+function Sum({ label, value, sub, strong, tone = "ink" }: {
+  label: string; value: string; sub?: string; strong?: boolean; tone?: "ink" | "rose" | "emerald";
+}) {
+  const c = tone === "rose" ? "text-rose" : tone === "emerald" ? "text-emerald" : "text-ink";
+  return (
+    <div>
+      <p className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold">{label}</p>
+      <p className={`font-serif text-xl mt-1 ${c} ${strong ? "font-semibold" : ""}`}>{value}</p>
+      {sub && <p className="text-[10px] text-ink-3">{sub}</p>}
+    </div>
+  );
+}
+
+function MilestoneStatus({ status }: { status: ProjectMilestoneRow["status"] }) {
+  if (status === "paid")     return <Badge kind="success" size="sm" dot>Paid</Badge>;
+  if (status === "invoiced") return <Badge kind="warning" size="sm" dot>Invoiced</Badge>;
+  return <Badge kind="muted" size="sm" dot>Pending</Badge>;
+}

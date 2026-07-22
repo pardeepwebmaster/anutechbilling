@@ -1295,6 +1295,58 @@ type SalaryPaymentRow = {
 type SalaryPaymentInsert = Partial<SalaryPaymentRow> & { tenant_id: string; employee_id: string; period: string; pay_date: string; gross: number; net: number };
 type SalaryPaymentUpdate = Partial<Omit<SalaryPaymentInsert, "tenant_id">>;
 
+// ── Project / one-time sales (custom software etc.) — migration 0101 ──────────
+export type ProjectSaleRow = {
+  id:             string;
+  tenant_id:      string;
+  customer_id:    string | null;
+  customer_name:  string;
+  title:          string;
+  description:    string | null;
+  sac_code:       string;
+  gst_rate:       number;
+  inter_state:    boolean;
+  taxable_amount: number;
+  gst_amount:     number;
+  total_amount:   number;
+  status:         "active" | "completed" | "cancelled";
+  created_at:     string;
+  updated_at:     string;
+};
+type ProjectSaleInsert = Partial<ProjectSaleRow> & { tenant_id: string; customer_name: string; title: string; taxable_amount: number; gst_amount: number; total_amount: number };
+type ProjectSaleUpdate = Partial<Omit<ProjectSaleInsert, "tenant_id">>;
+
+export type ProjectMilestoneRow = {
+  id:           string;
+  tenant_id:    string;
+  project_id:   string;
+  seq:          number;
+  label:        string;
+  total_amount: number;
+  due_date:     string | null;
+  status:       "pending" | "invoiced" | "paid";
+  invoice_id:   string | null;
+  created_at:   string;
+};
+type ProjectMilestoneInsert = Partial<ProjectMilestoneRow> & { tenant_id: string; project_id: string; label: string; total_amount: number };
+type ProjectMilestoneUpdate = Partial<Omit<ProjectMilestoneInsert, "tenant_id">>;
+
+export type ProjectPaymentRow = {
+  id:           string;
+  tenant_id:    string;
+  project_id:   string;
+  milestone_id: string | null;
+  amount:       number;
+  method:       string | null;
+  reference:    string | null;
+  received_at:  string;
+  bank_txn_id:  string | null;
+  notes:        string | null;
+  created_at:   string;
+};
+type ProjectPaymentInsert = Partial<ProjectPaymentRow> & { tenant_id: string; project_id: string; amount: number };
+type ProjectPaymentUpdate = Partial<Omit<ProjectPaymentInsert, "tenant_id">>;
+
 type StatutoryDuesKind = "tds" | "pf" | "esi" | "mixed";
 type StatutoryDuesPaymentRow = {
   id:              string;
@@ -1904,6 +1956,9 @@ export type Database = {
       employees:{ Row: EmployeeRow; Insert: EmployeeInsert; Update: EmployeeUpdate; Relationships: [] };
       leave_entries:{ Row: LeaveEntryRow; Insert: LeaveEntryInsert; Update: LeaveEntryUpdate; Relationships: [] };
       salary_payments:{ Row: SalaryPaymentRow; Insert: SalaryPaymentInsert; Update: SalaryPaymentUpdate; Relationships: [] };
+      project_sales:     { Row: ProjectSaleRow;      Insert: ProjectSaleInsert;      Update: ProjectSaleUpdate;      Relationships: [] };
+      project_milestones:{ Row: ProjectMilestoneRow; Insert: ProjectMilestoneInsert; Update: ProjectMilestoneUpdate; Relationships: [] };
+      project_payments:  { Row: ProjectPaymentRow;   Insert: ProjectPaymentInsert;   Update: ProjectPaymentUpdate;   Relationships: [] };
       statutory_dues_payments:{ Row: StatutoryDuesPaymentRow; Insert: StatutoryDuesPaymentInsert; Update: StatutoryDuesPaymentUpdate; Relationships: [] };
       attendance:{ Row: AttendanceRow; Insert: AttendanceInsert; Update: AttendanceUpdate; Relationships: [] };
       attendance_settings:{ Row: AttendanceSettingsRow; Insert: AttendanceSettingsInsert; Update: AttendanceSettingsUpdate; Relationships: [] };
@@ -2300,6 +2355,34 @@ export type Database = {
       delete_bank_account: {
         Args: { p_account_id: string };
         Returns: undefined;
+      };
+      create_project_sale: {
+        Args: {
+          p_customer_id:   string | null;
+          p_customer_name: string;
+          p_title:         string;
+          p_description:   string | null;
+          p_taxable:       number;
+          p_gst_rate:      number;
+          p_inter_state:   boolean;
+          p_milestones:    unknown;  // jsonb array [{label,total_amount,due_date}]
+        };
+        Returns: string;
+      };
+      raise_project_milestone_invoice: {
+        Args: { p_milestone_id: string };
+        Returns: string;
+      };
+      record_project_payment: {
+        Args: {
+          p_milestone_id: string;
+          p_amount:       number;
+          p_method:       string | null;
+          p_reference:    string | null;
+          p_received_at:  string;
+          p_bank_txn_id?: string | null;
+        };
+        Returns: string;
       };
       disburse_employee_loan: {
         Args: {

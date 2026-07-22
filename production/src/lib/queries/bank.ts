@@ -64,6 +64,18 @@ export type BankAccountInsert = Omit<
   "id" | "tenant_id" | "created_at" | "updated_at" | "current_balance"
 >;
 
+export type BankAccountUpdate = Partial<Omit<BankAccountInsert, "is_active">>;
+
+/** What deleting an account would touch — shown in the confirm dialog. */
+export type BankAccountDependencies = {
+  transactions: number;   // imported/manual bank lines (CASCADE-deleted)
+  payments:     number;   // money records that lose their "paid via" link (SET NULL)
+  salaries:     number;
+  loans:        number;
+  emi:          number;
+  dues:         number;
+};
+
 export type BankTransactionInsert = Omit<
   BankTransactionRow,
   | "id"
@@ -156,6 +168,82 @@ export function useCreateBankAccount() {
     },
     onError: (err) => {
       toast.error(err instanceof Error ? err.message : "Could not add bank account");
+    },
+  });
+}
+
+export function useUpdateBankAccount() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { id: string; patch: BankAccountUpdate }) => {
+      const supabase = createClient();
+      const { data, error } = await supabase
+        .from("bank_accounts")
+        .update(input.patch)
+        .eq("id", input.id)
+        .select()
+        .single();
+      if (error) throw error;
+      return data as BankAccountRow;
+    },
+    onSuccess: (row) => {
+      qc.invalidateQueries({ queryKey: ["bank_accounts"] });
+      qc.invalidateQueries({ queryKey: ["bank_accounts", row.id] });
+      toast.success("Account updated");
+    },
+    onError: (err) => {
+      toast.error(err instanceof Error ? err.message : "Could not update account");
+    },
+  });
+}
+
+/**
+ * Count what a delete would touch, so the confirm dialog can disclose it
+ * honestly (N transactions permanently deleted, M money-record links cleared).
+ */
+export function useBankAccountDependencies(id: string | null | undefined) {
+  return useQuery({
+    queryKey: ["bank_accounts", id, "dependencies"],
+    enabled:  Boolean(id),
+    queryFn: async (): Promise<BankAccountDependencies> => {
+      const supabase = createClient();
+      const countFor = async (table: string, col: string) => {
+        const { count, error } = await supabase
+          .from(table as never)
+          .select("id", { count: "exact", head: true })
+          .eq(col, id as string);
+        if (error) throw error;
+        return count ?? 0;
+      };
+      const [transactions, payments, salaries, loans, repayments, emi, dues] = await Promise.all([
+        countFor("bank_transactions",        "bank_account_id"),
+        countFor("payments",                 "bank_account_id"),
+        countFor("salary_payments",          "bank_account_id"),
+        countFor("employee_loans",           "bank_account_id"),
+        countFor("employee_loan_repayments", "bank_account_id"),
+        countFor("emi_payments",             "bank_account_id"),
+        countFor("statutory_dues_payments",  "bank_account_id"),
+      ]);
+      return { transactions, payments, salaries, loans: loans + repayments, emi, dues };
+    },
+  });
+}
+
+export function useDeleteBankAccount() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const supabase = createClient();
+      const { error } = await supabase.rpc("delete_bank_account", { p_account_id: id });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["bank_accounts"] });
+      qc.invalidateQueries({ queryKey: ["bank_transactions"] });
+      toast.success("Bank account deleted");
+    },
+    onError: (err) => {
+      toast.error(err instanceof Error ? err.message : "Could not delete account");
     },
   });
 }

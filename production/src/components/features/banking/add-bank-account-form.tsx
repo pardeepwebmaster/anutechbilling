@@ -33,7 +33,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
-import { useCreateBankAccount } from "@/lib/queries/bank";
+import { useCreateBankAccount, useUpdateBankAccount, type BankAccountRow } from "@/lib/queries/bank";
 
 // Indian IFSC pattern: 4 alphabetic (bank) + 0 + 6 alphanumeric (branch).
 // Example: HDFC0001234. Case-insensitive when typed; we uppercase on submit.
@@ -84,10 +84,14 @@ type FormData = z.infer<typeof schema>;
 interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** When provided, the form edits this account instead of creating a new one. */
+  account?: BankAccountRow | null;
 }
 
-export function AddBankAccountForm({ open, onOpenChange }: Props) {
+export function AddBankAccountForm({ open, onOpenChange, account }: Props) {
   const create = useCreateBankAccount();
+  const update = useUpdateBankAccount();
+  const isEdit = Boolean(account);
   const {
     register,
     handleSubmit,
@@ -103,10 +107,35 @@ export function AddBankAccountForm({ open, onOpenChange }: Props) {
     },
   });
 
-  React.useEffect(() => { if (!open) reset(); }, [open, reset]);
-
   const [bankName, setBankName] = React.useState("");
   const [accountType, setAccountType] = React.useState<FormData["account_type"]>("current");
+
+  // Prefill on open (edit → from the account; add → blank defaults).
+  React.useEffect(() => {
+    if (!open) return;
+    if (account) {
+      reset({
+        name:                 account.name,
+        bank_name:            account.bank_name,
+        account_number_last4: account.account_number_last4 ?? "",
+        ifsc:                 account.ifsc ?? "",
+        account_type:         account.account_type,
+        opening_balance:      account.opening_balance,
+        opening_balance_date: account.opening_balance_date,
+        notes:                account.notes ?? "",
+      });
+      setBankName(account.bank_name);
+      setAccountType(account.account_type);
+    } else {
+      reset({
+        account_type:         "current",
+        opening_balance:      0,
+        opening_balance_date: new Date().toISOString().slice(0, 10),
+      });
+      setBankName("");
+      setAccountType("current");
+    }
+  }, [open, account, reset]);
 
   React.useEffect(() => { setValue("bank_name", bankName); }, [bankName, setValue]);
   React.useEffect(() => { setValue("account_type", accountType); }, [accountType, setValue]);
@@ -114,18 +143,23 @@ export function AddBankAccountForm({ open, onOpenChange }: Props) {
   const isCash = accountType === "cash";
 
   const onSubmit = async (data: FormData) => {
+    const payload = {
+      name:                 data.name.trim(),
+      // A cash account has no bank / IFSC / account number.
+      bank_name:            isCash ? "Cash in hand" : (data.bank_name ?? ""),
+      account_number_last4: isCash ? null : (data.account_number_last4 ?? null),
+      ifsc:                 isCash ? null : (data.ifsc ?? null),
+      account_type:         data.account_type,
+      opening_balance:      data.opening_balance,
+      opening_balance_date: data.opening_balance_date,
+      notes:                data.notes?.trim() || null,
+    };
     try {
-      await create.mutateAsync({
-        name:                 data.name.trim(),
-        // A cash account has no bank / IFSC / account number.
-        bank_name:            isCash ? "Cash in hand" : (data.bank_name ?? ""),
-        account_number_last4: isCash ? null : (data.account_number_last4 ?? null),
-        ifsc:                 isCash ? null : (data.ifsc ?? null),
-        account_type:         data.account_type,
-        opening_balance:      data.opening_balance,
-        opening_balance_date: data.opening_balance_date,
-        notes:                data.notes?.trim() || null,
-      });
+      if (account) {
+        await update.mutateAsync({ id: account.id, patch: payload });
+      } else {
+        await create.mutateAsync(payload);
+      }
       onOpenChange(false);
     } catch {
       /* error toast handled in hook */
@@ -139,9 +173,11 @@ export function AddBankAccountForm({ open, onOpenChange }: Props) {
         className="w-full sm:max-w-[480px] md:max-w-[520px] p-0 flex flex-col overflow-x-hidden"
       >
         <SheetHeader>
-          <SheetTitle>Add bank account</SheetTitle>
+          <SheetTitle>{isEdit ? "Edit account" : "Add bank account"}</SheetTitle>
           <SheetDescription>
-            Set up a new bank account to import statements + reconcile transactions.
+            {isEdit
+              ? "Update the account details. Fixing the opening balance corrects the running balance shown everywhere."
+              : "Set up a new bank account to import statements + reconcile transactions."}
           </SheetDescription>
         </SheetHeader>
 
@@ -258,6 +294,11 @@ export function AddBankAccountForm({ open, onOpenChange }: Props) {
                 />
               </FormField>
             </div>
+            <p className="text-[11px] text-ink-3 -mt-2 leading-relaxed">
+              Opening balance = money in this account on the &ldquo;as of&rdquo; date, BEFORE any
+              transaction you import. Set it to the closing balance on your bank statement
+              just before your first imported line — the running balance builds on top of it.
+            </p>
 
             <FormField label="Notes" htmlFor="notes">
               <textarea
@@ -285,9 +326,9 @@ export function AddBankAccountForm({ open, onOpenChange }: Props) {
             <Button
               type="submit"
               variant="primary"
-              loading={isSubmitting || create.isPending}
+              loading={isSubmitting || create.isPending || update.isPending}
             >
-              Add account
+              {isEdit ? "Save changes" : "Add account"}
             </Button>
           </SheetFooter>
         </form>

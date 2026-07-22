@@ -2297,6 +2297,10 @@ export type Database = {
         };
         Returns: undefined;
       };
+      delete_bank_account: {
+        Args: { p_account_id: string };
+        Returns: undefined;
+      };
       disburse_employee_loan: {
         Args: {
           p_employee_name:   string;

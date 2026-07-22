@@ -44,7 +44,8 @@ import {
 import { EXPENSE_CATEGORIES } from "@/lib/queries/expenses";
 import { useEmployees } from "@/lib/queries/payroll";
 import {
-  useExpenseClaims, useApproveClaim, useRejectClaim, useClaimLink, getClaimReceiptUrl,
+  useExpenseClaims, useApproveClaim, useRejectClaim, useEditClaim, useDeleteClaim,
+  useClaimLink, getClaimReceiptUrl,
   type ExpenseClaim,
 } from "@/lib/queries/expense-claims";
 import { toast } from "sonner";
@@ -69,6 +70,7 @@ export default function EmployeeLoansPage() {
   const [typeFilter, setTypeFilter] = React.useState<"all" | EmployeeLoanKind>("all");
   const [claimLinkOpen, setClaimLinkOpen] = React.useState(false);
   const [rejectClaimFor, setRejectClaimFor] = React.useState<ExpenseClaim | null>(null);
+  const [editClaimFor, setEditClaimFor] = React.useState<ExpenseClaim | null>(null);
   const deleteLoan = useDeleteEmployeeLoan();
   const pendingClaimsQ = useExpenseClaims("pending");
   const pendingClaims = pendingClaimsQ.data ?? [];
@@ -113,7 +115,11 @@ export default function EmployeeLoansPage() {
       </div>
 
       {pendingClaims.length > 0 && (
-        <PendingClaimsPanel claims={pendingClaims} onReject={(c) => setRejectClaimFor(c)} />
+        <PendingClaimsPanel
+          claims={pendingClaims}
+          onReject={(c) => setRejectClaimFor(c)}
+          onEdit={(c) => setEditClaimFor(c)}
+        />
       )}
 
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 md:gap-4 mb-6">
@@ -277,13 +283,26 @@ export default function EmployeeLoansPage() {
       {historyFor && <LoanHistoryDialog loan={historyFor} onClose={() => setHistoryFor(null)} />}
       {claimLinkOpen && <ClaimLinkDialog onClose={() => setClaimLinkOpen(false)} />}
       {rejectClaimFor && <RejectClaimDialog claim={rejectClaimFor} onClose={() => setRejectClaimFor(null)} />}
+      {editClaimFor && <EditClaimDialog claim={editClaimFor} onClose={() => setEditClaimFor(null)} />}
     </div>
   );
 }
 
 /** Pending employee expense claims — owner approves (settles the advance) or rejects. */
-function PendingClaimsPanel({ claims, onReject }: { claims: ExpenseClaim[]; onReject: (c: ExpenseClaim) => void }) {
+function PendingClaimsPanel({
+  claims, onReject, onEdit,
+}: {
+  claims: ExpenseClaim[];
+  onReject: (c: ExpenseClaim) => void;
+  onEdit: (c: ExpenseClaim) => void;
+}) {
   const approve = useApproveClaim();
+  const del     = useDeleteClaim();
+  const confirmDeleteClaim = (c: ExpenseClaim) => {
+    if (window.confirm(`Delete ${c.employee_name}'s claim (${c.category} · ${rupee(c.amount)})? This just removes the claim — nothing was booked.`)) {
+      del.mutate(c.id);
+    }
+  };
   return (
     <Card className="mb-6 border-amber/40 bg-amber-soft/30 p-4 md:p-5">
       <div className="mb-3 flex items-center gap-2">
@@ -306,8 +325,10 @@ function PendingClaimsPanel({ claims, onReject }: { claims: ExpenseClaim[]; onRe
                 {c.receipt_path ? " · 📎 receipt" : ""}
               </div>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5">
               {c.receipt_path && <ReceiptLink path={c.receipt_path} />}
+              <Button variant="ghost" size="sm" icon="edit" aria-label="Edit claim" onClick={() => onEdit(c)} />
+              <Button variant="ghost" size="sm" icon="trash" aria-label="Delete claim" onClick={() => confirmDeleteClaim(c)} />
               <Button variant="ghost" size="sm" onClick={() => onReject(c)}>Reject</Button>
               <Button variant="primary" size="sm" loading={approve.isPending} onClick={() => approve.mutate(c.id)}>
                 Approve
@@ -360,6 +381,67 @@ function RejectClaimDialog({ claim, onClose }: { claim: ExpenseClaim; onClose: (
             onClick={() => reject.mutate({ claimId: claim.id, reason: reason || null }, { onSuccess: onClose })}
           >
             Reject claim
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function EditClaimDialog({ claim, onClose }: { claim: ExpenseClaim; onClose: () => void }) {
+  const edit = useEditClaim();
+  const [amount, setAmount]     = React.useState(String(claim.amount));
+  const [category, setCategory] = React.useState(claim.category);
+  const [purpose, setPurpose]   = React.useState(claim.purpose ?? "");
+  const [spentOn, setSpentOn]   = React.useState(claim.spent_on);
+  const amt = Math.round(Number(amount));
+  const valid = Number.isFinite(amt) && amt > 0 && Boolean(category);
+
+  return (
+    <Dialog open onOpenChange={(v) => { if (!v) onClose(); }}>
+      <DialogContent className="md:!max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Edit claim — {claim.employee_name}</DialogTitle>
+          <DialogDescription>Fix the details before approving. Nothing is booked until you approve.</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3 py-1">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="mb-1 block text-xs text-ink-3">Amount (₹)</label>
+              <Input type="number" min={1} value={amount} onChange={(e) => setAmount(e.target.value)} />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs text-ink-3">Date</label>
+              <Input type="date" value={spentOn} onChange={(e) => setSpentOn(e.target.value)} />
+            </div>
+          </div>
+          <div>
+            <label className="mb-1 block text-xs text-ink-3">Category</label>
+            <select
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+              className="w-full rounded-md border border-hairline bg-paper px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-amber/40"
+            >
+              {EXPENSE_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="mb-1 block text-xs text-ink-3">Purpose</label>
+            <Input value={purpose} onChange={(e) => setPurpose(e.target.value)} placeholder="What was it for?" />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button
+            variant="primary"
+            loading={edit.isPending}
+            disabled={!valid}
+            onClick={() => edit.mutate(
+              { claimId: claim.id, amount: amt, category, purpose: purpose || null, spentOn },
+              { onSuccess: onClose },
+            )}
+          >
+            Save changes
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -28,7 +28,7 @@ function todayISO(): string {
 }
 
 type Session = { employeeId: string; employeeName: string; pin: string; remaining: number };
-type Logged = { id: string; category: string; amount: number; spentOn: string };
+type Logged = { id: string; category: string; amount: number; spentOn: string; purpose: string | null };
 
 export function ExpenseClaimClient({
   tid, sig, brandName, employees,
@@ -181,8 +181,43 @@ function LogStep({
   const [busy, setBusy]         = React.useState(false);
   const [err, setErr]           = React.useState<string | null>(null);
   const [flash, setFlash]       = React.useState<string | null>(null);
+  const [editingId, setEditingId] = React.useState<string | null>(null);
 
   const remaining = session.remaining;
+
+  function resetFields() {
+    setAmount(""); setCategory(""); setPurpose(""); setPhoto(null); setSpentOn(todayISO());
+    setEditingId(null);
+  }
+
+  function startEdit(l: Logged) {
+    setEditingId(l.id);
+    setAmount(String(l.amount));
+    setCategory(l.category);
+    setPurpose(l.purpose ?? "");
+    setSpentOn(l.spentOn);
+    setErr(null); setFlash(null);
+    if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  async function doDelete(l: Logged) {
+    setErr(null); setFlash(null);
+    try {
+      const res = await fetch("/api/public/expense-claim/manage", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "delete", tid, sig, employeeId: session.employeeId, pin: session.pin, claimId: l.id }),
+      });
+      const json = await res.json();
+      if (!res.ok) { setErr(json.error ?? "Couldn't delete. Please try again."); return; }
+      setLogged((prev) => prev.filter((x) => x.id !== l.id));
+      setSession((s) => (s ? { ...s, remaining: Number(json.remaining ?? s.remaining + l.amount) } : s));
+      if (editingId === l.id) resetFields();
+      setFlash(`Removed ${rupee(l.amount)} · ${l.category}`);
+    } catch {
+      setErr("Network error. Please try again.");
+    }
+  }
 
   function onPhoto(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -200,9 +235,29 @@ function LogStep({
     const amt = Math.round(Number(amount));
     if (!Number.isFinite(amt) || amt <= 0) { setErr("Enter a valid amount"); return; }
     if (!category) { setErr("Choose a category"); return; }
-    if (amt > remaining) { setErr(`That's more than your remaining advance (${rupee(remaining)})`); return; }
     setBusy(true);
     try {
+      if (editingId) {
+        // Editing an existing pending claim.
+        const res = await fetch("/api/public/expense-claim/manage", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "edit", tid, sig, employeeId: session.employeeId, pin: session.pin,
+            claimId: editingId, amount: amt, category, purpose: purpose || null, spentOn,
+          }),
+        });
+        const json = await res.json();
+        if (!res.ok) { setErr(json.error ?? "Couldn't save changes."); return; }
+        setLogged((prev) => prev.map((x) => x.id === editingId
+          ? { ...x, amount: amt, category, purpose: purpose || null, spentOn } : x));
+        setSession((s) => (s ? { ...s, remaining: Number(json.remaining ?? s.remaining) } : s));
+        setFlash(`Updated ${rupee(amt)} · ${category}`);
+        resetFields();
+        return;
+      }
+
+      if (amt > remaining) { setErr(`That's more than your remaining advance (${rupee(remaining)})`); return; }
       const res = await fetch("/api/public/expense-claim", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -213,11 +268,10 @@ function LogStep({
       });
       const json = await res.json();
       if (!res.ok) { setErr(json.error ?? "Something went wrong. Please try again."); return; }
-      setLogged((prev) => [{ id: json.claimId, category, amount: amt, spentOn }, ...prev]);
+      setLogged((prev) => [{ id: json.claimId, category, amount: amt, spentOn, purpose: purpose || null }, ...prev]);
       setSession((s) => (s ? { ...s, remaining: Number(json.remaining ?? Math.max(0, s.remaining - amt)) } : s));
       setFlash(`Added ${rupee(amt)} · ${category}`);
-      // Reset the entry fields for the next expense (keep the session).
-      setAmount(""); setCategory(""); setPurpose(""); setPhoto(null); setSpentOn(todayISO());
+      resetFields();
     } catch {
       setErr("Network error. Please check your connection and try again.");
     } finally {
@@ -251,13 +305,19 @@ function LogStep({
         )}
       </div>
 
-      {noneLeft ? (
+      {(noneLeft && !editingId) ? (
         <div className="rounded-lg border border-emerald/30 bg-emerald-soft px-4 py-5 text-center">
           <Icon name="check_circle" size={28} className="mx-auto text-emerald" />
           <p className="mt-2 text-sm text-ink-2">Your advance is fully claimed. Thank you!</p>
         </div>
       ) : (
         <form onSubmit={submit} className="space-y-4">
+          {editingId && (
+            <div className="flex items-center justify-between rounded-md border border-amber/40 bg-amber-soft px-3 py-2 text-xs text-amber-ink">
+              <span>Editing an entry</span>
+              <button type="button" className="underline" onClick={resetFields}>Cancel</button>
+            </div>
+          )}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <FormField label="Amount spent (₹)" required htmlFor="amount">
               <Input id="amount" type="number" min={1} inputMode="numeric" placeholder="e.g. 1200"
@@ -287,23 +347,27 @@ function LogStep({
               value={purpose} onChange={(e) => setPurpose(e.target.value)} />
           </FormField>
 
-          <div>
-            <label className="mb-1.5 block text-sm font-medium text-ink">Receipt photo (optional)</label>
-            <input
-              type="file" accept="image/*" capture="environment" onChange={onPhoto}
-              className="block w-full text-sm text-ink-2 file:mr-3 file:rounded-md file:border-0 file:bg-paper-2 file:px-3 file:py-2 file:text-sm file:text-ink hover:file:bg-hairline"
-            />
-            {photo && <p className="mt-1 text-xs text-emerald">Receipt attached ✓</p>}
-          </div>
+          {!editingId && (
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-ink">Receipt photo (optional)</label>
+              <input
+                type="file" accept="image/*" capture="environment" onChange={onPhoto}
+                className="block w-full text-sm text-ink-2 file:mr-3 file:rounded-md file:border-0 file:bg-paper-2 file:px-3 file:py-2 file:text-sm file:text-ink hover:file:bg-hairline"
+              />
+              {photo && <p className="mt-1 text-xs text-emerald">Receipt attached ✓</p>}
+            </div>
+          )}
 
           {err && (
             <div className="rounded-md border border-rose/40 bg-rose-soft px-3 py-2 text-sm text-rose">{err}</div>
           )}
           {flash && (
-            <div className="rounded-md border border-emerald/30 bg-emerald-soft px-3 py-2 text-sm text-emerald">{flash} — added ✓</div>
+            <div className="rounded-md border border-emerald/30 bg-emerald-soft px-3 py-2 text-sm text-emerald">{flash} ✓</div>
           )}
 
-          <Button type="submit" variant="primary" className="w-full" loading={busy}>Add expense</Button>
+          <Button type="submit" variant="primary" className="w-full" loading={busy}>
+            {editingId ? "Save changes" : "Add expense"}
+          </Button>
         </form>
       )}
 
@@ -313,14 +377,29 @@ function LogStep({
           <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-ink-3">Submitted just now</p>
           <ul className="space-y-1.5">
             {logged.map((l) => (
-              <li key={l.id} className="flex items-center justify-between rounded-md bg-paper-2 px-3 py-2 text-sm">
-                <span className="text-ink-2">{l.category}</span>
-                <span className="font-mono text-ink">{rupee(l.amount)}</span>
+              <li key={l.id} className="flex items-center justify-between gap-2 rounded-md bg-paper-2 px-3 py-2 text-sm">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-ink-2">{l.category}</span>
+                    <span className="font-mono text-ink">{rupee(l.amount)}</span>
+                  </div>
+                  {l.purpose && <div className="truncate text-[11px] text-ink-3">{l.purpose}</div>}
+                </div>
+                <div className="flex shrink-0 items-center gap-1">
+                  <button type="button" onClick={() => startEdit(l)} aria-label="Edit"
+                    className="rounded p-1 text-ink-3 hover:bg-hairline hover:text-ink">
+                    <Icon name="edit" size={15} />
+                  </button>
+                  <button type="button" onClick={() => doDelete(l)} aria-label="Delete"
+                    className="rounded p-1 text-ink-3 hover:bg-rose-soft hover:text-rose">
+                    <Icon name="trash" size={15} />
+                  </button>
+                </div>
               </li>
             ))}
           </ul>
           <p className="mt-3 text-center text-xs text-ink-3">
-            All sent to {brandName} for approval. You can close this page.
+            All sent to {brandName} for approval. You can edit or remove any of them above until then.
           </p>
         </div>
       )}

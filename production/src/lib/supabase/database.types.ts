@@ -2328,6 +2328,25 @@ export type Database = {
         Args: { p_claim_id: string; p_reason?: string | null };
         Returns: undefined;
       };
+      edit_expense_claim: {
+        Args: { p_claim_id: string; p_amount: number; p_category: string; p_purpose: string | null; p_spent_on: string };
+        Returns: undefined;
+      };
+      delete_expense_claim: {
+        Args: { p_claim_id: string };
+        Returns: undefined;
+      };
+      edit_claim_public: {
+        Args: {
+          p_tenant_id: string; p_employee_id: string; p_pin: string; p_claim_id: string;
+          p_amount: number; p_category: string; p_purpose: string | null; p_spent_on: string;
+        };
+        Returns: undefined;
+      };
+      delete_claim_public: {
+        Args: { p_tenant_id: string; p_employee_id: string; p_pin: string; p_claim_id: string };
+        Returns: undefined;
+      };
       edit_employee_loan: {
         Args: {
           p_loan_id:         string;

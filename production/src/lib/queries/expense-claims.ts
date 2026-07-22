@@ -82,6 +82,40 @@ export function useRejectClaim() {
   });
 }
 
+export function useEditClaim() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: {
+      claimId: string; amount: number; category: string; purpose?: string | null; spentOn: string;
+    }) => {
+      const supabase = createClient();
+      const { error } = await supabase.rpc("edit_expense_claim", {
+        p_claim_id: input.claimId,
+        p_amount:   input.amount,
+        p_category: input.category,
+        p_purpose:  input.purpose ?? null,
+        p_spent_on: input.spentOn,
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => { invalidate(qc); toast.success("Claim updated"); },
+    onError: (err) => toast.error((err as Error).message),
+  });
+}
+
+export function useDeleteClaim() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (claimId: string) => {
+      const supabase = createClient();
+      const { error } = await supabase.rpc("delete_expense_claim", { p_claim_id: claimId });
+      if (error) throw error;
+    },
+    onSuccess: () => { invalidate(qc); toast.success("Claim deleted"); },
+    onError: (err) => toast.error((err as Error).message),
+  });
+}
+
 /** Short-lived signed URL to view a claim's receipt photo (private bucket). */
 export async function getClaimReceiptUrl(path: string): Promise<string | null> {
   const supabase = createClient();

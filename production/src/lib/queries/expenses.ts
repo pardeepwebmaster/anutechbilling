@@ -23,6 +23,7 @@ export const EXPENSE_CATEGORIES = [
   "Salaries",
   "Office Rent",
   "Marketing",
+  "Business Promotion",
   "Travel",
   "Professional Services",
   "Bank Charges",

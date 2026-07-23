@@ -26,21 +26,21 @@ export const metadata: Metadata = {
 
 export const dynamic = "force-dynamic";
 
-async function fetchBrand(): Promise<{ name: string; phone: string | null }> {
+async function fetchBrand(): Promise<{ name: string; phone: string | null; logoUrl: string | null }> {
   try {
     const admin = createAdminClient();
     const { data } = await admin
       .from("tenants")
-      .select("name, phone")
+      .select("name, phone, logo_url")
       .eq("id", BUY_PAGE_TENANT_ID)
       .maybeSingle();
-    return { name: data?.name ?? "Us", phone: data?.phone ?? null };
+    return { name: data?.name ?? "Us", phone: data?.phone ?? null, logoUrl: data?.logo_url ?? null };
   } catch {
-    return { name: "Us", phone: null };
+    return { name: "Us", phone: null, logoUrl: null };
   }
 }
 
 export default async function EnquiryPage() {
   const brand = await fetchBrand();
-  return <EnquiryClient brandName={brand.name} brandPhone={brand.phone} />;
+  return <EnquiryClient brandName={brand.name} brandPhone={brand.phone} brandLogoUrl={brand.logoUrl} />;
 }

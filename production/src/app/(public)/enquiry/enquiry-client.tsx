@@ -44,9 +44,11 @@ const PRODUCTS = [
 export function EnquiryClient({
   brandName,
   brandPhone,
+  brandLogoUrl,
 }: {
   brandName: string;
   brandPhone: string | null;
+  brandLogoUrl?: string | null;
 }) {
   const [embed, setEmbed]     = React.useState(false);
   const [done, setDone]       = React.useState(false);
@@ -87,9 +89,14 @@ export function EnquiryClient({
         {/* Brand header (hidden in embed mode — the host site has its own) */}
         {!embed && (
           <div className="mb-6 flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-ink text-paper font-serif text-lg">
-              {brandName.charAt(0).toUpperCase()}
-            </div>
+            {brandLogoUrl ? (
+              /* eslint-disable-next-line @next/next/no-img-element */
+              <img src={brandLogoUrl} alt={brandName} className="h-11 max-w-[130px] object-contain" />
+            ) : (
+              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-ink text-paper font-serif text-lg">
+                {brandName.charAt(0).toUpperCase()}
+              </div>
+            )}
             <div>
               <div className="font-serif text-base leading-none text-ink">{brandName}</div>
               <div className="mt-1 text-[10px] text-ink-3">Cloud Reseller · India</div>

@@ -34,7 +34,7 @@ export default async function ProjectQuotePage({ params }: { params: { id: strin
 
   const { data: tenant } = await supabase
     .from("tenants")
-    .select("name")
+    .select("name, logo_url")
     .eq("id", project.tenant_id)
     .maybeSingle();
 
@@ -46,9 +46,15 @@ export default async function ProjectQuotePage({ params }: { params: { id: strin
       <div className="max-w-[720px] mx-auto">
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
-          <div>
-            <p className="text-xs uppercase tracking-wider text-ink-3 font-semibold">{tenant?.name ?? "Quotation"}</p>
-            <h1 className="font-serif text-3xl text-ink leading-tight mt-1">Quotation</h1>
+          <div className="flex items-center gap-3">
+            {tenant?.logo_url && (
+              /* eslint-disable-next-line @next/next/no-img-element */
+              <img src={tenant.logo_url} alt={tenant?.name ?? "Logo"} className="h-11 max-w-[140px] object-contain" />
+            )}
+            <div>
+              <p className="text-xs uppercase tracking-wider text-ink-3 font-semibold">{tenant?.name ?? "Quotation"}</p>
+              <h1 className="font-serif text-3xl text-ink leading-tight mt-1">Quotation</h1>
+            </div>
           </div>
           {accepted && (
             <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-soft text-emerald text-sm font-semibold px-3 py-1">

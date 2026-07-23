@@ -19,6 +19,7 @@ export interface CurrentUserInfo {
   canViewDeals:  boolean;
   tenantId:      string;
   tenantName:    string;
+  tenantLogoUrl: string | null;
   /** Tenant billing identity — used by Receipt Voucher / Invoice PDFs */
   tenantGstin:   string | null;
   tenantEmail:   string | null;
@@ -50,7 +51,7 @@ export function useCurrentUser() {
 
       const { data: me, error } = await supabase
         .from("users")
-        .select("id, tenant_id, full_name, initials, color, role, can_view_deals, tenants(name, gstin, email, phone, address, pin_code, contact_name, state, state_code, grace_period_days, setup_completed_at, gstin_verified_at, gstin_verification)")
+        .select("id, tenant_id, full_name, initials, color, role, can_view_deals, tenants(name, logo_url, gstin, email, phone, address, pin_code, contact_name, state, state_code, grace_period_days, setup_completed_at, gstin_verified_at, gstin_verification)")
         .eq("id", authData.user.id)
         .single();
 
@@ -68,6 +69,7 @@ export function useCurrentUser() {
         canViewDeals:    Boolean(me.can_view_deals),
         tenantId:        me.tenant_id,
         tenantName:      tenant?.name ?? "Workspace",
+        tenantLogoUrl:   (tenant as { logo_url?: string | null } | null)?.logo_url ?? null,
         tenantGstin:     tenant?.gstin     ?? null,
         tenantEmail:     tenant?.email     ?? null,
         tenantPhone:     tenant?.phone     ?? null,

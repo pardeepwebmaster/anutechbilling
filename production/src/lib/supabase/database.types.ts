@@ -51,6 +51,7 @@ export type TenantTier = "distributor" | "reseller";
 type TenantRow = {
   id: string;
   name: string;
+  logo_url: string | null;
   gstin: string | null;
   state: string | null;
   state_code: string | null;
@@ -71,6 +72,7 @@ type TenantRow = {
 type TenantInsert = {
   id?: string;
   name: string;
+  logo_url?: string | null;
   gstin?: string | null;
   state?: string | null;
   state_code?: string | null;

@@ -43,8 +43,13 @@ function SidebarContent({ onNavigate, collapsed = false, onToggle }: { onNavigat
     <div className="flex flex-col h-full overflow-hidden">
       {/* Brand — shows the LOGGED-IN tenant name (not hardcoded) */}
       <div className={cn("flex items-center gap-2.5 border-b border-hairline flex-shrink-0", collapsed ? "justify-center px-2 py-4" : "px-4 py-4")}>
-        <div className="w-9 h-9 rounded-md bg-ink text-paper grid place-items-center font-serif text-lg flex-shrink-0">
-          R
+        <div className="w-9 h-9 rounded-md bg-ink text-paper grid place-items-center font-serif text-lg flex-shrink-0 overflow-hidden">
+          {me?.tenantLogoUrl ? (
+            /* eslint-disable-next-line @next/next/no-img-element */
+            <img src={me.tenantLogoUrl} alt={me.tenantName ?? "Logo"} className="h-full w-full object-contain" />
+          ) : (
+            (me?.tenantName ?? "R").charAt(0).toUpperCase()
+          )}
         </div>
         {!collapsed && (
           <div className="min-w-0">

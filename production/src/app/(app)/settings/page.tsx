@@ -26,7 +26,7 @@ import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
 import { TabBar, type TabBarItem } from "@/components/ui/tabs";
 import { useCurrentUser } from "@/lib/hooks/useCurrentUser";
-import { useUpdateTenant } from "@/lib/queries/tenant";
+import { useUpdateTenant, useSetTenantLogo } from "@/lib/queries/tenant";
 import { isValidGstin, gstStateFromGstin, validateGstin } from "@/lib/utils";
 import GstinVerifyCard from "@/components/features/gstin/gstin-verify-card";
 import SandboxConfigureDialog  from "@/components/features/integrations/sandbox-configure-dialog";
@@ -673,6 +673,62 @@ function IntegrationsTab() {
 
 // ─── Placeholder tab ─────────────────────────────────────────────────────────
 
+// ─── Branding tab — company logo ────────────────────────────────────────────
+function BrandingTab() {
+  const { data: me } = useCurrentUser();
+  const setLogo = useSetTenantLogo();
+  const fileRef = React.useRef<HTMLInputElement>(null);
+  const logoUrl = me?.tenantLogoUrl ?? null;
+
+  const onPick = (f: File | null) => {
+    if (!f) return;
+    if (f.size > 5 * 1024 * 1024) { toast.error("Logo must be under 5 MB"); return; }
+    setLogo.mutate(f);
+  };
+
+  return (
+    <Card className="p-5 md:p-6 max-w-2xl">
+      <h2 className="font-serif text-xl text-ink">Company logo</h2>
+      <p className="text-sm text-ink-3 mt-1 mb-5">
+        Shown in the sidebar and on customer-facing pages (enquiry form, quotations). PNG / JPG / WEBP / SVG, up to 5 MB. A square or wide logo on a transparent background works best.
+      </p>
+
+      <div className="flex items-center gap-5 flex-wrap">
+        {/* Preview */}
+        <div className="h-24 w-24 rounded-xl border border-hairline bg-paper-2/40 grid place-items-center overflow-hidden shrink-0">
+          {logoUrl ? (
+            /* eslint-disable-next-line @next/next/no-img-element */
+            <img src={logoUrl} alt="Company logo" className="max-h-full max-w-full object-contain" />
+          ) : (
+            <span className="font-serif text-3xl text-ink-3">{(me?.tenantName ?? "?").charAt(0).toUpperCase()}</span>
+          )}
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <input
+            ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml"
+            className="hidden" onChange={(e) => onPick(e.target.files?.[0] ?? null)}
+          />
+          <div className="flex gap-2 flex-wrap">
+            <Button variant="primary" icon="upload" loading={setLogo.isPending} onClick={() => fileRef.current?.click()}>
+              {logoUrl ? "Change logo" : "Upload logo"}
+            </Button>
+            {logoUrl && (
+              <Button variant="ghost" icon="trash" disabled={setLogo.isPending}
+                onClick={() => { if (confirm("Remove the company logo?")) setLogo.mutate(null); }}>
+                Remove
+              </Button>
+            )}
+          </div>
+          <p className="text-[11px] text-ink-3 max-w-xs">
+            Tip: a transparent PNG around 512×512 (or a wide 4:1 banner) looks crispest.
+          </p>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
 function ComingSoon({ label }: { label: string }) {
   return (
     <Card className="flex flex-col items-center justify-center py-16 text-center">
@@ -711,7 +767,7 @@ export default function SettingsPage() {
       {/* ── Tab content ── */}
       {tab === "company"       && <CompanyTab />}
       {tab === "integrations"  && <IntegrationsTab />}
-      {tab === "branding"      && <ComingSoon label="Branding" />}
+      {tab === "branding"      && <BrandingTab />}
       {tab === "notifications" && <ComingSoon label="Notifications" />}
       {tab === "security"      && <ComingSoon label="Security" />}
     </div>

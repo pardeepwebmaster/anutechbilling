@@ -17,12 +17,17 @@ type ExpenseUpdate = Database["public"]["Tables"]["expenses"]["Update"];
 export type Expense = ExpenseRow;
 
 /** Common Indian SME expense categories — surface as a Select default. */
+// Marketing = broad strategy (market research, PR, branding, CRM software,
+// website upkeep, email-automation tools). Advertising = paid outreach only
+// (social/TV ads, billboards, PPC). Kept as separate categories so the P&L can
+// tell brand-building spend apart from direct paid campaigns.
 export const EXPENSE_CATEGORIES = [
   "Hosting",
   "Software",
   "Salaries",
   "Office Rent",
   "Marketing",
+  "Advertising",
   "Business Promotion",
   "Travel",
   "Professional Services",

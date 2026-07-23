@@ -19,6 +19,7 @@ import { FormField } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { useItems } from "@/lib/queries/items";
+import { useCustomers, useCreateCustomer } from "@/lib/queries/customers";
 import { useCreateProjectQuote, type MilestoneInput, type ProjectQuoteLine } from "@/lib/queries/projects";
 import { rupee } from "@/lib/utils";
 
@@ -33,14 +34,23 @@ type MsRow   = { label: string; amount: string; due: string };
 export function CreateProjectQuoteDialog({ open, onOpenChange }: Props) {
   const router = useRouter();
   const create = useCreateProjectQuote();
+  const createCustomer = useCreateCustomer();
   const { data: allItems } = useItems();
+  const { data: customers } = useCustomers();
   const oneTimeItems = React.useMemo(
     () => (allItems ?? []).filter((i) => i.item_type === "one_time" && i.is_active),
     [allItems],
   );
 
-  const [customerName, setCustomerName] = React.useState("");
-  const [title, setTitle]               = React.useState("");
+  // Customer: pick an existing one, or create a new one inline (""=new).
+  const [customerId, setCustomerId]   = React.useState("");
+  const [newName, setNewName]         = React.useState("");
+  const [contactName, setContactName] = React.useState("");
+  const [email, setEmail]             = React.useState("");
+  const [phone, setPhone]             = React.useState("");
+  const [gstin, setGstin]             = React.useState("");
+  const [stateName, setStateName]     = React.useState("");
+  const [title, setTitle]             = React.useState("");
   const [description, setDescription]   = React.useState("");
   const [gstRate, setGstRate]           = React.useState("18");
   const [interState, setInterState]     = React.useState(false);
@@ -49,10 +59,15 @@ export function CreateProjectQuoteDialog({ open, onOpenChange }: Props) {
 
   React.useEffect(() => {
     if (!open) {
-      setCustomerName(""); setTitle(""); setDescription(""); setGstRate("18"); setInterState(false);
+      setCustomerId(""); setNewName(""); setContactName(""); setEmail(""); setPhone(""); setGstin(""); setStateName("");
+      setTitle(""); setDescription(""); setGstRate("18"); setInterState(false);
       setLines([{ name: "", qty: "1", rate: "" }]); setRows([{ label: "Advance", amount: "", due: "" }]);
     }
   }, [open]);
+
+  const isNewCustomer = customerId === "";
+  const selectedCustomer = customers?.find((c) => c.id === customerId);
+  const effectiveName = isNewCustomer ? newName.trim() : (selectedCustomer?.name ?? "");
 
   const lineAmount = (l: LineRow) => Math.max(0, Math.round(Number(l.qty) || 0)) * Math.max(0, Math.round(Number(l.rate) || 0));
   const taxableNum = lines.reduce((s, l) => s + lineAmount(l), 0);
@@ -75,10 +90,10 @@ export function CreateProjectQuoteDialog({ open, onOpenChange }: Props) {
   const removeRow = (i: number) => setRows((rs) => rs.filter((_, idx) => idx !== i));
 
   const canSubmit =
-    customerName.trim().length >= 2 && title.trim().length >= 2 &&
+    effectiveName.length >= 2 && title.trim().length >= 2 &&
     lines.some((l) => l.name.trim() && lineAmount(l) > 0) &&
     rows.some((r) => Math.round(Number(r.amount) || 0) > 0) &&
-    !create.isPending;
+    !create.isPending && !createCustomer.isPending;
 
   const handleSubmit = async () => {
     if (!canSubmit) return;
@@ -94,8 +109,23 @@ export function CreateProjectQuoteDialog({ open, onOpenChange }: Props) {
       .filter((r) => Math.round(Number(r.amount) || 0) > 0)
       .map((r) => ({ label: r.label.trim() || "Milestone", total_amount: Math.round(Number(r.amount) || 0), due_date: r.due || null }));
     try {
+      // New customer? create it first so the quote (and its invoices) link to a
+      // complete customer record — not just a bare name.
+      let cid: string | null = customerId || null;
+      let cname = effectiveName;
+      if (isNewCustomer) {
+        const cust = await createCustomer.mutateAsync({
+          name:          newName.trim(),
+          contact_name:  contactName.trim() || null,
+          contact_email: email.trim() || null,
+          contact_phone: phone.trim() || null,
+          gstin:         gstin.trim() || null,
+          state:         stateName.trim() || null,
+        });
+        cid = cust.id; cname = cust.name;
+      }
       const id = await create.mutateAsync({
-        customerId: null, customerName: customerName.trim(), title: title.trim(),
+        customerId: cid, customerName: cname, title: title.trim(),
         description: description.trim() || null, lineItems, gstRate: rateNum, interState, milestones,
       });
       onOpenChange(false);
@@ -115,8 +145,32 @@ export function CreateProjectQuoteDialog({ open, onOpenChange }: Props) {
 
         <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4 space-y-4">
           <FormField label="Customer" required htmlFor="q_customer">
-            <Input id="q_customer" autoFocus placeholder="Excel Technologies" value={customerName} onChange={(e) => setCustomerName(e.target.value)} />
+            <select
+              id="q_customer" value={customerId} onChange={(e) => setCustomerId(e.target.value)}
+              className="w-full rounded-md border border-hairline bg-paper px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-amber/40"
+            >
+              <option value="">➕ New customer…</option>
+              {(customers ?? []).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
           </FormField>
+
+          {isNewCustomer && (
+            <div className="rounded-md border border-hairline bg-paper-2/30 p-3 space-y-2">
+              <p className="text-[11px] text-ink-3 font-semibold uppercase tracking-wider">New customer details</p>
+              <Input placeholder="Company name *" value={newName} onChange={(e) => setNewName(e.target.value)} />
+              <div className="grid grid-cols-2 gap-2">
+                <Input placeholder="Contact person" value={contactName} onChange={(e) => setContactName(e.target.value)} />
+                <Input placeholder="Phone" value={phone} onChange={(e) => setPhone(e.target.value)} />
+              </div>
+              <Input placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} />
+              <div className="grid grid-cols-2 gap-2">
+                <Input placeholder="GSTIN" className="font-mono" value={gstin} onChange={(e) => setGstin(e.target.value)} />
+                <Input placeholder="State (e.g. Maharashtra)" value={stateName} onChange={(e) => setStateName(e.target.value)} />
+              </div>
+              <p className="text-[10px] text-ink-3">GSTIN + state make the tax invoice GST-correct (CGST/SGST vs IGST + the customer&apos;s ITC).</p>
+            </div>
+          )}
+
           <FormField label="Project title" required htmlFor="q_title">
             <Input id="q_title" placeholder="Custom accounting software" value={title} onChange={(e) => setTitle(e.target.value)} />
           </FormField>

@@ -54,38 +54,16 @@ export function useUploadDocument() {
       expiryDate: string | null;
       notes:      string | null;
     }) => {
-      const supabase = createClient();
-      const { data: authData } = await supabase.auth.getUser();
-      if (!authData?.user) throw new Error("Not authenticated");
-      const { data: me, error: meErr } = await supabase
-        .from("users").select("tenant_id").eq("id", authData.user.id).single();
-      if (meErr || !me) throw new Error("User not linked to a tenant");
-
-      const cleanName = input.file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
-      const path = `${me.tenant_id}/${crypto.randomUUID()}-${cleanName}`;
-
-      const { error: upErr } = await supabase.storage
-        .from("documents")
-        .upload(path, input.file, { upsert: false, contentType: input.file.type || undefined });
-      if (upErr) throw upErr;
-
-      const { error: insErr } = await supabase.from("documents").insert({
-        tenant_id:   me.tenant_id,
-        title:       input.title.trim(),
-        category:    input.category,
-        file_path:   path,
-        file_name:   input.file.name,
-        mime_type:   input.file.type || null,
-        size_bytes:  input.file.size,
-        expiry_date: input.expiryDate,
-        notes:       input.notes?.trim() || null,
-        uploaded_by: authData.user.id,
-      });
-      if (insErr) {
-        // best-effort cleanup of the orphaned file
-        await supabase.storage.from("documents").remove([path]);
-        throw insErr;
-      }
+      // Server-side upload (admin client) — avoids browser→storage RLS quirks.
+      const form = new FormData();
+      form.append("file", input.file);
+      form.append("title", input.title.trim());
+      form.append("category", input.category);
+      if (input.expiryDate) form.append("expiry_date", input.expiryDate);
+      if (input.notes) form.append("notes", input.notes.trim());
+      const res = await fetch("/api/documents", { method: "POST", body: form });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error ?? "Upload failed");
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["documents"] });

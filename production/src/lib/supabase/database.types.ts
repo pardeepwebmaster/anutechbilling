@@ -1319,6 +1319,26 @@ export type ProjectSaleRow = {
   updated_at:     string;
 };
 export type ProjectQuoteLine = { name: string; qty: number; rate: number; amount: number };
+
+// ── Company Document Vault — migration 0107 ──────────────────────────────────
+export type DocumentCategory = "company_legal" | "gst_tax" | "banking" | "agreements" | "licenses" | "hr" | "other";
+export type DocumentRow = {
+  id:          string;
+  tenant_id:   string;
+  title:       string;
+  category:    DocumentCategory;
+  file_path:   string;
+  file_name:   string | null;
+  mime_type:   string | null;
+  size_bytes:  number | null;
+  expiry_date: string | null;
+  notes:       string | null;
+  uploaded_by: string | null;
+  created_at:  string;
+  updated_at:  string;
+};
+type DocumentInsert = Partial<DocumentRow> & { tenant_id: string; title: string; file_path: string };
+type DocumentUpdate = Partial<Omit<DocumentInsert, "tenant_id">>;
 type ProjectSaleInsert = Partial<ProjectSaleRow> & { tenant_id: string; customer_name: string; title: string; taxable_amount: number; gst_amount: number; total_amount: number };
 type ProjectSaleUpdate = Partial<Omit<ProjectSaleInsert, "tenant_id">>;
 
@@ -1965,6 +1985,7 @@ export type Database = {
       project_sales:     { Row: ProjectSaleRow;      Insert: ProjectSaleInsert;      Update: ProjectSaleUpdate;      Relationships: [] };
       project_milestones:{ Row: ProjectMilestoneRow; Insert: ProjectMilestoneInsert; Update: ProjectMilestoneUpdate; Relationships: [] };
       project_payments:  { Row: ProjectPaymentRow;   Insert: ProjectPaymentInsert;   Update: ProjectPaymentUpdate;   Relationships: [] };
+      documents:         { Row: DocumentRow;         Insert: DocumentInsert;         Update: DocumentUpdate;         Relationships: [] };
       statutory_dues_payments:{ Row: StatutoryDuesPaymentRow; Insert: StatutoryDuesPaymentInsert; Update: StatutoryDuesPaymentUpdate; Relationships: [] };
       attendance:{ Row: AttendanceRow; Insert: AttendanceInsert; Update: AttendanceUpdate; Relationships: [] };
       attendance_settings:{ Row: AttendanceSettingsRow; Insert: AttendanceSettingsInsert; Update: AttendanceSettingsUpdate; Relationships: [] };

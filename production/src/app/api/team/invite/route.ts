@@ -19,7 +19,7 @@ const FROM_EMAIL = process.env.RESEND_FROM_DEFAULT?.trim() || "ResellerOS <onboa
 
 const schema = z.object({
   email: z.string().email().max(200),
-  role:  z.enum(["owner", "sales", "accountant", "support"]),
+  role:  z.enum(["owner", "sales", "sales_senior", "accountant", "support"]),
 });
 
 export async function POST(request: NextRequest) {

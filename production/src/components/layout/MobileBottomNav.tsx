@@ -64,9 +64,10 @@ export function MobileBottomNav({ onMoreClick }: Props) {
   // excludes Home (dashboard route is locked down) — showing it would
   // open the sidebar drawer redirect dance and confuse the rep.
   const tabs: BottomNavItem[] = [];
-  if (me?.role === "sales") {
+  if (me?.role === "sales" || me?.role === "sales_senior") {
     tabs.push(TAB_LEADS);
-    if (me.canViewDeals) tabs.push(TAB_DEALS);
+    // Sales Senior always handles deals; plain sales only if granted.
+    if (me.role === "sales_senior" || me.canViewDeals) tabs.push(TAB_DEALS);
     tabs.push(TAB_TASKS);
     tabs.push(TAB_MORE);
   } else {

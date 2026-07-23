@@ -155,7 +155,7 @@ type TenantSecretsUpdate = Partial<Omit<TenantSecretsInsert, "tenant_id">>;
 // ============================================================
 // team_invites — owner pre-authorizes an email to join the tenant (migration 0073)
 // ============================================================
-export type TeamInviteRole = "owner" | "sales" | "accountant" | "support";
+export type TeamInviteRole = "owner" | "sales" | "sales_senior" | "accountant" | "support";
 export type TeamInviteRow = {
   id:          string;
   tenant_id:   string;
@@ -414,7 +414,7 @@ type UserRow = {
   email: string;
   full_name: string | null;
   initials: string | null;
-  role: "owner" | "sales" | "accountant" | "support";
+  role: "owner" | "sales" | "sales_senior" | "accountant" | "support";
   color: string | null;
   avatar_url: string | null;
   is_active: boolean;
@@ -428,7 +428,7 @@ type UserInsert = {
   email: string;
   full_name?: string | null;
   initials?: string | null;
-  role?: "owner" | "sales" | "accountant" | "support";
+  role?: "owner" | "sales" | "sales_senior" | "accountant" | "support";
   color?: string | null;
   avatar_url?: string | null;
   is_active?: boolean;
@@ -2607,7 +2607,7 @@ export type Database = {
       };
     };
     Enums: {
-      user_role: "owner" | "sales" | "accountant" | "support";
+      user_role: "owner" | "sales" | "sales_senior" | "accountant" | "support";
       vendor: "google" | "microsoft" | "zoho" | "other";
       lead_stage: "new" | "contact" | "demo" | "trial" | "quote" | "won" | "lost";
       quote_status: "draft" | "sent" | "viewed" | "accepted" | "rejected" | "expired";

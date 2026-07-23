@@ -29,14 +29,14 @@ import {
 import { createClient } from "@/lib/supabase/client";
 import { useCurrentUser } from "@/lib/hooks/useCurrentUser";
 
-type Role = "owner" | "sales" | "accountant" | "support";
-const ROLES: Role[] = ["owner", "sales", "accountant", "support"];
-const ROLE_LABEL: Record<Role, string> = { owner: "Owner", sales: "Sales", accountant: "Accountant", support: "Support" };
+type Role = "owner" | "sales" | "sales_senior" | "accountant" | "support";
+const ROLES: Role[] = ["owner", "sales_senior", "sales", "accountant", "support"];
+const ROLE_LABEL: Record<Role, string> = { owner: "Owner", sales: "Sales", sales_senior: "Sales Senior", accountant: "Accountant", support: "Support" };
 const ROLE_TONE: Record<Role, "success" | "info" | "muted" | "warning"> = {
-  owner: "info", sales: "success", accountant: "warning", support: "muted",
+  owner: "info", sales: "success", sales_senior: "info", accountant: "warning", support: "muted",
 };
 
-interface Member { id: string; full_name: string | null; email: string | null; role: Role; initials: string | null; color: string | null; is_active: boolean | null; }
+interface Member { id: string; full_name: string | null; email: string | null; role: Role; initials: string | null; color: string | null; is_active: boolean | null; can_view_deals: boolean | null; }
 interface Invite { id: string; email: string; role: Role; created_at: string; }
 
 export default function TeamPage() {
@@ -51,7 +51,7 @@ export default function TeamPage() {
       const supabase = createClient();
       const { data, error } = await supabase
         .from("users")
-        .select("id, full_name, email, role, initials, color, is_active")
+        .select("id, full_name, email, role, initials, color, is_active, can_view_deals")
         .order("created_at", { ascending: true });
       if (error) throw error;
       return (data ?? []) as Member[];
@@ -81,6 +81,16 @@ export default function TeamPage() {
     },
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["team", "invites"] }); toast.success("Invite removed"); },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Couldn't remove invite"),
+  });
+
+  const updateMember = useMutation({
+    mutationFn: async (input: { id: string; patch: { role?: Role; can_view_deals?: boolean } }) => {
+      const supabase = createClient();
+      const { error } = await supabase.from("users").update(input.patch).eq("id", input.id);
+      if (error) throw error;
+    },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["team", "members"] }); toast.success("Member updated"); },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Couldn't update member"),
   });
 
   const owners = members.filter((m) => m.role === "owner").length;
@@ -113,6 +123,7 @@ export default function TeamPage() {
                 <th className="p-3 text-left text-xs font-semibold uppercase tracking-wider text-ink-3">Member</th>
                 <th className="p-3 text-left text-xs font-semibold uppercase tracking-wider text-ink-3">Email</th>
                 <th className="p-3 text-left text-xs font-semibold uppercase tracking-wider text-ink-3">Role</th>
+                {isOwner && <th className="p-3 text-left text-xs font-semibold uppercase tracking-wider text-ink-3">Deals access</th>}
                 <th className="p-3 text-left text-xs font-semibold uppercase tracking-wider text-ink-3">Status</th>
               </tr>
             </thead>
@@ -126,7 +137,38 @@ export default function TeamPage() {
                     </div>
                   </td>
                   <td className="p-3 font-mono text-xs text-ink-2">{m.email}</td>
-                  <td className="p-3"><Badge kind={ROLE_TONE[m.role] ?? "muted"}>{ROLE_LABEL[m.role] ?? m.role}</Badge></td>
+                  <td className="p-3">
+                    {isOwner && m.id !== me?.userId ? (
+                      <select
+                        value={m.role}
+                        onChange={(e) => updateMember.mutate({ id: m.id, patch: { role: e.target.value as Role } })}
+                        className="rounded-md border border-hairline bg-paper px-2 py-1 text-xs text-ink focus:outline-none focus:ring-2 focus:ring-amber/40"
+                      >
+                        {ROLES.map((r) => <option key={r} value={r}>{ROLE_LABEL[r]}</option>)}
+                      </select>
+                    ) : (
+                      <Badge kind={ROLE_TONE[m.role] ?? "muted"}>{ROLE_LABEL[m.role] ?? m.role}</Badge>
+                    )}
+                  </td>
+                  {isOwner && (
+                    <td className="p-3">
+                      {m.role === "sales" ? (
+                        <label className="inline-flex items-center gap-1.5 text-xs text-ink-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={Boolean(m.can_view_deals)}
+                            onChange={(e) => updateMember.mutate({ id: m.id, patch: { can_view_deals: e.target.checked } })}
+                            className="rounded border-hairline"
+                          />
+                          Can view deals
+                        </label>
+                      ) : (m.role === "owner" || m.role === "sales_senior") ? (
+                        <span className="text-[11px] text-emerald">Full access</span>
+                      ) : (
+                        <span className="text-[11px] text-ink-3">—</span>
+                      )}
+                    </td>
+                  )}
                   <td className="p-3"><Badge kind={m.is_active === false ? "muted" : "success"} dot>{m.is_active === false ? "Inactive" : "Active"}</Badge></td>
                 </tr>
               ))}
@@ -142,6 +184,7 @@ export default function TeamPage() {
                   </td>
                   <td className="p-3 font-mono text-xs text-ink-2">{inv.email}</td>
                   <td className="p-3"><Badge kind={ROLE_TONE[inv.role] ?? "muted"}>{ROLE_LABEL[inv.role] ?? inv.role}</Badge></td>
+                  {isOwner && <td className="p-3 text-[11px] text-ink-3">—</td>}
                   <td className="p-3">
                     <div className="flex items-center justify-between gap-2">
                       <Badge kind="warning" dot>Pending</Badge>

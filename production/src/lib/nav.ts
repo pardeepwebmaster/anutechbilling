@@ -7,7 +7,7 @@
  * 3. Create the page at src/app/(app)/[id]/page.tsx
  */
 
-export type UserRole = "owner" | "manager" | "sales";
+export type UserRole = "owner" | "manager" | "sales" | "sales_senior";
 
 export interface NavItem {
   id: string;
@@ -50,14 +50,17 @@ export function filterNavForRole(
   opts: NavFilterOpts = {},
 ): NavSection[] {
   if (!role) return nav;
+  // "sales_senior" sees the same menu as "sales" (visibility), but is NEVER
+  // gated on the deals entry — a senior seller always handles the pipeline.
+  const visRole: UserRole = role === "sales_senior" ? "sales" : role;
   return nav
-    .filter((s) => !s.roles || s.roles.includes(role))
+    .filter((s) => !s.roles || s.roles.includes(visRole))
     .map((s) => ({
       ...s,
       items: s.items.filter((i) => {
-        // Sales-role specific: /deals hidden unless can_view_deals = true.
+        // Deals gate applies ONLY to plain sales (sales_senior always sees it).
         if (role === "sales" && i.id === "deals" && !opts.canViewDeals) return false;
-        return !i.roles || i.roles.includes(role);
+        return !i.roles || i.roles.includes(visRole);
       }),
     }))
     .filter((s) => s.items.length > 0);
@@ -73,9 +76,10 @@ export function allowedRoutesForRole(role: UserRole, opts: NavFilterOpts = {}): 
 
 /** Where each role lands by default (after login + on disallowed-route redirect). */
 export const ROLE_HOME: Record<UserRole, string> = {
-  owner:   "/dashboard",
-  manager: "/dashboard",
-  sales:   "/leads",
+  owner:        "/dashboard",
+  manager:      "/dashboard",
+  sales:        "/leads",
+  sales_senior: "/deals",
 };
 
 // ============================================================

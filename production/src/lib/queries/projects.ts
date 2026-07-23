@@ -17,9 +17,10 @@ import type {
   ProjectSaleRow,
   ProjectMilestoneRow,
   ProjectPaymentRow,
+  ProjectQuoteLine,
 } from "@/lib/supabase/database.types";
 
-export type { ProjectSaleRow, ProjectMilestoneRow, ProjectPaymentRow };
+export type { ProjectSaleRow, ProjectMilestoneRow, ProjectPaymentRow, ProjectQuoteLine };
 
 export type ProjectSaleWithTotals = ProjectSaleRow & {
   paid:        number;   // Σ payments received
@@ -149,6 +150,61 @@ export function useProjectPaymentsByInvoice(invoiceId: string | null | undefined
       if (error) throw error;
       return (data ?? []) as ProjectPaymentRow[];
     },
+  });
+}
+
+// ── Create a project QUOTATION (status 'quoted', itemised) ────────────────────
+export function useCreateProjectQuote() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: {
+      customerId:   string | null;
+      customerName: string;
+      title:        string;
+      description:  string | null;
+      lineItems:    ProjectQuoteLine[];
+      gstRate:      number;
+      interState:   boolean;
+      milestones:   MilestoneInput[];
+    }) => {
+      const supabase = createClient();
+      const { data, error } = await supabase.rpc("create_project_quote", {
+        p_customer_id:   input.customerId,
+        p_customer_name: input.customerName,
+        p_title:         input.title,
+        p_description:   input.description,
+        p_line_items:    input.lineItems,
+        p_gst_rate:      input.gstRate,
+        p_inter_state:   input.interState,
+        p_milestones:    input.milestones,
+      });
+      if (error) throw error;
+      return data as string;   // project id
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["project_sales"] });
+      toast.success("Quotation created");
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : "Could not create quotation"),
+  });
+}
+
+// ── Accept a quotation → active project (owner "mark accepted") ───────────────
+export function useAcceptProjectQuote() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (projectId: string) => {
+      const supabase = createClient();
+      const { data, error } = await supabase.rpc("accept_project_quote", { p_project_id: projectId });
+      if (error) throw error;
+      return data as string;
+    },
+    onSuccess: (_r, projectId) => {
+      qc.invalidateQueries({ queryKey: ["project_sales", projectId] });
+      qc.invalidateQueries({ queryKey: ["project_sales"] });
+      toast.success("Quotation accepted — project is now active");
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : "Could not accept"),
   });
 }
 

@@ -1312,10 +1312,13 @@ export type ProjectSaleRow = {
   taxable_amount: number;
   gst_amount:     number;
   total_amount:   number;
-  status:         "active" | "completed" | "cancelled";
+  status:         "draft" | "quoted" | "active" | "completed" | "cancelled";
+  line_items:     ProjectQuoteLine[];
+  accepted_at:    string | null;
   created_at:     string;
   updated_at:     string;
 };
+export type ProjectQuoteLine = { name: string; qty: number; rate: number; amount: number };
 type ProjectSaleInsert = Partial<ProjectSaleRow> & { tenant_id: string; customer_name: string; title: string; taxable_amount: number; gst_amount: number; total_amount: number };
 type ProjectSaleUpdate = Partial<Omit<ProjectSaleInsert, "tenant_id">>;
 
@@ -2385,6 +2388,23 @@ export type Database = {
           p_received_at:  string;
           p_bank_txn_id?: string | null;
         };
+        Returns: string;
+      };
+      create_project_quote: {
+        Args: {
+          p_customer_id:   string | null;
+          p_customer_name: string;
+          p_title:         string;
+          p_description:   string | null;
+          p_line_items:    unknown;
+          p_gst_rate:      number;
+          p_inter_state:   boolean;
+          p_milestones:    unknown;
+        };
+        Returns: string;
+      };
+      accept_project_quote: {
+        Args: { p_project_id: string };
         Returns: string;
       };
       disburse_employee_loan: {

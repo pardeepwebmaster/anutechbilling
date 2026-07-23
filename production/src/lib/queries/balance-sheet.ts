@@ -73,8 +73,10 @@ export function useBalanceSheetAuto() {
 
       // Project-sale receivable — one-time deals (custom software etc.):
       // sum of (project total − payments received), floored at 0.
+      // Only real (accepted) projects are receivables — a 'quoted' project is
+      // an un-accepted quotation, not money owed yet.
       const { data: projs, error: prjErr } = await supabase
-        .from("project_sales").select("id, total_amount").neq("status", "cancelled");
+        .from("project_sales").select("id, total_amount").in("status", ["active", "completed"]);
       if (prjErr) throw prjErr;
       const { data: projPays, error: ppErr } = await supabase
         .from("project_payments").select("project_id, amount");

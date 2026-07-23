@@ -19,11 +19,13 @@ import { FAB } from "@/components/ui/fab";
 import { useProjectSales, type ProjectSaleWithTotals } from "@/lib/queries/projects";
 import { rupee } from "@/lib/utils";
 import { CreateProjectDialog } from "@/components/features/projects/create-project-dialog";
+import { CreateProjectQuoteDialog } from "@/components/features/projects/create-project-quote-dialog";
 
 export default function ProjectsPage() {
   const router = useRouter();
   const { data: projects, isLoading } = useProjectSales();
   const [addOpen, setAddOpen] = React.useState(false);
+  const [quoteOpen, setQuoteOpen] = React.useState(false);
 
   const totalValue = (projects ?? []).reduce((s, p) => s + p.total_amount, 0);
   const totalRecv  = (projects ?? []).reduce((s, p) => s + p.receivable, 0);
@@ -38,9 +40,14 @@ export default function ProjectsPage() {
             One-time sales like custom software — billed in milestones, with proper GST invoices. No subscription.
           </p>
         </div>
-        <Button variant="primary" icon="plus" onClick={() => setAddOpen(true)} className="hidden md:inline-flex">
-          New project
-        </Button>
+        <div className="hidden md:flex gap-2">
+          <Button variant="default" icon="plus" onClick={() => setAddOpen(true)}>
+            New project
+          </Button>
+          <Button variant="primary" icon="file" onClick={() => setQuoteOpen(true)}>
+            New quotation
+          </Button>
+        </div>
       </div>
 
       {!isLoading && projects && projects.length > 0 && (
@@ -76,7 +83,8 @@ export default function ProjectsPage() {
       )}
 
       <CreateProjectDialog open={addOpen} onOpenChange={setAddOpen} />
-      <FAB icon="plus" label="New project" onClick={() => setAddOpen(true)} />
+      <CreateProjectQuoteDialog open={quoteOpen} onOpenChange={setQuoteOpen} />
+      <FAB icon="file" label="New quotation" onClick={() => setQuoteOpen(true)} />
     </div>
   );
 }
@@ -105,10 +113,10 @@ function ProjectCard({ project, onOpen }: { project: ProjectSaleWithTotals; onOp
           <h3 className="font-semibold text-ink truncate mt-0.5">{project.title}</h3>
         </div>
         <Badge
-          kind={project.status === "completed" ? "success" : project.status === "cancelled" ? "muted" : "warning"}
+          kind={project.status === "completed" ? "success" : project.status === "cancelled" ? "muted" : project.status === "quoted" ? "info" : "warning"}
           size="sm"
         >
-          {project.status === "completed" ? "Completed" : project.status === "cancelled" ? "Cancelled" : "Active"}
+          {project.status === "completed" ? "Completed" : project.status === "cancelled" ? "Cancelled" : project.status === "quoted" ? "Quotation" : "Active"}
         </Badge>
       </div>
 

@@ -20,9 +20,12 @@ import { EmptyState } from "@/components/shared/empty-state";
 import {
   useProjectSale,
   useRaiseMilestoneInvoice,
+  useAcceptProjectQuote,
   type ProjectMilestoneRow,
+  type ProjectQuoteLine,
 } from "@/lib/queries/projects";
 import { rupee, formatDate } from "@/lib/utils";
+import { toast } from "sonner";
 import { RecordProjectPaymentDialog } from "@/components/features/projects/record-project-payment-dialog";
 
 export default function ProjectDetailPage() {
@@ -30,6 +33,7 @@ export default function ProjectDetailPage() {
   const id = params?.id;
   const { data, isLoading } = useProjectSale(id);
   const raise = useRaiseMilestoneInvoice();
+  const accept = useAcceptProjectQuote();
   const [payFor, setPayFor] = React.useState<ProjectMilestoneRow | null>(null);
 
   if (isLoading) {
@@ -49,9 +53,17 @@ export default function ProjectDetailPage() {
   }
 
   const { project, milestones, payments, paid, receivable } = data;
+  const isQuote = project.status === "quoted";
+  const lines = (project.line_items ?? []) as ProjectQuoteLine[];
 
   const handleRaise = async (m: ProjectMilestoneRow) => {
     await raise.mutateAsync({ milestoneId: m.id, projectId: project.id }).catch(() => {});
+  };
+
+  const customerLink = typeof window !== "undefined" ? `${window.location.origin}/project-quote/${project.id}` : "";
+  const copyLink = async () => {
+    try { await navigator.clipboard.writeText(customerLink); toast.success("Customer link copied"); }
+    catch { toast.error("Could not copy"); }
   };
 
   return (
@@ -68,11 +80,65 @@ export default function ProjectDetailPage() {
             <h1 className="font-serif text-3xl md:text-4xl leading-tight">{project.title}</h1>
             {project.description && <p className="text-sm text-ink-3 mt-1 max-w-prose">{project.description}</p>}
           </div>
-          <Badge kind={project.status === "completed" ? "success" : project.status === "cancelled" ? "muted" : "warning"}>
-            {project.status === "completed" ? "Completed" : project.status === "cancelled" ? "Cancelled" : "Active"}
+          <Badge kind={project.status === "completed" ? "success" : project.status === "cancelled" ? "muted" : isQuote ? "info" : "warning"}>
+            {project.status === "completed" ? "Completed" : project.status === "cancelled" ? "Cancelled" : isQuote ? "Quotation" : "Active"}
           </Badge>
         </div>
       </div>
+
+      {/* Quotation banner — share link + accept, before it's an active project */}
+      {isQuote && (
+        <Card className="mb-6 border-indigo/30 bg-indigo-soft/20">
+          <div className="flex items-start justify-between gap-4 flex-wrap">
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-ink">This is a quotation — not yet accepted.</p>
+              <p className="text-[12px] text-ink-3 mt-1">
+                Send the customer this link. When they accept, it becomes an active project and you can raise milestone invoices.
+              </p>
+              <div className="flex items-center gap-2 mt-2">
+                <code className="text-[11px] bg-paper border border-hairline rounded px-2 py-1 truncate max-w-[280px]">{customerLink}</code>
+                <Button size="sm" variant="outline" icon="copy" onClick={copyLink}>Copy link</Button>
+              </div>
+            </div>
+            <Button
+              variant="primary" icon="check"
+              loading={accept.isPending}
+              onClick={() => accept.mutate(project.id)}
+            >
+              Mark accepted
+            </Button>
+          </div>
+        </Card>
+      )}
+
+      {/* Line items (the quote) */}
+      {lines.length > 0 && (
+        <Card className="mb-6 overflow-hidden">
+          <div className="px-5 py-3 border-b border-hairline"><h2 className="text-sm font-semibold text-ink">Quoted items</h2></div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm min-w-[420px]">
+              <thead className="bg-paper-2/50 text-[10px] uppercase tracking-wider text-ink-3">
+                <tr>
+                  <th className="text-left px-5 py-2">Item</th>
+                  <th className="text-right px-3 py-2">Qty</th>
+                  <th className="text-right px-3 py-2">Rate</th>
+                  <th className="text-right px-5 py-2">Amount</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-hairline">
+                {lines.map((l, i) => (
+                  <tr key={i}>
+                    <td className="px-5 py-2 text-ink">{l.name}</td>
+                    <td className="px-3 py-2 text-right tabular-nums text-ink-2">{l.qty}</td>
+                    <td className="px-3 py-2 text-right tabular-nums text-ink-2">{rupee(l.rate)}</td>
+                    <td className="px-5 py-2 text-right tabular-nums text-ink">{rupee(l.amount)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
 
       {/* Money summary */}
       <Card className="mb-6">
@@ -105,15 +171,21 @@ export default function ProjectDetailPage() {
               <div className="font-mono text-sm text-ink whitespace-nowrap">{rupee(m.total_amount)}</div>
               <MilestoneStatus status={m.status} />
               <div className="flex gap-2">
-                {m.status === "pending" && (
-                  <Button size="sm" variant="outline" loading={raise.isPending} onClick={() => handleRaise(m)}>
-                    Raise invoice
-                  </Button>
-                )}
-                {m.status !== "paid" && (
-                  <Button size="sm" variant="primary" onClick={() => setPayFor(m)}>
-                    Record payment
-                  </Button>
+                {isQuote ? (
+                  <span className="text-[11px] text-ink-3 italic">Accept quotation to bill</span>
+                ) : (
+                  <>
+                    {m.status === "pending" && (
+                      <Button size="sm" variant="outline" loading={raise.isPending} onClick={() => handleRaise(m)}>
+                        Raise invoice
+                      </Button>
+                    )}
+                    {m.status !== "paid" && (
+                      <Button size="sm" variant="primary" onClick={() => setPayFor(m)}>
+                        Record payment
+                      </Button>
+                    )}
+                  </>
                 )}
               </div>
             </div>

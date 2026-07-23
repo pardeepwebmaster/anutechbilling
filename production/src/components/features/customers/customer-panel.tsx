@@ -13,7 +13,9 @@
  * Then subscriptions (the heart) and, behind light tabs, secondary detail.
  */
 import * as React from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { Icon } from "@/components/ui/icon";
 import { useCustomer } from "@/lib/queries/customers";
 import { useCustomerSubscriptions } from "@/lib/queries/subscriptions";
 import { useCustomerInvoices, useCustomerQuotes } from "@/lib/queries/invoices";
@@ -82,10 +84,10 @@ export function CustomerPanel({ customerId, onClose }: { customerId: string; onC
   const tabs: TabBarItem[] = [
     { id: "activity", label: "Activity" },
     { id: "invoices", label: "Invoices", count: allInvoices.length || undefined },
-    { id: "quotes",   label: "Quotes",   count: allQuotes.length || undefined },
-    { id: "projects", label: "Projects", count: (projects ?? []).length || undefined },
+    { id: "quotes",   label: "Quotes",   count: (allQuotes.length + (projects ?? []).length) || undefined },
     { id: "details",  label: "Details" },
   ];
+  const custProjects = projects ?? [];
 
   return (
     <div className="flex flex-col h-full min-h-0">
@@ -118,13 +120,33 @@ export function CustomerPanel({ customerId, onClose }: { customerId: string; onC
         {/* 3. Next-best-action */}
         <NextBestActionCard nba={insights.nba} customer={c} />
 
-        {/* 4. Subscriptions */}
+        {/* 4. Subscriptions & projects — ongoing revenue relationships */}
         <section>
           <div className="flex items-center gap-2 mb-2">
-            <span className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold">Subscriptions</span>
-            {allSubs.length > 0 && <span className="text-[10px] text-ink-3 tabular-nums">({allSubs.length})</span>}
+            <span className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold">Subscriptions & projects</span>
+            {(allSubs.length + custProjects.length) > 0 && <span className="text-[10px] text-ink-3 tabular-nums">({allSubs.length + custProjects.length})</span>}
           </div>
           <SubscriptionList subs={allSubs} />
+          {custProjects.length > 0 && (
+            <ul className="space-y-1.5 mt-2">
+              {custProjects.map((p) => (
+                <li key={p.id}>
+                  <Link href={`/projects/${p.id}` as never} className="flex items-center justify-between gap-3 rounded-md border border-hairline bg-paper px-3 py-2 hover:border-hairline-strong transition-colors">
+                    <span className="flex items-center gap-2 min-w-0">
+                      <Icon name="package" size={14} className="text-ink-3 shrink-0" />
+                      <span className="min-w-0">
+                        <span className="text-sm text-ink truncate block">{p.title}</span>
+                        <span className="text-[11px] text-ink-3">Project · {p.receivable > 0 ? `${rupee(p.receivable)} outstanding` : "fully paid"}</span>
+                      </span>
+                    </span>
+                    <Badge kind={p.status === "completed" ? "success" : p.status === "cancelled" ? "muted" : p.status === "quoted" ? "info" : "warning"} size="sm" dot>
+                      {p.status === "quoted" ? "Quotation" : p.status}
+                    </Badge>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
         </section>
 
         {/* 5. Secondary detail — progressive disclosure */}
@@ -144,29 +166,23 @@ export function CustomerPanel({ customerId, onClose }: { customerId: string; onC
               ) : <PanelEmpty icon="receipt" text="No invoices yet." />
             )}
             {tab === "quotes" && (
-              allQuotes.length > 0 ? (
+              (allQuotes.length + custProjects.length) > 0 ? (
                 <SimpleTable
-                  head={["Quote", "Plan", "Amount", "Status"]}
-                  rows={allQuotes.map((q) => [
-                    q.id, q.plan ?? "—", rupee(q.amount),
-                    <Badge key="b" kind="info" dot>{q.status}</Badge>,
-                  ])}
+                  head={["Quote / Project", "Type", "Amount", "Status"]}
+                  rows={[
+                    ...allQuotes.map((q) => [
+                      q.id, "Subscription", rupee(q.amount),
+                      <Badge key="b" kind="info" dot>{q.status}</Badge>,
+                    ]),
+                    ...custProjects.map((p) => [
+                      p.title, "Project", rupee(p.total_amount),
+                      <Badge key="b" kind={p.status === "completed" ? "success" : p.status === "cancelled" ? "muted" : p.status === "quoted" ? "info" : "warning"} dot>
+                        {p.status === "quoted" ? "Quotation" : p.status}
+                      </Badge>,
+                    ]),
+                  ]}
                 />
               ) : <PanelEmpty icon="file" text="No quotes yet." />
-            )}
-            {tab === "projects" && (
-              (projects ?? []).length > 0 ? (
-                <SimpleTable
-                  head={["Project", "Total", "Outstanding", "Status"]}
-                  rows={(projects ?? []).map((p) => [
-                    p.title, rupee(p.total_amount),
-                    <span key="o" className={p.receivable > 0 ? "text-rose" : "text-emerald"}>{rupee(p.receivable)}</span>,
-                    <Badge key="b" kind={p.status === "completed" ? "success" : p.status === "cancelled" ? "muted" : p.status === "quoted" ? "info" : "warning"} dot>
-                      {p.status === "quoted" ? "Quotation" : p.status}
-                    </Badge>,
-                  ])}
-                />
-              ) : <PanelEmpty icon="package" text="No projects yet." />
             )}
             {tab === "details" && <CustomerDetailsGrid c={c} />}
           </div>

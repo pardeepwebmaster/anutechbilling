@@ -64,7 +64,7 @@ export function useProjectSales() {
 }
 
 // ── All project payments for the tenant (for the Payments dashboard) ──────────
-export type ProjectPaymentListRow = ProjectPaymentRow & { project_title: string; customer_name: string };
+export type ProjectPaymentListRow = ProjectPaymentRow & { project_title: string; customer_name: string; customer_id: string | null };
 export function useAllProjectPayments() {
   return useQuery({
     queryKey: ["project_payments", "all"],
@@ -75,16 +75,17 @@ export function useAllProjectPayments() {
       if (error) throw error;
       const rows = (pays ?? []) as ProjectPaymentRow[];
       const ids = [...new Set(rows.map((p) => p.project_id))];
-      const titleBy = new Map<string, { title: string; customer: string }>();
+      const titleBy = new Map<string, { title: string; customer: string; customerId: string | null }>();
       if (ids.length > 0) {
         const { data: projs } = await supabase
-          .from("project_sales").select("id, title, customer_name").in("id", ids);
-        for (const p of projs ?? []) titleBy.set(p.id, { title: p.title, customer: p.customer_name });
+          .from("project_sales").select("id, title, customer_name, customer_id").in("id", ids);
+        for (const p of projs ?? []) titleBy.set(p.id, { title: p.title, customer: p.customer_name, customerId: p.customer_id });
       }
       return rows.map((p) => ({
         ...p,
         project_title: titleBy.get(p.project_id)?.title ?? "Project",
         customer_name: titleBy.get(p.project_id)?.customer ?? "—",
+        customer_id:   titleBy.get(p.project_id)?.customerId ?? null,
       }));
     },
     staleTime: 30_000,

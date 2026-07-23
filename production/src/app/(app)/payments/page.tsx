@@ -478,10 +478,13 @@ export default function PaymentsPage() {
                 {projPays.map((p) => (
                   <tr key={p.id} className="hover:bg-paper-2/40">
                     <td className="px-4 py-2.5">
-                      <Link href={`/projects/${p.project_id}` as never} className="hover:underline">
+                      {p.customer_id ? (
+                        <Link href={`/customers/${p.customer_id}` as never} className="font-medium text-ink hover:text-amber-ink hover:underline">{p.customer_name}</Link>
+                      ) : (
                         <span className="font-medium text-ink">{p.customer_name}</span>
-                        <span className="text-ink-3"> · {p.project_title}</span>
-                      </Link>
+                      )}
+                      <span className="text-ink-3"> · </span>
+                      <Link href={`/projects/${p.project_id}` as never} className="text-ink-2 hover:text-amber-ink hover:underline">{p.project_title}</Link>
                     </td>
                     <td className="px-3 py-2.5 text-ink-2 capitalize">{(p.method ?? "—").replace("_", " ")}{p.bank_txn_id ? " · reconciled" : ""}</td>
                     <td className="px-3 py-2.5 text-right tabular-nums font-medium text-ink">{rupee(p.amount)}</td>

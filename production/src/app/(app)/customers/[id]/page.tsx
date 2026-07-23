@@ -136,9 +136,8 @@ export default function CustomerDetailPage() {
 
   const tabs: TabBarItem[] = [
     { id: "activity", label: "Activity" },
-    { id: "subscriptions", label: "Subscriptions", count: allSubs.length || undefined },
-    { id: "quotes", label: "Quotes", count: allQuotes.length || undefined },
-    { id: "projects", label: "Projects", count: (projects ?? []).length || undefined },
+    { id: "subscriptions", label: "Subscriptions & projects", count: (allSubs.length + (projects ?? []).length) || undefined },
+    { id: "quotes", label: "Quotes", count: (allQuotes.length + (projects ?? []).length) || undefined },
     { id: "invoices", label: "Invoices", count: allInvoices.length || undefined },
   ];
 
@@ -239,45 +238,59 @@ export default function CustomerDetailPage() {
             </div>
             <div className="p-4">
               {tab === "activity" && <CustomerActivity subs={allSubs} invoices={allInvoices} quotes={allQuotes} limit={15} />}
-              {tab === "subscriptions" && <SubscriptionList subs={allSubs} />}
+              {tab === "subscriptions" && (
+                <div className="space-y-3">
+                  <SubscriptionList subs={allSubs} />
+                  {(projects ?? []).length > 0 && (
+                    <RecordTable
+                      head={["Project", "Total (incl GST)", "Outstanding", "Status", "Created"]}
+                      rows={(projects ?? []).map((p) => ({
+                        onClick: () => router.push(`/projects/${p.id}` as any),
+                        cells: [
+                          <span key="t" className="font-medium">{p.title}</span>,
+                          <span key="tot" className="tabular-nums font-medium">{rupee(p.total_amount)}</span>,
+                          <span key="out" className={`tabular-nums ${p.receivable > 0 ? "text-rose" : "text-emerald"}`}>{rupee(p.receivable)}</span>,
+                          <Badge key="b" kind={p.status === "completed" ? "success" : p.status === "cancelled" ? "muted" : p.status === "quoted" ? "info" : "warning"} dot>
+                            {p.status === "quoted" ? "Quotation" : p.status}
+                          </Badge>,
+                          formatDate(p.created_at),
+                        ],
+                      }))}
+                    />
+                  )}
+                </div>
+              )}
               {tab === "quotes" && (
-                allQuotes.length > 0 ? (
+                (allQuotes.length + (projects ?? []).length) > 0 ? (
                   <RecordTable
-                    head={["Quote", "Plan", "Seats", "Amount", "Status", "Created"]}
-                    rows={allQuotes.map((q) => ({
-                      onClick: () => router.push(`/quotes/${q.id}` as any),
-                      cells: [
-                        <span key="id" className="font-mono text-xs">{q.id}</span>,
-                        q.plan ?? "—",
-                        <span key="s" className="tabular-nums">{q.seats ?? "—"}</span>,
-                        <span key="a" className="tabular-nums font-medium">{rupee(q.amount)}</span>,
-                        <Badge key="b" kind="info" dot>{q.status}</Badge>,
-                        formatDate(q.created_date),
-                      ],
-                    }))}
+                    head={["Quote / Project", "Type", "Amount", "Status", "Created"]}
+                    rows={[
+                      ...allQuotes.map((q) => ({
+                        onClick: () => router.push(`/quotes/${q.id}` as any),
+                        cells: [
+                          <span key="id" className="font-mono text-xs">{q.id}</span>,
+                          "Subscription",
+                          <span key="a" className="tabular-nums font-medium">{rupee(q.amount)}</span>,
+                          <Badge key="b" kind="info" dot>{q.status}</Badge>,
+                          formatDate(q.created_date),
+                        ],
+                      })),
+                      ...(projects ?? []).map((p) => ({
+                        onClick: () => router.push(`/projects/${p.id}` as any),
+                        cells: [
+                          <span key="t" className="font-medium">{p.title}</span>,
+                          "Project",
+                          <span key="a" className="tabular-nums font-medium">{rupee(p.total_amount)}</span>,
+                          <Badge key="b" kind={p.status === "completed" ? "success" : p.status === "cancelled" ? "muted" : p.status === "quoted" ? "info" : "warning"} dot>
+                            {p.status === "quoted" ? "Quotation" : p.status}
+                          </Badge>,
+                          formatDate(p.created_at),
+                        ],
+                      })),
+                    ]}
                   />
                 ) : <EmptyState icon="file" title="No quotes yet" body="Create the first quote for this customer." compact
                       action={<Button variant="primary" icon="plus" onClick={() => router.push(`/quotes/new?customer=${c.id}` as any)}>New quote</Button>} />
-              )}
-              {tab === "projects" && (
-                (projects ?? []).length > 0 ? (
-                  <RecordTable
-                    head={["Project", "Total (incl GST)", "Outstanding", "Status", "Created"]}
-                    rows={(projects ?? []).map((p) => ({
-                      onClick: () => router.push(`/projects/${p.id}` as any),
-                      cells: [
-                        <span key="t" className="font-medium">{p.title}</span>,
-                        <span key="tot" className="tabular-nums font-medium">{rupee(p.total_amount)}</span>,
-                        <span key="out" className={`tabular-nums ${p.receivable > 0 ? "text-rose" : "text-emerald"}`}>{rupee(p.receivable)}</span>,
-                        <Badge key="b" kind={p.status === "completed" ? "success" : p.status === "cancelled" ? "muted" : p.status === "quoted" ? "info" : "warning"} dot>
-                          {p.status === "quoted" ? "Quotation" : p.status}
-                        </Badge>,
-                        formatDate(p.created_at),
-                      ],
-                    }))}
-                  />
-                ) : <EmptyState icon="package" title="No projects yet" body="One-time / custom software deals for this customer show here." compact
-                      action={<Button variant="primary" icon="file" onClick={() => router.push(`/projects` as any)}>Project Sales</Button>} />
               )}
               {tab === "invoices" && (
                 allInvoices.length > 0 ? (

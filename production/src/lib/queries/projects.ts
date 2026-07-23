@@ -127,6 +127,31 @@ export function useCreateProjectSale() {
   });
 }
 
+// ── Payments recorded against a given invoice (project invoices) ─────────────
+// A project invoice has no parent quote, so the normal quote→payments lookup
+// finds nothing. Its receipts live in project_payments, linked via the
+// milestone that carries this invoice_id.
+export function useProjectPaymentsByInvoice(invoiceId: string | null | undefined) {
+  return useQuery({
+    queryKey: ["project_payments", "by_invoice", invoiceId],
+    enabled:  Boolean(invoiceId),
+    queryFn: async (): Promise<ProjectPaymentRow[]> => {
+      if (!invoiceId) return [];
+      const supabase = createClient();
+      const { data: ms, error: e1 } = await supabase
+        .from("project_milestones").select("id").eq("invoice_id", invoiceId);
+      if (e1) throw e1;
+      const ids = (ms ?? []).map((m) => m.id);
+      if (ids.length === 0) return [];
+      const { data, error } = await supabase
+        .from("project_payments").select("*").in("milestone_id", ids)
+        .order("received_at", { ascending: false });
+      if (error) throw error;
+      return (data ?? []) as ProjectPaymentRow[];
+    },
+  });
+}
+
 // ── Raise a milestone's Tax Invoice ───────────────────────────────────────────
 export function useRaiseMilestoneInvoice() {
   const qc = useQueryClient();

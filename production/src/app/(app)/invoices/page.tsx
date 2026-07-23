@@ -17,6 +17,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useInvoices, useQuotesAwaitingInvoice, useGenerateInvoice } from "@/lib/queries/invoices";
 import { useQuoteByInvoiceId } from "@/lib/queries/quotes";
 import { usePaymentsByQuote } from "@/lib/queries/payments";
+import { useProjectPaymentsByInvoice } from "@/lib/queries/projects";
 import { useCustomer } from "@/lib/queries/customers";
 import { useCurrentUser } from "@/lib/hooks/useCurrentUser";
 import { TaxInvoiceDialog } from "@/components/features/quotes/tax-invoice-dialog";
@@ -741,6 +742,8 @@ function InvoicePreviewContainer({
 function InvoicePaymentsAccordion({ inv }: { inv: Invoice }) {
   const { data: quote } = useQuoteByInvoiceId(inv.id);
   const { data: payments, isLoading } = usePaymentsByQuote(quote?.id);
+  // Project invoices have no parent quote — their receipts live in project_payments.
+  const { data: projPays, isLoading: projLoading } = useProjectPaymentsByInvoice(inv.id);
   const { data: customer } = useCustomer(inv.customer_id ?? undefined);
   const { data: me } = useCurrentUser();
   const [receiptPayment, setReceiptPayment] = React.useState<Payment | null>(null);
@@ -748,7 +751,34 @@ function InvoicePaymentsAccordion({ inv }: { inv: Invoice }) {
   const received = (payments ?? []).filter((p) => p.status === "received");
   const interState = isInterStateSupply(customer?.state_code, me?.tenantStateCode);
 
-  if (isLoading) return <div className="text-xs text-ink-3 italic">Loading receipts…</div>;
+  if (isLoading || projLoading) return <div className="text-xs text-ink-3 italic">Loading receipts…</div>;
+
+  // Project-sale invoice: render its project payments as the receipts.
+  if (received.length === 0 && (projPays?.length ?? 0) > 0) {
+    return (
+      <div>
+        <div className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold mb-2">
+          Payment receipts ({projPays!.length})
+        </div>
+        <ul className="space-y-1.5">
+          {projPays!.map((p) => (
+            <li key={p.id} className="flex items-center justify-between gap-3 rounded-md border border-hairline bg-paper px-3 py-2">
+              <span className="flex items-center gap-2 min-w-0">
+                <Icon name="receipt" size={14} className="text-amber-ink shrink-0" />
+                <span className="text-xs text-ink capitalize">{p.method ?? "Payment"}{p.reference ? ` · ${p.reference}` : ""}</span>
+                {p.bank_txn_id && <span className="text-[10px] text-emerald">· bank-reconciled</span>}
+              </span>
+              <span className="flex items-center gap-3 shrink-0">
+                <span className="tabular-nums text-sm font-medium text-ink">{rupee(p.amount)}</span>
+                <span className="text-[11px] text-ink-3">{formatDate(p.received_at)}</span>
+              </span>
+            </li>
+          ))}
+        </ul>
+      </div>
+    );
+  }
+
   if (received.length === 0) {
     return <div className="text-xs text-ink-3">No payment receipts recorded for this invoice yet.</div>;
   }

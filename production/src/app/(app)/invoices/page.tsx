@@ -586,7 +586,15 @@ function InvoiceRow({
           <Badge kind={isProject ? "info" : "muted"} size="sm">{isProject ? "Project" : "Subscription"}</Badge>
         </span>
       </td>
-      <td className="p-3 text-sm font-medium">{inv.customer_name}</td>
+      <td className="p-3 text-sm font-medium">
+        {inv.customer_id ? (
+          <Link href={`/customers/${inv.customer_id}` as never} className="text-ink hover:text-amber-ink hover:underline">
+            {inv.customer_name}
+          </Link>
+        ) : (
+          inv.customer_name
+        )}
+      </td>
       <td className="p-3 text-sm text-ink-2">{formatDate(inv.invoice_date)}</td>
       <td className="p-3 text-sm text-ink-2">{inv.due_date ? formatDate(inv.due_date) : "—"}</td>
       <td className="p-3 text-right">

@@ -23,7 +23,7 @@ import type { QuoteLineItem } from "@/lib/supabase/database.types";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Avatar } from "@/components/ui/avatar";
-import { type TabBarItem } from "@/components/ui/tabs";
+import { TabBar, type TabBarItem } from "@/components/ui/tabs";
 import {
   Select,
   SelectContent,
@@ -139,6 +139,7 @@ export default function QuotesPage() {
   const deleteQuote = useDeleteQuote();
   const [tab, setTab] = React.useState("all");
   const [search, setSearch] = React.useState("");
+  const [view, setView] = React.useState<"subscription" | "project">("subscription");
   const [previewing, setPreviewing] = React.useState<Quote | null>(null);
 
   const handleDelete = (q: Quote) => {
@@ -257,6 +258,63 @@ export default function QuotesPage() {
           </Button>
         </div>
       </div>
+
+      {/* Subscription vs Project quotes toggle */}
+      <div className="mb-4">
+        <TabBar
+          value={view}
+          onChange={(v) => setView(v as "subscription" | "project")}
+          items={[
+            { id: "subscription", label: "Subscription", count: quotes?.length || undefined },
+            { id: "project",      label: "Project",      count: projectQuotes?.length || undefined },
+          ]}
+        />
+      </div>
+
+      {/* ─── PROJECT quotes view ─── */}
+      {view === "project" && (
+        (projectQuotes?.length ?? 0) > 0 ? (
+          <Card flush>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm min-w-[620px]">
+                <thead className="bg-paper-2 border-b border-hairline text-[10px] uppercase tracking-wider text-ink-3">
+                  <tr>
+                    <th className="text-left px-4 py-2.5">Customer / Project</th>
+                    <th className="text-left px-3 py-2.5">Type</th>
+                    <th className="text-right px-3 py-2.5">Amount (incl GST)</th>
+                    <th className="text-right px-3 py-2.5">Outstanding</th>
+                    <th className="text-left px-4 py-2.5">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-hairline">
+                  {(projectQuotes ?? []).map((p) => (
+                    <tr key={p.id} className="hover:bg-paper-2/40 cursor-pointer" onClick={() => router.push(`/projects/${p.id}` as never)}>
+                      <td className="px-4 py-3">
+                        <span className="font-medium text-ink">{p.customer_name}</span>
+                        <span className="text-ink-3"> · {p.title}</span>
+                      </td>
+                      <td className="px-3 py-3"><Badge kind="info" size="sm">Project</Badge></td>
+                      <td className="px-3 py-3 text-right tabular-nums font-medium text-ink">{rupee(p.total_amount)}</td>
+                      <td className="px-3 py-3 text-right tabular-nums"><span className={p.receivable > 0 ? "text-rose" : "text-emerald"}>{rupee(p.receivable)}</span></td>
+                      <td className="px-4 py-3">
+                        <Badge kind={p.status === "completed" ? "success" : p.status === "cancelled" ? "muted" : p.status === "quoted" ? "info" : "warning"} size="sm" dot>
+                          {p.status === "quoted" ? "Quotation" : p.status}
+                        </Badge>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+        ) : (
+          <EmptyState icon="package" title="No project quotations yet"
+            body="One-time / custom-software project quotes show here. Create one from Project Sales → New quotation."
+            action={<Button variant="primary" icon="file" onClick={() => router.push("/projects" as never)}>Project Sales</Button>} />
+        )
+      )}
+
+      {view === "subscription" && (<>
 
       {/* Compact metric strip (replaces the big KPI-card grid) */}
       {!isLoading && quotes && (
@@ -699,52 +757,7 @@ export default function QuotesPage() {
         </div>
       )}
 
-      {/* Project quotations — one-time / custom-software deals live in their own
-          module (project_sales); surfaced here too so all "quotes" are in one place. */}
-      {(projectQuotes?.length ?? 0) > 0 && (
-        <Card flush className="mt-4">
-          <div className="px-4 py-3 border-b border-hairline flex items-center gap-2">
-            <Icon name="package" size={15} className="text-ink-3" />
-            <h2 className="text-sm font-semibold text-ink">Project quotations</h2>
-            <span className="text-[11px] text-ink-3">· one-time / custom software</span>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm min-w-[620px]">
-              <thead className="bg-paper-2/50 text-[10px] uppercase tracking-wider text-ink-3">
-                <tr>
-                  <th className="text-left px-4 py-2">Customer / Project</th>
-                  <th className="text-left px-3 py-2">Type</th>
-                  <th className="text-right px-3 py-2">Amount (incl GST)</th>
-                  <th className="text-right px-3 py-2">Outstanding</th>
-                  <th className="text-left px-4 py-2">Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-hairline">
-                {(projectQuotes ?? []).map((p) => (
-                  <tr
-                    key={p.id}
-                    className="hover:bg-paper-2/40 cursor-pointer"
-                    onClick={() => router.push(`/projects/${p.id}` as never)}
-                  >
-                    <td className="px-4 py-2.5">
-                      <span className="font-medium text-ink">{p.customer_name}</span>
-                      <span className="text-ink-3"> · {p.title}</span>
-                    </td>
-                    <td className="px-3 py-2.5"><Badge kind="info" size="sm">Project</Badge></td>
-                    <td className="px-3 py-2.5 text-right tabular-nums font-medium text-ink">{rupee(p.total_amount)}</td>
-                    <td className="px-3 py-2.5 text-right tabular-nums"><span className={p.receivable > 0 ? "text-rose" : "text-emerald"}>{rupee(p.receivable)}</span></td>
-                    <td className="px-4 py-2.5">
-                      <Badge kind={p.status === "completed" ? "success" : p.status === "cancelled" ? "muted" : p.status === "quoted" ? "info" : "warning"} size="sm" dot>
-                        {p.status === "quoted" ? "Quotation" : p.status}
-                      </Badge>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </Card>
-      )}
+      </>)}
 
       {/* Quick preview dialog (driven by the row's eye/file icon button).
           Rendered via a small fetching container so it can load the customer's

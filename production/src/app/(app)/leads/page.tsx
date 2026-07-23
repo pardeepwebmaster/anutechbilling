@@ -2010,7 +2010,9 @@ function RowActions({
               const url  = `${window.location.origin}/enquiry`;
               const text = `Hi${lead.contact_name ? ` ${lead.contact_name}` : ""}, please share your requirement so we can send you a quote: ${url}`;
               if (hasPhone) {
-                window.open(`https://wa.me/${waNumber}?text=${encodeURIComponent(text)}`, "_blank", "noopener");
+                // Device-aware: opens THIS number's chat with the link pre-filled
+                // (desktop → WhatsApp Web /send?phone=…&text=…), not the picker.
+                openWhatsApp(waNumber, text);
               } else if (hasEmail) {
                 window.location.href = `mailto:${encodeURIComponent(lead.contact_email ?? "")}?subject=${encodeURIComponent("Share your requirement")}&body=${encodeURIComponent(text)}`;
               }

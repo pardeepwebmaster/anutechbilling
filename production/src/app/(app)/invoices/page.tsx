@@ -17,7 +17,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useInvoices, useQuotesAwaitingInvoice, useGenerateInvoice } from "@/lib/queries/invoices";
 import { useQuoteByInvoiceId } from "@/lib/queries/quotes";
 import { usePaymentsByQuote } from "@/lib/queries/payments";
-import { useProjectPaymentsByInvoice } from "@/lib/queries/projects";
+import { useProjectPaymentsByInvoice, useProjectInvoiceIds } from "@/lib/queries/projects";
 import { useCustomer } from "@/lib/queries/customers";
 import { useCurrentUser } from "@/lib/hooks/useCurrentUser";
 import { TaxInvoiceDialog } from "@/components/features/quotes/tax-invoice-dialog";
@@ -45,6 +45,7 @@ function InvoicesPageInner() {
   const openInvoiceId = searchParams.get("open");
 
   const { data: invoices, isLoading, error, refetch } = useInvoices();
+  const { data: projectInvoiceIds } = useProjectInvoiceIds();
   const { data: pending } = useQuotesAwaitingInvoice();
   const generateInvoice = useGenerateInvoice();
   const [tab, setTab] = React.useState("all");
@@ -517,6 +518,7 @@ function InvoicesPageInner() {
                   checked={selected.has(inv.id)}
                   onToggle={() => toggleOne(inv.id)}
                   autoOpen={inv.id === openInvoiceId}
+                  isProject={projectInvoiceIds?.has(inv.id) ?? false}
                 />
               ))}
             </tbody>
@@ -550,6 +552,7 @@ function InvoiceRow({
   checked,
   onToggle,
   autoOpen = false,
+  isProject = false,
 }: {
   inv: Invoice;
   checked: boolean;
@@ -557,6 +560,8 @@ function InvoiceRow({
   /** When true (set by `?open=INV-XX` deep link), opens the preview dialog
    *  immediately. Fires once via a ref guard so re-renders don't re-open. */
   autoOpen?: boolean;
+  /** Invoice came from a project milestone (vs a subscription quote). */
+  isProject?: boolean;
 }) {
   const [previewOpen, setPreviewOpen] = React.useState(false);
   const [expanded, setExpanded] = React.useState(false);
@@ -575,7 +580,12 @@ function InvoiceRow({
       <td className="p-3">
         <Checkbox checked={checked} onCheckedChange={onToggle} />
       </td>
-      <td className="p-3 font-mono text-xs font-semibold">{inv.id}</td>
+      <td className="p-3 font-mono text-xs font-semibold">
+        {inv.id}
+        <span className="block mt-1">
+          <Badge kind={isProject ? "info" : "muted"} size="sm">{isProject ? "Project" : "Subscription"}</Badge>
+        </span>
+      </td>
       <td className="p-3 text-sm font-medium">{inv.customer_name}</td>
       <td className="p-3 text-sm text-ink-2">{formatDate(inv.invoice_date)}</td>
       <td className="p-3 text-sm text-ink-2">{inv.due_date ? formatDate(inv.due_date) : "—"}</td>

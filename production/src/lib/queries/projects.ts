@@ -63,6 +63,49 @@ export function useProjectSales() {
   });
 }
 
+// ── All project payments for the tenant (for the Payments dashboard) ──────────
+export type ProjectPaymentListRow = ProjectPaymentRow & { project_title: string; customer_name: string };
+export function useAllProjectPayments() {
+  return useQuery({
+    queryKey: ["project_payments", "all"],
+    queryFn: async (): Promise<ProjectPaymentListRow[]> => {
+      const supabase = createClient();
+      const { data: pays, error } = await supabase
+        .from("project_payments").select("*").order("received_at", { ascending: false });
+      if (error) throw error;
+      const rows = (pays ?? []) as ProjectPaymentRow[];
+      const ids = [...new Set(rows.map((p) => p.project_id))];
+      const titleBy = new Map<string, { title: string; customer: string }>();
+      if (ids.length > 0) {
+        const { data: projs } = await supabase
+          .from("project_sales").select("id, title, customer_name").in("id", ids);
+        for (const p of projs ?? []) titleBy.set(p.id, { title: p.title, customer: p.customer_name });
+      }
+      return rows.map((p) => ({
+        ...p,
+        project_title: titleBy.get(p.project_id)?.title ?? "Project",
+        customer_name: titleBy.get(p.project_id)?.customer ?? "—",
+      }));
+    },
+    staleTime: 30_000,
+  });
+}
+
+// ── Which invoice ids came from a project milestone (vs a subscription quote) ─
+export function useProjectInvoiceIds() {
+  return useQuery({
+    queryKey: ["project_milestones", "invoice_ids"],
+    queryFn: async (): Promise<Set<string>> => {
+      const supabase = createClient();
+      const { data, error } = await supabase
+        .from("project_milestones").select("invoice_id").not("invoice_id", "is", null);
+      if (error) throw error;
+      return new Set((data ?? []).map((m) => m.invoice_id as string));
+    },
+    staleTime: 30_000,
+  });
+}
+
 // ── A customer's project sales (for the customer 360 page) ────────────────────
 export function useCustomerProjects(customerId: string | null | undefined) {
   return useQuery({

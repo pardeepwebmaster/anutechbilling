@@ -19,6 +19,7 @@ import {
   type OutstandingRow,
 } from "@/lib/queries/payments";
 import { useQuotes } from "@/lib/queries/quotes";
+import { useAllProjectPayments } from "@/lib/queries/projects";
 import { useCustomers } from "@/lib/queries/customers";
 import { useBankAccounts } from "@/lib/queries/bank";
 import { useCurrentUser } from "@/lib/hooks/useCurrentUser";
@@ -58,6 +59,7 @@ export default function PaymentsPage() {
   const [editPayment, setEditPayment] = React.useState<Payment | null>(null);
 
   const { data: payments, isLoading, error, refetch } = usePayments();
+  const { data: projectPayments } = useAllProjectPayments();
   const { data: quotes } = useQuotes();
   const { data: outstanding } = useOutstandingReceivables();
   const { data: customers } = useCustomers();
@@ -114,9 +116,11 @@ export default function PaymentsPage() {
   for (const p of payments ?? []) counts[p.status] = (counts[p.status] ?? 0) + 1;
   const tabsWithCounts = STATUS_TABS.map((t) => ({ ...t, count: counts[t.id] ?? 0 }));
 
-  // KPIs
+  // KPIs — include project-sale payments so "collected" is ALL money in.
   const allReceived = (payments ?? []).filter((p) => p.status === "received");
-  const totalCollected = allReceived.reduce((s, p) => s + p.amount, 0);
+  const projPays = projectPayments ?? [];
+  const projCollected = projPays.reduce((s, p) => s + p.amount, 0);
+  const totalCollected = allReceived.reduce((s, p) => s + p.amount, 0) + projCollected;
 
   // Awaiting-invoice: quotes with payment_status = 'received' (fully paid, no invoice yet)
   const awaitingInvoiceQuotes = (quotes ?? []).filter((q) => q.payment_status === "received");
@@ -126,9 +130,9 @@ export default function PaymentsPage() {
   const partialQuotes = (quotes ?? []).filter((q) => q.payment_status === "partial");
 
   const mtdStart = new Date(); mtdStart.setDate(1);
-  const mtdCollected = allReceived
-    .filter((p) => new Date(p.received_at) >= mtdStart)
-    .reduce((s, p) => s + p.amount, 0);
+  const mtdCollected =
+    allReceived.filter((p) => new Date(p.received_at) >= mtdStart).reduce((s, p) => s + p.amount, 0) +
+    projPays.filter((p) => new Date(p.received_at) >= mtdStart).reduce((s, p) => s + p.amount, 0);
 
   // Method breakdown
   const methodBreakdown: Record<string, number> = {};
@@ -327,7 +331,7 @@ export default function PaymentsPage() {
       )}
 
       {/* Empty */}
-      {!isLoading && !error && payments && payments.length === 0 && (
+      {!isLoading && !error && payments && payments.length === 0 && projPays.length === 0 && (
         <EmptyState
           icon="rupee"
           title="No payments yet"
@@ -450,6 +454,44 @@ export default function PaymentsPage() {
           <Icon name="info" size={11} />
           A quote can have multiple payments (installments). Open the quote to see its full payment history.
         </div>
+      )}
+
+      {/* Project-sale payments — separate source (linked to a project, not a quote) */}
+      {projPays.length > 0 && (
+        <Card flush className="mt-4">
+          <div className="px-4 py-3 border-b border-hairline flex items-center gap-2">
+            <Icon name="package" size={15} className="text-ink-3" />
+            <h2 className="text-sm font-semibold text-ink">Project payments</h2>
+            <span className="text-[11px] text-ink-3">· {rupee(projCollected)} collected</span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm min-w-[560px]">
+              <thead className="bg-paper-2/50 text-[10px] uppercase tracking-wider text-ink-3">
+                <tr>
+                  <th className="text-left px-4 py-2">Customer / Project</th>
+                  <th className="text-left px-3 py-2">Method</th>
+                  <th className="text-right px-3 py-2">Amount</th>
+                  <th className="text-left px-4 py-2">Date</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-hairline">
+                {projPays.map((p) => (
+                  <tr key={p.id} className="hover:bg-paper-2/40">
+                    <td className="px-4 py-2.5">
+                      <Link href={`/projects/${p.project_id}` as never} className="hover:underline">
+                        <span className="font-medium text-ink">{p.customer_name}</span>
+                        <span className="text-ink-3"> · {p.project_title}</span>
+                      </Link>
+                    </td>
+                    <td className="px-3 py-2.5 text-ink-2 capitalize">{(p.method ?? "—").replace("_", " ")}{p.bank_txn_id ? " · reconciled" : ""}</td>
+                    <td className="px-3 py-2.5 text-right tabular-nums font-medium text-ink">{rupee(p.amount)}</td>
+                    <td className="px-4 py-2.5 text-ink-2">{formatDate(p.received_at)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
       )}
 
       {/* Edit payment details (safe fields only — amount stays locked) */}

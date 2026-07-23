@@ -19,6 +19,7 @@ import {
   useExpenses,
   useExpensesTotals,
   useDeleteExpense,
+  type Expense,
 } from "@/lib/queries/expenses";
 import { AddExpenseDialog } from "@/components/features/accounting/add-expense-dialog";
 
@@ -35,6 +36,7 @@ export default function ExpensesPage() {
   const [range, setRange]     = React.useState(thisMonthRange());
   const [catFilter, setCatFilter] = React.useState("");
   const [addOpen, setAddOpen] = React.useState(false);
+  const [editing, setEditing] = React.useState<Expense | null>(null);
 
   const q       = useExpenses({ from: range.from, to: range.to, category: catFilter || undefined });
   const totalsQ = useExpensesTotals(range);
@@ -147,10 +149,16 @@ export default function ExpensesPage() {
                     <td className="px-3 py-3 text-ink-3 text-xs whitespace-nowrap">{e.payment_method ?? "—"}</td>
                     <td className="px-3 py-3 text-right text-emerald font-mono whitespace-nowrap">{e.gst_paid > 0 ? rupee(e.gst_paid) : "—"}</td>
                     <td className="px-3 py-3 text-right font-semibold text-ink font-mono whitespace-nowrap">{rupee(e.amount)}</td>
-                    <td className="px-3 py-3 text-right">
+                    <td className="px-3 py-3 text-right whitespace-nowrap">
+                      <IconButton
+                        icon="edit"
+                        aria-label="Edit expense"
+                        onClick={() => setEditing(e)}
+                      />
                       <IconButton
                         icon="trash"
                         aria-label="Delete expense"
+                        className="ml-1"
                         onClick={() => {
                           if (confirm(`Delete this expense?`)) del.mutate(e.id);
                         }}
@@ -180,14 +188,16 @@ export default function ExpensesPage() {
                     {e.gst_paid > 0 && (
                       <span className="text-[11px] text-emerald">+{rupee(e.gst_paid)} input GST</span>
                     )}
-                    <IconButton
-                      icon="trash"
-                      aria-label="Delete expense"
-                      className="ml-auto"
-                      onClick={() => {
-                        if (confirm(`Delete this expense?`)) del.mutate(e.id);
-                      }}
-                    />
+                    <div className="ml-auto flex items-center gap-1">
+                      <IconButton icon="edit" aria-label="Edit expense" onClick={() => setEditing(e)} />
+                      <IconButton
+                        icon="trash"
+                        aria-label="Delete expense"
+                        onClick={() => {
+                          if (confirm(`Delete this expense?`)) del.mutate(e.id);
+                        }}
+                      />
+                    </div>
                   </div>
                 </Card>
               </li>
@@ -198,6 +208,7 @@ export default function ExpensesPage() {
 
       <FAB icon="plus" label="Expense" onClick={() => setAddOpen(true)} ariaLabel="Add Expense" />
       {addOpen && <AddExpenseDialog onClose={() => setAddOpen(false)} />}
+      {editing && <AddExpenseDialog expense={editing} onClose={() => setEditing(null)} />}
     </div>
   );
 }

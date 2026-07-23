@@ -288,10 +288,15 @@ export default function QuotesPage() {
                 </thead>
                 <tbody className="divide-y divide-hairline">
                   {(projectQuotes ?? []).map((p) => (
-                    <tr key={p.id} className="hover:bg-paper-2/40 cursor-pointer" onClick={() => router.push(`/projects/${p.id}` as never)}>
+                    <tr key={p.id} className="hover:bg-paper-2/40">
                       <td className="px-4 py-3">
-                        <span className="font-medium text-ink">{p.customer_name}</span>
-                        <span className="text-ink-3"> · {p.title}</span>
+                        {p.customer_id ? (
+                          <Link href={`/customers/${p.customer_id}` as never} className="font-medium text-ink hover:text-amber-ink hover:underline">{p.customer_name}</Link>
+                        ) : (
+                          <span className="font-medium text-ink">{p.customer_name}</span>
+                        )}
+                        <span className="text-ink-3"> · </span>
+                        <Link href={`/projects/${p.id}` as never} className="text-ink-2 hover:text-amber-ink hover:underline">{p.title}</Link>
                       </td>
                       <td className="px-3 py-3"><Badge kind="info" size="sm">Project</Badge></td>
                       <td className="px-3 py-3 text-right tabular-nums font-medium text-ink">{rupee(p.total_amount)}</td>

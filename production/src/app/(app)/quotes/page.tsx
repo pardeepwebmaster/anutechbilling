@@ -9,6 +9,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { useQuotes, useDeleteQuote, quoteDeleteBlockReason } from "@/lib/queries/quotes";
 import { useProjectSales } from "@/lib/queries/projects";
+import { CreateProjectQuoteDialog } from "@/components/features/projects/create-project-quote-dialog";
 import { useCustomer } from "@/lib/queries/customers";
 import { useCurrentUser } from "@/lib/hooks/useCurrentUser";
 import { isInterStateSupply } from "@/lib/gst/place-of-supply";
@@ -140,6 +141,7 @@ export default function QuotesPage() {
   const [tab, setTab] = React.useState("all");
   const [search, setSearch] = React.useState("");
   const [view, setView] = React.useState<"subscription" | "project">("subscription");
+  const [projectQuoteOpen, setProjectQuoteOpen] = React.useState(false);
   const [previewing, setPreviewing] = React.useState<Quote | null>(null);
 
   const handleDelete = (q: Quote) => {
@@ -253,9 +255,15 @@ export default function QuotesPage() {
         </div>
         <div className="flex gap-2 flex-wrap">
           <Button icon="download">Export</Button>
-          <Button asChild variant="primary" icon="plus">
-            <Link href={"/quotes/new" as any}>New Quote</Link>
-          </Button>
+          {view === "project" ? (
+            <Button variant="primary" icon="plus" onClick={() => setProjectQuoteOpen(true)}>
+              New Quote
+            </Button>
+          ) : (
+            <Button asChild variant="primary" icon="plus">
+              <Link href={"/quotes/new" as any}>New Quote</Link>
+            </Button>
+          )}
         </div>
       </div>
 
@@ -775,8 +783,14 @@ export default function QuotesPage() {
         />
       )}
 
-      {/* Mobile FAB — primary action in the thumb zone */}
-      <FAB icon="plus" label="New quote" href="/quotes/new" />
+      {/* Mobile FAB — primary action in the thumb zone (view-aware) */}
+      {view === "project" ? (
+        <FAB icon="plus" label="New quote" onClick={() => setProjectQuoteOpen(true)} />
+      ) : (
+        <FAB icon="plus" label="New quote" href="/quotes/new" />
+      )}
+
+      <CreateProjectQuoteDialog open={projectQuoteOpen} onOpenChange={setProjectQuoteOpen} />
     </div>
   );
 }

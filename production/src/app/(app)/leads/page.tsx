@@ -2008,13 +2008,18 @@ function RowActions({
             className={itemCls}
             onClick={() => {
               const url  = `${window.location.origin}/enquiry`;
-              const text = `Hi${lead.contact_name ? ` ${lead.contact_name}` : ""}, please share your requirement so we can send you a quote: ${url}`;
+              const hi   = lead.contact_name ? `Hi ${lead.contact_name},` : "Hello,";
+              const text =
+                `${hi}\n\n` +
+                `Thanks for your interest. To prepare an accurate quote, please fill this short 1-minute form with your requirement (product, number of users, and any notes):\n\n` +
+                `${url}\n\n` +
+                `Once you submit it, we'll review and send you a price quote with GST. Thank you!`;
               if (hasPhone) {
                 // wa.me/<number>?text= reliably opens THIS number's chat (desktop
                 // app OR web) with the link pre-filled — not the "new chat" picker.
                 window.open(`https://wa.me/${waNumber}?text=${encodeURIComponent(text)}`, "_blank", "noopener");
               } else if (hasEmail) {
-                window.location.href = `mailto:${encodeURIComponent(lead.contact_email ?? "")}?subject=${encodeURIComponent("Share your requirement")}&body=${encodeURIComponent(text)}`;
+                window.location.href = `mailto:${encodeURIComponent(lead.contact_email ?? "")}?subject=${encodeURIComponent("Please share your requirement for a quote")}&body=${encodeURIComponent(text)}`;
               }
               logActivity.mutate({ leadId: lead.id, kind: "email", detail: "Sent enquiry form link" });
             }}

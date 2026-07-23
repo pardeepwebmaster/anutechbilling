@@ -164,6 +164,32 @@ export function useGenerateInvoice() {
   });
 }
 
+/**
+ * Delete a PROJECT invoice + everything tied to it (payments, bank reconcile,
+ * milestone reset, number roll-back) atomically via delete_project_invoice.
+ * Only valid for project-milestone invoices.
+ */
+export function useDeleteProjectInvoice() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (invoiceId: string) => {
+      const supabase = createClient();
+      const { error } = await supabase.rpc("delete_project_invoice", { p_invoice_id: invoiceId });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["invoices"] });
+      qc.invalidateQueries({ queryKey: ["project_sales"] });
+      qc.invalidateQueries({ queryKey: ["project_payments"] });
+      qc.invalidateQueries({ queryKey: ["project_milestones"] });
+      qc.invalidateQueries({ queryKey: ["bank_transactions"] });
+      qc.invalidateQueries({ queryKey: ["nav-badges"] });
+      toast.success("Project invoice deleted — payment reversed, milestone re-opened");
+    },
+    onError: (err) => toast.error((err as Error).message),
+  });
+}
+
 export function useCustomerQuotes(customerId: string | undefined) {
   return useQuery({
     queryKey: ["quotes", "customer", customerId],

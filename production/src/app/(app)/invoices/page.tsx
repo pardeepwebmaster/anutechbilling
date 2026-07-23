@@ -14,7 +14,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useInvoices, useQuotesAwaitingInvoice, useGenerateInvoice } from "@/lib/queries/invoices";
+import { useInvoices, useQuotesAwaitingInvoice, useGenerateInvoice, useDeleteProjectInvoice } from "@/lib/queries/invoices";
 import { useQuoteByInvoiceId } from "@/lib/queries/quotes";
 import { usePaymentsByQuote } from "@/lib/queries/payments";
 import { useProjectPaymentsByInvoice, useProjectInvoiceIds } from "@/lib/queries/projects";
@@ -585,6 +585,7 @@ function InvoiceRow({
   isProject?: boolean;
 }) {
   const [previewOpen, setPreviewOpen] = React.useState(false);
+  const delProjectInvoice = useDeleteProjectInvoice();
   const [expanded, setExpanded] = React.useState(false);
   const autoOpenFired = React.useRef(false);
 
@@ -685,6 +686,27 @@ function InvoiceRow({
           )}
           {inv.status === "draft" && (
             <Button size="sm" variant="primary" icon="send">Send</Button>
+          )}
+          {/* Project invoices can be deleted (reverses payment + re-opens milestone). */}
+          {isProject && (
+            <Button
+              size="sm" variant="ghost" icon="trash"
+              loading={delProjectInvoice.isPending}
+              onClick={() => {
+                if (confirm(
+                  `Delete ${inv.id}?\n\n` +
+                  `This will also:\n` +
+                  `• delete the payment(s) recorded against it\n` +
+                  `• un-reconcile the matched bank line\n` +
+                  `• re-open the milestone as unbilled\n\n` +
+                  `This cannot be undone.`,
+                )) {
+                  delProjectInvoice.mutate(inv.id);
+                }
+              }}
+            >
+              Delete
+            </Button>
           )}
         </div>
         {previewOpen && (

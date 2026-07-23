@@ -2432,6 +2432,10 @@ export type Database = {
         Args: { p_project_id: string };
         Returns: string;
       };
+      delete_project_invoice: {
+        Args: { p_invoice_id: string };
+        Returns: undefined;
+      };
       disburse_employee_loan: {
         Args: {
           p_employee_name:   string;

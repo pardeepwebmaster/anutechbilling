@@ -12,7 +12,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 
 import { useCustomer, useDeleteCustomer, customerDeleteBlockReason } from "@/lib/queries/customers";
@@ -46,9 +46,22 @@ export default function CustomerDetailPage() {
   const { data: invoices } = useCustomerInvoices(params.id);
   const { data: quotes }   = useCustomerQuotes(params.id);
 
+  const searchParams = useSearchParams();
   const [tab, setTab] = React.useState("activity");
   const [editOpen, setEditOpen] = React.useState(false);
   const deleteCustomer = useDeleteCustomer();
+
+  // Deep-link: /customers/[id]?edit=1 opens the edit form straight away
+  // (used by the "Complete customer" nudge on a project with missing GST info).
+  const editParamHandled = React.useRef(false);
+  React.useEffect(() => {
+    if (editParamHandled.current) return;
+    if (searchParams.get("edit") === "1") {
+      editParamHandled.current = true;
+      setEditOpen(true);
+      router.replace(`/customers/${params.id}` as never);
+    }
+  }, [searchParams, router, params.id]);
 
   if (isLoading) {
     return (

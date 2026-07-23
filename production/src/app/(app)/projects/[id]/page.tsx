@@ -174,7 +174,7 @@ export default function ProjectDetailPage() {
                 </p>
               </div>
             </div>
-            <Link href={`/customers/${customer.id}` as Route}>
+            <Link href={`/customers/${customer.id}?edit=1` as Route}>
               <Button size="sm" variant="outline" icon="edit">Complete customer</Button>
             </Link>
           </div>

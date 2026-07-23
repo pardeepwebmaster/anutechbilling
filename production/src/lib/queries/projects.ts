@@ -63,6 +63,32 @@ export function useProjectSales() {
   });
 }
 
+// ── A customer's project sales (for the customer 360 page) ────────────────────
+export function useCustomerProjects(customerId: string | null | undefined) {
+  return useQuery({
+    queryKey: ["project_sales", "by_customer", customerId],
+    enabled:  Boolean(customerId),
+    queryFn: async (): Promise<ProjectSaleWithTotals[]> => {
+      if (!customerId) return [];
+      const supabase = createClient();
+      const { data: projects, error } = await supabase
+        .from("project_sales").select("*").eq("customer_id", customerId)
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      const ids = (projects ?? []).map((p) => p.id);
+      const paidBy = new Map<string, number>();
+      if (ids.length > 0) {
+        const { data: pays } = await supabase.from("project_payments").select("project_id, amount").in("project_id", ids);
+        for (const p of pays ?? []) paidBy.set(p.project_id, (paidBy.get(p.project_id) ?? 0) + (p.amount ?? 0));
+      }
+      return (projects ?? []).map((pr) => {
+        const paid = paidBy.get(pr.id) ?? 0;
+        return { ...(pr as ProjectSaleRow), paid, receivable: Math.max(0, (pr.total_amount ?? 0) - paid) };
+      });
+    },
+  });
+}
+
 // ── Single project (with milestones + payments) ───────────────────────────────
 export function useProjectSale(id: string | null | undefined) {
   return useQuery({

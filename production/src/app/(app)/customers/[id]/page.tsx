@@ -18,6 +18,7 @@ import { toast } from "sonner";
 import { useCustomer, useDeleteCustomer, customerDeleteBlockReason } from "@/lib/queries/customers";
 import { useCustomerSubscriptions } from "@/lib/queries/subscriptions";
 import { useCustomerInvoices, useCustomerQuotes } from "@/lib/queries/invoices";
+import { useCustomerProjects } from "@/lib/queries/projects";
 import { Card } from "@/components/ui/card";
 import { Button, IconButton } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -45,6 +46,7 @@ export default function CustomerDetailPage() {
   const { data: subs }     = useCustomerSubscriptions(params.id);
   const { data: invoices } = useCustomerInvoices(params.id);
   const { data: quotes }   = useCustomerQuotes(params.id);
+  const { data: projects } = useCustomerProjects(params.id);
 
   const searchParams = useSearchParams();
   const [tab, setTab] = React.useState("activity");
@@ -136,6 +138,7 @@ export default function CustomerDetailPage() {
     { id: "activity", label: "Activity" },
     { id: "subscriptions", label: "Subscriptions", count: allSubs.length || undefined },
     { id: "quotes", label: "Quotes", count: allQuotes.length || undefined },
+    { id: "projects", label: "Projects", count: (projects ?? []).length || undefined },
     { id: "invoices", label: "Invoices", count: allInvoices.length || undefined },
   ];
 
@@ -255,6 +258,26 @@ export default function CustomerDetailPage() {
                   />
                 ) : <EmptyState icon="file" title="No quotes yet" body="Create the first quote for this customer." compact
                       action={<Button variant="primary" icon="plus" onClick={() => router.push(`/quotes/new?customer=${c.id}` as any)}>New quote</Button>} />
+              )}
+              {tab === "projects" && (
+                (projects ?? []).length > 0 ? (
+                  <RecordTable
+                    head={["Project", "Total (incl GST)", "Outstanding", "Status", "Created"]}
+                    rows={(projects ?? []).map((p) => ({
+                      onClick: () => router.push(`/projects/${p.id}` as any),
+                      cells: [
+                        <span key="t" className="font-medium">{p.title}</span>,
+                        <span key="tot" className="tabular-nums font-medium">{rupee(p.total_amount)}</span>,
+                        <span key="out" className={`tabular-nums ${p.receivable > 0 ? "text-rose" : "text-emerald"}`}>{rupee(p.receivable)}</span>,
+                        <Badge key="b" kind={p.status === "completed" ? "success" : p.status === "cancelled" ? "muted" : p.status === "quoted" ? "info" : "warning"} dot>
+                          {p.status === "quoted" ? "Quotation" : p.status}
+                        </Badge>,
+                        formatDate(p.created_at),
+                      ],
+                    }))}
+                  />
+                ) : <EmptyState icon="package" title="No projects yet" body="One-time / custom software deals for this customer show here." compact
+                      action={<Button variant="primary" icon="file" onClick={() => router.push(`/projects` as any)}>Project Sales</Button>} />
               )}
               {tab === "invoices" && (
                 allInvoices.length > 0 ? (

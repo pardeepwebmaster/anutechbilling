@@ -61,25 +61,12 @@ export function useSetTenantLogo() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (file: File | null) => {
-      const supabase = createClient();
-      const { data: authData } = await supabase.auth.getUser();
-      if (!authData?.user) throw new Error("Not authenticated");
-      const { data: me, error: meErr } = await supabase
-        .from("users").select("tenant_id").eq("id", authData.user.id).single();
-      if (meErr || !me) throw new Error("User not linked to a tenant");
-
-      let logoUrl: string | null = null;
-      if (file) {
-        const clean = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
-        const path  = `${me.tenant_id}/${Date.now()}-${clean}`;
-        const { error: upErr } = await supabase.storage
-          .from("logos").upload(path, file, { upsert: true, contentType: file.type || undefined });
-        if (upErr) throw upErr;
-        logoUrl = supabase.storage.from("logos").getPublicUrl(path).data.publicUrl;
-      }
-
-      const { error } = await supabase.from("tenants").update({ logo_url: logoUrl }).eq("id", me.tenant_id);
-      if (error) throw error;
+      // Server-side upload (admin client) — avoids browser→storage RLS quirks.
+      const form = new FormData();
+      if (file) form.append("file", file);
+      const res = await fetch("/api/settings/logo", { method: "POST", body: form });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error ?? "Upload failed");
     },
     onSuccess: (_r, file) => {
       qc.invalidateQueries({ queryKey: ["current-user"] });

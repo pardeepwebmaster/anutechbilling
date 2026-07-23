@@ -136,7 +136,6 @@ export default function CustomerDetailPage() {
 
   const tabs: TabBarItem[] = [
     { id: "activity", label: "Activity" },
-    { id: "subscriptions", label: "Subscriptions & projects", count: (allSubs.length + (projects ?? []).length) || undefined },
     { id: "quotes", label: "Quotes", count: (allQuotes.length + (projects ?? []).length) || undefined },
     { id: "invoices", label: "Invoices", count: allInvoices.length || undefined },
   ];
@@ -221,7 +220,7 @@ export default function CustomerDetailPage() {
         {/* LEFT */}
         <div className="space-y-4">
           <Card
-            title="Subscriptions"
+            title="Subscriptions & projects"
             sub={allSubs.length > 0 ? `${insights.activeSubs.length} active` : undefined}
             actions={
               <Button size="sm" variant="primary" icon="plus" onClick={() => router.push(`/quotes/new?customer=${c.id}` as any)}>
@@ -230,6 +229,25 @@ export default function CustomerDetailPage() {
             }
           >
             <SubscriptionList subs={allSubs} />
+            {(projects ?? []).length > 0 && (
+              <div className="mt-3">
+                <RecordTable
+                  head={["Project", "Total (incl GST)", "Outstanding", "Status", "Created"]}
+                  rows={(projects ?? []).map((p) => ({
+                    onClick: () => router.push(`/projects/${p.id}` as any),
+                    cells: [
+                      <span key="t" className="font-medium">{p.title}</span>,
+                      <span key="tot" className="tabular-nums font-medium">{rupee(p.total_amount)}</span>,
+                      <span key="out" className={`tabular-nums ${p.receivable > 0 ? "text-rose" : "text-emerald"}`}>{rupee(p.receivable)}</span>,
+                      <Badge key="b" kind={p.status === "completed" ? "success" : p.status === "cancelled" ? "muted" : p.status === "quoted" ? "info" : "warning"} dot>
+                        {p.status === "quoted" ? "Quotation" : p.status}
+                      </Badge>,
+                      formatDate(p.created_at),
+                    ],
+                  }))}
+                />
+              </div>
+            )}
           </Card>
 
           <Card flush>
@@ -238,28 +256,6 @@ export default function CustomerDetailPage() {
             </div>
             <div className="p-4">
               {tab === "activity" && <CustomerActivity subs={allSubs} invoices={allInvoices} quotes={allQuotes} limit={15} />}
-              {tab === "subscriptions" && (
-                <div className="space-y-3">
-                  <SubscriptionList subs={allSubs} />
-                  {(projects ?? []).length > 0 && (
-                    <RecordTable
-                      head={["Project", "Total (incl GST)", "Outstanding", "Status", "Created"]}
-                      rows={(projects ?? []).map((p) => ({
-                        onClick: () => router.push(`/projects/${p.id}` as any),
-                        cells: [
-                          <span key="t" className="font-medium">{p.title}</span>,
-                          <span key="tot" className="tabular-nums font-medium">{rupee(p.total_amount)}</span>,
-                          <span key="out" className={`tabular-nums ${p.receivable > 0 ? "text-rose" : "text-emerald"}`}>{rupee(p.receivable)}</span>,
-                          <Badge key="b" kind={p.status === "completed" ? "success" : p.status === "cancelled" ? "muted" : p.status === "quoted" ? "info" : "warning"} dot>
-                            {p.status === "quoted" ? "Quotation" : p.status}
-                          </Badge>,
-                          formatDate(p.created_at),
-                        ],
-                      }))}
-                    />
-                  )}
-                </div>
-              )}
               {tab === "quotes" && (
                 (allQuotes.length + (projects ?? []).length) > 0 ? (
                   <RecordTable

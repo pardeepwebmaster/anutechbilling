@@ -35,6 +35,7 @@ import { QuickAddLeadForm } from "@/components/features/leads/quick-add-lead-for
 import { LeadsSmartViews, type SmartView } from "@/components/features/leads/leads-smart-views";
 import { SwipeLeadCard } from "@/components/features/leads/swipe-lead-card";
 import { ImportCsvDialog } from "@/components/features/leads/import-csv-dialog";
+import { ShareFormSheet, ENQUIRY_SHARE } from "@/components/features/leads/share-form-sheet";
 import StartTrialDialog from "@/components/features/leads/start-trial-dialog";
 import CampaignComposerDialog from "@/components/features/campaigns/campaign-composer-dialog";
 import GoogleContactsImportDialog from "@/components/features/contacts/google-contacts-import-dialog";
@@ -118,6 +119,7 @@ function LeadsPageInner() {
   const [overStage, setOverStage] = React.useState<Lead["stage"] | null>(null);
   const [addOpen,         setAddOpen]         = React.useState(false);
   const [quickOpen,       setQuickOpen]       = React.useState(false);
+  const [shareOpen,       setShareOpen]       = React.useState(false);
   const [trialOpen,       setTrialOpen]       = React.useState(false);
   const [campaignOpen,    setCampaignOpen]    = React.useState(false);
   const [googleImportOpen, setGoogleImportOpen] = React.useState(false);
@@ -522,6 +524,14 @@ function LeadsPageInner() {
               undiscoverable, not keyboard-accessible, and impossible to
               trigger on touch devices (no hover) — users reported clicking
               "Quick add" did nothing because the popup vanished on mouse-move. */}
+          <Button
+            variant="default"
+            icon="link"
+            onClick={() => setShareOpen(true)}
+            className="hidden md:inline-flex"
+          >
+            Share enquiry form
+          </Button>
           <div className="hidden md:inline-flex">
             <Button
               variant="primary"
@@ -1077,6 +1087,9 @@ function LeadsPageInner() {
         onOpenChange={setCsvImportOpen}
         onImportComplete={() => refetch()}
       />
+
+      {/* Share the public enquiry form — collect a prospect's details, auto-creates a lead. */}
+      {shareOpen && <ShareFormSheet target={ENQUIRY_SHARE} onClose={() => setShareOpen(false)} />}
 
       {/* Mobile FAB — thumb-zone primary action, label switches with the URL.
           /leads → "Add lead", /deals → "Add deal".

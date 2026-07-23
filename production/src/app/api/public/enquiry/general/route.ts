@@ -46,6 +46,7 @@ const enquirySchema = z.object({
   phone:       z.string().min(10).max(20),
   product:     z.enum(["google-workspace", "microsoft-365", "zoho", "other"]).optional(),
   seats:       z.coerce.number().int().min(1).max(100000).optional(),
+  subscriptionType: z.enum(["fresh", "switch"]).optional(),
   message:     z.string().min(5, "Please describe what you need").max(2000),
 });
 
@@ -61,18 +62,21 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { fullName, companyName, email, phone, product, seats, message } = parsed.data;
+    const { fullName, companyName, email, phone, product, seats, subscriptionType, message } = parsed.data;
 
     const admin = createAdminClient();
     const tenantId = BUY_PAGE_TENANT_ID;
 
     const productLabel = product ? PRODUCT_LABEL[product] : null;
+    const subLabel = subscriptionType === "switch" ? "Switching provider (already subscribed)"
+                   : subscriptionType === "fresh"  ? "Fresh subscription" : null;
 
     const leadId    = "L-" + Date.now().toString(36).toUpperCase();
     const leadNotes = [
       "Submitted via public enquiry form (/enquiry)",
       productLabel ? `Interested in: ${productLabel}` : null,
       seats ? `Approx users: ${seats}` : null,
+      subLabel ? `New/switching: ${subLabel}` : null,
       `Requirement: ${message}`,
     ].filter(Boolean).join("\n");
 
@@ -85,6 +89,7 @@ export async function POST(request: NextRequest) {
       contact_phone: phone,
       plan:          product ?? null,
       seats:         seats ?? null,
+      subscription_type: subscriptionType ?? null,
       stage:         "new",
       source:        "enquiry-form",
       notes:         leadNotes,

@@ -28,6 +28,8 @@ const schema = z.object({
                  .or(z.literal("").transform(() => undefined)),
   seats:       z.coerce.number().int().min(1).max(100000).optional()
                  .or(z.literal("").transform(() => undefined)),
+  subscriptionType: z.enum(["fresh", "switch"]).optional()
+                 .or(z.literal("").transform(() => undefined)),
   message:     z.string().min(5, "Tell us a bit about what you need"),
 });
 type FormData = z.infer<typeof schema>;
@@ -165,6 +167,19 @@ export function EnquiryClient({
                     <Input id="seats" type="number" min={1} placeholder="e.g. 25" error={errors.seats?.message} {...register("seats")} />
                   </FormField>
                 </div>
+
+                <FormField label="New or switching?" htmlFor="subscriptionType">
+                  <select
+                    id="subscriptionType"
+                    defaultValue=""
+                    {...register("subscriptionType")}
+                    className="w-full rounded-md border border-hairline bg-paper px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-amber/40"
+                  >
+                    <option value="">Select (optional)</option>
+                    <option value="fresh">Fresh subscription (new)</option>
+                    <option value="switch">Already have it — switching provider to you</option>
+                  </select>
+                </FormField>
 
                 <FormField label="What do you need?" required htmlFor="message">
                   <textarea

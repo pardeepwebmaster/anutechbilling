@@ -2436,6 +2436,10 @@ export type Database = {
         Args: { p_invoice_id: string };
         Returns: undefined;
       };
+      delete_subscription_invoice: {
+        Args: { p_invoice_id: string };
+        Returns: undefined;
+      };
       disburse_employee_loan: {
         Args: {
           p_employee_name:   string;

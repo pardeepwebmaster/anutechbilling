@@ -190,6 +190,29 @@ export function useDeleteProjectInvoice() {
   });
 }
 
+/**
+ * Delete a SUBSCRIPTION (quote-generated) invoice — SAFE reversal via
+ * delete_subscription_invoice: removes the GST document + re-opens the quote
+ * for re-invoicing. Does NOT touch payments / subscriptions.
+ */
+export function useDeleteSubscriptionInvoice() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (invoiceId: string) => {
+      const supabase = createClient();
+      const { error } = await supabase.rpc("delete_subscription_invoice", { p_invoice_id: invoiceId });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["invoices"] });
+      qc.invalidateQueries({ queryKey: ["quotes"] });
+      qc.invalidateQueries({ queryKey: ["nav-badges"] });
+      toast.success("Invoice deleted — quote re-opened for re-invoicing");
+    },
+    onError: (err) => toast.error((err as Error).message),
+  });
+}
+
 export function useCustomerQuotes(customerId: string | undefined) {
   return useQuery({
     queryKey: ["quotes", "customer", customerId],

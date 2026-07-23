@@ -17,6 +17,7 @@ import { useRouter } from "next/navigation";
 import { useCustomer } from "@/lib/queries/customers";
 import { useCustomerSubscriptions } from "@/lib/queries/subscriptions";
 import { useCustomerInvoices, useCustomerQuotes } from "@/lib/queries/invoices";
+import { useCustomerProjects } from "@/lib/queries/projects";
 import { Badge } from "@/components/ui/badge";
 import { Button, IconButton } from "@/components/ui/button";
 import { Avatar } from "@/components/ui/avatar";
@@ -41,6 +42,7 @@ export function CustomerPanel({ customerId, onClose }: { customerId: string; onC
   const { data: subs } = useCustomerSubscriptions(customerId);
   const { data: invoices } = useCustomerInvoices(customerId);
   const { data: quotes } = useCustomerQuotes(customerId);
+  const { data: projects } = useCustomerProjects(customerId);
   const [tab, setTab] = React.useState("activity");
   const [editOpen, setEditOpen] = React.useState(false);
 
@@ -81,6 +83,7 @@ export function CustomerPanel({ customerId, onClose }: { customerId: string; onC
     { id: "activity", label: "Activity" },
     { id: "invoices", label: "Invoices", count: allInvoices.length || undefined },
     { id: "quotes",   label: "Quotes",   count: allQuotes.length || undefined },
+    { id: "projects", label: "Projects", count: (projects ?? []).length || undefined },
     { id: "details",  label: "Details" },
   ];
 
@@ -150,6 +153,20 @@ export function CustomerPanel({ customerId, onClose }: { customerId: string; onC
                   ])}
                 />
               ) : <PanelEmpty icon="file" text="No quotes yet." />
+            )}
+            {tab === "projects" && (
+              (projects ?? []).length > 0 ? (
+                <SimpleTable
+                  head={["Project", "Total", "Outstanding", "Status"]}
+                  rows={(projects ?? []).map((p) => [
+                    p.title, rupee(p.total_amount),
+                    <span key="o" className={p.receivable > 0 ? "text-rose" : "text-emerald"}>{rupee(p.receivable)}</span>,
+                    <Badge key="b" kind={p.status === "completed" ? "success" : p.status === "cancelled" ? "muted" : p.status === "quoted" ? "info" : "warning"} dot>
+                      {p.status === "quoted" ? "Quotation" : p.status}
+                    </Badge>,
+                  ])}
+                />
+              ) : <PanelEmpty icon="package" text="No projects yet." />
             )}
             {tab === "details" && <CustomerDetailsGrid c={c} />}
           </div>

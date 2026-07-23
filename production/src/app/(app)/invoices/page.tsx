@@ -20,6 +20,7 @@ import { usePaymentsByQuote } from "@/lib/queries/payments";
 import { useProjectPaymentsByInvoice, useProjectInvoiceIds } from "@/lib/queries/projects";
 import { useCustomer } from "@/lib/queries/customers";
 import { useCurrentUser } from "@/lib/hooks/useCurrentUser";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { TaxInvoiceDialog } from "@/components/features/quotes/tax-invoice-dialog";
 import { ReceiptVoucherDialog } from "@/components/features/quotes/receipt-voucher-dialog";
 import { isInterStateSupply } from "@/lib/gst/place-of-supply";
@@ -585,6 +586,7 @@ function InvoiceRow({
   isProject?: boolean;
 }) {
   const [previewOpen, setPreviewOpen] = React.useState(false);
+  const [delOpen, setDelOpen] = React.useState(false);
   const delProjectInvoice = useDeleteProjectInvoice();
   const delSubscriptionInvoice = useDeleteSubscriptionInvoice();
   const [expanded, setExpanded] = React.useState(false);
@@ -688,47 +690,28 @@ function InvoiceRow({
           {inv.status === "draft" && (
             <Button size="sm" variant="primary" icon="send">Send</Button>
           )}
-          {/* Delete — project invoices reverse the payment + re-open the milestone;
-              subscription invoices safely re-open the quote (payments/subscription untouched). */}
-          {isProject ? (
-            <Button
-              size="sm" variant="ghost" icon="trash"
-              loading={delProjectInvoice.isPending}
-              onClick={() => {
-                if (confirm(
-                  `Delete ${inv.id}?\n\n` +
-                  `This will also:\n` +
-                  `• delete the payment(s) recorded against it\n` +
-                  `• un-reconcile the matched bank line\n` +
-                  `• re-open the milestone as unbilled\n\n` +
-                  `This cannot be undone.`,
-                )) {
-                  delProjectInvoice.mutate(inv.id);
-                }
-              }}
-            >
-              Delete
-            </Button>
-          ) : (
-            <Button
-              size="sm" variant="ghost" icon="trash"
-              loading={delSubscriptionInvoice.isPending}
-              onClick={() => {
-                if (confirm(
-                  `Delete ${inv.id}?\n\n` +
-                  `This removes the GST invoice and re-opens its quote so a fresh\n` +
-                  `invoice can be generated. Received payments and the subscription\n` +
-                  `are NOT touched.\n\n` +
-                  `This cannot be undone.`,
-                )) {
-                  delSubscriptionInvoice.mutate(inv.id);
-                }
-              }}
-            >
-              Delete
-            </Button>
-          )}
+          {/* Delete — opens an explained confirmation dialog (project vs subscription). */}
+          <Button
+            size="sm" variant="ghost" icon="trash"
+            loading={delProjectInvoice.isPending || delSubscriptionInvoice.isPending}
+            onClick={() => setDelOpen(true)}
+          >
+            Delete
+          </Button>
         </div>
+
+        <DeleteInvoiceDialog
+          open={delOpen}
+          onOpenChange={setDelOpen}
+          invoiceId={inv.id}
+          isProject={isProject}
+          loading={delProjectInvoice.isPending || delSubscriptionInvoice.isPending}
+          onConfirm={() => {
+            (isProject ? delProjectInvoice : delSubscriptionInvoice).mutate(inv.id, {
+              onSuccess: () => setDelOpen(false),
+            });
+          }}
+        />
         {previewOpen && (
           <InvoicePreviewContainer
             invoice={inv}
@@ -820,6 +803,86 @@ function InvoicePreviewContainer({
  * receipts (advance receipt vouchers) collected against it. Invoice → parent
  * quote → payments. Clicking a receipt opens the GST receipt-voucher dialog.
  */
+/**
+ * DeleteInvoiceDialog — explained confirmation before deleting an invoice.
+ * Lists exactly what else gets removed + WHY, so it's never a blind delete.
+ */
+function DeleteInvoiceDialog({
+  open, onOpenChange, invoiceId, isProject, loading, onConfirm,
+}: {
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+  invoiceId: string;
+  isProject: boolean;
+  loading: boolean;
+  onConfirm: () => void;
+}) {
+  const items = isProject
+    ? [
+        {
+          what: "The payment(s) recorded against this invoice will be deleted",
+          why:  "This invoice IS the record of that payment. Remove the invoice and the payment has no valid document behind it — keeping it would leave an orphan entry and double-count your collections.",
+        },
+        {
+          what: "The matched bank statement line will be un-reconciled",
+          why:  "That bank credit was linked to this payment. Since the payment is going, the link must break — otherwise the bank line points to a payment that no longer exists.",
+        },
+        {
+          what: "The milestone re-opens as “unbilled”",
+          why:  "The milestone was marked invoiced/paid. Undoing the invoice returns it to unbilled so you can raise a correct invoice again.",
+        },
+      ]
+    : [
+        {
+          what: "The quote re-opens for re-invoicing",
+          why:  "Deleting the GST invoice frees its source quote so a fresh, corrected invoice can be generated.",
+        },
+        {
+          what: "Received payments & the subscription are NOT touched",
+          why:  "That money and the active service are real. Only the GST document is removed — your payment and subscription history stay intact.",
+        },
+      ];
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-[520px]">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Icon name="trash" size={18} className="text-rose" />
+            Delete {invoiceId}?
+          </DialogTitle>
+          <DialogDescription>
+            {isProject
+              ? "Deleting this invoice also reverses everything tied to it, in order:"
+              : "This safely removes the GST invoice. Here’s exactly what happens:"}
+          </DialogDescription>
+        </DialogHeader>
+
+        <ol className="space-y-2.5">
+          {items.map((it, i) => (
+            <li key={i} className="flex gap-2.5">
+              <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-paper-2 text-[11px] font-semibold text-ink-2">{i + 1}</span>
+              <div>
+                <p className="text-sm text-ink font-medium">{it.what}</p>
+                <p className="text-[12px] text-ink-3 leading-relaxed mt-0.5"><b className="text-ink-2 font-medium">Why:</b> {it.why}</p>
+              </div>
+            </li>
+          ))}
+        </ol>
+
+        <p className="text-[12px] text-rose mt-1">This cannot be undone.</p>
+
+        <DialogFooter>
+          <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button type="button" variant="danger" icon="trash" loading={loading} onClick={onConfirm}>
+            Delete invoice
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function InvoicePaymentsAccordion({ inv }: { inv: Invoice }) {
   const { data: quote } = useQuoteByInvoiceId(inv.id);
   const { data: payments, isLoading } = usePaymentsByQuote(quote?.id);

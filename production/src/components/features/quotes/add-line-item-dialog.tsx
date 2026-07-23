@@ -47,7 +47,9 @@ const customSchema = z.object({
 type CustomData = z.infer<typeof customSchema>;
 
 export function AddLineItemDialog({ open, onOpenChange, onAdd }: AddLineItemDialogProps) {
-  const { data: items, isLoading } = useItems();
+  const { data: allItems, isLoading } = useItems();
+  // Subscription quote line picker — exclude one-time (Items Catalog) products.
+  const items = React.useMemo(() => (allItems ?? []).filter((i) => i.item_type !== "one_time"), [allItems]);
   const [tab, setTab] = React.useState("catalog");
   const [search, setSearch] = React.useState("");
 

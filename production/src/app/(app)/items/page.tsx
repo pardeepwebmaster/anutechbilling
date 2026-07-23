@@ -8,6 +8,7 @@ import Link from "next/link";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { useItems, useDeleteItem, useLoadDefaultCatalog } from "@/lib/queries/items";
+import { OneTimeItemForm } from "@/components/features/items/one-time-item-form";
 import { ItemForm } from "@/components/features/items/item-form";
 import { FAB } from "@/components/ui/fab";
 import { GeminiCard } from "@/components/shared/gemini-card";
@@ -51,39 +52,55 @@ export default function ItemsPage() {
   const deleteItem = useDeleteItem();
   const loadDefaults = useLoadDefaultCatalog();
 
+  const [catalogType, setCatalogType] = React.useState<"subscription" | "one_time">("subscription");
   const [vendor, setVendor] = React.useState("all");
   const [kind,   setKind]   = React.useState("all");
   const [search, setSearch] = React.useState("");
   const [addOpen, setAddOpen] = React.useState(false);
   const [editing, setEditing] = React.useState<Item | null>(null);
+  const [oneTimeOpen, setOneTimeOpen] = React.useState(false);
+  const [oneTimeEditing, setOneTimeEditing] = React.useState<Item | null>(null);
 
-  // Filter
-  const filtered = (items ?? []).filter((it) => {
+  // Two catalogs: subscription (recurring per-seat/mo) vs one-time products/services.
+  const subItems     = (items ?? []).filter((it) => it.item_type !== "one_time");
+  const oneTimeItems = (items ?? []).filter((it) => it.item_type === "one_time");
+
+  const matchesSearch = (it: Item) => {
+    if (!search.trim()) return true;
+    const s = search.toLowerCase();
+    return it.name.toLowerCase().includes(s) || it.id.toLowerCase().includes(s);
+  };
+
+  // Filter (subscription catalog)
+  const filtered = subItems.filter((it) => {
     if (vendor !== "all" && it.vendor !== vendor) return false;
     if (kind   !== "all" && it.kind   !== kind)   return false;
-    if (search.trim()) {
-      const s = search.toLowerCase();
-      if (!it.name.toLowerCase().includes(s) && !it.id.toLowerCase().includes(s)) return false;
-    }
-    return true;
+    return matchesSearch(it);
   });
 
-  // Tab counts
-  const counts: Record<string, number> = { all: items?.length ?? 0 };
-  for (const it of items ?? []) {
+  const filteredOneTime = oneTimeItems.filter(matchesSearch);
+
+  // Tab counts (subscription only)
+  const counts: Record<string, number> = { all: subItems.length };
+  for (const it of subItems) {
     counts[it.vendor] = (counts[it.vendor] ?? 0) + 1;
   }
   const tabsWithCounts = VENDOR_TABS.map((t) => ({ ...t, count: counts[t.id] ?? 0 }));
 
   // Kind tab counts
-  const kindCounts: Record<string, number> = { all: items?.length ?? 0, main: 0, addon: 0 };
-  for (const it of items ?? []) {
+  const kindCounts: Record<string, number> = { all: subItems.length, main: 0, addon: 0 };
+  for (const it of subItems) {
     kindCounts[it.kind] = (kindCounts[it.kind] ?? 0) + 1;
   }
   const kindTabsWithCounts = KIND_TABS.map((t) => ({ ...t, count: kindCounts[t.id] ?? 0 }));
 
-  // Aggregates
-  const active = (items ?? []).filter((i) => i.is_active);
+  const CATALOG_TABS: TabBarItem[] = [
+    { id: "subscription", label: "Subscription Catalog", count: subItems.length },
+    { id: "one_time",     label: "Items Catalog",        count: oneTimeItems.length },
+  ];
+
+  // Aggregates (subscription)
+  const active = subItems.filter((i) => i.is_active);
   const avgMargin =
     active.length > 0
       ? Math.round(active.reduce((s, i) => s + i.margin_pct, 0) / active.length)
@@ -99,9 +116,13 @@ export default function ItemsPage() {
       <div className="flex items-end justify-between gap-3 flex-wrap">
         <div>
           <p className="text-xs uppercase tracking-wider text-ink-3 font-semibold mb-1">Workspace</p>
-          <h1 className="font-serif text-3xl md:text-4xl leading-tight">Items Catalog</h1>
+          <h1 className="font-serif text-3xl md:text-4xl leading-tight">
+            {catalogType === "subscription" ? "Subscription Catalog" : "Items Catalog"}
+          </h1>
           <p className="text-sm text-ink-3 mt-1">
-            Products you sell · used in quote line items
+            {catalogType === "subscription"
+              ? "Recurring products (per-seat/month) · used in subscription quotes"
+              : "One-time products & services · used in project quotes"}
           </p>
         </div>
         <div className="flex gap-2 flex-wrap items-center">
@@ -113,11 +134,32 @@ export default function ItemsPage() {
               onChange={(e) => setSearch(e.target.value)}
             />
           </div>
-          <Button variant="primary" icon="plus" onClick={() => { setEditing(null); setAddOpen(true); }}>
-            Add item
-          </Button>
+          {catalogType === "subscription" ? (
+            <Button variant="primary" icon="plus" onClick={() => { setEditing(null); setAddOpen(true); }}>
+              Add item
+            </Button>
+          ) : (
+            <Button variant="primary" icon="plus" onClick={() => { setOneTimeEditing(null); setOneTimeOpen(true); }}>
+              Add one-time item
+            </Button>
+          )}
         </div>
       </div>
+
+      {/* Catalog switcher — two separate catalogs */}
+      <TabBar value={catalogType} onChange={(v) => setCatalogType(v as "subscription" | "one_time")} items={CATALOG_TABS} />
+
+      {catalogType === "one_time" ? (
+        <OneTimeCatalog
+          items={filteredOneTime}
+          allCount={oneTimeItems.length}
+          isLoading={isLoading}
+          onAdd={() => { setOneTimeEditing(null); setOneTimeOpen(true); }}
+          onEdit={(it) => { setOneTimeEditing(it); setOneTimeOpen(true); }}
+          onDeactivate={(it) => { if (confirm(`Deactivate ${it.name}?`)) deleteItem.mutate(it.id); }}
+        />
+      ) : (
+      <>
 
       {/* KPIs */}
       {!isLoading && items && (
@@ -368,12 +410,139 @@ export default function ItemsPage() {
         </Card>
       )}
 
-      {/* Modal */}
+      </>
+      )}
+
+      {/* Modals */}
       <ItemForm open={addOpen} onOpenChange={setAddOpen} item={editing ?? undefined} />
+      <OneTimeItemForm open={oneTimeOpen} onOpenChange={setOneTimeOpen} item={oneTimeEditing} />
 
       {/* Mobile thumb-zone add — desktop uses the header button. */}
-      <FAB icon="plus" label="Add item" onClick={() => { setEditing(null); setAddOpen(true); }} />
+      <FAB
+        icon="plus"
+        label={catalogType === "subscription" ? "Add item" : "Add one-time item"}
+        onClick={() =>
+          catalogType === "subscription"
+            ? (setEditing(null), setAddOpen(true))
+            : (setOneTimeEditing(null), setOneTimeOpen(true))
+        }
+      />
     </div>
+  );
+}
+
+/**
+ * OneTimeCatalog — the "Items Catalog" view: one-off products/services.
+ * Flat sale price + cost + HSN/SAC. No per-seat pricing, vendors, or margins grid.
+ */
+function OneTimeCatalog({
+  items, allCount, isLoading, onAdd, onEdit, onDeactivate,
+}: {
+  items: Item[];
+  allCount: number;
+  isLoading: boolean;
+  onAdd: () => void;
+  onEdit: (it: Item) => void;
+  onDeactivate: (it: Item) => void;
+}) {
+  if (isLoading) {
+    return (
+      <Card flush>
+        <div className="p-4 space-y-2">{[1, 2, 3].map((i) => <Skeleton key={i} className="h-4 w-full" />)}</div>
+      </Card>
+    );
+  }
+  if (allCount === 0) {
+    return (
+      <EmptyState
+        icon="package"
+        title="No one-time items yet"
+        body="Add one-off products or services you sell — custom software, setup, data migration, AMC, hardware. Use these in project quotes."
+        action={<Button variant="primary" icon="plus" onClick={onAdd}>Add one-time item</Button>}
+      />
+    );
+  }
+  if (items.length === 0) {
+    return <EmptyState icon="search" title="No items match" body="Try a different search." />;
+  }
+  return (
+    <>
+      {/* Mobile cards */}
+      <ul className="md:hidden space-y-2">
+        {items.map((it) => (
+          <li key={it.id}>
+            <button
+              type="button"
+              onClick={() => onEdit(it)}
+              className={cn("block w-full text-left bg-paper border border-hairline rounded-lg p-3 active:bg-paper-2/50", !it.is_active && "opacity-60")}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="font-medium text-ink truncate">{it.name}</p>
+                  <p className="font-mono text-[11px] text-ink-3 mt-0.5">HSN/SAC {it.hsn ?? "—"}</p>
+                </div>
+                <p className="font-serif text-base tabular-nums text-ink shrink-0">{rupee(it.msrp)}</p>
+              </div>
+              {!it.is_active && <Badge kind="muted" size="sm" >Inactive</Badge>}
+            </button>
+          </li>
+        ))}
+      </ul>
+
+      {/* Desktop table */}
+      <Card flush className="hidden md:block">
+        <table className="w-full">
+          <thead className="bg-paper-2 border-b border-hairline">
+            <tr>
+              <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Item</th>
+              <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">HSN / SAC</th>
+              <th className="text-right p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Sale price</th>
+              <th className="text-right p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Cost</th>
+              <th className="text-right p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Margin</th>
+              <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Status</th>
+              <th className="w-12"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((it) => {
+              const margin = it.msrp - it.wholesale;
+              return (
+                <tr
+                  key={it.id}
+                  onClick={() => onEdit(it)}
+                  className={cn("border-b border-hairline last:border-0 hover:bg-paper-2/40 cursor-pointer transition-colors", !it.is_active && "opacity-50")}
+                >
+                  <td className="p-3 font-medium text-sm">{it.name}</td>
+                  <td className="p-3 font-mono text-xs text-ink-2">{it.hsn ?? "—"}</td>
+                  <td className="p-3 text-right tabular-nums text-sm">{rupee(it.msrp)}</td>
+                  <td className="p-3 text-right tabular-nums text-sm text-ink-3">{rupee(it.wholesale)}</td>
+                  <td className="p-3 text-right tabular-nums text-sm text-emerald">{rupee(margin)}</td>
+                  <td className="p-3">{it.is_active ? <Badge kind="success" dot>Active</Badge> : <Badge kind="muted">Inactive</Badge>}</td>
+                  <td className="p-3 text-right" onClick={(e) => e.stopPropagation()}>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <IconButton icon="more_h" aria-label="More actions" size="sm" />
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={() => onEdit(it)}><Icon name="edit" size={14} /> Edit</DropdownMenuItem>
+                        {it.is_active && (
+                          <>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem destructive onClick={() => onDeactivate(it)}>
+                              <Icon name="trash" size={14} /> Deactivate
+                            </DropdownMenuItem>
+                          </>
+                        )}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </Card>
+    </>
   );
 }
 

@@ -85,7 +85,10 @@ export function QuoteBuilder() {
   const router       = useRouter();
   const searchParams = useSearchParams();
   const { data: customers, isLoading: customersLoading } = useCustomers();
-  const { data: catalog } = useItems();
+  // Subscription quotes only pull recurring items — one-time products live in
+  // the separate Items Catalog and are quoted via project quotes.
+  const { data: allCatalog } = useItems();
+  const catalog = React.useMemo(() => (allCatalog ?? []).filter((c) => c.item_type !== "one_time"), [allCatalog]);
   const { data: currentUser } = useCurrentUser();
   const createQuote     = useCreateQuote();
   const updateLead = useUpdateLead();

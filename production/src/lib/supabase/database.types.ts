@@ -517,6 +517,8 @@ type ItemRow = {
   vendor: "google" | "microsoft" | "zoho" | "other";
   /** "main" = core plan offered standalone · "addon" = upsell paired with a main plan */
   kind: "main" | "addon";
+  /** "subscription" = recurring per-seat/mo · "one_time" = one-off product/service */
+  item_type: "subscription" | "one_time";
   hsn: string | null;
   /** Default price (typically annual_upfront — kept as the headline number) */
   msrp: number;
@@ -540,6 +542,7 @@ type ItemInsert = {
   name: string;
   vendor: "google" | "microsoft" | "zoho" | "other";
   kind?: "main" | "addon";
+  item_type?: "subscription" | "one_time";
   hsn?: string | null;
   msrp: number;
   wholesale: number;

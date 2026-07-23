@@ -49,7 +49,16 @@ function InvoicesPageInner() {
   const { data: pending } = useQuotesAwaitingInvoice();
   const generateInvoice = useGenerateInvoice();
   const [tab, setTab] = React.useState("all");
+  const [view, setView] = React.useState<"subscription" | "project">("subscription");
   const [selected, setSelected] = React.useState<Set<string>>(new Set());
+
+  const isProjectInv = React.useCallback((id: string) => projectInvoiceIds?.has(id) ?? false, [projectInvoiceIds]);
+  const viewInvoices = React.useMemo(
+    () => (invoices ?? []).filter((i) => (view === "project" ? isProjectInv(i.id) : !isProjectInv(i.id))),
+    [invoices, view, isProjectInv],
+  );
+  const subCount  = React.useMemo(() => (invoices ?? []).filter((i) => !isProjectInv(i.id)).length, [invoices, isProjectInv]);
+  const projCount = React.useMemo(() => (invoices ?? []).filter((i) =>  isProjectInv(i.id)).length, [invoices, isProjectInv]);
   const [pendingSelected, setPendingSelected] = React.useState<Set<string>>(new Set());
   const [generating, setGenerating] = React.useState(false);
 
@@ -69,8 +78,8 @@ function InvoicesPageInner() {
   // money in, balance still owed" — a different operational signal from
   // "absolutely nothing received yet".
   const counts = React.useMemo(() => {
-    const map: Record<string, number> = { all: invoices?.length ?? 0, partial: 0, pending_bare: 0 };
-    for (const inv of invoices ?? []) {
+    const map: Record<string, number> = { all: viewInvoices.length, partial: 0, pending_bare: 0 };
+    for (const inv of viewInvoices) {
       map[inv.status] = (map[inv.status] ?? 0) + 1;
       const hasAdv = Array.isArray(inv.adjusted_advances) && inv.adjusted_advances.length > 0;
       if (inv.status === "pending") {
@@ -79,7 +88,7 @@ function InvoicesPageInner() {
       }
     }
     return map;
-  }, [invoices]);
+  }, [viewInvoices]);
 
   const tabs: TabBarItem[] = [
     { id: "all",     label: "All",     count: counts.all ?? 0 },
@@ -92,7 +101,7 @@ function InvoicesPageInner() {
 
   // Filter — Partial and Pending both derive from status='pending', split by
   // whether any advances were applied to the invoice.
-  const rows = (invoices ?? []).filter((i) => {
+  const rows = viewInvoices.filter((i) => {
     if (tab === "all") return true;
     const hasAdv = Array.isArray(i.adjusted_advances) && i.adjusted_advances.length > 0;
     if (tab === "partial") return i.status === "pending" && hasAdv;
@@ -155,6 +164,18 @@ function InvoicesPageInner() {
         </div>
       </div>
 
+      {/* Subscription vs Project invoices toggle */}
+      <div className="mb-4">
+        <TabBar
+          value={view}
+          onChange={(v) => setView(v as "subscription" | "project")}
+          items={[
+            { id: "subscription", label: "Subscription", count: subCount || undefined },
+            { id: "project",      label: "Project",      count: projCount || undefined },
+          ]}
+        />
+      </div>
+
       {/* ── Pending generation — partial OR fully-paid quotes awaiting GST invoice ──
            Legal context: CGST Section 13(2) + Rule 47 — supply trigger for services
            = earlier of invoice OR payment. So aging clock starts from FIRST advance
@@ -164,7 +185,7 @@ function InvoicesPageInner() {
              31-60d  = OVERDUE — legal violation, audit risk
              60+d    = critical — penalty likely
       */}
-      {pending && pending.length > 0 && (() => {
+      {view === "subscription" && pending && pending.length > 0 && (() => {
         const now = Date.now();
         const buckets = { fresh: [] as any[], warn: [] as any[], urgent: [] as any[], overdue: [] as any[] };
         for (const q of pending) {

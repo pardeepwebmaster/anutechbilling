@@ -20,21 +20,26 @@ import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { useItems } from "@/lib/queries/items";
 import { useCustomers, useCreateCustomer } from "@/lib/queries/customers";
-import { useCreateProjectQuote, type MilestoneInput, type ProjectQuoteLine } from "@/lib/queries/projects";
+import { useCreateProjectQuote, useUpdateProjectQuote, useProjectSale, type MilestoneInput, type ProjectQuoteLine, type ProjectSaleWithTotals } from "@/lib/queries/projects";
 import { rupee } from "@/lib/utils";
 
 interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** When set, the dialog edits this project quotation instead of creating. */
+  editProject?: ProjectSaleWithTotals | null;
 }
 
 type LineRow = { name: string; qty: string; rate: string };
 type MsRow   = { label: string; amount: string; due: string };
 
-export function CreateProjectQuoteDialog({ open, onOpenChange }: Props) {
+export function CreateProjectQuoteDialog({ open, onOpenChange, editProject }: Props) {
   const router = useRouter();
+  const isEdit = Boolean(editProject);
   const create = useCreateProjectQuote();
+  const update = useUpdateProjectQuote();
   const createCustomer = useCreateCustomer();
+  const { data: editDetail } = useProjectSale(editProject?.id ?? null);
   const { data: allItems } = useItems();
   const { data: customers } = useCustomers();
   const oneTimeItems = React.useMemo(
@@ -57,13 +62,35 @@ export function CreateProjectQuoteDialog({ open, onOpenChange }: Props) {
   const [lines, setLines]               = React.useState<LineRow[]>([{ name: "", qty: "1", rate: "" }]);
   const [rows, setRows]                 = React.useState<MsRow[]>([{ label: "Advance", amount: "", due: "" }]);
 
+  const prefilledFor = React.useRef<string | null>(null);
   React.useEffect(() => {
     if (!open) {
+      prefilledFor.current = null;
       setCustomerId(""); setNewName(""); setContactName(""); setEmail(""); setPhone(""); setGstin(""); setStateName("");
       setTitle(""); setDescription(""); setGstRate("18"); setInterState(false);
       setLines([{ name: "", qty: "1", rate: "" }]); setRows([{ label: "Advance", amount: "", due: "" }]);
+      return;
     }
-  }, [open]);
+    // Edit mode — prefill once, after the project's milestones have loaded.
+    if (editProject && editDetail?.project && prefilledFor.current !== editProject.id) {
+      prefilledFor.current = editProject.id;
+      const p = editDetail.project;
+      setCustomerId(p.customer_id ?? "");
+      if (!p.customer_id) setNewName(p.customer_name);
+      setTitle(p.title);
+      setDescription(p.description ?? "");
+      setGstRate(String(p.gst_rate));
+      setInterState(p.inter_state);
+      const li = (p.line_items ?? []) as ProjectQuoteLine[];
+      setLines(li.length
+        ? li.map((l) => ({ name: l.name, qty: String(l.qty), rate: String(l.rate) }))
+        : [{ name: "", qty: "1", rate: "" }]);
+      const ms = editDetail.milestones ?? [];
+      setRows(ms.length
+        ? ms.map((m) => ({ label: m.label, amount: String(m.total_amount), due: m.due_date ?? "" }))
+        : [{ label: "Advance", amount: "", due: "" }]);
+    }
+  }, [open, editProject, editDetail]);
 
   const isNewCustomer = customerId === "";
   const selectedCustomer = customers?.find((c) => c.id === customerId);
@@ -93,7 +120,7 @@ export function CreateProjectQuoteDialog({ open, onOpenChange }: Props) {
     effectiveName.length >= 2 && title.trim().length >= 2 &&
     lines.some((l) => l.name.trim() && lineAmount(l) > 0) &&
     rows.some((r) => Math.round(Number(r.amount) || 0) > 0) &&
-    !create.isPending && !createCustomer.isPending;
+    !create.isPending && !createCustomer.isPending && !update.isPending;
 
   const handleSubmit = async () => {
     if (!canSubmit) return;
@@ -109,8 +136,16 @@ export function CreateProjectQuoteDialog({ open, onOpenChange }: Props) {
       .filter((r) => Math.round(Number(r.amount) || 0) > 0)
       .map((r) => ({ label: r.label.trim() || "Milestone", total_amount: Math.round(Number(r.amount) || 0), due_date: r.due || null }));
     try {
-      // New customer? create it first so the quote (and its invoices) link to a
-      // complete customer record — not just a bare name.
+      // ── Edit existing quotation ──
+      if (editProject) {
+        await update.mutateAsync({
+          projectId: editProject.id, customerName: effectiveName, title: title.trim(),
+          description: description.trim() || null, lineItems, gstRate: rateNum, interState, milestones,
+        });
+        onOpenChange(false);
+        return;
+      }
+      // ── Create new — a new customer is created first if needed ──
       let cid: string | null = customerId || null;
       let cname = effectiveName;
       if (isNewCustomer) {
@@ -137,7 +172,7 @@ export function CreateProjectQuoteDialog({ open, onOpenChange }: Props) {
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="right" className="w-full sm:max-w-[600px] p-0 flex flex-col overflow-x-hidden">
         <SheetHeader>
-          <SheetTitle>New project quotation</SheetTitle>
+          <SheetTitle>{isEdit ? "Edit project quotation" : "New project quotation"}</SheetTitle>
           <SheetDescription>
             Itemised quote for a one-time project. Send the customer the link — when they accept, it becomes an active project.
           </SheetDescription>
@@ -154,7 +189,7 @@ export function CreateProjectQuoteDialog({ open, onOpenChange }: Props) {
             </select>
           </FormField>
 
-          {isNewCustomer && (
+          {isNewCustomer && !isEdit && (
             <div className="rounded-md border border-hairline bg-paper-2/30 p-3 space-y-2">
               <p className="text-[11px] text-ink-3 font-semibold uppercase tracking-wider">New customer details</p>
               <Input placeholder="Company name *" value={newName} onChange={(e) => setNewName(e.target.value)} />
@@ -260,8 +295,8 @@ export function CreateProjectQuoteDialog({ open, onOpenChange }: Props) {
 
         <SheetFooter>
           <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button type="button" variant="primary" loading={create.isPending} disabled={!canSubmit} onClick={handleSubmit}>
-            Create quotation
+          <Button type="button" variant="primary" loading={create.isPending || update.isPending} disabled={!canSubmit} onClick={handleSubmit}>
+            {isEdit ? "Save changes" : "Create quotation"}
           </Button>
         </SheetFooter>
       </SheetContent>

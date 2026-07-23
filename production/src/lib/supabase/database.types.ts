@@ -2434,6 +2434,23 @@ export type Database = {
         Args: { p_project_id: string };
         Returns: string;
       };
+      update_project_quote: {
+        Args: {
+          p_project_id:    string;
+          p_customer_name: string;
+          p_title:         string;
+          p_description:   string | null;
+          p_line_items:    unknown;
+          p_gst_rate:      number;
+          p_inter_state:   boolean;
+          p_milestones:    unknown;
+        };
+        Returns: undefined;
+      };
+      delete_project_sale: {
+        Args: { p_project_id: string };
+        Returns: undefined;
+      };
       delete_project_invoice: {
         Args: { p_invoice_id: string };
         Returns: undefined;

@@ -259,6 +259,59 @@ export function useCreateProjectQuote() {
   });
 }
 
+// ── Edit a project quotation (only before it's invoiced/paid) ────────────────
+export function useUpdateProjectQuote() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: {
+      projectId:    string;
+      customerName: string;
+      title:        string;
+      description:  string | null;
+      lineItems:    ProjectQuoteLine[];
+      gstRate:      number;
+      interState:   boolean;
+      milestones:   MilestoneInput[];
+    }) => {
+      const supabase = createClient();
+      const { error } = await supabase.rpc("update_project_quote", {
+        p_project_id:    input.projectId,
+        p_customer_name: input.customerName,
+        p_title:         input.title,
+        p_description:   input.description,
+        p_line_items:    input.lineItems,
+        p_gst_rate:      input.gstRate,
+        p_inter_state:   input.interState,
+        p_milestones:    input.milestones,
+      });
+      if (error) throw error;
+    },
+    onSuccess: (_r, v) => {
+      qc.invalidateQueries({ queryKey: ["project_sales"] });
+      qc.invalidateQueries({ queryKey: ["project_sales", v.projectId] });
+      toast.success("Quotation updated");
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : "Could not update"),
+  });
+}
+
+export function useDeleteProjectSale() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (projectId: string) => {
+      const supabase = createClient();
+      const { error } = await supabase.rpc("delete_project_sale", { p_project_id: projectId });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["project_sales"] });
+      qc.invalidateQueries({ queryKey: ["bank_transactions"] });
+      toast.success("Project deleted");
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : "Could not delete"),
+  });
+}
+
 // ── Accept a quotation → active project (owner "mark accepted") ───────────────
 export function useAcceptProjectQuote() {
   const qc = useQueryClient();

@@ -8,7 +8,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { useQuotes, useDeleteQuote, quoteDeleteBlockReason } from "@/lib/queries/quotes";
-import { useProjectSales } from "@/lib/queries/projects";
+import { useProjectSales, useDeleteProjectSale, type ProjectSaleWithTotals } from "@/lib/queries/projects";
 import { CreateProjectQuoteDialog } from "@/components/features/projects/create-project-quote-dialog";
 import { useCustomer } from "@/lib/queries/customers";
 import { useCurrentUser } from "@/lib/hooks/useCurrentUser";
@@ -142,6 +142,8 @@ export default function QuotesPage() {
   const [search, setSearch] = React.useState("");
   const [view, setView] = React.useState<"subscription" | "project">("subscription");
   const [projectQuoteOpen, setProjectQuoteOpen] = React.useState(false);
+  const [editProject, setEditProject] = React.useState<ProjectSaleWithTotals | null>(null);
+  const deleteProject = useDeleteProjectSale();
   const [previewing, setPreviewing] = React.useState<Quote | null>(null);
 
   const handleDelete = (q: Quote) => {
@@ -292,6 +294,7 @@ export default function QuotesPage() {
                     <th className="text-right px-3 py-2.5">Amount (incl GST)</th>
                     <th className="text-right px-3 py-2.5">Outstanding</th>
                     <th className="text-left px-4 py-2.5">Status</th>
+                    <th className="w-12"></th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-hairline">
@@ -313,6 +316,34 @@ export default function QuotesPage() {
                         <Badge kind={p.status === "completed" ? "success" : p.status === "cancelled" ? "muted" : p.status === "quoted" ? "info" : "warning"} size="sm" dot>
                           {p.status === "quoted" ? "Quotation" : p.status}
                         </Badge>
+                      </td>
+                      <td className="px-3 py-3 text-right">
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <button type="button" aria-label="Actions" className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-3 hover:bg-paper-2 hover:text-ink data-[state=open]:bg-paper-2">
+                              <Icon name="more_h" size={18} />
+                            </button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="min-w-[12rem]">
+                            <DropdownMenuItem className="gap-2.5 py-2 cursor-pointer" onClick={() => router.push(`/projects/${p.id}` as any)}>
+                              <Icon name="eye" size={15} /> Open project
+                            </DropdownMenuItem>
+                            <DropdownMenuItem className="gap-2.5 py-2 cursor-pointer" onClick={() => window.open(`/project-quote/${p.id}`, "_blank", "noopener")}>
+                              <Icon name="file" size={15} /> Preview quote (customer view)
+                            </DropdownMenuItem>
+                            <DropdownMenuItem className="gap-2.5 py-2 cursor-pointer" onClick={() => setEditProject(p)}>
+                              <Icon name="edit" size={15} /> Edit
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem destructive className="gap-2.5 py-2 cursor-pointer" onClick={() => {
+                              if (confirm(`Delete project "${p.title}"?\n\nThis removes the project + its milestone schedule. (Blocked if any milestone is already invoiced — delete that invoice first.)\n\nThis cannot be undone.`)) {
+                                deleteProject.mutate(p.id);
+                              }
+                            }}>
+                              <Icon name="trash" size={15} /> Delete
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </td>
                     </tr>
                   ))}
@@ -791,6 +822,11 @@ export default function QuotesPage() {
       )}
 
       <CreateProjectQuoteDialog open={projectQuoteOpen} onOpenChange={setProjectQuoteOpen} />
+      <CreateProjectQuoteDialog
+        open={editProject !== null}
+        onOpenChange={(o) => { if (!o) setEditProject(null); }}
+        editProject={editProject}
+      />
     </div>
   );
 }

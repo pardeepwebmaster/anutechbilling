@@ -73,6 +73,7 @@ const SOURCES = [
   { value: "csv",               label: "CSV import" },
   { value: "whatsapp",          label: "WhatsApp" },
   { value: "referral",          label: "Referral" },
+  { value: "tele-calling",      label: "Tele calling" },
   { value: "google-ads",        label: "Google Ads" },
 ] as const;
 
@@ -147,6 +148,7 @@ const schema = z.object({
   priority:      z.enum(["low", "medium", "high"]),
   follow_up_date: z.string().optional().or(z.literal("")),
   owner_id:      z.string().optional().or(z.literal("")),
+  subscription_type: z.enum(["fresh", "switch"]).optional().or(z.literal("")),
   notes:         z.string().optional(),
 });
 
@@ -231,6 +233,7 @@ export function AddLeadForm({ open, onOpenChange, editingLead }: AddLeadFormProp
           priority:      (editingLead.priority as LeadPriority) ?? "medium",
           follow_up_date: editingLead.follow_up_date ?? "",
           owner_id:       editingLead.owner_id      ?? "",
+          subscription_type: editingLead.subscription_type ?? "",
           notes:          editingLead.notes         ?? "",
         }
       : {
@@ -361,6 +364,7 @@ export function AddLeadForm({ open, onOpenChange, editingLead }: AddLeadFormProp
         priority:      (editingLead.priority as LeadPriority) ?? "medium",
         follow_up_date: editingLead.follow_up_date ?? "",
         owner_id:       editingLead.owner_id      ?? "",
+        subscription_type: editingLead.subscription_type ?? "",
         notes:          editingLead.notes         ?? "",
       });
       setStage((editingLead.stage as FormData["stage"]) ?? "new");
@@ -397,6 +401,7 @@ export function AddLeadForm({ open, onOpenChange, editingLead }: AddLeadFormProp
         priority:       data.priority,
         follow_up_date: data.follow_up_date || null,
         owner_id:       data.owner_id       || null,
+        subscription_type: data.subscription_type || null,
         notes:          data.notes          || null,
       };
 
@@ -698,6 +703,22 @@ export function AddLeadForm({ open, onOpenChange, editingLead }: AddLeadFormProp
               <input type="hidden" {...register("priority")} value={priority} />
             </FormField>
           </div>
+
+          {/* New vs switching — is the prospect already subscribed elsewhere? */}
+          <FormField label="New or switching?" htmlFor="subscription_type">
+            <select
+              id="subscription_type"
+              {...register("subscription_type")}
+              className="w-full rounded-md border border-hairline bg-paper px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-amber/40"
+            >
+              <option value="">Not sure yet</option>
+              <option value="fresh">Fresh subscription (new)</option>
+              <option value="switch">Switching vendor (already subscribed elsewhere)</option>
+            </select>
+            <p className="mt-1 text-[10px] text-ink-3 leading-snug">
+              &ldquo;Switching&rdquo; = they already use this product, just moving billing/reseller to you (migration).
+            </p>
+          </FormField>
 
           {/* Follow-up date + Owner — sales workflow row */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">

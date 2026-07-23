@@ -1504,6 +1504,7 @@ function LeadDetailSheet({
             <Fact label="Seats" value={lead.seats?.toString()} mono />
             <Fact label="Deal value" value={lead.value ? rupee(lead.value) : "—"} big />
             <Fact label="Source" value={lead.source} mono />
+            <Fact label="New / switching" value={lead.subscription_type === "fresh" ? "Fresh subscription" : lead.subscription_type === "switch" ? "Switching vendor" : "—"} />
             <Fact label="Contact name" value={lead.contact_name} />
             <Fact label="Email" value={lead.contact_email} mono />
             <Fact label="Phone" value={lead.contact_phone} mono />

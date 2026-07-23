@@ -618,6 +618,9 @@ type LeadRow = {
   /** GST place-of-supply, copied to the customer on conversion (drives IGST vs CGST+SGST). */
   state_code: string | null;
   state: string | null;
+  /** Migration 0108 — 'fresh' = net-new subscription · 'switch' = already
+   *  subscribed elsewhere, moving vendor/reseller to us (migration/transfer). */
+  subscription_type: "fresh" | "switch" | null;
   created_at: string;
   updated_at: string;
 }
@@ -645,6 +648,7 @@ type LeadInsert = {
   gstin?:              string | null;
   state_code?:         string | null;
   state?:              string | null;
+  subscription_type?:  "fresh" | "switch" | null;
 }
 type LeadUpdate = Partial<LeadInsert>;
 

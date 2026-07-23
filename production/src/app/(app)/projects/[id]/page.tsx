@@ -26,12 +26,15 @@ import {
 } from "@/lib/queries/projects";
 import { rupee, formatDate } from "@/lib/utils";
 import { toast } from "sonner";
+import type { Route } from "next";
+import { useCustomer } from "@/lib/queries/customers";
 import { RecordProjectPaymentDialog } from "@/components/features/projects/record-project-payment-dialog";
 
 export default function ProjectDetailPage() {
   const params = useParams<{ id: string }>();
   const id = params?.id;
   const { data, isLoading } = useProjectSale(id);
+  const { data: customer } = useCustomer(data?.project.customer_id ?? undefined);
   const raise = useRaiseMilestoneInvoice();
   const accept = useAcceptProjectQuote();
   const [payFor, setPayFor] = React.useState<ProjectMilestoneRow | null>(null);
@@ -59,6 +62,10 @@ export default function ProjectDetailPage() {
   const handleRaise = async (m: ProjectMilestoneRow) => {
     await raise.mutateAsync({ milestoneId: m.id, projectId: project.id }).catch(() => {});
   };
+
+  // GST-correctness nudge: a linked customer missing GSTIN/state can't get a
+  // fully compliant tax invoice (CGST/SGST vs IGST + their ITC).
+  const gstMissing = customer ? (!customer.gstin || !customer.state) : false;
 
   const customerLink = typeof window !== "undefined" ? `${window.location.origin}/project-quote/${project.id}` : "";
   const copyLink = async () => {
@@ -152,6 +159,27 @@ export default function ProjectDetailPage() {
           Collected {rupee(paid)} of {rupee(project.total_amount)} · SAC {project.sac_code}
         </p>
       </Card>
+
+      {/* GST-details nudge — a B2B tax invoice needs the customer's GSTIN + state */}
+      {gstMissing && customer && (
+        <Card className="mb-6 border-amber/40 bg-amber-soft/25">
+          <div className="flex items-start justify-between gap-4 flex-wrap">
+            <div className="flex items-start gap-2 min-w-0">
+              <Icon name="alert" size={16} className="text-amber-ink mt-0.5 shrink-0" />
+              <div>
+                <p className="text-sm font-semibold text-ink">Add {customer.name}&apos;s GST details</p>
+                <p className="text-[12px] text-ink-3 mt-1 max-w-prose">
+                  This customer is missing {!customer.gstin && "GSTIN"}{!customer.gstin && !customer.state && " and "}{!customer.state && "state"}.
+                  Without them the tax invoice can&apos;t split CGST/SGST vs IGST correctly, and the customer can&apos;t claim input credit. Add them before raising more invoices.
+                </p>
+              </div>
+            </div>
+            <Link href={`/customers/${customer.id}` as Route}>
+              <Button size="sm" variant="outline" icon="edit">Complete customer</Button>
+            </Link>
+          </div>
+        </Card>
+      )}
 
       {/* Milestones */}
       <Card className="mb-6 overflow-hidden">

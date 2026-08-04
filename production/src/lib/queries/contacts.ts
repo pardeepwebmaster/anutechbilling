@@ -8,8 +8,12 @@
  */
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
+import type { ContactRow } from "@/lib/supabase/database.types";
+
+export type Contact = ContactRow;
 
 export type ContactSource = "lead" | "customer" | "imported";
 
@@ -123,5 +127,114 @@ export function useAllContacts() {
       combined.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
       return combined;
     },
+  });
+}
+
+// ============================================================
+// Standalone contacts (the real `contacts` table) — full CRUD.
+// These are the owner's own people: networking / marketing / personal
+// outreach contacts with rich profile detail (social + address).
+// ============================================================
+
+/** One contact by id (contacts-table record). */
+export function useContact(id: string | undefined) {
+  return useQuery({
+    queryKey: ["contact", id],
+    enabled: Boolean(id),
+    queryFn: async (): Promise<Contact | null> => {
+      const supabase = createClient();
+      const { data, error } = await supabase.from("contacts").select("*").eq("id", id!).maybeSingle();
+      if (error) throw error;
+      return (data ?? null) as Contact | null;
+    },
+  });
+}
+
+/** Fields the owner edits on a contact — everything except system columns. */
+export type ContactFormValues = {
+  full_name: string;
+  company?:  string | null;
+  title?:    string | null;
+  email?:    string | null;
+  phone?:    string | null;
+  whatsapp?: string | null;
+  linkedin?: string | null;
+  instagram?:string | null;
+  facebook?: string | null;
+  twitter?:  string | null;
+  website?:  string | null;
+  address?:  string | null;
+  city?:     string | null;
+  tags?:     string[];
+  notes?:    string | null;
+};
+
+function newContactId(): string {
+  return "C-" + Date.now().toString(36).toUpperCase() + "-" + Math.floor(Math.random() * 1000).toString(36).toUpperCase();
+}
+
+/** Create a standalone contact (source='manual'). Resolves tenant_id from auth. */
+export function useCreateContact() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (values: ContactFormValues): Promise<string> => {
+      const supabase = createClient();
+      const { data: authData } = await supabase.auth.getUser();
+      if (!authData?.user) throw new Error("Not signed in");
+      const { data: me, error: meErr } = await supabase
+        .from("users").select("tenant_id").eq("id", authData.user.id).single();
+      if (meErr) throw meErr;
+
+      const id = newContactId();
+      const { error } = await supabase.from("contacts").insert({
+        id,
+        tenant_id: me!.tenant_id,
+        source:    "manual",
+        status:    "engaged",
+        ...values,
+      });
+      if (error) throw error;
+      return id;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["contacts", "all"] });
+    },
+    onError: (err) => toast.error((err as Error).message),
+  });
+}
+
+/** Update a contact's editable fields. */
+export function useUpdateContact() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, values }: { id: string; values: ContactFormValues }) => {
+      const supabase = createClient();
+      const { error } = await supabase.from("contacts").update(values).eq("id", id);
+      if (error) throw error;
+      return id;
+    },
+    onSuccess: (id) => {
+      qc.invalidateQueries({ queryKey: ["contacts", "all"] });
+      qc.invalidateQueries({ queryKey: ["contact", id] });
+    },
+    onError: (err) => toast.error((err as Error).message),
+  });
+}
+
+/** Delete a standalone contact. */
+export function useDeleteContact() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const supabase = createClient();
+      const { error } = await supabase.from("contacts").delete().eq("id", id);
+      if (error) throw error;
+      return id;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["contacts", "all"] });
+      toast.success("Contact deleted");
+    },
+    onError: (err) => toast.error((err as Error).message),
   });
 }

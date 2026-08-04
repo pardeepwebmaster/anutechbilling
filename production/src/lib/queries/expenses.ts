@@ -70,6 +70,28 @@ export function useExpenses(opts?: {
   });
 }
 
+/** Expenses not yet reconciled to a bank line — candidates for a split match. */
+export function useUnreconciledExpenses() {
+  return useQuery({
+    queryKey: ["expenses", "unreconciled"],
+    queryFn: async (): Promise<Expense[]> => {
+      const supabase = createClient();
+      const { data, error } = await supabase
+        .from("expenses")
+        .select("*")
+        .is("reconciled_txn_id", null)
+        // 'statutory' expenses (e.g. employer-ESI accrual) are settled via the
+        // statutory payable, never matched to a single bank line — keep them out
+        // of the reconcile candidate list. (.or keeps NULL payment_method rows,
+        // which a bare .neq would silently drop.)
+        .or("payment_method.is.null,payment_method.neq.statutory")
+        .order("expense_date", { ascending: false });
+      if (error) throw error;
+      return (data ?? []) as Expense[];
+    },
+  });
+}
+
 export function useExpensesTotals(opts: { from: string; to: string }) {
   return useQuery({
     queryKey: ["expenses", "totals", opts],

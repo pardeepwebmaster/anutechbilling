@@ -30,7 +30,7 @@ const bodySchema = z
     leadId: z.string().min(1).optional(),
     customerId: z.string().min(1).optional(),
     channel: z.enum(["whatsapp", "email"]).default("whatsapp"),
-    purpose: z.enum(["followup", "reminder"]).default("followup"),
+    purpose: z.enum(["followup", "reminder", "renewal"]).default("followup"),
   })
   .refine((d) => !!d.leadId !== !!d.customerId, {
     message: "Provide exactly one of leadId or customerId.",
@@ -87,9 +87,26 @@ async function draftWithGemini(apiKey: string, model: string, channel: "whatsapp
 /** Deterministic fallback so the feature works before GEMINI_API_KEY is set. */
 function stubDraft(args: {
   channel: "whatsapp" | "email"; firstName: string; company: string;
-  planLabel: string; purpose: "followup" | "reminder"; outstanding: number;
+  planLabel: string; purpose: "followup" | "reminder" | "renewal"; outstanding: number;
+  renewalDate?: string | null;
 }): Draft {
-  const { channel, firstName, company, planLabel, purpose, outstanding } = args;
+  const { channel, firstName, company, planLabel, purpose, outstanding, renewalDate } = args;
+
+  if (purpose === "renewal") {
+    const on = renewalDate ? new Date(renewalDate).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "soon";
+    if (channel === "whatsapp") {
+      return {
+        subject: "",
+        message: `Hi ${firstName}, your ${planLabel} for ${company} is up for renewal on ${on}. ` +
+          `Shall I send across the renewal quote so there's no interruption in service?`,
+      };
+    }
+    return {
+      subject: `Renewal due ${on} — ${company}`,
+      message: `Hi ${firstName},\n\nYour ${planLabel} is due for renewal on ${on}. ` +
+        `To keep the service running without interruption, I can share the renewal quote now — just let me know.\n\nThanks,\nExcel Technologies`,
+    };
+  }
 
   if (purpose === "reminder") {
     const amt = rupee(outstanding);
@@ -186,11 +203,15 @@ export async function POST(request: NextRequest) {
   // Real subscription context (RLS-scoped) — outstanding + plan for the draft.
   const { data: subs } = await supabase
     .from("subscriptions")
-    .select("plan, status, outstanding_amount")
+    .select("plan, status, outstanding_amount, renewal_date")
     .eq("customer_id", customer.id);
   const outstanding = (subs ?? []).reduce((s, x) => s + (x.outstanding_amount ?? 0), 0);
   const activePlan = (subs ?? []).find((s) => s.status === "active")?.plan ?? (subs ?? [])[0]?.plan ?? null;
   const planLabel = activePlan ? activePlan.replace(/^google-workspace-/, "Google Workspace ") : "your subscription";
+  // Soonest upcoming renewal (fallback to the earliest on file) — for renewal nudges.
+  const today = new Date().toISOString().slice(0, 10);
+  const renewalDates = (subs ?? []).map((s) => s.renewal_date).filter(Boolean) as string[];
+  const renewalDate = renewalDates.filter((d) => d >= today).sort()[0] ?? renewalDates.sort()[0] ?? null;
 
   const ctx = [
     `Recipient is an EXISTING CUSTOMER.`,
@@ -198,11 +219,15 @@ export async function POST(request: NextRequest) {
     customer.contact_name ? `Contact: ${customer.contact_name}` : null,
     activePlan ? `Subscription: ${activePlan}` : null,
     parsed.purpose === "reminder" ? `Outstanding balance (use EXACTLY this, do not change): ${rupee(outstanding)}` : null,
+    parsed.purpose === "renewal" && renewalDate ? `Renewal date (use EXACTLY this, do not change): ${renewalDate}` : null,
+    parsed.purpose === "renewal" && outstanding > 0 ? `Outstanding on account (use EXACTLY this): ${rupee(outstanding)}` : null,
   ].filter(Boolean).join("\n");
 
   const intent = parsed.purpose === "reminder"
     ? "Draft a SHORT, polite, warm PAYMENT REMINDER. State the exact outstanding amount given, offer help/a payment link, and keep it friendly (not aggressive)."
-    : "Draft a SHORT, warm relationship CHECK-IN with an existing customer. No selling pressure; offer help with seats/renewals/support.";
+    : parsed.purpose === "renewal"
+      ? "Draft a SHORT, warm RENEWAL nudge. Mention the exact renewal date given, encourage timely renewal to avoid service interruption, and offer to send the renewal quote. Do not invent prices."
+      : "Draft a SHORT, warm relationship CHECK-IN with an existing customer. No selling pressure; offer help with seats/renewals/support.";
 
   const ai = gemini.apiKey ? await draftWithGemini(gemini.apiKey, gemini.model, parsed.channel, intent, ctx) : null;
   const draft = ai ?? stubDraft({
@@ -212,6 +237,7 @@ export async function POST(request: NextRequest) {
     planLabel,
     purpose: parsed.purpose,
     outstanding,
+    renewalDate,
   });
   return NextResponse.json({ ...draft, mode: ai ? "gemini" : "stub" });
 }

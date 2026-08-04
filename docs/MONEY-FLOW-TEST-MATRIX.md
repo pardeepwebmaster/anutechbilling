@@ -41,7 +41,7 @@ Re-verified 2026-06-01 against live DB + code. ✅ = fixed & evidenced · 🟡 =
 | #2 Webhook dup (partial) | P0 | ✅ | Covered by #1's DB constraint; the Razorpay webhook passes `payment.id` as the reference, so retries dedupe. |
 | #3/#4 Add-seats duplicate sub | P0 | ✅ | Migration 0052 — `quotes.is_add_seats`; `record_payment` skips all sub-handling for add-seats. Test `add_seats_no_duplicate_subscription.test.sql`. |
 | #5 Sibling-sub balance clobber | P0 | ✅ | Migration 0056 — `subscriptions.quote_id` FK; outstanding UPDATE scoped to the originating quote. Test `record_payment_sibling_and_extend.test.sql`. |
-| #6 Fully-paid + no customer → silent no-sub | P0 | 🟡 | Deferred — rare (quotes always carry a lead/customer in practice). Fast-follow: add a defensive `raise`. |
+| #6 Fully-paid + no customer → silent no-sub | P0 | ✅ | Closed by migration 0078 (verified live 2026-07-29 in `record_payment` body): on the first payment, a customer is ALWAYS created — from the lead if `lead_id` is set, else straight from the quote (`customer_name`) when both `lead_id` and `customer_id` are null. So the annual-sub branch's `v_customer_id is not null` guard can no longer fall through to a silent no-sub. |
 | #7 Duplicate invoices per quote | P0 | ✅ | Migration 0053 — `invoices_quote_unique`. Verified live. |
 | #8 Invoice snapshot race | P0 | ✅ | Migration 0058 — atomic `generate_invoice` RPC, `SELECT … FOR UPDATE` on the quote. Test `generate_invoice_atomic.test.sql`. |
 | #9 Orphan invoice (quote not flipped) | P0 | ✅ | Migration 0058 — invoice INSERT + quote UPDATE in one transaction. |
@@ -57,8 +57,8 @@ Re-verified 2026-06-01 against live DB + code. ✅ = fixed & evidenced · 🟡 =
 | #19 Send-route PDF wrong GST head | P1 | ✅ | `isInterStateSupply()` shared helper; send route derives the head from customer vs tenant state. |
 | #20 Renewal PDF wrong GST head | P1 | ✅ | cron-renewals PDF now derives via `isInterStateSupply()`. |
 | #23 No place-of-supply captured | P1 | ✅ | Migration 0055 — `leads.state_code/state` → copied to customer by `accept_quote`/`record_payment`; buy page has a "Your state (GST)" dropdown. |
-| #22 TDS insert non-atomic | P1 | 🟡 | Open — manage TDS manually until folded into a single RPC. |
-| #24 GST split not frozen on invoice | P1 | 🟡 | Open — totals are correct; heads are re-derived from current customer state at view time. Fast-follow: freeze `inter_state/place_of_supply/cgst/sgst/igst` at generation. |
+| #22 TDS insert non-atomic | P1 | ✅ | Fixed 2026-07-29 (migration 0150) — `record_payment_with_tds` wraps `record_payment` and inserts the TDS receivable in the SAME transaction; the TDS row commits with the payment or both roll back. `record_payment` itself is untouched. Replay-guarded (no dup TDS on retry). The dialog calls the wrapper only when TDS is deducted. Rolled-back test: co-commit (pay+TDS linked) + replay-no-dup both green. |
+| #24 GST split not frozen on invoice | P1 | ✅ | `generate_invoice` freezes `taxable_value/tax_amount/tax_rate/inter_state` at issue (migration 0116). The viewer/PDF still re-derived `interState` from the *current* customer state — fixed 2026-07-29: `tax-invoice-dialog.tsx` now reads the frozen invoice columns (props are legacy fallback only), so a later customer-state edit can no longer flip an issued invoice's heads. Cross-checked live: INV-ET-2026-27-0002 renders intra-state / ₹32,400 taxable == frozen row. |
 | #25 Invoice sequence gaps | P1 | ✅ | Fixed by 0058 — the number is allocated **inside** the atomic txn, so a failed INSERT rolls back the increment too. |
 | #26 ₹0 "paid" tax invoice | P1 | ✅ | Migration 0060 — `generate_invoice` raises on `gross <= 0` (guard on gross only; advance-settled net 0 still invoices). Test `zero_amount_guards.test.sql`. |
 | #27 NULL amount → every payment "fully paid" | P1 | ✅ | Migration 0061 — `record_payment` raises when the quote's `amount <= 0` (placed after the idempotent-replay check). Verified by the full suite (mrr-ex-gst, replay, renewal, partial, sibling) + ₹0-reject. |
@@ -276,10 +276,10 @@ The single question this section answers: **which scenarios must be green before
 
 ### CAN still ship with a documented known issue (fix fast-follow)
 
-- **INV-04** (#24, invoice GST split not *frozen*) — totals + live head are correct; freeze `inter_state/cgst/sgst/igst/place_of_supply` so a later customer-state edit can't retroactively flip an issued invoice. Fix before high inter-state volume.
+- ~~**INV-04** (#24, invoice GST split not *frozen*)~~ ✅ **done** (2026-07-29) — `generate_invoice` already froze `taxable_value/tax_amount/tax_rate/inter_state` (0116); `tax-invoice-dialog.tsx` now reads those frozen columns instead of re-deriving from current customer state, so a later state edit can't retroactively flip an issued invoice's heads.
 - ~~**INV-06 / RP-08** (#26, #27 — ₹0/NULL-amount guards)~~ ✅ **done** (migrations 0060/0061) — `generate_invoice` + `record_payment` now reject zero/NULL-amount quotes.
-- **RP-15** (TDS non-atomic, #22) — manage TDS manually until folded into the RPC.
-- **RN-04 / RN-05** (cadence catch-up, #21) — fix before the first cohort hits T-15.
+- ~~**RP-15** (TDS non-atomic, #22)~~ ✅ **done** (2026-07-29, migration 0150) — `record_payment_with_tds` commits the TDS receivable atomically with the payment.
+- ~~**RN-04 / RN-05** (cadence catch-up, #21)~~ ✅ **done** (2026-07-29) — `decideCadence` now uses catch-up matching (fires the most-urgent trigger whose day ≥ today's daysOut) instead of exact-day equality, so a missed cron day or a renewal_date on a non-trigger day (T-2/T-1) no longer silently skips the reminder. 11 Vitest cases green (`src/lib/renewals/cadence.test.ts`); cron's `renewal_email_log` gives a second (sub, step) idempotency guard.
 - **PR-15, PR-08, PR-18** (monthly-flex ×12, coupon units, catalog-vanish 400) — avoid by not offering monthly-flex, not creating coupons, and not editing the catalog mid-session, until fixed.
 - **AS-06 / EX-06** (#33, #32 — concurrency lost-update / clobber) — low traffic today; add row-lock RPCs before multi-operator scale.
 - All **P2** rows in Section 4.

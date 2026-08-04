@@ -89,6 +89,7 @@ export interface PayslipPDFProps {
   gross:            number;
   lopDays:          number;
   lopAmount:        number;
+  incentive?:       number;
   advanceRecovered: number;
   tds:              number;
   pf:               number;
@@ -220,8 +221,9 @@ export function PayslipPDF(props: PayslipPDFProps) {
     company, employee, period, payDate, paidVia,
     gross, lopDays, lopAmount, advanceRecovered, tds, pf, esi, other, net,
   } = props;
+  const incentive = Math.max(0, props.incentive ?? 0);
 
-  const earned = Math.max(0, gross - lopAmount);
+  const earned = Math.max(0, gross - lopAmount) + incentive;
   const deductions: Array<{ label: string; amount: number }> = [
     { label: "Advance recovery", amount: advanceRecovered },
     { label: "TDS",              amount: tds },
@@ -293,6 +295,12 @@ export function PayslipPDF(props: PayslipPDFProps) {
               <View style={s.row}>
                 <Text style={s.rowLabel}>Less: Loss of pay ({lopDays}d)</Text>
                 <Text style={s.rowValueNeg}>-{rupee(lopAmount)}</Text>
+              </View>
+            )}
+            {incentive > 0 && (
+              <View style={s.row}>
+                <Text style={s.rowLabel}>Bonus / Incentive</Text>
+                <Text style={s.rowValue}>{rupee(incentive)}</Text>
               </View>
             )}
             <View style={s.subtotal}>

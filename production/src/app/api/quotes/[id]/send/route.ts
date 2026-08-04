@@ -26,6 +26,7 @@ import { sendEmail, isEmailConfigured } from "@/lib/email/send";
 import { renderQuotePDF } from "@/lib/pdf";
 import { rupee } from "@/lib/utils";
 import { isInterStateSupply } from "@/lib/gst/place-of-supply";
+import { quoteAcceptUrl } from "@/lib/quotes/accept-link";
 import type { QuoteLineItem } from "@/lib/supabase/database.types";
 
 export const dynamic = "force-dynamic";
@@ -68,7 +69,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     .select(`
       id, tenant_id, customer_id, customer_name, plan, seats, amount,
       status, payment_status, line_items, subtotal, discount_pct, tax_rate,
-      created_date, expires_date, notes, is_renewal
+      created_date, expires_date, notes, is_renewal, public_token
     `)
     .eq("id", params.id)
     .single();
@@ -127,7 +128,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   const linkProto = req.headers.get("x-forwarded-proto") ?? "https";
   const linkHost  = req.headers.get("x-forwarded-host") ?? req.headers.get("host");
   const linkBase  = linkHost ? `${linkProto}://${linkHost}` : new URL(req.url).origin;
-  const customerUrl = `${linkBase}/quote/${quote.id}/accept`;
+  const customerUrl = quoteAcceptUrl(linkBase, quote.id, quote.public_token);
   const subject     = body.subject?.trim() ||
                       `Quotation ${quote.id} from ${tenant.name}`;
   const greetName   = customer?.contact_name || quote.customer_name;

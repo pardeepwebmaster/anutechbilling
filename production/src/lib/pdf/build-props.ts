@@ -11,7 +11,7 @@
  *
  * interState (GST head) uses the shared place-of-supply helper.
  */
-import { isInterStateSupply } from "../gst/place-of-supply";
+import { isInterStateSupply, isExportSupply } from "../gst/place-of-supply";
 import type { Invoice, Quote, Customer } from "@/lib/supabase/database.types";
 import type { InvoicePDFProps } from "./InvoicePDF";
 import type { QuotePDFProps } from "./QuotePDF";
@@ -44,6 +44,19 @@ export function quoteAmounts(quote: Pick<Quote, "subtotal" | "discount_pct" | "t
   return { subtotal, discountPct, discount, taxable, taxRate, tax, total };
 }
 
+/**
+ * Breakdown from an invoice's OWN persisted columns (migration 0116) — used for
+ * quote-less invoices (project-milestone invoices). Before 0116 these rendered
+ * with ₹0 GST (the amount shown as fully taxable); now the real split shows.
+ */
+export function invoiceAmounts(inv: Pick<Invoice, "amount" | "taxable_value" | "tax_amount" | "tax_rate">): Amounts {
+  const total   = inv.amount;
+  const taxRate = inv.tax_rate ?? 18;
+  const taxable = inv.taxable_value ?? Math.round(total * 100 / (100 + taxRate));
+  const tax     = inv.tax_amount ?? (total - taxable);
+  return { subtotal: taxable, discountPct: 0, discount: 0, taxable, taxRate, tax, total };
+}
+
 export function buildInvoicePdfProps(args: {
   invoice:  Invoice;
   quote:    Quote | null;
@@ -51,13 +64,13 @@ export function buildInvoicePdfProps(args: {
   tenant:   TenantPdfInfo;
 }): InvoicePDFProps {
   const { invoice, quote, customer, tenant } = args;
-  const a: Amounts = quote
-    ? quoteAmounts(quote)
-    : { subtotal: invoice.amount, discountPct: 0, discount: 0, taxable: invoice.amount, taxRate: 18, tax: 0, total: invoice.amount };
-  // The invoice's authoritative gross wins for total/subtotal fallbacks (mirrors
-  // the invoice detail page: total = quote?.amount ?? invoice.amount).
+  // Quote-backed invoice → derive from the quote; quote-less (project-milestone)
+  // invoice → use the breakdown persisted on the invoice itself (migration 0116).
+  const a: Amounts = quote ? quoteAmounts(quote) : invoiceAmounts(invoice);
   const total    = quote?.amount   ?? invoice.amount;
-  const subtotal = quote?.subtotal ?? invoice.amount;
+  const subtotal = quote?.subtotal ?? a.subtotal;
+  // GST head: the value persisted at issue time wins; else derive from states.
+  const interState = invoice.inter_state ?? isInterStateSupply(customer?.state_code, tenant.state_code);
 
   return {
     invoice,
@@ -69,10 +82,12 @@ export function buildInvoicePdfProps(args: {
     taxRate:     a.taxRate,
     tax:         a.tax,
     total,
-    interState:  isInterStateSupply(customer?.state_code, tenant.state_code),
+    interState,
     customerGstin:   customer?.gstin ?? null,
     customerEmail:   customer?.contact_email ?? null,
-    customerAddress: customer?.address ?? null,
+    // Compose the billing address line + city (city is its own column since
+    // migration 0166; old customers with city inside `address` are unaffected).
+    customerAddress: [customer?.address, customer?.city].filter(Boolean).join(", ") || null,
     customerState:   customer?.state ?? null,
     tenantName:    tenant.name,
     tenantGstin:   tenant.gstin,
@@ -80,6 +95,13 @@ export function buildInvoicePdfProps(args: {
     tenantPhone:   tenant.phone,
     tenantAddress: tenant.address,
     tenantState:   tenant.state,
+    // Export (recipient outside India) → zero-rated display + foreign currency.
+    customerCountry: customer?.country ?? null,
+    // Foreign-currency display (books stay ₹). Carried on the backing quote — an
+    // export client's PDF then shows the USD (etc.) equivalent, not just ₹.
+    currency:      quote?.currency ?? null,
+    exchangeRate:  quote?.exchange_rate ?? null,
+    termsConditions: quote?.terms_conditions ?? null,
   };
 }
 
@@ -118,7 +140,12 @@ export function buildQuotePdfProps(args: {
     tax:           a.tax,
     total:         a.total,
     interState:    isInterStateSupply(customer?.state_code, tenant.state_code),
+    isExport:      isExportSupply(customer?.country),
+    currency:      quote.currency ?? null,
+    exchangeRate:  quote.exchange_rate ?? null,
+    billingCycle:  quote.billing_cycle,
     notes:         quote.notes ?? undefined,
+    termsConditions: quote.terms_conditions ?? null,
     isRenewal:     quote.is_renewal,
   };
 }

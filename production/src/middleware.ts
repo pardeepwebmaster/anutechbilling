@@ -29,6 +29,9 @@ const PROTECTED_PREFIXES = [
   "/subscriptions",
   "/renewals",
   "/purchase-orders",
+  "/projects",        // Project Sales (financials) — was missing from the gate
+  "/performance",     // Team performance / bonus — was missing
+  "/enquiries",       // inbound enquiries inbox — was missing
   "/accounting",      // /accounting/bills, /accounting/pnl, etc.
   "/whatsapp",
   "/automations",

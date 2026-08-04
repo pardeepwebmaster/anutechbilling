@@ -17,11 +17,15 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useInvoices, useQuotesAwaitingInvoice, useGenerateInvoice, useDeleteProjectInvoice, useDeleteSubscriptionInvoice } from "@/lib/queries/invoices";
 import { useQuoteByInvoiceId } from "@/lib/queries/quotes";
 import { usePaymentsByQuote } from "@/lib/queries/payments";
-import { useProjectPaymentsByInvoice, useProjectInvoiceIds } from "@/lib/queries/projects";
+import { useProjectPaymentsByInvoice, useProjectInvoiceIds, useMilestoneByInvoice } from "@/lib/queries/projects";
+import { RecordProjectPaymentDialog } from "@/components/features/projects/record-project-payment-dialog";
 import { useCustomer } from "@/lib/queries/customers";
 import { useCurrentUser } from "@/lib/hooks/useCurrentUser";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { TaxInvoiceDialog } from "@/components/features/quotes/tax-invoice-dialog";
+import { IssueCreditNoteDialog } from "@/components/features/invoices/issue-credit-note-dialog";
+import { useCreditNotesByInvoice } from "@/lib/queries/credit-notes";
+import { useDebitNotesByInvoice } from "@/lib/queries/debit-notes";
 import { ReceiptVoucherDialog } from "@/components/features/quotes/receipt-voucher-dialog";
 import { isInterStateSupply } from "@/lib/gst/place-of-supply";
 import { Icon } from "@/components/ui/icon";
@@ -31,12 +35,23 @@ import { EmptyState } from "@/components/shared/empty-state";
 import { StatStrip } from "@/components/shared/stat-strip";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
+import { FAB } from "@/components/ui/fab";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
+import { useResizableColumns, ResizableHandles } from "@/components/ui/resizable-columns";
+import {
+  DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem,
+} from "@/components/ui/dropdown-menu";
 import { TabBar, type TabBarItem } from "@/components/ui/tabs";
 import { rupee, formatDate, daysBetween } from "@/lib/utils";
 import type { Invoice, Payment } from "@/lib/supabase/database.types";
+
+const INV_COL_ORDER = ["select", "invoice", "customer", "date", "due", "amount", "status", "action"];
+const INV_COL_DEFAULTS: Record<string, number> = {
+  select: 44, invoice: 150, customer: 200, date: 120, due: 120, amount: 140, status: 150, action: 210,
+};
 
 function InvoicesPageInner() {
   const router       = useRouter();
@@ -50,12 +65,17 @@ function InvoicesPageInner() {
   const { data: pending } = useQuotesAwaitingInvoice();
   const generateInvoice = useGenerateInvoice();
   const [tab, setTab] = React.useState("all");
-  const [view, setView] = React.useState<"subscription" | "project">("subscription");
+  const [search, setSearch] = React.useState("");
+  const { colW, startResize, totalWidth: invTableW } = useResizableColumns("ros_inv_colw", INV_COL_DEFAULTS);
+  // Combined by default — Subscription & Project invoices live in one list
+  // (each row carries a Type badge). The tabs below are just an optional filter.
+  const [view, setView] = React.useState<"all" | "subscription" | "project">("all");
   const [selected, setSelected] = React.useState<Set<string>>(new Set());
 
   const isProjectInv = React.useCallback((id: string) => projectInvoiceIds?.has(id) ?? false, [projectInvoiceIds]);
   const viewInvoices = React.useMemo(
-    () => (invoices ?? []).filter((i) => (view === "project" ? isProjectInv(i.id) : !isProjectInv(i.id))),
+    () => (invoices ?? []).filter((i) =>
+      view === "all" ? true : view === "project" ? isProjectInv(i.id) : !isProjectInv(i.id)),
     [invoices, view, isProjectInv],
   );
   const subCount  = React.useMemo(() => (invoices ?? []).filter((i) => !isProjectInv(i.id)).length, [invoices, isProjectInv]);
@@ -100,14 +120,27 @@ function InvoicesPageInner() {
     { id: "draft",   label: "Draft",   count: counts.draft ?? 0 },
   ];
 
-  // Filter — Partial and Pending both derive from status='pending', split by
-  // whether any advances were applied to the invoice.
+  // Filter — status tab (Partial/Pending both derive from status='pending',
+  // split by whether advances were applied) + free-text search on invoice #,
+  // customer, or status.
   const rows = viewInvoices.filter((i) => {
-    if (tab === "all") return true;
-    const hasAdv = Array.isArray(i.adjusted_advances) && i.adjusted_advances.length > 0;
-    if (tab === "partial") return i.status === "pending" && hasAdv;
-    if (tab === "pending") return i.status === "pending" && !hasAdv;
-    return i.status === tab;
+    // Status tab
+    if (tab !== "all") {
+      const hasAdv = Array.isArray(i.adjusted_advances) && i.adjusted_advances.length > 0;
+      if (tab === "partial")      { if (!(i.status === "pending" && hasAdv)) return false; }
+      else if (tab === "pending") { if (!(i.status === "pending" && !hasAdv)) return false; }
+      else if (i.status !== tab)  { return false; }
+    }
+    // Search
+    if (search.trim()) {
+      const s = search.toLowerCase();
+      const hit =
+        i.id.toLowerCase().includes(s) ||
+        (i.customer_name?.toLowerCase().includes(s) ?? false) ||
+        i.status.toLowerCase().includes(s);
+      if (!hit) return false;
+    }
+    return true;
   });
 
   // KPIs
@@ -157,9 +190,8 @@ function InvoicesPageInner() {
           <p className="text-sm text-ink-3 mt-1">All GST invoices · sorted by most recent</p>
         </div>
         <div className="flex gap-2 flex-wrap">
-          <Button icon="upload" onClick={() => toast("Export GSTR-1 — coming soon")}>Export GSTR-1</Button>
-          <Button icon="refresh" onClick={() => toast("Zoho Books sync — coming soon")}>Push to Zoho</Button>
-          <Button variant="primary" icon="plus" onClick={() => toast.info("Generate invoices from accepted+paid quotes at /quotes")}>
+          <Button icon="upload" onClick={() => router.push("/accounting/gst" as any)}>Export GSTR-1</Button>
+          <Button variant="primary" icon="plus" onClick={() => router.push("/quotes" as any)}>
             New invoice
           </Button>
         </div>
@@ -169,8 +201,9 @@ function InvoicesPageInner() {
       <div className="mb-4">
         <TabBar
           value={view}
-          onChange={(v) => setView(v as "subscription" | "project")}
+          onChange={(v) => setView(v as "all" | "subscription" | "project")}
           items={[
+            { id: "all",          label: "All invoices", count: (invoices?.length ?? 0) || undefined },
             { id: "subscription", label: "Subscription", count: subCount || undefined },
             { id: "project",      label: "Project",      count: projCount || undefined },
           ]}
@@ -186,7 +219,7 @@ function InvoicesPageInner() {
              31-60d  = OVERDUE — legal violation, audit risk
              60+d    = critical — penalty likely
       */}
-      {view === "subscription" && pending && pending.length > 0 && (() => {
+      {view !== "project" && pending && pending.length > 0 && (() => {
         const now = Date.now();
         const buckets = { fresh: [] as any[], warn: [] as any[], urgent: [] as any[], overdue: [] as any[] };
         for (const q of pending) {
@@ -270,8 +303,45 @@ function InvoicesPageInner() {
               <BucketTile label="60+ days · audit risk"  count={buckets.overdue.length} amount={sumAmt(buckets.overdue)} tone="rose" />
             </div>
 
+            {/* Mobile card list — phones only. Keeps the primary "Generate"
+                action; bulk-select stays a desktop power feature. */}
+            <ul className="md:hidden space-y-2">
+              {pending.map((q: any) => {
+                const anchor = q.first_advance_at ?? q.payment_received_at;
+                const days = anchor ? Math.floor((now - new Date(anchor).getTime()) / 86400000) : 0;
+                const ageKind: "emerald" | "amber" | "rose" = days <= 15 ? "emerald" : days <= 30 ? "amber" : "rose";
+                const isPartial = q.payment_status === "partial";
+                return (
+                  <li key={q.id} className="rounded-lg border border-hairline bg-paper p-3">
+                    <div className="flex items-start justify-between gap-3 mb-2">
+                      <div className="min-w-0 flex-1">
+                        <Link href={`/quotes/${q.id}` as any} className="font-mono text-xs font-semibold text-ink hover:text-amber-ink hover:underline block truncate">{q.id}</Link>
+                        <p className="text-sm text-ink truncate mt-0.5">{q.customer_name}</p>
+                        <p className="text-[11px] text-ink-3 mt-0.5">First advance {anchor ? formatDate(anchor) : "—"}</p>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <p className="font-serif text-base tabular-nums text-ink">{rupee(q.amount ?? 0)}</p>
+                        {isPartial && q.payment_amount != null && (
+                          <p className="text-[10px] text-amber-ink mt-0.5">{rupee(q.payment_amount)} received</p>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between gap-2 pt-2 border-t border-hairline/60">
+                      <div className="flex items-center gap-1.5">
+                        {isPartial ? <Badge kind="info" size="sm" dot>Partial</Badge> : <Badge kind="success" size="sm" dot>Fully paid</Badge>}
+                        <Badge kind={ageKind === "rose" ? "danger" : ageKind === "amber" ? "warning" : "success"} size="sm" dot>{days}d ago</Badge>
+                      </div>
+                      <Button size="sm" variant="primary" icon="receipt" loading={generateInvoice.isPending} onClick={() => generateInvoice.mutate(q.id)}>
+                        Generate
+                      </Button>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+
             {/* Table of pending quotes */}
-            <div className="rounded-md border border-hairline bg-paper overflow-x-auto">
+            <div className="hidden md:block rounded-md border border-hairline bg-paper overflow-x-auto">
               <table className="w-full">
                 <thead className="bg-paper-2 border-b border-hairline">
                   <tr>
@@ -393,8 +463,8 @@ function InvoicesPageInner() {
           <GeminiCard
             title="Collection intelligence"
             actions={
-              <Button size="sm" variant="primary" icon="phone" onClick={() => toast("Bulk follow-up queued")}>
-                Call all overdue
+              <Button size="sm" variant="primary" icon="users" onClick={() => router.push("/customers" as any)}>
+                Open customers
               </Button>
             }
             compact
@@ -405,10 +475,23 @@ function InvoicesPageInner() {
         </div>
       )}
 
-      {/* Tabs */}
+      {/* Tabs + search */}
       {!isLoading && invoices && invoices.length > 0 && (
-        <div className="mb-3">
+        <div className="mb-3 space-y-3">
           <TabBar value={tab} onChange={setTab} items={tabs} />
+          <div className="flex justify-between items-center gap-3 flex-wrap">
+            <div className="text-xs text-ink-3">
+              Showing {rows.length} of {viewInvoices.length} invoice{viewInvoices.length === 1 ? "" : "s"}
+            </div>
+            <div className="w-72">
+              <Input
+                prefix={<Icon name="search" size={14} />}
+                placeholder="Invoice #, customer, status…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+            </div>
+          </div>
         </div>
       )}
 
@@ -455,13 +538,23 @@ function InvoicesPageInner() {
 
       {/* Filtered empty */}
       {!isLoading && !error && invoices && invoices.length > 0 && rows.length === 0 && (
-        <EmptyState
-          icon="receipt"
-          title={`No ${tab} invoices`}
-          body={tab === "overdue" ? "🎉 All clear! No overdue invoices." : `No invoices in "${tab}" status right now.`}
-          action={tab !== "all" ? <Button icon="x" onClick={() => setTab("all")}>Show all</Button> : undefined}
-          compact
-        />
+        search.trim() ? (
+          <EmptyState
+            icon="search"
+            title="No invoices match"
+            body={`No results for "${search}". Try a different term.`}
+            action={<Button icon="x" onClick={() => setSearch("")}>Clear search</Button>}
+            compact
+          />
+        ) : (
+          <EmptyState
+            icon="receipt"
+            title={`No ${tab} invoices`}
+            body={tab === "overdue" ? "🎉 All clear! No overdue invoices." : `No invoices in "${tab}" status right now.`}
+            action={tab !== "all" ? <Button icon="x" onClick={() => setTab("all")}>Show all</Button> : undefined}
+            compact
+          />
+        )
       )}
 
       {/* Mobile card list — phones only */}
@@ -511,40 +604,46 @@ function InvoicesPageInner() {
         </ul>
       )}
 
-      {/* Desktop table */}
+      {/* Desktop table — drag the full-height divider between any two columns to resize. */}
       {!isLoading && !error && rows.length > 0 && (
-        <Card flush className="hidden md:block">
-          <table className="w-full">
-            <thead className="bg-paper-2 border-b border-hairline">
-              <tr>
-                <th className="w-10 p-3">
-                  <Checkbox
-                    checked={selected.size === rows.length && rows.length > 0}
-                    onCheckedChange={toggleAll}
+        <Card flush className="hidden md:block overflow-x-auto">
+          <div className="relative" style={{ width: invTableW }}>
+            <table className="w-full table-fixed">
+              <colgroup>
+                {INV_COL_ORDER.map((id) => <col key={id} style={{ width: colW[id] }} />)}
+              </colgroup>
+              <thead className="bg-paper-2 border-b border-hairline">
+                <tr>
+                  <th className="p-3">
+                    <Checkbox
+                      checked={selected.size === rows.length && rows.length > 0}
+                      onCheckedChange={toggleAll}
+                    />
+                  </th>
+                  <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Invoice #</th>
+                  <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Customer</th>
+                  <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Date</th>
+                  <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Due date</th>
+                  <th className="text-right p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Amount</th>
+                  <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Status</th>
+                  <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((inv) => (
+                  <InvoiceRow
+                    key={inv.id}
+                    inv={inv}
+                    checked={selected.has(inv.id)}
+                    onToggle={() => toggleOne(inv.id)}
+                    autoOpen={inv.id === openInvoiceId}
+                    isProject={projectInvoiceIds?.has(inv.id) ?? false}
                   />
-                </th>
-                <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Invoice #</th>
-                <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Customer</th>
-                <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Date</th>
-                <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Due date</th>
-                <th className="text-right p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Amount</th>
-                <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Status</th>
-                <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((inv) => (
-                <InvoiceRow
-                  key={inv.id}
-                  inv={inv}
-                  checked={selected.has(inv.id)}
-                  onToggle={() => toggleOne(inv.id)}
-                  autoOpen={inv.id === openInvoiceId}
-                  isProject={projectInvoiceIds?.has(inv.id) ?? false}
-                />
-              ))}
-            </tbody>
-          </table>
+                ))}
+              </tbody>
+            </table>
+            <ResizableHandles colW={colW} order={INV_COL_ORDER} startResize={startResize} />
+          </div>
         </Card>
       )}
 
@@ -562,6 +661,9 @@ function InvoicesPageInner() {
           </div>
         </Card>
       )}
+
+      {/* Mobile primary — the header "New invoice" scrolls away on a phone. */}
+      <FAB icon="plus" label="New invoice" onClick={() => router.push("/quotes" as any)} />
     </div>
   );
 }
@@ -585,10 +687,16 @@ function InvoiceRow({
   /** Invoice came from a project milestone (vs a subscription quote). */
   isProject?: boolean;
 }) {
+  const router = useRouter();
   const [previewOpen, setPreviewOpen] = React.useState(false);
   const [delOpen, setDelOpen] = React.useState(false);
+  const [payOpen, setPayOpen] = React.useState(false);
+  const [cnOpen, setCnOpen] = React.useState(false);
+  const [dnOpen, setDnOpen] = React.useState(false);
   const delProjectInvoice = useDeleteProjectInvoice();
   const delSubscriptionInvoice = useDeleteSubscriptionInvoice();
+  // Milestone behind this project invoice — lazily loaded when recording payment.
+  const { data: payMilestone } = useMilestoneByInvoice(payOpen && isProject ? inv.id : null);
   const [expanded, setExpanded] = React.useState(false);
   const autoOpenFired = React.useRef(false);
 
@@ -605,13 +713,16 @@ function InvoiceRow({
       <td className="p-3">
         <Checkbox checked={checked} onCheckedChange={onToggle} />
       </td>
-      <td className="p-3 font-mono text-xs font-semibold">
-        {inv.id}
-        <span className="block mt-1">
+      {/* Compact invoice # — tail number as a chip; full number on hover. */}
+      <td className="p-3" title={inv.id}>
+        <div className="flex items-center gap-1.5">
+          <span className="inline-flex items-center rounded-md bg-paper-2 px-1.5 py-0.5 font-mono text-[11px] font-semibold text-ink">
+            #{inv.id.split("-").pop()}
+          </span>
           <Badge kind={isProject ? "info" : "muted"} size="sm">{isProject ? "Project" : "Subscription"}</Badge>
-        </span>
+        </div>
       </td>
-      <td className="p-3 text-sm font-medium">
+      <td className="p-3 text-sm font-medium truncate" title={inv.customer_name}>
         {inv.customer_id ? (
           <Link href={`/customers/${inv.customer_id}` as never} className="text-ink hover:text-amber-ink hover:underline">
             {inv.customer_name}
@@ -620,11 +731,11 @@ function InvoiceRow({
           inv.customer_name
         )}
       </td>
-      <td className="p-3 text-sm text-ink-2">{formatDate(inv.invoice_date)}</td>
-      <td className="p-3 text-sm text-ink-2">{inv.due_date ? formatDate(inv.due_date) : "—"}</td>
+      <td className="p-3 text-sm text-ink-2 whitespace-nowrap truncate">{formatDate(inv.invoice_date)}</td>
+      <td className="p-3 text-sm text-ink-2 whitespace-nowrap truncate">{inv.due_date ? formatDate(inv.due_date) : "—"}</td>
       <td className="p-3 text-right">
         <div className="flex flex-col items-end gap-0.5">
-          <span className="tabular-nums text-sm font-medium">{rupee(inv.amount)}</span>
+          <span className="font-serif text-[15px] font-semibold text-ink tabular-nums">{rupee(inv.amount)}</span>
           {/* Surface net-payable when advances were adjusted at issue time
               (CGST Rule 53). Otherwise the gross alone is misleading — paid
               invoices may have most of the amount cleared via advance receipts. */}
@@ -677,27 +788,47 @@ function InvoiceRow({
               View
             </Button>
           )}
-          {inv.status === "overdue" && (
-            <Button size="sm" variant="danger" icon="phone" onClick={() => toast(`Calling ${inv.customer_name}…`)}>
-              Call
-            </Button>
-          )}
-          {inv.status === "pending" && (
-            <Button size="sm" icon="mail" onClick={() => toast(`Reminder emailed to ${inv.customer_name}`)}>
-              Remind
+          {(inv.status === "overdue" || inv.status === "pending") && (
+            <Button
+              size="sm"
+              variant={inv.status === "overdue" ? "danger" : "ghost"}
+              icon="phone"
+              onClick={() =>
+                inv.customer_id
+                  ? router.push(`/customers/${inv.customer_id}` as any)
+                  : toast.info("This invoice has no linked customer to follow up with")
+              }
+            >
+              Follow up
             </Button>
           )}
           {inv.status === "draft" && (
-            <Button size="sm" variant="primary" icon="send">Send</Button>
+            <Button size="sm" icon="file" variant="ghost" onClick={() => setPreviewOpen(true)}>View</Button>
           )}
-          {/* Delete — opens an explained confirmation dialog (project vs subscription). */}
-          <Button
-            size="sm" variant="ghost" icon="trash"
-            loading={delProjectInvoice.isPending || delSubscriptionInvoice.isPending}
-            onClick={() => setDelOpen(true)}
-          >
-            Delete
-          </Button>
+          {/* Record payment — project invoices only (subscription payments go via the quote). */}
+          {isProject && inv.status !== "paid" && inv.status !== "draft" && inv.status !== "void" && (
+            <Button size="sm" variant="primary" icon="rupee" onClick={() => setPayOpen(true)}>
+              Record payment
+            </Button>
+          )}
+          {/* Overflow — Delete lives here so it isn't fat-fingered next to View.
+              (The confirmation dialog still explains exactly what happens.) */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button size="sm" variant="ghost" icon="more_h" aria-label="More actions" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={() => setCnOpen(true)}>
+                <Icon name="receipt" size={15} className="mr-2" /> Issue credit note
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setDnOpen(true)}>
+                <Icon name="receipt" size={15} className="mr-2" /> Issue debit note
+              </DropdownMenuItem>
+              <DropdownMenuItem destructive onClick={() => setDelOpen(true)}>
+                <Icon name="trash" size={14} /> Delete invoice
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
 
         <DeleteInvoiceDialog
@@ -719,12 +850,42 @@ function InvoiceRow({
             onOpenChange={setPreviewOpen}
           />
         )}
+        {isProject && payMilestone && (
+          <RecordProjectPaymentDialog
+            open={payOpen}
+            onOpenChange={setPayOpen}
+            milestone={payMilestone}
+            projectId={payMilestone.project_id}
+          />
+        )}
+        <IssueCreditNoteDialog
+          open={cnOpen}
+          onOpenChange={setCnOpen}
+          invoiceId={inv.id}
+          customerName={inv.customer_name}
+          netPayable={inv.net_payable ?? inv.amount}
+          taxRate={inv.tax_rate}
+          interState={inv.inter_state}
+          isExport={(inv.tax_rate ?? 18) === 0}
+        />
+        <IssueCreditNoteDialog
+          open={dnOpen}
+          onOpenChange={setDnOpen}
+          mode="debit"
+          invoiceId={inv.id}
+          customerName={inv.customer_name}
+          netPayable={inv.net_payable ?? inv.amount}
+          taxRate={inv.tax_rate}
+          interState={inv.inter_state}
+          isExport={(inv.tax_rate ?? 18) === 0}
+        />
       </td>
     </tr>
     {expanded && (
       <tr className="bg-paper-2/30 border-b border-hairline">
-        <td colSpan={8} className="px-5 py-3">
+        <td colSpan={8} className="px-5 py-3 space-y-3">
           <InvoicePaymentsAccordion inv={inv} />
+          <InvoiceNotesList invoiceId={inv.id} />
         </td>
       </tr>
     )}
@@ -788,6 +949,9 @@ function InvoicePreviewContainer({
       customerGstin={customer?.gstin}
       customerEmail={customer?.contact_email}
       customerState={customer?.state}
+      customerCountry={customer?.country}
+      currency={quote?.currency}
+      exchangeRate={quote?.exchange_rate}
       tenantName={me.tenantName}
       tenantGstin={me.tenantGstin}
       tenantEmail={me.tenantEmail}
@@ -817,11 +981,27 @@ function DeleteInvoiceDialog({
   loading: boolean;
   onConfirm: () => void;
 }) {
-  const items = isProject
+  // The actual payment(s) that will be deleted (project invoices).
+  const { data: projPays } = useProjectPaymentsByInvoice(open && isProject ? invoiceId : null);
+  const paysTotal = (projPays ?? []).reduce((s, p) => s + p.amount, 0);
+
+  const items: { what: string; why: string; extra?: React.ReactNode }[] = isProject
     ? [
         {
-          what: "The payment(s) recorded against this invoice will be deleted",
+          what: (projPays?.length ?? 0) > 0
+            ? `${projPays!.length} payment${projPays!.length === 1 ? "" : "s"} (${rupee(paysTotal)}) recorded against this invoice will be deleted`
+            : "The payment(s) recorded against this invoice will be deleted",
           why:  "This invoice IS the record of that payment. Remove the invoice and the payment has no valid document behind it — keeping it would leave an orphan entry and double-count your collections.",
+          extra: (projPays?.length ?? 0) > 0 ? (
+            <ul className="mt-1.5 space-y-1">
+              {projPays!.map((p) => (
+                <li key={p.id} className="flex items-center justify-between gap-3 rounded-md border border-hairline bg-paper px-2.5 py-1.5 text-[11px]">
+                  <span className="text-ink-2 capitalize">{(p.method ?? "payment").replace("_", " ")}{p.reference ? ` · ${p.reference}` : ""}{p.bank_txn_id ? " · bank-reconciled" : ""}</span>
+                  <span className="tabular-nums font-medium text-ink">{rupee(p.amount)} · {formatDate(p.received_at)}</span>
+                </li>
+              ))}
+            </ul>
+          ) : null,
         },
         {
           what: "The matched bank statement line will be un-reconciled",
@@ -862,8 +1042,9 @@ function DeleteInvoiceDialog({
           {items.map((it, i) => (
             <li key={i} className="flex gap-2.5">
               <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-paper-2 text-[11px] font-semibold text-ink-2">{i + 1}</span>
-              <div>
+              <div className="min-w-0 flex-1">
                 <p className="text-sm text-ink font-medium">{it.what}</p>
+                {it.extra}
                 <p className="text-[12px] text-ink-3 leading-relaxed mt-0.5"><b className="text-ink-2 font-medium">Why:</b> {it.why}</p>
               </div>
             </li>
@@ -871,6 +1052,10 @@ function DeleteInvoiceDialog({
         </ol>
 
         <p className="text-[12px] text-rose mt-1">This cannot be undone.</p>
+        <p className="text-[12px] text-ink-3 mt-1">
+          The invoice number is <b className="text-ink-2">retired, not reused</b> — GST rules forbid giving
+          two different sales the same invoice number, so the next invoice takes a fresh number.
+        </p>
 
         <DialogFooter>
           <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
@@ -880,6 +1065,45 @@ function DeleteInvoiceDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** Credit / debit notes issued against this invoice — shown in the expand so a
+ *  note (which quietly lowered/raised the balance) is auditable. */
+function InvoiceNotesList({ invoiceId }: { invoiceId: string }) {
+  const { data: creditNotes } = useCreditNotesByInvoice(invoiceId);
+  const { data: debitNotes } = useDebitNotesByInvoice(invoiceId);
+  const notes = [
+    ...(creditNotes ?? []).map((n) => ({ ...n, kind: "credit" as const, date: n.credit_date })),
+    ...(debitNotes ?? []).map((n) => ({ ...n, kind: "debit" as const, date: n.debit_date })),
+  ].sort((a, b) => b.date.localeCompare(a.date));
+  if (notes.length === 0) return null;
+
+  return (
+    <div>
+      <div className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold mb-2">
+        Credit &amp; debit notes ({notes.length})
+      </div>
+      <ul className="space-y-1.5">
+        {notes.map((n) => (
+          <li key={n.id} className="flex items-center justify-between gap-3 rounded-md border border-hairline bg-paper px-3 py-2">
+            <span className="flex items-center gap-2 min-w-0">
+              <span className={`text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded ${n.kind === "credit" ? "bg-rose/10 text-rose" : "bg-indigo-soft text-indigo-ink"}`}>
+                {n.kind === "credit" ? "Credit" : "Debit"} note
+              </span>
+              <span className="font-mono text-[11px] text-ink truncate">{n.id}</span>
+              <span className="text-[11px] text-ink-3 capitalize">· {n.reason_code.replace(/_/g, " ")}</span>
+            </span>
+            <span className="flex items-center gap-3 shrink-0">
+              <span className={`tabular-nums text-sm font-medium ${n.kind === "credit" ? "text-rose" : "text-indigo-ink"}`}>
+                {n.kind === "credit" ? "−" : "+"} {rupee(n.amount)}
+              </span>
+              <span className="text-[11px] text-ink-3">{formatDate(n.date)}</span>
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 

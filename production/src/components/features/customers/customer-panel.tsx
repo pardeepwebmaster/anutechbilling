@@ -26,7 +26,8 @@ import { Avatar } from "@/components/ui/avatar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TabBar, type TabBarItem } from "@/components/ui/tabs";
 import { initials, formatDate, rupee, daysBetween } from "@/lib/utils";
-import { AddCustomerForm } from "./add-customer-form";
+import { InvoiceChooserDialog } from "@/components/features/invoices/invoice-chooser-dialog";
+import { CreateProjectQuoteDialog } from "@/components/features/projects/create-project-quote-dialog";
 import {
   deriveCustomerInsights,
   CustomerMetricBar,
@@ -46,7 +47,8 @@ export function CustomerPanel({ customerId, onClose }: { customerId: string; onC
   const { data: quotes } = useCustomerQuotes(customerId);
   const { data: projects } = useCustomerProjects(customerId);
   const [tab, setTab] = React.useState("activity");
-  const [editOpen, setEditOpen] = React.useState(false);
+  const [invoiceOpen, setInvoiceOpen] = React.useState(false);
+  const [projInvoiceOpen, setProjInvoiceOpen] = React.useState(false);
 
   React.useEffect(() => { setTab("activity"); }, [customerId]);
 
@@ -71,7 +73,7 @@ export function CustomerPanel({ customerId, onClose }: { customerId: string; onC
   const allSubs = subs ?? [];
   const allInvoices = invoices ?? [];
   const allQuotes = quotes ?? [];
-  const insights = deriveCustomerInsights(c, allSubs, allInvoices);
+  const insights = deriveCustomerInsights(c, allSubs, allInvoices, projects ?? [], allQuotes);
 
   const tenureDays = daysBetween(c.since, new Date());
   const tenure =
@@ -96,17 +98,27 @@ export function CustomerPanel({ customerId, onClose }: { customerId: string; onC
         <div className="flex items-center gap-3 min-w-0">
           <Avatar initials={initials(c.name) || "?"} color="amber" size="md" />
           <div className="min-w-0">
-            <h2 className="font-serif text-2xl text-ink leading-tight truncate">{c.name}</h2>
+            <h2 className="font-serif text-2xl text-ink leading-tight truncate">{c.display_name || c.name}</h2>
             <div className="flex items-center gap-2 mt-1 flex-wrap">
-              <Badge kind={healthKind} dot>{healthLabel} · {c.health}</Badge>
-              <span className="text-[11px] text-ink-3">Customer for {tenure}</span>
+              {/* Health is only meaningful for an active paying relationship. For a
+                  customer with no active subscription, a score would be noise — show
+                  a neutral state instead of an alarming "At risk / Watch". */}
+              {insights.activeSubs.length > 0
+                ? <Badge kind={healthKind} dot>{healthLabel} · {c.health}</Badge>
+                : <Badge kind="muted">{insights.lifetimePaid > 0 ? "Inactive" : "New"}</Badge>}
+              <span className="text-[11px] text-ink-3">{tenureDays === 0 ? "Added today" : `Customer for ${tenure}`}</span>
               {c.domain && <span className="text-[11px] text-ink-3 font-mono truncate">· {c.domain}</span>}
             </div>
           </div>
         </div>
         <div className="flex items-center gap-1.5 flex-shrink-0">
-          <IconButton icon="edit" aria-label="Edit customer" onClick={() => setEditOpen(true)} />
-          <Button size="sm" variant="default" icon="external" onClick={() => router.push(`/customers/${c.id}` as never)}>Open full</Button>
+          {/* The two "create a money document" shortcuts. Quote = the recurring
+              money-spine (lead → quote → pay → subscription); Invoice = a one-off
+              direct bill. Both kept here so a drawer visit can start either. */}
+          <Button size="sm" variant="default" icon="plus" onClick={() => router.push(`/quotes/new?customer=${c.id}` as never)}>Quote</Button>
+          <Button size="sm" variant="default" icon="receipt" onClick={() => setInvoiceOpen(true)}>Invoice</Button>
+          <IconButton icon="edit" aria-label="Edit customer" onClick={() => router.push(`/customers/${c.id}/edit` as never)} />
+          <IconButton icon="external" aria-label="Open full profile" onClick={() => router.push(`/customers/${c.id}` as never)} />
           {onClose && <IconButton icon="x" aria-label="Close" onClick={onClose} />}
         </div>
       </div>
@@ -189,7 +201,8 @@ export function CustomerPanel({ customerId, onClose }: { customerId: string; onC
         </section>
       </div>
 
-      <AddCustomerForm open={editOpen} onOpenChange={setEditOpen} customer={c} />
+      <InvoiceChooserDialog open={invoiceOpen} onOpenChange={setInvoiceOpen} customerId={c.id} onChooseProject={() => setProjInvoiceOpen(true)} />
+      <CreateProjectQuoteDialog open={projInvoiceOpen} onOpenChange={setProjInvoiceOpen} mode="invoice" prefillCustomerId={c.id} />
     </div>
   );
 }

@@ -23,12 +23,12 @@ export function UploadDocumentDialog({ open, onOpenChange }: Props) {
   const upload = useUploadDocument();
   const [file, setFile]         = React.useState<File | null>(null);
   const [title, setTitle]       = React.useState("");
-  const [category, setCategory] = React.useState<DocumentCategory>("company_legal");
+  const [category, setCategory] = React.useState<DocumentCategory>("legal");
   const [expiry, setExpiry]     = React.useState("");
   const [notes, setNotes]       = React.useState("");
 
   React.useEffect(() => {
-    if (!open) { setFile(null); setTitle(""); setCategory("company_legal"); setExpiry(""); setNotes(""); }
+    if (!open) { setFile(null); setTitle(""); setCategory("legal"); setExpiry(""); setNotes(""); }
   }, [open]);
 
   const onPick = (f: File | null) => {

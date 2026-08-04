@@ -15,6 +15,14 @@ import { isInterStateSupply } from "@/lib/gst/place-of-supply";
 import { createClient } from "@/lib/supabase/client";
 import { Card } from "@/components/ui/card";
 import { Button, IconButton } from "@/components/ui/button";
+import { Icon } from "@/components/ui/icon";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/shared/empty-state";
@@ -333,60 +341,61 @@ export default function QuoteDetailPage() {
           >
             Download PDF
           </Button>
-          <Button
-            icon="copy"
-            onClick={() => {
-              // Carry lead context forward if this quote was for a prospect
-              const params = new URLSearchParams();
-              params.set("duplicate", quote.id);
-              if (quote.lead_id)       params.set("leadId",  quote.lead_id);
-              if (quote.customer_name) params.set("company", quote.customer_name);
-              router.push(`/quotes/new?${params.toString()}` as any);
-            }}
-          >
-            Duplicate & edit
-          </Button>
-          <Button
-            icon="link"
-            onClick={() => {
-              const url = `${window.location.origin}/quote/${quote.id}/accept`;
-              navigator.clipboard?.writeText(url);
-              toast.success("Customer link copied · share via email or WhatsApp");
-            }}
-          >
-            Copy customer link
-          </Button>
-          <Button
-            icon="mail"
-            onClick={() => setSendOpen(true)}
-            title="Send quote PDF via email — uses configured email provider (or stub mode in dev)"
-          >
-            {quote.status === "sent" ? "Resend via email" : "Send via email"}
-          </Button>
-          {/* WhatsApp send — always shown. Phone is pre-filled when we have
-              a customer record with contact_phone; otherwise the dialog
-              opens with an empty "To" field for the visitor to type into.
-              Label flips to "Resend" when quote is already sent. */}
-          <Button
-            icon="whatsapp"
-            onClick={() => setWhatsOpen(true)}
-            title="Send the quote link over WhatsApp — needs Meta Cloud API configured in Settings"
-          >
-            {quote.status === "sent" || quote.status === "viewed"
-              ? "Resend via WhatsApp"
-              : "Send via WhatsApp"}
-          </Button>
-          <Button
-            icon="trash"
-            variant="ghost"
-            onClick={handleDelete}
-            loading={deleteQuote.isPending}
-            disabled={Boolean(deleteBlock)}
-            title={deleteBlock ?? "Permanently delete this quote"}
-            className="!text-rose hover:!bg-rose/10"
-          >
-            Delete
-          </Button>
+          {/* Secondary utilities collapse into an overflow menu so the header
+              has one clear reading order — the money next-step lives in the
+              status action bar below, not fighting these buttons. Delete is
+              separated at the bottom to avoid a fat-finger next to Send. */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button icon="more_h">More</Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="min-w-[13rem]">
+              <DropdownMenuItem
+                className="gap-2.5 py-2 cursor-pointer"
+                onClick={() => {
+                  const url = `${window.location.origin}/quote/${quote.id}/accept?t=${encodeURIComponent(quote.public_token)}`;
+                  navigator.clipboard?.writeText(url);
+                  toast.success("Customer link copied · share via email or WhatsApp");
+                }}
+              >
+                <Icon name="link" size={15} /> Copy customer link
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                className="gap-2.5 py-2 cursor-pointer"
+                onClick={() => setSendOpen(true)}
+              >
+                <Icon name="mail" size={15} /> {quote.status === "sent" ? "Resend via email" : "Send via email"}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                className="gap-2.5 py-2 cursor-pointer"
+                onClick={() => setWhatsOpen(true)}
+              >
+                <Icon name="whatsapp" size={15} /> {quote.status === "sent" || quote.status === "viewed" ? "Resend via WhatsApp" : "Send via WhatsApp"}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                className="gap-2.5 py-2 cursor-pointer"
+                onClick={() => {
+                  // Carry lead context forward if this quote was for a prospect
+                  const params = new URLSearchParams();
+                  params.set("duplicate", quote.id);
+                  if (quote.lead_id)       params.set("leadId",  quote.lead_id);
+                  if (quote.customer_name) params.set("company", quote.customer_name);
+                  router.push(`/quotes/new?${params.toString()}` as any);
+                }}
+              >
+                <Icon name="copy" size={15} /> Duplicate & edit
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                destructive
+                className="gap-2.5 py-2 cursor-pointer"
+                disabled={Boolean(deleteBlock)}
+                onClick={handleDelete}
+              >
+                <Icon name="trash" size={15} /> {deleteBlock ? "Can't delete" : "Delete quote"}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
 
@@ -772,7 +781,7 @@ export default function QuoteDetailPage() {
             `Hi ${quote.customer_name},\n\n` +
             `Your quote ${quote.id} for ${rupee(quote.amount)} is attached. ` +
             `You can also review and accept it online:\n` +
-            `${typeof window !== "undefined" ? window.location.origin : ""}/quote/${quote.id}/accept\n\n` +
+            `${typeof window !== "undefined" ? window.location.origin : ""}/quote/${quote.id}/accept?t=${encodeURIComponent(quote.public_token)}\n\n` +
             `— ${me?.tenantName ?? "Excel Technologies"}`
           }
           title={`Send quote ${quote.id} via WhatsApp`}

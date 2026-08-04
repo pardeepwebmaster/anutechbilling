@@ -34,7 +34,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
-import { useCreateVendorBill, VENDOR_BILL_CATEGORIES } from "@/lib/queries/vendor-bills";
+import { Icon } from "@/components/ui/icon";
+import { useCreateVendorBill, uploadBillAttachment, VENDOR_BILL_CATEGORIES } from "@/lib/queries/vendor-bills";
+import { useVendors, ensureVendor } from "@/lib/queries/vendors";
 
 const schema = z.object({
   vendor_name:  z.string().min(2, "Vendor name required"),
@@ -61,6 +63,64 @@ const VENDOR_PRESETS = [
 export function AddVendorBillDialog({ onClose }: { onClose: () => void }) {
   const create = useCreateVendorBill();
   const today  = new Date().toISOString().slice(0, 10);
+
+  // Vendor master autocomplete — pick an existing supplier (fills GSTIN +
+  // category) or type a new name (auto-added to Vendors on save).
+  const { data: vendors } = useVendors();
+  const [vendorId, setVendorId] = React.useState<string | null>(null);
+  const [vendorOpen, setVendorOpen] = React.useState(false);
+
+  // ── AI bill reader ────────────────────────────────────────────────────────
+  // Upload a photo/PDF → Gemini extracts the fields → we PRE-FILL the form. The
+  // values stay editable and are never auto-saved — the operator verifies the
+  // amounts against the bill (they feed GST input credit + P&L).
+  const fileRef = React.useRef<HTMLInputElement>(null);
+  const [reading, setReading] = React.useState(false);
+  const [aiNote, setAiNote]   = React.useState<string | null>(null);
+  const [aiError, setAiError] = React.useState<string | null>(null);
+  // The uploaded file is kept and attached to the bill on save (proof).
+  const [attachFile, setAttachFile] = React.useState<File | null>(null);
+
+  async function handleBillFile(file: File) {
+    setAiError(null); setAiNote(null);
+    if (file.size > 8 * 1024 * 1024) { setAiError("File is too big (max 8 MB) — try a smaller photo."); return; }
+    setAttachFile(file);   // keep it — attaches to the bill on save
+    setReading(true);
+    try {
+      const base64 = await new Promise<string>((resolve, reject) => {
+        const r = new FileReader();
+        r.onload  = () => resolve((r.result as string).split(",")[1] ?? "");
+        r.onerror = () => reject(new Error("read failed"));
+        r.readAsDataURL(file);
+      });
+      const res = await fetch("/api/ai/extract-bill", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ fileBase64: base64, mimeType: file.type }),
+      });
+      const json = await res.json();
+      if (!res.ok) { setAiError(json.error ?? "Couldn't read the bill."); return; }
+      const f = json.fields as Record<string, string | number | null>;
+      // Prefill — only overwrite what the AI actually found.
+      if (f.vendor_name)  setValue("vendor_name",  String(f.vendor_name));
+      if (f.vendor_gstin) setValue("vendor_gstin", String(f.vendor_gstin));
+      if (f.bill_no)      setValue("bill_no",      String(f.bill_no));
+      if (f.bill_date)    setValue("bill_date",    String(f.bill_date));
+      if (f.subtotal != null) setValue("subtotal", Number(f.subtotal));
+      setValue("cgst", Number(f.cgst ?? 0));
+      setValue("sgst", Number(f.sgst ?? 0));
+      setValue("igst", Number(f.igst ?? 0));
+      if (f.total != null) setValue("total", Number(f.total));
+      if (f.category_guess && (VENDOR_BILL_CATEGORIES as readonly string[]).includes(String(f.category_guess))) {
+        setValue("category", String(f.category_guess));
+      }
+      setAiNote(`AI ne bhar diya · 📎 "${file.name}" bill ke saath attach ho jayega — amounts bill se milaa ke Save karo.`);
+    } catch {
+      setAiError("Upload failed — try again, ya fields haath se bhar do.");
+    } finally {
+      setReading(false);
+    }
+  }
 
   const {
     register,
@@ -103,7 +163,20 @@ export function AddVendorBillDialog({ onClose }: { onClose: () => void }) {
   }
 
   async function onSubmit(values: FormData) {
+    // Link to the vendors master — reuse the picked vendor, else find-or-create
+    // one from the typed name (keeps the master clean + dedup'd).
+    const vId = vendorId ?? await ensureVendor({
+      name: values.vendor_name, gstin: values.vendor_gstin, defaultCategory: values.category,
+    });
+    // Attach the uploaded bill file (proof) — non-fatal if the upload fails.
+    let attachment_url: string | null = null;
+    if (attachFile) {
+      try { attachment_url = await uploadBillAttachment(attachFile); }
+      catch { /* keep saving the bill even if the file upload hiccups */ }
+    }
     await create.mutateAsync({
+      vendor_id:    vId,
+      attachment_url,
       vendor_name:  values.vendor_name,
       vendor_gstin: values.vendor_gstin || null,
       bill_no:      values.bill_no      || null,
@@ -127,6 +200,7 @@ export function AddVendorBillDialog({ onClose }: { onClose: () => void }) {
     if (!p) return;
     setValue("vendor_name", p.name);
     setValue("category",    p.category);
+    setVendorId(null);   // find-or-create on save
   }
 
   return (
@@ -140,6 +214,44 @@ export function AddVendorBillDialog({ onClose }: { onClose: () => void }) {
         </DialogHeader>
 
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+          {/* AI bill reader — upload → auto-fill (review before saving). */}
+          <div className="rounded-lg border border-dashed border-amber/50 bg-amber-soft/20 p-3">
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div className="flex items-center gap-2 min-w-0">
+                <Icon name="sparkles" size={18} className="text-amber-ink shrink-0" />
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-ink">Bill upload karo — AI khud bhar dega</p>
+                  <p className="text-[11px] text-ink-3">Photo (JPG/PNG) ya PDF · fields nikaal ke form bhar dega, aap check karke Save karo</p>
+                </div>
+              </div>
+              <Button type="button" variant="primary" size="sm" icon="upload" loading={reading} onClick={() => fileRef.current?.click()}>
+                {reading ? "Reading…" : "Upload bill"}
+              </Button>
+              <input
+                ref={fileRef}
+                type="file"
+                accept="image/*,application/pdf"
+                className="hidden"
+                onChange={(e) => { const f = e.target.files?.[0]; if (f) handleBillFile(f); e.target.value = ""; }}
+              />
+            </div>
+            {aiNote && (
+              <p className="mt-2 flex items-center gap-1.5 text-[11px] text-emerald">
+                <Icon name="check_circle" size={12} /> {aiNote}
+              </p>
+            )}
+            {aiError && (
+              <p className="mt-2 flex items-center gap-1.5 text-[11px] text-rose">
+                <Icon name="alert" size={12} /> {aiError}
+              </p>
+            )}
+            {attachFile && !aiNote && (
+              <p className="mt-2 flex items-center gap-1.5 text-[11px] text-ink-2">
+                <Icon name="file" size={12} /> {attachFile.name} — bill ke saath attach hoga
+              </p>
+            )}
+          </div>
+
           {/* Quick presets */}
           <div className="flex flex-wrap gap-1.5">
             <span className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold self-center mr-1">
@@ -159,7 +271,46 @@ export function AddVendorBillDialog({ onClose }: { onClose: () => void }) {
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <FormField label="Vendor name" required htmlFor="vendor_name">
-              <Input id="vendor_name" placeholder="Google Cloud" error={errors.vendor_name?.message} {...register("vendor_name")} />
+              <div className="relative">
+                <Input
+                  id="vendor_name"
+                  placeholder="Google Cloud"
+                  autoComplete="off"
+                  error={errors.vendor_name?.message}
+                  {...register("vendor_name", { onChange: () => { setVendorId(null); setVendorOpen(true); } })}
+                  onFocus={() => setVendorOpen(true)}
+                  onBlur={() => setTimeout(() => setVendorOpen(false), 130)}
+                />
+                {vendorOpen && (vendors ?? []).length > 0 && (() => {
+                  const q = (watch("vendor_name") || "").trim().toLowerCase();
+                  const matches = (vendors ?? []).filter((v) => !q || v.name.toLowerCase().includes(q)).slice(0, 8);
+                  if (matches.length === 0) return null;
+                  return (
+                    <div className="absolute z-20 mt-1 w-full max-h-52 overflow-y-auto rounded-md border border-hairline bg-paper shadow-lg">
+                      {matches.map((v) => (
+                        <button
+                          key={v.id}
+                          type="button"
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            setValue("vendor_name", v.name);
+                            if (v.gstin) setValue("vendor_gstin", v.gstin);
+                            if (v.default_category && (VENDOR_BILL_CATEGORIES as readonly string[]).includes(v.default_category)) {
+                              setValue("category", v.default_category);
+                            }
+                            setVendorId(v.id);
+                            setVendorOpen(false);
+                          }}
+                          className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-paper-2"
+                        >
+                          <span className="text-ink truncate">{v.name}</span>
+                          {v.gstin && <span className="text-[10px] text-ink-3 font-mono shrink-0">{v.gstin}</span>}
+                        </button>
+                      ))}
+                    </div>
+                  );
+                })()}
+              </div>
             </FormField>
             <FormField label="Vendor GSTIN (optional)" htmlFor="vendor_gstin">
               <Input id="vendor_gstin" placeholder="27ABCDE1234F1Z5" {...register("vendor_gstin")} />

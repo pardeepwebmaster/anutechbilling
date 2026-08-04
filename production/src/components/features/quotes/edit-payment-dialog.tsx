@@ -39,7 +39,7 @@ import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { useUpdatePayment, type Payment } from "@/lib/queries/payments";
 import { useBankAccounts } from "@/lib/queries/bank";
-import { rupee } from "@/lib/utils";
+import { rupee, bankLabel } from "@/lib/utils";
 
 const METHODS = [
   { value: "upi",           label: "UPI (Google Pay / PhonePe / Paytm)" },
@@ -214,7 +214,7 @@ export function EditPaymentDialog({ open, onOpenChange, payment, customerName }:
                   <SelectItem value="none">Not linked</SelectItem>
                   {(bankAccounts ?? []).map((a) => (
                     <SelectItem key={a.id} value={a.id}>
-                      {a.name} · {a.bank_name} ••{a.account_number_last4}
+                      {a.name} · {bankLabel(a.bank_name, a.account_number_last4)}
                     </SelectItem>
                   ))}
                 </SelectContent>

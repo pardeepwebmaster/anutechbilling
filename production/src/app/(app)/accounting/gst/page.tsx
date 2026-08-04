@@ -19,6 +19,7 @@ import * as React from "react";
 import { useQuery } from "@tanstack/react-query";
 
 import { Card } from "@/components/ui/card";
+import { EmptyState } from "@/components/shared/empty-state";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Icon } from "@/components/ui/icon";
@@ -72,8 +73,11 @@ interface OutputRow {
   customerName: string;
   customerGstin: string | null;
   amount:       number;        // GST-inclusive
-  taxableValue: number;        // amount × 100/118
-  gst:          number;        // amount × 18/118
+  taxableValue: number;        // persisted (migration 0116), else reverse-derived
+  gst:          number;        // total GST (persisted, else reverse-derived)
+  taxRate:      number;        // GST rate %
+  interState:   boolean;       // true → IGST; false → CGST + SGST
+  docType?:     "invoice" | "credit_note" | "debit_note";  // credit/debit notes net the output tax
 }
 interface InputRow {
   source:       "bill" | "expense";
@@ -104,16 +108,29 @@ function useGstReport(range: DateRange) {
       // ── Output: invoices issued in the period ─────────────────────
       const { data: invoices, error: invErr } = await supabase
         .from("invoices")
-        .select("id, amount, invoice_date, customer_name, customer_id, status")
+        .select("id, amount, invoice_date, customer_name, customer_id, status, taxable_value, tax_amount, tax_rate, inter_state")
         .gte("invoice_date", range.from)
         .lte("invoice_date", range.to)
         .in("status", ["pending", "paid", "overdue"]);
       if (invErr) throw invErr;
 
-      // Pull GSTIN from customers table
-      const customerIds = Array.from(
-        new Set((invoices ?? []).map((i) => i.customer_id).filter((x): x is string => !!x)),
-      );
+      // Credit / debit notes issued in the period — they NET the output tax (a
+      // credit note reduces it, a debit note increases it), so GSTR-1/3B is right.
+      const [{ data: creditNotes }, { data: debitNotes }] = await Promise.all([
+        supabase.from("credit_notes")
+          .select("id, credit_date, customer_name, customer_id, amount, taxable_value, tax_amount, tax_rate, inter_state")
+          .gte("credit_date", range.from).lte("credit_date", range.to),
+        supabase.from("debit_notes")
+          .select("id, debit_date, customer_name, customer_id, amount, taxable_value, tax_amount, tax_rate, inter_state")
+          .gte("debit_date", range.from).lte("debit_date", range.to),
+      ]);
+
+      // Pull GSTIN from customers table (invoices + notes)
+      const customerIds = Array.from(new Set([
+        ...(invoices ?? []).map((i) => i.customer_id),
+        ...(creditNotes ?? []).map((n) => n.customer_id),
+        ...(debitNotes ?? []).map((n) => n.customer_id),
+      ].filter((x): x is string => !!x)));
       const gstinByCustomerId = new Map<string, string | null>();
       if (customerIds.length > 0) {
         const { data: customers } = await supabase
@@ -125,8 +142,11 @@ function useGstReport(range: DateRange) {
 
       const outputRows: OutputRow[] = (invoices ?? []).map((i) => {
         const amount       = i.amount ?? 0;
-        const taxableValue = Math.round(amount * 100 / 118);
-        const gst          = amount - taxableValue;
+        const taxRate      = i.tax_rate ?? 18;
+        // Prefer the breakdown persisted at issue time (migration 0116); fall
+        // back to reverse-deriving at the row's rate for any legacy invoice.
+        const taxableValue = i.taxable_value ?? Math.round(amount * 100 / (100 + taxRate));
+        const gst          = i.tax_amount ?? (amount - taxableValue);
         return {
           invoiceId:     i.id,
           invoiceDate:   i.invoice_date,
@@ -135,8 +155,30 @@ function useGstReport(range: DateRange) {
           amount,
           taxableValue,
           gst,
+          taxRate,
+          interState:    i.inter_state ?? false,
+          docType:       "invoice",
         };
       });
+
+      // Notes as SIGNED output rows — credit note negative, debit note positive.
+      for (const n of creditNotes ?? []) {
+        outputRows.push({
+          invoiceId: n.id, invoiceDate: n.credit_date, customerName: n.customer_name ?? "—",
+          customerGstin: n.customer_id ? gstinByCustomerId.get(n.customer_id) ?? null : null,
+          amount: -(n.amount ?? 0), taxableValue: -(n.taxable_value ?? 0), gst: -(n.tax_amount ?? 0),
+          taxRate: n.tax_rate ?? 18, interState: n.inter_state ?? false, docType: "credit_note",
+        });
+      }
+      for (const n of debitNotes ?? []) {
+        outputRows.push({
+          invoiceId: n.id, invoiceDate: n.debit_date, customerName: n.customer_name ?? "—",
+          customerGstin: n.customer_id ? gstinByCustomerId.get(n.customer_id) ?? null : null,
+          amount: n.amount ?? 0, taxableValue: n.taxable_value ?? 0, gst: n.tax_amount ?? 0,
+          taxRate: n.tax_rate ?? 18, interState: n.inter_state ?? false, docType: "debit_note",
+        });
+      }
+      outputRows.sort((a, b) => b.invoiceDate.localeCompare(a.invoiceDate));
 
       // ── Input: vendor bills + GST-paying expenses ─────────────────
       const { data: bills } = await supabase
@@ -190,6 +232,14 @@ function useGstReport(range: DateRange) {
   });
 }
 
+// Split total GST into heads by place of supply. Inter-state → all IGST;
+// intra-state → CGST + SGST (halves, remainder into SGST so they sum exactly).
+function gstSplit(r: { gst: number; interState: boolean }): { cgst: number; sgst: number; igst: number } {
+  if (r.interState) return { cgst: 0, sgst: 0, igst: r.gst };
+  const cgst = Math.round(r.gst / 2);
+  return { cgst, sgst: r.gst - cgst, igst: 0 };
+}
+
 // ────────────────────────────────────────────────────────────────
 // CSV export helpers
 // ────────────────────────────────────────────────────────────────
@@ -230,11 +280,16 @@ export default function GstReportPage() {
     if (!data) return;
     downloadCSV(
       `gst-output-${range.from}-to-${range.to}.csv`,
-      ["Invoice #", "Invoice date", "Customer", "Customer GSTIN", "Taxable value", "GST 18%", "Invoice total"],
-      data.outputRows.map((r) => [
-        r.invoiceId, r.invoiceDate, r.customerName, r.customerGstin ?? "",
-        r.taxableValue, r.gst, r.amount,
-      ]),
+      ["Invoice #", "Invoice date", "Customer", "Customer GSTIN", "Place of supply",
+       "Taxable value", "Rate %", "CGST", "SGST", "IGST", "Total GST", "Invoice total"],
+      data.outputRows.map((r) => {
+        const s = gstSplit(r);
+        return [
+          r.invoiceId, r.invoiceDate, r.customerName, r.customerGstin ?? "",
+          r.interState ? "Inter-state (IGST)" : "Intra-state (CGST+SGST)",
+          r.taxableValue, r.taxRate, s.cgst, s.sgst, s.igst, r.gst, r.amount,
+        ];
+      }),
     );
   }
 
@@ -303,7 +358,7 @@ export default function GstReportPage() {
       {/* Summary cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 md:gap-4 mb-6">
         <SummaryCard
-          label="Output GST collected"
+          label="Output GST (on sales)"
           taxable={data?.outputTotal ?? 0}
           gst={data?.outputGST ?? 0}
           rowCount={data?.outputRows.length ?? 0}
@@ -345,8 +400,12 @@ export default function GstReportPage() {
       {isLoading ? (
         <Skeleton className="h-32 w-full mb-6" />
       ) : !data || data.outputRows.length === 0 ? (
-        <Card className="p-6 text-center text-sm text-ink-3 mb-6">
-          No invoices issued in this period.
+        <Card className="mb-6">
+          <EmptyState
+            icon="file"
+            title="No invoices in this period"
+            body="Issue GST invoices in this range and they'll show up here as your output (sales) GST for GSTR-1."
+          />
         </Card>
       ) : (
         <Card className="overflow-hidden mb-6">
@@ -359,22 +418,36 @@ export default function GstReportPage() {
                   <th className="text-left  px-4 py-3">Customer</th>
                   <th className="text-left  px-4 py-3">GSTIN</th>
                   <th className="text-right px-4 py-3">Taxable value</th>
-                  <th className="text-right px-4 py-3">GST 18%</th>
+                  <th className="text-left  px-4 py-3">Head</th>
+                  <th className="text-right px-4 py-3">GST</th>
                   <th className="text-right px-4 py-3">Total</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-hairline">
-                {data.outputRows.map((r) => (
+                {data.outputRows.map((r) => {
+                  const s = gstSplit(r);
+                  return (
                   <tr key={r.invoiceId} className="hover:bg-paper-2/40">
                     <td className="px-4 py-3 font-mono text-ink-2">{r.invoiceId}</td>
                     <td className="px-4 py-3 text-ink-2">{formatDate(r.invoiceDate)}</td>
                     <td className="px-4 py-3 text-ink">{r.customerName}</td>
                     <td className="px-4 py-3 font-mono text-ink-3 text-xs">{r.customerGstin ?? "—"}</td>
                     <td className="px-4 py-3 text-right font-mono text-ink-2">{rupee(r.taxableValue)}</td>
-                    <td className="px-4 py-3 text-right font-mono text-emerald">{rupee(r.gst)}</td>
+                    <td className="px-4 py-3 text-ink-3 text-xs">
+                      {r.interState
+                        ? `IGST ${r.taxRate}%`
+                        : `CGST ${r.taxRate / 2}% + SGST ${r.taxRate / 2}%`}
+                    </td>
+                    <td className="px-4 py-3 text-right font-mono text-emerald">
+                      {rupee(r.gst)}
+                      <span className="block text-[10px] text-ink-3">
+                        {r.interState ? `IGST ${rupee(s.igst)}` : `${rupee(s.cgst)} + ${rupee(s.sgst)}`}
+                      </span>
+                    </td>
                     <td className="px-4 py-3 text-right font-mono font-semibold text-ink">{rupee(r.amount)}</td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
               <tfoot className="bg-paper-2/30 border-t-2 border-ink">
                 <tr>
@@ -382,6 +455,7 @@ export default function GstReportPage() {
                     Total ({data.outputRows.length})
                   </td>
                   <td className="px-4 py-3 text-right font-mono font-semibold text-ink">{rupee(data.outputTotal)}</td>
+                  <td className="px-4 py-3"></td>
                   <td className="px-4 py-3 text-right font-mono font-semibold text-emerald">{rupee(data.outputGST)}</td>
                   <td className="px-4 py-3 text-right font-mono font-semibold text-ink">{rupee(data.outputTotal + data.outputGST)}</td>
                 </tr>
@@ -401,8 +475,12 @@ export default function GstReportPage() {
       {isLoading ? (
         <Skeleton className="h-32 w-full" />
       ) : !data || data.inputRows.length === 0 ? (
-        <Card className="p-6 text-center text-sm text-ink-3">
-          No GST-bearing bills or expenses in this period.
+        <Card>
+          <EmptyState
+            icon="receipt"
+            title="No GST-bearing bills in this period"
+            body="Add your Google CSP / Microsoft / Zoho bills and expenses here so input GST (ITC) shows up for GSTR-2/3B."
+          />
         </Card>
       ) : (
         <Card className="overflow-hidden">

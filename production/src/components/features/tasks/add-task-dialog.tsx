@@ -33,7 +33,13 @@ import {
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { useCreateTask, useUpdateTask } from "@/lib/queries/tasks";
+import { useTeamMembers, memberLabel } from "@/lib/queries/team";
+import {
+  TaskRelatedPicker, relatedToLinkColumns, type RelatedValue,
+} from "@/components/features/tasks/task-related-picker";
 import type { TaskKind, Task } from "@/lib/supabase/database.types";
+
+const ASSIGN_ME = "__me__";
 
 const KINDS: { value: TaskKind; label: string; icon: string }[] = [
   { value: "call",     label: "Call",        icon: "📞" },
@@ -92,6 +98,7 @@ const schema = z.object({
   kind:   z.enum(["call", "email", "meeting", "followup", "custom"]),
   due_at: z.string().min(1, "When is it due?"),
   notes:  z.string().max(500).optional(),
+  assignee: z.string().optional(),
 });
 type FormData = z.infer<typeof schema>;
 
@@ -108,12 +115,37 @@ export interface AddTaskDialogProps {
     | { subscription_id: string }
     | null;
   /** When set, the dialog edits this task instead of creating a new one. */
-  task?: Pick<Task, "id" | "title" | "kind" | "due_at" | "notes"> | null;
+  task?: Pick<
+    Task,
+    "id" | "title" | "kind" | "due_at" | "notes" | "owner_id"
+    | "lead_id" | "quote_id" | "customer_id" | "subscription_id"
+  > | null;
+}
+
+/** Derive the picker value from a task's link columns (only one is ever set). */
+function relatedFromTask(t: AddTaskDialogProps["task"]): RelatedValue | null {
+  if (!t) return null;
+  if (t.lead_id)         return { kind: "lead",         id: t.lead_id };
+  if (t.quote_id)        return { kind: "deal",         id: t.quote_id };
+  if (t.customer_id)     return { kind: "customer",     id: t.customer_id };
+  if (t.subscription_id) return { kind: "subscription", id: t.subscription_id };
+  return null;
+}
+
+/** Derive the picker value from the caller's `linkTo` prop (create-from-entity). */
+function relatedFromLinkTo(linkTo: AddTaskDialogProps["linkTo"]): RelatedValue | null {
+  if (!linkTo) return null;
+  if ("lead_id"         in linkTo) return { kind: "lead",         id: linkTo.lead_id };
+  if ("quote_id"        in linkTo) return { kind: "deal",         id: linkTo.quote_id };
+  if ("customer_id"     in linkTo) return { kind: "customer",     id: linkTo.customer_id };
+  if ("subscription_id" in linkTo) return { kind: "subscription", id: linkTo.subscription_id };
+  return null;
 }
 
 export function AddTaskDialog({ open, onOpenChange, linkLabel, linkTo, task }: AddTaskDialogProps) {
   const createTask = useCreateTask();
   const updateTask = useUpdateTask();
+  const { data: members = [] } = useTeamMembers();
   const isEdit = Boolean(task);
 
   // Default due: in 1 hour. Computed once per mount — defaultValues is read
@@ -125,8 +157,11 @@ export function AddTaskDialog({ open, onOpenChange, linkLabel, linkTo, task }: A
     formState: { errors, isSubmitting },
   } = useForm<FormData>({
     resolver: zodResolver(schema),
-    defaultValues: { title: "", kind: "followup", due_at: defaultDue, notes: "" },
+    defaultValues: { title: "", kind: "followup", due_at: defaultDue, notes: "", assignee: ASSIGN_ME },
   });
+
+  // Which customer / lead / deal this task is attached to (editable in the form).
+  const [related, setRelated] = React.useState<RelatedValue | null>(null);
 
   React.useEffect(() => {
     if (!open) return;
@@ -137,20 +172,27 @@ export function AddTaskDialog({ open, onOpenChange, linkLabel, linkTo, task }: A
         kind:   task.kind,
         due_at: toLocalInputValue(new Date(task.due_at)),
         notes:  task.notes ?? "",
+        assignee: task.owner_id ?? ASSIGN_ME,
       });
+      setRelated(relatedFromTask(task));
     } else {
-      reset({ title: "", kind: "followup", due_at: defaultDue, notes: "" });
+      reset({ title: "", kind: "followup", due_at: defaultDue, notes: "", assignee: ASSIGN_ME });
+      setRelated(relatedFromLinkTo(linkTo));
     }
-  }, [open, task, defaultDue, reset]);
+  }, [open, task, linkTo, defaultDue, reset]);
 
   const watchedKind = watch("kind");
+  const watchedAssignee = watch("assignee");
 
   const onSubmit = async (data: FormData) => {
     // Local datetime → ISO UTC
     const dueISO = new Date(data.due_at).toISOString();
+    // "Me" (create) leaves owner_id to the RPC default (creator). A real member
+    // id assigns/reassigns to that teammate.
+    const chosenOwner = data.assignee && data.assignee !== ASSIGN_ME ? data.assignee : null;
 
     if (task) {
-      // Edit — only the editable fields change; the link stays as-is.
+      // Edit — editable fields + the entity link (which the user can now change).
       await updateTask.mutateAsync({
         id: task.id,
         patch: {
@@ -158,25 +200,21 @@ export function AddTaskDialog({ open, onOpenChange, linkLabel, linkTo, task }: A
           kind:   data.kind,
           due_at: dueISO,
           notes:  data.notes?.trim() || null,
+          ...(chosenOwner ? { owner_id: chosenOwner } : {}),
+          ...relatedToLinkColumns(related),
         },
       });
       onOpenChange(false);
       return;
     }
 
-    const linkPatch =
-      linkTo && "lead_id"         in linkTo ? { lead_id:         linkTo.lead_id }
-    : linkTo && "quote_id"        in linkTo ? { quote_id:        linkTo.quote_id }
-    : linkTo && "customer_id"     in linkTo ? { customer_id:     linkTo.customer_id }
-    : linkTo && "subscription_id" in linkTo ? { subscription_id: linkTo.subscription_id }
-    : {};
-
     await createTask.mutateAsync({
       title:  data.title.trim(),
       kind:   data.kind,
       due_at: dueISO,
       notes:  data.notes?.trim() || null,
-      ...linkPatch,
+      ...(chosenOwner ? { owner_id: chosenOwner } : {}),
+      ...relatedToLinkColumns(related),
     });
     onOpenChange(false);
   };
@@ -264,6 +302,38 @@ export function AddTaskDialog({ open, onOpenChange, linkLabel, linkTo, task }: A
               </button>
             ))}
           </div>
+
+          <FormField label="Assign to" htmlFor="assignee">
+            <Select
+              value={watchedAssignee || ASSIGN_ME}
+              onValueChange={(v) => setValue("assignee", v, { shouldValidate: true })}
+            >
+              <SelectTrigger id="assignee">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ASSIGN_ME}>Me (myself)</SelectItem>
+                {members.map((m) => (
+                  <SelectItem key={m.id} value={m.id}>
+                    {memberLabel(m)}{m.role ? ` · ${m.role}` : ""}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <input type="hidden" {...register("assignee")} />
+            <p className="text-[11px] text-ink-3 mt-1">
+              Only teammates with a login appear here. Invite more at{" "}
+              <a href="/team" className="text-amber-ink underline">Team</a>.
+            </p>
+          </FormField>
+
+          <FormField label="Related to (optional)" htmlFor="related">
+            <TaskRelatedPicker value={related} onChange={setRelated} />
+            <p className="text-[11px] text-ink-3 mt-1">
+              Link this task to a customer, lead or deal — you&apos;ll get a one-tap
+              &ldquo;Open&rdquo; from the task, and it shows on that record.
+            </p>
+          </FormField>
 
           <FormField label="Notes (optional)" htmlFor="notes">
             <Textarea

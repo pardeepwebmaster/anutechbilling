@@ -20,7 +20,7 @@ import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { useItems } from "@/lib/queries/items";
 import { useCustomers, useCreateCustomer } from "@/lib/queries/customers";
-import { useCreateProjectQuote, useUpdateProjectQuote, useProjectSale, type MilestoneInput, type ProjectQuoteLine, type ProjectSaleWithTotals } from "@/lib/queries/projects";
+import { useCreateProjectQuote, useUpdateProjectQuote, useUpdateProjectFutureMilestones, useCreateProjectDirectInvoice, useProjectSale, type MilestoneInput, type ProjectQuoteLine, type ProjectSaleWithTotals } from "@/lib/queries/projects";
 import { rupee } from "@/lib/utils";
 
 interface Props {
@@ -28,16 +28,23 @@ interface Props {
   onOpenChange: (open: boolean) => void;
   /** When set, the dialog edits this project quotation instead of creating. */
   editProject?: ProjectSaleWithTotals | null;
+  /** When set (create mode), pre-selects this existing customer. */
+  prefillCustomerId?: string | null;
+  /** "invoice" → raise a direct project tax invoice on save (no milestones / no accept step). */
+  mode?: "quote" | "invoice";
 }
 
 type LineRow = { name: string; qty: string; rate: string };
 type MsRow   = { label: string; amount: string; due: string };
 
-export function CreateProjectQuoteDialog({ open, onOpenChange, editProject }: Props) {
+export function CreateProjectQuoteDialog({ open, onOpenChange, editProject, prefillCustomerId, mode = "quote" }: Props) {
   const router = useRouter();
   const isEdit = Boolean(editProject);
+  const isInvoiceMode = mode === "invoice" && !isEdit;   // direct invoice (create only)
   const create = useCreateProjectQuote();
+  const directInvoice = useCreateProjectDirectInvoice();
   const update = useUpdateProjectQuote();
+  const updateFuture = useUpdateProjectFutureMilestones();
   const createCustomer = useCreateCustomer();
   const { data: editDetail } = useProjectSale(editProject?.id ?? null);
   const { data: allItems } = useItems();
@@ -85,12 +92,23 @@ export function CreateProjectQuoteDialog({ open, onOpenChange, editProject }: Pr
       setLines(li.length
         ? li.map((l) => ({ name: l.name, qty: String(l.qty), rate: String(l.rate) }))
         : [{ name: "", qty: "1", rate: "" }]);
-      const ms = editDetail.milestones ?? [];
-      setRows(ms.length
-        ? ms.map((m) => ({ label: m.label, amount: String(m.total_amount), due: m.due_date ?? "" }))
-        : [{ label: "Advance", amount: "", due: "" }]);
+      const ms   = editDetail.milestones ?? [];
+      const pays = editDetail.payments ?? [];
+      const locked = (m: { id: string; invoice_id: string | null }) =>
+        Boolean(m.invoice_id) || pays.some((p) => p.milestone_id === m.id);
+      // When some milestones are locked, only the un-locked ones are editable.
+      const editable = ms.some(locked) ? ms.filter((m) => !locked(m)) : ms;
+      setRows(editable.length
+        ? editable.map((m) => ({ label: m.label, amount: String(m.total_amount), due: m.due_date ?? "" }))
+        : [{ label: "Milestone", amount: "", due: "" }]);
     }
   }, [open, editProject, editDetail]);
+
+  // Create mode: pre-select the customer we were opened for (e.g. from a
+  // customer's page → "Add service" on the Project tab).
+  React.useEffect(() => {
+    if (open && !editProject && prefillCustomerId) setCustomerId(prefillCustomerId);
+  }, [open, editProject, prefillCustomerId]);
 
   const isNewCustomer = customerId === "";
   const selectedCustomer = customers?.find((c) => c.id === customerId);
@@ -102,7 +120,25 @@ export function CreateProjectQuoteDialog({ open, onOpenChange, editProject }: Pr
   const gstNum     = Math.round(taxableNum * rateNum / 100);
   const totalNum   = taxableNum + gstNum;
   const milestonesTotal = rows.reduce((s, r) => s + Math.max(0, Math.round(Number(r.amount) || 0)), 0);
-  const mismatch = milestonesTotal !== totalNum;
+
+  // A milestone is LOCKED once it's invoiced or paid — a GST document / receipt
+  // is tied to it, so its amount can't change. When any milestone is locked the
+  // contract total is fixed too (an invoice was issued against it); the operator
+  // can only re-plan the *remaining* (un-locked) milestones.
+  const detailMs   = editDetail?.milestones ?? [];
+  const detailPays = editDetail?.payments ?? [];
+  const isLocked   = React.useCallback(
+    (m: { id: string; invoice_id: string | null }) =>
+      Boolean(m.invoice_id) || detailPays.some((p) => p.milestone_id === m.id),
+    [detailPays],
+  );
+  const lockedMs     = detailMs.filter(isLocked);
+  const lockedSum    = lockedMs.reduce((s, m) => s + m.total_amount, 0);
+  const partialLock  = isEdit && lockedMs.length > 0;
+
+  // Editable rows must fill the remaining (total − locked) when partially locked.
+  const scheduleTarget = partialLock ? Math.max(0, totalNum - lockedSum) : totalNum;
+  const mismatch = milestonesTotal !== scheduleTarget;
 
   const setLine = (i: number, patch: Partial<LineRow>) => setLines((ls) => ls.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
   const addLine = () => setLines((ls) => [...ls, { name: "", qty: "1", rate: "" }]);
@@ -113,14 +149,23 @@ export function CreateProjectQuoteDialog({ open, onOpenChange, editProject }: Pr
   };
 
   const setRow = (i: number, patch: Partial<MsRow>) => setRows((rs) => rs.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
-  const addRow = () => setRows((rs) => [...rs, { label: `Milestone ${rs.length + 1}`, amount: "", due: "" }]);
+  // New milestone auto-fills with the leftover (total − scheduled so far), so the
+  // schedule balances to the total without manual maths.
+  const addRow = () => setRows((rs) => {
+    const sum = rs.reduce((s, r) => s + Math.max(0, Math.round(Number(r.amount) || 0)), 0);
+    const remaining = Math.max(0, totalNum - sum);
+    return [...rs, { label: `Milestone ${rs.length + 1}`, amount: remaining > 0 ? String(remaining) : "", due: "" }];
+  });
   const removeRow = (i: number) => setRows((rs) => rs.filter((_, idx) => idx !== i));
 
   const canSubmit =
     effectiveName.length >= 2 && title.trim().length >= 2 &&
     lines.some((l) => l.name.trim() && lineAmount(l) > 0) &&
-    rows.some((r) => Math.round(Number(r.amount) || 0) > 0) &&
-    !create.isPending && !createCustomer.isPending && !update.isPending;
+    // A direct invoice has no milestone schedule (single full invoice).
+    (isInvoiceMode || rows.some((r) => Math.round(Number(r.amount) || 0) > 0)) &&
+    // In partial-lock mode the remaining schedule must balance exactly.
+    (isInvoiceMode || !partialLock || !mismatch) &&
+    !create.isPending && !createCustomer.isPending && !update.isPending && !updateFuture.isPending && !directInvoice.isPending;
 
   const handleSubmit = async () => {
     if (!canSubmit) return;
@@ -138,10 +183,15 @@ export function CreateProjectQuoteDialog({ open, onOpenChange, editProject }: Pr
     try {
       // ── Edit existing quotation ──
       if (editProject) {
-        await update.mutateAsync({
-          projectId: editProject.id, customerName: effectiveName, title: title.trim(),
-          description: description.trim() || null, lineItems, gstRate: rateNum, interState, milestones,
-        });
+        if (partialLock) {
+          // Contract is fixed — only the remaining (un-locked) milestones change.
+          await updateFuture.mutateAsync({ projectId: editProject.id, milestones });
+        } else {
+          await update.mutateAsync({
+            projectId: editProject.id, customerName: effectiveName, title: title.trim(),
+            description: description.trim() || null, lineItems, gstRate: rateNum, interState, milestones,
+          });
+        }
         onOpenChange(false);
         return;
       }
@@ -159,6 +209,17 @@ export function CreateProjectQuoteDialog({ open, onOpenChange, editProject }: Pr
         });
         cid = cust.id; cname = cust.name;
       }
+      // Direct invoice: raise a one-shot tax invoice (create + accept + raise) —
+      // no milestone schedule, no separate accept step.
+      if (isInvoiceMode) {
+        await directInvoice.mutateAsync({
+          customerId: cid, customerName: cname, title: title.trim(),
+          description: description.trim() || null, lineItems, gstRate: rateNum, interState,
+        });
+        onOpenChange(false);
+        router.push("/invoices" as Route);
+        return;
+      }
       const id = await create.mutateAsync({
         customerId: cid, customerName: cname, title: title.trim(),
         description: description.trim() || null, lineItems, gstRate: rateNum, interState, milestones,
@@ -172,17 +233,32 @@ export function CreateProjectQuoteDialog({ open, onOpenChange, editProject }: Pr
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="right" className="w-full sm:max-w-[600px] p-0 flex flex-col overflow-x-hidden">
         <SheetHeader>
-          <SheetTitle>{isEdit ? "Edit project quotation" : "New project quotation"}</SheetTitle>
+          <SheetTitle>{isEdit ? "Edit project quotation" : isInvoiceMode ? "New project invoice" : "New project quotation"}</SheetTitle>
           <SheetDescription>
-            Itemised quote for a one-time project. Send the customer the link — when they accept, it becomes an active project.
+            {isInvoiceMode
+              ? "Itemised GST tax invoice for a one-time project — raised straight away (project becomes active, 30-din due)."
+              : "Itemised quote for a one-time project. Send the customer the link — when they accept, it becomes an active project."}
           </SheetDescription>
         </SheetHeader>
 
         <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4 space-y-4">
+          {partialLock && (
+            <div className="rounded-md border border-amber/40 bg-amber-soft/40 p-3 text-sm space-y-1">
+              <p className="font-semibold text-amber-ink flex items-center gap-1.5">
+                <Icon name="lock" size={14} /> Contract is fixed — re-plan remaining only
+              </p>
+              <p className="text-ink-2">
+                {rupee(lockedSum)} is already invoiced/paid, so the customer, items and total
+                can&apos;t change. You can still re-plan the remaining {rupee(scheduleTarget)} across
+                the milestones below.
+              </p>
+            </div>
+          )}
           <FormField label="Customer" required htmlFor="q_customer">
             <select
               id="q_customer" value={customerId} onChange={(e) => setCustomerId(e.target.value)}
-              className="w-full rounded-md border border-hairline bg-paper px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-amber/40"
+              disabled={partialLock}
+              className="w-full rounded-md border border-hairline bg-paper px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-amber/40 disabled:opacity-60 disabled:cursor-not-allowed"
             >
               <option value="">➕ New customer…</option>
               {(customers ?? []).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
@@ -207,27 +283,29 @@ export function CreateProjectQuoteDialog({ open, onOpenChange, editProject }: Pr
           )}
 
           <FormField label="Project title" required htmlFor="q_title">
-            <Input id="q_title" placeholder="Custom accounting software" value={title} onChange={(e) => setTitle(e.target.value)} />
+            <Input id="q_title" placeholder="Custom accounting software" value={title} onChange={(e) => setTitle(e.target.value)} disabled={partialLock} />
           </FormField>
           <FormField label="Description" htmlFor="q_desc">
             <textarea id="q_desc" rows={2} value={description} onChange={(e) => setDescription(e.target.value)}
-              placeholder="Scope / notes (optional)"
-              className="w-full rounded-md border border-hairline bg-paper px-3 py-2 text-sm text-ink placeholder:text-ink-3 focus:outline-none focus:ring-2 focus:ring-amber resize-y" />
+              placeholder="Scope / notes (optional)" disabled={partialLock}
+              className="w-full rounded-md border border-hairline bg-paper px-3 py-2 text-sm text-ink placeholder:text-ink-3 focus:outline-none focus:ring-2 focus:ring-amber resize-y disabled:opacity-60 disabled:cursor-not-allowed" />
           </FormField>
 
           {/* Line items */}
           <div>
             <div className="flex items-center justify-between mb-2">
               <p className="text-xs font-semibold text-ink-2">Line items (taxable ₹)</p>
-              <button type="button" onClick={addLine} className="text-[11px] text-amber-ink hover:underline inline-flex items-center gap-0.5">
-                <Icon name="plus" size={12} /> Add line
-              </button>
+              {!partialLock && (
+                <button type="button" onClick={addLine} className="text-[11px] text-amber-ink hover:underline inline-flex items-center gap-0.5">
+                  <Icon name="plus" size={12} /> Add line
+                </button>
+              )}
             </div>
             <div className="space-y-2">
               {lines.map((l, i) => (
                 <div key={i} className="space-y-1.5 rounded-md border border-hairline p-2">
                   <div className="flex items-center gap-2">
-                    {oneTimeItems.length > 0 && (
+                    {oneTimeItems.length > 0 && !partialLock && (
                       <select
                         value="" onChange={(e) => pickItem(i, e.target.value)}
                         className="w-28 shrink-0 rounded-md border border-hairline bg-paper px-2 py-2 text-xs text-ink-2 focus:outline-none focus:ring-2 focus:ring-amber/40"
@@ -237,14 +315,16 @@ export function CreateProjectQuoteDialog({ open, onOpenChange, editProject }: Pr
                         {oneTimeItems.map((it) => <option key={it.id} value={it.id}>{it.name}</option>)}
                       </select>
                     )}
-                    <Input className="flex-1" placeholder="Item / service" value={l.name} onChange={(e) => setLine(i, { name: e.target.value })} />
-                    <button type="button" aria-label="Remove" onClick={() => removeLine(i)} className="text-ink-3 hover:text-rose"><Icon name="x" size={16} /></button>
+                    <Input className="flex-1" placeholder="Item / service" value={l.name} onChange={(e) => setLine(i, { name: e.target.value })} disabled={partialLock} />
+                    {!partialLock && (
+                      <button type="button" aria-label="Remove" onClick={() => removeLine(i)} className="text-ink-3 hover:text-rose"><Icon name="x" size={16} /></button>
+                    )}
                   </div>
                   <div className="flex items-center gap-2">
                     <label className="text-[11px] text-ink-3">Qty</label>
-                    <Input className="w-16" inputMode="numeric" value={l.qty} onChange={(e) => setLine(i, { qty: e.target.value })} />
+                    <Input className="w-16" inputMode="numeric" value={l.qty} onChange={(e) => setLine(i, { qty: e.target.value })} disabled={partialLock} />
                     <label className="text-[11px] text-ink-3">Rate</label>
-                    <Input className="w-28" inputMode="numeric" prefix="₹" placeholder="0" value={l.rate} onChange={(e) => setLine(i, { rate: e.target.value })} />
+                    <Input className="w-28" inputMode="numeric" prefix="₹" placeholder="0" value={l.rate} onChange={(e) => setLine(i, { rate: e.target.value })} disabled={partialLock} />
                     <span className="ml-auto text-sm font-mono text-ink">{rupee(lineAmount(l))}</span>
                   </div>
                 </div>
@@ -254,10 +334,10 @@ export function CreateProjectQuoteDialog({ open, onOpenChange, editProject }: Pr
 
           <div className="grid grid-cols-2 gap-3">
             <FormField label="GST rate %" htmlFor="q_gst">
-              <Input id="q_gst" inputMode="numeric" value={gstRate} onChange={(e) => setGstRate(e.target.value)} />
+              <Input id="q_gst" inputMode="numeric" value={gstRate} onChange={(e) => setGstRate(e.target.value)} disabled={partialLock} />
             </FormField>
             <label className="flex items-center gap-2 text-sm text-ink-2 mt-6">
-              <input type="checkbox" checked={interState} onChange={(e) => setInterState(e.target.checked)} className="rounded border-hairline" />
+              <input type="checkbox" checked={interState} onChange={(e) => setInterState(e.target.checked)} disabled={partialLock} className="rounded border-hairline disabled:opacity-60" />
               Inter-state (IGST)
             </label>
           </div>
@@ -269,7 +349,8 @@ export function CreateProjectQuoteDialog({ open, onOpenChange, editProject }: Pr
             <div className="border-t border-hairline pt-1 mt-1"><Line label="Total" value={rupee(totalNum)} strong /></div>
           </div>
 
-          {/* Milestones */}
+          {/* Milestones — a direct invoice is one full invoice, so the schedule is hidden. */}
+          {!isInvoiceMode && (
           <div>
             <div className="flex items-center justify-between mb-2">
               <p className="text-xs font-semibold text-ink-2">Payment schedule (GST-inclusive)</p>
@@ -277,6 +358,17 @@ export function CreateProjectQuoteDialog({ open, onOpenChange, editProject }: Pr
                 <Icon name="plus" size={12} /> Add
               </button>
             </div>
+
+            {/* Locked milestones — invoiced/paid, can't change */}
+            {partialLock && lockedMs.map((m) => (
+              <div key={m.id} className="flex items-center gap-2 rounded-md border border-hairline bg-paper-2/40 px-3 py-2 text-sm mb-2">
+                <Icon name="lock" size={13} className="text-ink-3 shrink-0" />
+                <span className="flex-1 text-ink-2 truncate">{m.label}</span>
+                <span className="text-[10px] uppercase tracking-wide text-ink-3">{m.invoice_id ? "Invoiced" : "Paid"}</span>
+                <span className="font-mono text-ink">{rupee(m.total_amount)}</span>
+              </div>
+            ))}
+
             <div className="space-y-2">
               {rows.map((r, i) => (
                 <div key={i} className="flex items-start gap-2">
@@ -287,16 +379,40 @@ export function CreateProjectQuoteDialog({ open, onOpenChange, editProject }: Pr
                 </div>
               ))}
             </div>
-            <div className={`mt-2 text-[11px] ${mismatch ? "text-rose" : "text-emerald"}`}>
-              Schedule total {rupee(milestonesTotal)} · {mismatch ? `should equal ${rupee(totalNum)}` : "matches total ✓"}
+            <div className={`mt-2 text-[11px] flex items-center gap-2 flex-wrap ${mismatch ? "text-rose" : "text-emerald"}`}>
+              <span>
+                {partialLock ? "Remaining scheduled " : "Schedule total "}{rupee(milestonesTotal)} · {mismatch
+                  ? `should equal ${rupee(scheduleTarget)}`
+                  : partialLock ? "balances ✓" : "matches total ✓"}
+              </span>
+              {mismatch && scheduleTarget > milestonesTotal && rows.length > 0 && (
+                <button
+                  type="button"
+                  className="text-amber-ink underline"
+                  onClick={() => {
+                    const diff = scheduleTarget - milestonesTotal;
+                    setRows((rs) => {
+                      // put the leftover into the last EMPTY row, else the last row
+                      let idx = rs.findIndex((r) => !(Math.round(Number(r.amount) || 0) > 0));
+                      if (idx === -1) idx = rs.length - 1;
+                      return rs.map((r, i) => i === idx
+                        ? { ...r, amount: String(Math.max(0, Math.round(Number(r.amount) || 0)) + diff) }
+                        : r);
+                    });
+                  }}
+                >
+                  Fill remaining {rupee(totalNum - milestonesTotal)} →
+                </button>
+              )}
             </div>
           </div>
+          )}
         </div>
 
         <SheetFooter>
           <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button type="button" variant="primary" loading={create.isPending || update.isPending} disabled={!canSubmit} onClick={handleSubmit}>
-            {isEdit ? "Save changes" : "Create quotation"}
+          <Button type="button" variant="primary" icon={isInvoiceMode ? "receipt" : undefined} loading={create.isPending || update.isPending || updateFuture.isPending || directInvoice.isPending} disabled={!canSubmit} onClick={handleSubmit}>
+            {isEdit ? "Save changes" : isInvoiceMode ? "Create invoice" : "Create quotation"}
           </Button>
         </SheetFooter>
       </SheetContent>

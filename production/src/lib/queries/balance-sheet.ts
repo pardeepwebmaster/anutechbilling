@@ -39,7 +39,10 @@ export interface BalanceSheetAuto {
   payables:        number;   // unpaid vendor bills (total − paid)
   salaryPayable:   number;   // net salary accrued (payroll run) but not yet paid out — a liability
   salaryDuesPayable: number; // withheld TDS/PF/ESI not yet paid to govt (a liability)
+  reimbursementsPayable: number; // company expenses paid from someone's own card/cash, not yet repaid (a liability)
+  creditCardPayable: number; // outstanding owed on company credit-card accounts (a liability)
   emiLoansPayable: number;   // outstanding EMI/asset loans (a liability)
+  businessLoansPayable: number; // outstanding principal on loans TAKEN by the company (a liability)
   gstPayable:      number;   // net GST this FY (output − input); may be negative (credit)
   fyLabel:         string;   // e.g. "FY 2026-27" for the GST caveat
 }
@@ -51,15 +54,25 @@ export function useBalanceSheetAuto() {
     queryFn: async (): Promise<BalanceSheetAuto> => {
       const supabase = createClient();
 
-      // Cash & bank — sum current_balance across every account (bank + cash).
+      // Cash & bank — sum current_balance across asset accounts. A credit_card
+      // is a LIABILITY (balance goes negative as you spend), so its outstanding
+      // is pulled OUT of cash & bank and reported separately under liabilities;
+      // a rare overpaid card (positive balance) counts as cash.
       const { data: accounts, error: accErr } = await supabase
         .from("bank_accounts")
-        .select("id, opening_balance");
+        .select("id, opening_balance, account_type");
       if (accErr) throw accErr;
       let cashAndBank = 0;
+      let creditCardPayable = 0;
       for (const a of accounts ?? []) {
         const { data: bal } = await supabase.rpc("bank_account_current_balance", { p_account_id: a.id });
-        cashAndBank += (bal as number | null) ?? a.opening_balance ?? 0;
+        const balance = (bal as number | null) ?? a.opening_balance ?? 0;
+        if (a.account_type === "credit_card") {
+          if (balance < 0) creditCardPayable += -balance;   // amount owed on the card
+          else             cashAndBank += balance;           // overpaid card → sits as cash
+        } else {
+          cashAndBank += balance;
+        }
       }
 
       // Trade receivables — customers who still owe a balance.
@@ -118,6 +131,16 @@ export function useBalanceSheetAuto() {
       const emiPrincipalPaid = (emiPay ?? []).reduce((s, r) => s + (r.principal_part ?? 0), 0);
       const emiLoansPayable = Math.max(0, emiFinanced - emiPrincipalPaid);
 
+      // Business loans taken (term/working-capital) — outstanding principal =
+      // borrowed − principal repaid. A liability.
+      const { data: bizLoans, error: blErr } = await supabase.from("business_loans").select("id, principal");
+      if (blErr) throw blErr;
+      const { data: bizPays, error: blpErr } = await supabase.from("business_loan_payments").select("principal_part");
+      if (blpErr) throw blpErr;
+      const bizBorrowed  = (bizLoans ?? []).reduce((s, l) => s + (l.principal ?? 0), 0);
+      const bizPrincipalPaid = (bizPays ?? []).reduce((s, p) => s + (p.principal_part ?? 0), 0);
+      const businessLoansPayable = Math.max(0, bizBorrowed - bizPrincipalPaid);
+
       // Trade payables — vendor bills with an unpaid balance.
       const { data: bills, error: bErr } = await supabase
         .from("vendor_bills")
@@ -131,11 +154,13 @@ export function useBalanceSheetAuto() {
       // we only count the tds/pf/esi of paid rows toward that (unpaid rows'
       // whole net, incl. deductions, sits here until the bank debit clears).
       const { data: salRows, error: salErr } = await supabase
-        .from("salary_payments").select("net, tds, pf, esi, paid_status");
+        .from("salary_payments").select("net, paid_amount, tds, pf, esi, paid_status");
       if (salErr) throw salErr;
+      // Payable = the still-owed slice: full net while unpaid, the remaining
+      // (net − paid_amount) while partially paid, nothing once fully paid.
       const salaryPayable = (salRows ?? [])
-        .filter((r) => r.paid_status === "unpaid")
-        .reduce((s, r) => s + (r.net ?? 0), 0);
+        .filter((r) => r.paid_status !== "paid")
+        .reduce((s, r) => s + Math.max(0, (r.net ?? 0) - (r.paid_amount ?? 0)), 0);
       // Salary dues payable — withheld TDS/PF/ESI on ALREADY-PAID salaries
       // (once paid, the net is out but the statutory portion is still owed to govt).
       const withheld = (salRows ?? [])
@@ -146,6 +171,15 @@ export function useBalanceSheetAuto() {
       const duesPaidTotal = (duesPaid ?? []).reduce((s, r) => s + (r.amount ?? 0), 0);
       const salaryDuesPayable = Math.max(0, withheld - duesPaidTotal);
 
+      // Reimbursements payable — company expenses paid from a person's own
+      // card/cash and not yet repaid. The expense already hit the P&L; this is
+      // the matching payable until "Settle" (whereupon the bank transfer to the
+      // person clears cash & bank instead).
+      const { data: reimb, error: reimbErr } = await supabase
+        .from("reimbursements").select("amount, status").eq("status", "pending");
+      if (reimbErr) throw reimbErr;
+      const reimbursementsPayable = (reimb ?? []).reduce((s, r) => s + (r.amount ?? 0), 0);
+
       // GST payable — net for the current fiscal year (output − input). This is
       // an estimate before any GSTR filing/payment; the page footnotes it.
       const now = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
@@ -154,12 +188,23 @@ export function useBalanceSheetAuto() {
       const fyTo   = now.toISOString().slice(0, 10);
       const fyLabel = `FY ${fyStartYear}-${String((fyStartYear + 1) % 100).padStart(2, "0")}`;
 
+      // Output GST — use the FROZEN tax_amount per invoice (never a hardcoded
+      // 18%, which would wrongly tax a zero-rated export), then NET credit and
+      // debit notes issued in the FY (credit note reduces, debit note increases).
       const { data: invoices } = await supabase
         .from("invoices")
-        .select("amount, invoice_date, status")
+        .select("amount, tax_amount, tax_rate, invoice_date, status")
         .gte("invoice_date", fyFrom).lte("invoice_date", fyTo)
         .in("status", ["pending", "paid", "overdue"]);
-      const outputGST = Math.round((invoices ?? []).reduce((s, i) => s + (i.amount ?? 0) * 18 / 118, 0));
+      const invGST = (invoices ?? []).reduce(
+        (s, i) => s + (i.tax_amount ?? Math.round((i.amount ?? 0) * (i.tax_rate ?? 18) / (100 + (i.tax_rate ?? 18)))), 0);
+      const [{ data: cnFy }, { data: dnFy }] = await Promise.all([
+        supabase.from("credit_notes").select("tax_amount, credit_date").gte("credit_date", fyFrom).lte("credit_date", fyTo),
+        supabase.from("debit_notes").select("tax_amount, debit_date").gte("debit_date", fyFrom).lte("debit_date", fyTo),
+      ]);
+      const cnGST = (cnFy ?? []).reduce((s, n) => s + (n.tax_amount ?? 0), 0);
+      const dnGST = (dnFy ?? []).reduce((s, n) => s + (n.tax_amount ?? 0), 0);
+      const outputGST = invGST - cnGST + dnGST;
 
       const { data: fyBills } = await supabase
         .from("vendor_bills")
@@ -175,7 +220,7 @@ export function useBalanceSheetAuto() {
 
       const gstPayable = outputGST - billsGst - expGst;
 
-      return { cashAndBank, receivables, projectReceivable, tdsReceivable, employeeLoans, fixedAssets, payables, salaryPayable, salaryDuesPayable, emiLoansPayable, gstPayable, fyLabel };
+      return { cashAndBank, receivables, projectReceivable, tdsReceivable, employeeLoans, fixedAssets, payables, salaryPayable, salaryDuesPayable, reimbursementsPayable, creditCardPayable, emiLoansPayable, businessLoansPayable, gstPayable, fyLabel };
     },
     staleTime: 30_000,
   });

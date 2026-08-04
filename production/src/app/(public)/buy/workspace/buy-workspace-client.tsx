@@ -1844,7 +1844,7 @@ export function BuyWorkspaceClient({
             />
             <FaqItem
               q="Can I get a GST invoice?"
-              a="Yes. Every invoice is a proper Tax Invoice (CGST §31 compliant) with CGST + SGST split for Haryana customers and IGST for inter-state. You get a PDF + IRN reference. Google's own bills don't itemise GST the way Indian businesses need for ITC claims."
+              a="Yes. Every invoice is a proper Tax Invoice (CGST §31 compliant) with a CGST + SGST split for intra-state customers and IGST for inter-state — as a GST PDF you can use for your ITC claims. Google's own bills don't itemise GST the way Indian businesses need."
             />
             <FaqItem
               q="What if I'm switching from Microsoft 365 / Zoho?"

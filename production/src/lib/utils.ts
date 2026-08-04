@@ -327,6 +327,18 @@ export function initials(name: string): string {
 }
 
 /**
+ * Human label for a bank/cash account: "HDFC ••1234". Crucially, it OMITS the
+ * masked-number suffix when the account has no number (e.g. a cash-in-hand
+ * account), so it never renders the stray "••null" bug. Use everywhere a bank
+ * account is shown so the fix stays in one place.
+ */
+export function bankLabel(name?: string | null, last4?: string | null): string {
+  const base = (name ?? "").trim() || "Account";
+  const l4 = (last4 ?? "").trim();
+  return l4 ? `${base} ••${l4}` : base;
+}
+
+/**
  * Truncate a string with ellipsis.
  */
 export function truncate(s: string, max: number): string {

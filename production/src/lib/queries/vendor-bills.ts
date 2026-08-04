@@ -158,6 +158,56 @@ export function useUpdateVendorBill() {
   });
 }
 
+/** Record a payment against a bill → paid_amount↑, status flips, bank debited. */
+export function usePayVendorBill() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { billId: string; amount: number; paidOn: string; bankAccountId: string; method?: string | null }) => {
+      const supabase = createClient();
+      const { error } = await supabase.rpc("pay_vendor_bill", {
+        p_bill_id:         input.billId,
+        p_amount:          Math.round(input.amount),
+        p_paid_on:         input.paidOn,
+        p_bank_account_id: input.bankAccountId,
+        p_method:          input.method ?? null,
+      });
+      if (error) throw new Error(error.message);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["vendor_bills"] });
+      qc.invalidateQueries({ queryKey: ["vendors"] });
+      qc.invalidateQueries({ queryKey: ["bank_accounts"] });
+      qc.invalidateQueries({ queryKey: ["bank_transactions"] });
+      qc.invalidateQueries({ queryKey: ["balance-sheet"] });
+      toast.success("Payment recorded");
+    },
+    onError: (err) => toast.error((err as Error).message),
+  });
+}
+
+const BILL_BUCKET = "employee-docs";   // reuse the tenant-scoped private bucket
+
+/** Upload a bill file (photo/PDF); returns the storage path for attachment_url. */
+export async function uploadBillAttachment(file: File): Promise<string> {
+  const supabase = createClient();
+  const { data: authData } = await supabase.auth.getUser();
+  if (!authData?.user) throw new Error("Not authenticated");
+  const { data: me } = await supabase.from("users").select("tenant_id").eq("id", authData.user.id).single();
+  if (!me) throw new Error("No tenant");
+  const safe = file.name.replace(/[^a-zA-Z0-9._-]/g, "_").slice(-60);
+  const path = `${me.tenant_id}/vendor-bills/${crypto.randomUUID()}-${safe}`;
+  const { error } = await supabase.storage.from(BILL_BUCKET).upload(path, file, { contentType: file.type || undefined, upsert: false });
+  if (error) throw new Error(error.message);
+  return path;
+}
+
+/** Short-lived signed URL to view a bill attachment. */
+export async function getBillAttachmentUrl(path: string): Promise<string | null> {
+  const supabase = createClient();
+  const { data } = await supabase.storage.from(BILL_BUCKET).createSignedUrl(path, 60 * 5);
+  return data?.signedUrl ?? null;
+}
+
 export function useDeleteVendorBill() {
   const qc = useQueryClient();
   return useMutation({

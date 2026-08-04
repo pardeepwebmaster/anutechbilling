@@ -137,3 +137,41 @@ export function useDeleteCustomer() {
     onError: (err) => toast.error((err as Error).message),
   });
 }
+
+/** Total OPEN advance credit (₹) this customer holds — from earlier overpayments.
+ *  Adjust it against their next bill in the record-payment sheet. */
+export function useCustomerOpenCredit(customerId: string | null | undefined) {
+  return useQuery({
+    queryKey: ["customer_credits", "open-total", customerId ?? "none"],
+    enabled: Boolean(customerId),
+    queryFn: async (): Promise<number> => {
+      const supabase = createClient();
+      const { data, error } = await supabase
+        .from("customer_credits").select("amount").eq("customer_id", customerId!).eq("status", "open");
+      if (error) throw error;
+      return (data ?? []).reduce((s, r) => s + (r.amount ?? 0), 0);
+    },
+    staleTime: 30_000,
+  });
+}
+
+/** Total OPEN advance credit (₹) per customer, across the whole tenant — for the
+ *  customers list "Unused credits" column. RLS scopes the read to this tenant. */
+export function useOpenCreditsByCustomer() {
+  return useQuery({
+    queryKey: ["customer_credits", "open-by-customer"],
+    queryFn: async (): Promise<Record<string, number>> => {
+      const supabase = createClient();
+      const { data, error } = await supabase
+        .from("customer_credits").select("customer_id, amount").eq("status", "open");
+      if (error) throw error;
+      const map: Record<string, number> = {};
+      for (const r of data ?? []) {
+        if (!r.customer_id) continue;
+        map[r.customer_id] = (map[r.customer_id] ?? 0) + (r.amount ?? 0);
+      }
+      return map;
+    },
+    staleTime: 30_000,
+  });
+}

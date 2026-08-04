@@ -22,6 +22,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { rupee, formatDate } from "@/lib/utils";
+import { isExportSupply } from "@/lib/gst/place-of-supply";
+import { isForeignCurrency, foreignEquivalent, formatForeign } from "@/lib/currency";
 import type { Invoice, Payment, QuoteLineItem } from "@/lib/supabase/database.types";
 
 /** Display-shape for advance rows in the dialog — works for both frozen + live data */
@@ -65,6 +67,11 @@ interface Props {
   customerEmail?:   string | null;
   customerAddress?: string | null;
   customerState?:   string | null;
+  /** Recipient country — a foreign country marks an export (zero-rated under LUT). */
+  customerCountry?: string | null;
+  /** Billing currency + rate (books stay ₹). Foreign → show the foreign equivalent. */
+  currency?:        string | null;
+  exchangeRate?:    number | null;
 
   /** Tenant (supplier) info */
   tenantName:    string;
@@ -93,6 +100,9 @@ export function TaxInvoiceDialog({
   customerEmail,
   customerAddress,
   customerState,
+  customerCountry,
+  currency,
+  exchangeRate,
   tenantName,
   tenantGstin,
   tenantEmail,
@@ -102,9 +112,30 @@ export function TaxInvoiceDialog({
 }: Props) {
   const [downloadingPdf, setDownloadingPdf] = React.useState(false);
 
-  const cgst = interState ? 0 : Math.round(tax / 2);
-  const sgst = interState ? 0 : tax - cgst;
-  const igst = interState ? tax : 0;
+  // ── Immutable GST figures (CGST Sec 31 — an issued invoice cannot change) ──
+  // Prefer the values FROZEN on the invoice row at generation (migration 0116)
+  // over the live props derived from the *current* quote/customer. Otherwise a
+  // later customer-state edit would retroactively flip an issued invoice's
+  // CGST/SGST ↔ IGST heads (audit bug #24). Fall back to the live props only for
+  // legacy invoices issued before 0116 (frozen columns null).
+  const fInter   = invoice.inter_state   ?? interState;
+  const fTaxable = invoice.taxable_value ?? taxable;
+  const fTax     = invoice.tax_amount    ?? tax;
+  const fRate    = invoice.tax_rate      ?? taxRate;
+  const fTotal   = invoice.amount        ?? total;
+
+  const cgst = fInter ? 0 : Math.round(fTax / 2);
+  const sgst = fInter ? 0 : fTax - cgst;
+  const igst = fInter ? fTax : 0;
+
+  // Export (international) supply → zero-rated under LUT; the invoice carries an
+  // export declaration instead of a CGST/SGST/IGST split.
+  const isExport = isExportSupply(customerCountry);
+  const isForeign = isForeignCurrency(currency);
+  const fxRate = exchangeRate ?? 1;
+  // Export invoices display in the CLIENT's currency (USD…); books stay ₹, so the
+  // INR equivalent is shown as a GST reference. `money()` renders in that currency.
+  const money = (inr: number) => (isForeign ? formatForeign(foreignEquivalent(inr, fxRate), currency ?? "") : rupee(inr));
 
   // ── Advance adjustment ────────────────────────────────────────────────
   // Prefer FROZEN snapshot from invoice itself (legally correct — once issued,
@@ -129,7 +160,7 @@ export function TaxInvoiceDialog({
 
   const advancesAdjusted = displayAdvances.reduce((s, a) => s + a.amount, 0);
   // Prefer frozen net_payable from invoice — guaranteed to match what was issued
-  const netPayable       = invoice.net_payable ?? Math.max(0, total - advancesAdjusted);
+  const netPayable       = invoice.net_payable ?? Math.max(0, fTotal - advancesAdjusted);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -158,8 +189,9 @@ export function TaxInvoiceDialog({
                   const { downloadInvoicePDF } = await import("@/lib/pdf");
                   await downloadInvoicePDF({
                     invoice, lineItems, subtotal, discountPct, discount,
-                    taxable, taxRate, tax, total, interState,
-                    customerGstin, customerEmail, customerAddress, customerState,
+                    taxable: fTaxable, taxRate: fRate, tax: fTax, total: fTotal, interState: fInter,
+                    customerGstin, customerEmail, customerAddress, customerState, customerCountry,
+                    currency, exchangeRate,
                     tenantName, tenantGstin, tenantEmail, tenantPhone,
                     tenantAddress, tenantState,
                   });
@@ -238,7 +270,7 @@ export function TaxInvoiceDialog({
             </div>
             <div>
               <p className="text-[10px] uppercase tracking-widest text-ink-3 font-semibold mb-0.5">Place of supply</p>
-              <p>{interState ? "Inter-state (IGST)" : "Intra-state (CGST + SGST)"}</p>
+              <p>{isExport ? `Export · ${customerCountry ?? "outside India"}` : fInter ? "Inter-state (IGST)" : "Intra-state (CGST + SGST)"}</p>
             </div>
           </div>
 
@@ -274,9 +306,9 @@ export function TaxInvoiceDialog({
                       </td>
                       <td className="p-2.5 font-mono text-[11px] text-ink-2">998313</td>
                       <td className="p-2.5 text-right tabular-nums text-sm">{li.qty}</td>
-                      <td className="p-2.5 text-right tabular-nums text-sm">{rupee(li.rate)}</td>
+                      <td className="p-2.5 text-right tabular-nums text-sm">{money(li.rate)}</td>
                       <td className="p-2.5 text-right tabular-nums text-sm font-medium">
-                        {rupee(li.qty * li.rate)}
+                        {money(li.qty * li.rate)}
                       </td>
                     </tr>
                   ))
@@ -291,32 +323,37 @@ export function TaxInvoiceDialog({
               <tbody>
                 <tr>
                   <td className="py-1 text-ink-3">Subtotal</td>
-                  <td className="py-1 text-right tabular-nums">{rupee(subtotal)}</td>
+                  <td className="py-1 text-right tabular-nums">{money(subtotal)}</td>
                 </tr>
                 {discountPct > 0 && (
                   <tr>
                     <td className="py-1 text-ink-3">Discount ({discountPct}%)</td>
-                    <td className="py-1 text-right tabular-nums text-rose">− {rupee(discount)}</td>
+                    <td className="py-1 text-right tabular-nums text-rose">− {money(discount)}</td>
                   </tr>
                 )}
                 <tr className="border-t border-hairline">
                   <td className="py-1 text-ink-3">Taxable value</td>
-                  <td className="py-1 text-right tabular-nums">{rupee(taxable)}</td>
+                  <td className="py-1 text-right tabular-nums">{money(fTaxable)}</td>
                 </tr>
-                {interState ? (
+                {isExport ? (
                   <tr>
-                    <td className="py-1 text-ink-3">IGST @ {taxRate}%</td>
-                    <td className="py-1 text-right tabular-nums">{rupee(igst)}</td>
+                    <td className="py-1 text-ink-3">Export — zero-rated (LUT), no GST</td>
+                    <td className="py-1 text-right tabular-nums">{money(0)}</td>
+                  </tr>
+                ) : fInter ? (
+                  <tr>
+                    <td className="py-1 text-ink-3">IGST @ {fRate}%</td>
+                    <td className="py-1 text-right tabular-nums">{money(igst)}</td>
                   </tr>
                 ) : (
                   <>
                     <tr>
-                      <td className="py-1 text-ink-3">CGST @ {taxRate / 2}%</td>
-                      <td className="py-1 text-right tabular-nums">{rupee(cgst)}</td>
+                      <td className="py-1 text-ink-3">CGST @ {fRate / 2}%</td>
+                      <td className="py-1 text-right tabular-nums">{money(cgst)}</td>
                     </tr>
                     <tr>
-                      <td className="py-1 text-ink-3">SGST @ {taxRate / 2}%</td>
-                      <td className="py-1 text-right tabular-nums">{rupee(sgst)}</td>
+                      <td className="py-1 text-ink-3">SGST @ {fRate / 2}%</td>
+                      <td className="py-1 text-right tabular-nums">{money(sgst)}</td>
                     </tr>
                   </>
                 )}
@@ -325,7 +362,12 @@ export function TaxInvoiceDialog({
                     Invoice total
                   </td>
                   <td className="py-2 text-right">
-                    <span className="font-serif text-xl tabular-nums">{rupee(total)}</span>
+                    <span className="font-serif text-xl tabular-nums">{money(fTotal)}</span>
+                    {isForeign && (
+                      <span className="block text-[11px] text-ink-3 font-normal">
+                        INR equivalent (for GST): {rupee(fTotal)} @ ₹{exchangeRate}/{currency}
+                      </span>
+                    )}
                   </td>
                 </tr>
               </tbody>
@@ -356,13 +398,13 @@ export function TaxInvoiceDialog({
                       </td>
                       <td className="py-1.5 text-ink-2">{formatDate(a.received_at)}</td>
                       <td className="py-1.5 text-ink-2 capitalize">{a.method.replace("_", " ")}</td>
-                      <td className="py-1.5 text-right tabular-nums">{rupee(a.amount)}</td>
+                      <td className="py-1.5 text-right tabular-nums">{money(a.amount)}</td>
                     </tr>
                   ))}
                   <tr className="border-t border-emerald/30">
                     <td colSpan={3} className="py-2 font-semibold text-emerald-ink">Total adjusted</td>
                     <td className="py-2 text-right font-semibold tabular-nums text-emerald-ink">
-                      − {rupee(advancesAdjusted)}
+                      − {money(advancesAdjusted)}
                     </td>
                   </tr>
                 </tbody>
@@ -377,7 +419,7 @@ export function TaxInvoiceDialog({
                 <span className="text-[11px] uppercase tracking-widest font-semibold text-ink-3">
                   {advancesAdjusted > 0 ? "Net payable" : "Amount due"}
                 </span>
-                <span className="font-serif text-3xl tabular-nums">{rupee(netPayable)}</span>
+                <span className="font-serif text-3xl tabular-nums">{money(netPayable)}</span>
               </div>
               {advancesAdjusted > 0 && netPayable === 0 && (
                 <p className="text-[11px] text-emerald-ink mt-1.5 flex items-center gap-1">
@@ -390,7 +432,7 @@ export function TaxInvoiceDialog({
 
           {/* Amount in words */}
           <p className="text-xs text-ink-3 mb-6">
-            <b>Invoice total (in words):</b> {amountInWords(total)} only.
+            <b>Invoice total (in words):</b> {amountInWords(fTotal)} only.
             {advancesAdjusted > 0 && (
               <>
                 {" · "}
@@ -403,9 +445,19 @@ export function TaxInvoiceDialog({
           <div className="rounded-md bg-amber-soft border border-amber/30 p-3 text-[11px] text-amber-ink mb-6">
             <p className="font-semibold mb-1">📋 GST treatment</p>
             <p>
-              This is a Tax Invoice issued under <b>CGST Section 31</b>. Recipient may claim
-              Input Tax Credit (ITC) of ₹{tax.toLocaleString("en-IN")} subject to compliance
-              with CGST Section 16.
+              {isExport ? (
+                <>
+                  <b>Export of service</b> to a recipient outside India ({customerCountry ?? "—"}) —
+                  <b> zero-rated supply</b> made under a <b>Letter of Undertaking (LUT)</b> without
+                  payment of IGST (IGST Act §16 / CGST §31). <b>No GST is charged.</b>
+                </>
+              ) : (
+                <>
+                  This is a Tax Invoice issued under <b>CGST Section 31</b>. Recipient may claim
+                  Input Tax Credit (ITC) of ₹{fTax.toLocaleString("en-IN")} subject to compliance
+                  with CGST Section 16.
+                </>
+              )}
               {advancesAdjusted > 0 && (
                 <>
                   {" "}

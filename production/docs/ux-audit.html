@@ -1,0 +1,318 @@
+<title>ResellerOS — UX, Logic & Psychology Audit</title>
+<style>
+  :root{
+    --paper:#f7f3ec; --paper2:#efe9df; --card:#fffdf9; --ink:#211d17; --ink2:#4a4238;
+    --ink3:#8a7f70; --hair:#e2d9cb; --hair2:#d2c6b4;
+    --amber:#c2410c; --amber-soft:#f6e7d8;
+    --rose:#b4232a; --rose-soft:#f7dedd;
+    --amberw:#b5750a; --amberw-soft:#f7eccf;
+    --emer:#2f7d54; --emer-soft:#dcefe1;
+    --shadow:0 1px 2px rgba(40,30,15,.06),0 8px 24px rgba(40,30,15,.05);
+  }
+  @media (prefers-color-scheme:dark){
+    :root{
+      --paper:#181511; --paper2:#211d17; --card:#211d18; --ink:#f2ece2; --ink2:#cabfae;
+      --ink3:#948873; --hair:#332c22; --hair2:#413828;
+      --amber:#f0813f; --amber-soft:#3a2414;
+      --rose:#f0898c; --rose-soft:#3a1c1c;
+      --amberw:#e7b24e; --amberw-soft:#352a12;
+      --emer:#79c795; --emer-soft:#17301f;
+      --shadow:0 1px 2px rgba(0,0,0,.3),0 10px 30px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="dark"]{
+    --paper:#181511; --paper2:#211d17; --card:#211d18; --ink:#f2ece2; --ink2:#cabfae;
+    --ink3:#948873; --hair:#332c22; --hair2:#413828;
+    --amber:#f0813f; --amber-soft:#3a2414; --rose:#f0898c; --rose-soft:#3a1c1c;
+    --amberw:#e7b24e; --amberw-soft:#352a12; --emer:#79c795; --emer-soft:#17301f;
+    --shadow:0 1px 2px rgba(0,0,0,.3),0 10px 30px rgba(0,0,0,.35);
+  }
+  :root[data-theme="light"]{
+    --paper:#f7f3ec; --paper2:#efe9df; --card:#fffdf9; --ink:#211d17; --ink2:#4a4238;
+    --ink3:#8a7f70; --hair:#e2d9cb; --hair2:#d2c6b4;
+    --amber:#c2410c; --amber-soft:#f6e7d8; --rose:#b4232a; --rose-soft:#f7dedd;
+    --amberw:#b5750a; --amberw-soft:#f7eccf; --emer:#2f7d54; --emer-soft:#dcefe1;
+    --shadow:0 1px 2px rgba(40,30,15,.06),0 8px 24px rgba(40,30,15,.05);
+  }
+
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--paper); color:var(--ink);
+    font-family:'Plus Jakarta Sans',system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+    line-height:1.6; -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:940px; margin:0 auto; padding:clamp(20px,5vw,64px) clamp(16px,4vw,40px) 96px}
+  .serif{font-family:Georgia,'Times New Roman',serif}
+  h1,h2,h3{font-family:Georgia,'Times New Roman',serif; font-weight:600; letter-spacing:-.01em; text-wrap:balance; line-height:1.15}
+  code,.mono{font-family:'JetBrains Mono',ui-monospace,'SF Mono',Menlo,monospace; font-size:.82em}
+
+  /* header */
+  .eyebrow{font-size:12px; letter-spacing:.18em; text-transform:uppercase; color:var(--amber); font-weight:700}
+  h1{font-size:clamp(30px,6vw,50px); margin:.35rem 0 0}
+  .sub{color:var(--ink2); font-size:clamp(15px,2.4vw,18px); margin-top:.7rem; max-width:60ch}
+  .meta{color:var(--ink3); font-size:13px; margin-top:1rem; display:flex; gap:14px; flex-wrap:wrap}
+  .meta b{color:var(--ink2); font-weight:600}
+
+  /* verdict */
+  .verdict{margin:34px 0 8px; background:var(--card); border:1px solid var(--hair); border-left:4px solid var(--amber);
+    border-radius:14px; padding:22px 24px; box-shadow:var(--shadow)}
+  .verdict h2{font-size:20px; margin:0 0 8px}
+  .verdict p{margin:.4rem 0; color:var(--ink2); font-size:15.5px}
+  .verdict .good{color:var(--emer); font-weight:700}
+  .verdict .bad{color:var(--rose); font-weight:700}
+
+  /* section */
+  section{margin-top:52px}
+  .sec-head{display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; border-bottom:2px solid var(--hair2); padding-bottom:10px; margin-bottom:6px}
+  .sec-head h2{font-size:clamp(21px,3.6vw,27px); margin:0}
+  .sec-head .lens{font-size:13px; color:var(--ink3)}
+  .sec-note{color:var(--ink2); font-size:14.5px; margin:12px 0 20px; max-width:66ch}
+
+  /* finding cards */
+  .card{background:var(--card); border:1px solid var(--hair); border-radius:13px; padding:16px 18px; margin:12px 0; box-shadow:var(--shadow)}
+  .card .top{display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:7px}
+  .chip{font-size:11px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; padding:3px 9px; border-radius:999px; white-space:nowrap}
+  .p0{background:var(--rose-soft); color:var(--rose)}
+  .p1{background:var(--amberw-soft); color:var(--amberw)}
+  .p2{background:var(--paper2); color:var(--ink3)}
+  .card h3{font-size:16.5px; margin:0; flex:1; min-width:200px}
+  .card p{margin:.35rem 0 0; font-size:14.5px; color:var(--ink2)}
+  .card .why{color:var(--ink2)}
+  .card .fix{color:var(--ink); margin-top:8px; font-size:14px}
+  .card .fix b{color:var(--emer)}
+  .card .files{margin-top:9px; font-size:11.5px; color:var(--ink3)}
+  .card .files code{background:var(--paper2); padding:1px 6px; border-radius:5px; color:var(--ink2)}
+
+  /* the big pattern block */
+  .flag{background:linear-gradient(180deg,var(--rose-soft),var(--card) 62%); border:1px solid var(--hair2)}
+  .flag .top .chip{background:var(--rose); color:#fff}
+  ul.tight{margin:10px 0 0; padding-left:2px; list-style:none}
+  ul.tight li{position:relative; padding:7px 0 7px 26px; border-top:1px solid var(--hair); font-size:14.5px; color:var(--ink2)}
+  ul.tight li:first-child{border-top:none}
+  ul.tight li::before{content:"✕"; position:absolute; left:2px; top:7px; color:var(--rose); font-weight:800; font-size:12px}
+  ul.tight li b{color:var(--ink)}
+
+  /* roadmap */
+  .road{display:grid; gap:14px; margin-top:18px}
+  @media(min-width:720px){.road{grid-template-columns:repeat(3,1fr)}}
+  .lane{background:var(--card); border:1px solid var(--hair); border-radius:13px; padding:16px 16px 18px; box-shadow:var(--shadow)}
+  .lane h3{margin:0 0 4px; font-size:16px}
+  .lane .tag{font-size:11px; font-weight:700; letter-spacing:.05em; text-transform:uppercase}
+  .lane.a{border-top:3px solid var(--rose)} .lane.a .tag{color:var(--rose)}
+  .lane.b{border-top:3px solid var(--amberw)} .lane.b .tag{color:var(--amberw)}
+  .lane.c{border-top:3px solid var(--emer)} .lane.c .tag{color:var(--emer)}
+  .lane ol{margin:10px 0 0; padding-left:18px; font-size:13.5px; color:var(--ink2)}
+  .lane ol li{margin:6px 0}
+  .lane .when{color:var(--ink3); font-size:12px; margin-top:2px}
+
+  /* solid block */
+  .solid{background:var(--emer-soft); border:1px solid var(--hair); border-radius:13px; padding:18px 20px; margin-top:16px}
+  .solid h3{margin:0 0 6px; font-size:16px; color:var(--emer)}
+  .solid ul{margin:6px 0 0; padding-left:20px; color:var(--ink2); font-size:14px}
+  .solid ul li{margin:4px 0}
+
+  .foot{margin-top:56px; padding-top:18px; border-top:1px solid var(--hair); color:var(--ink3); font-size:13px}
+  hr.soft{border:none; border-top:1px solid var(--hair); margin:0}
+</style>
+
+<div class="wrap">
+
+  <header>
+    <div class="eyebrow">Product Study · Kya kami hai</div>
+    <h1>ResellerOS — kaha kachcha hai</h1>
+    <p class="sub">Poore app ka gehra study — teen lens se: <b>user-friendly</b>, <b>logical</b>, aur <b>psychological</b>. Har finding actual code padh kar nikali gayi hai (guess nahi). Owner ki nazar se, non-technical reseller ke liye.</p>
+    <div class="meta"><span><b>~44</b> findings</span><span><b>4</b> areas audited</span><span>Money-spine · Nav/Onboarding · Dashboard/Psychology · Trust/Consistency</span></div>
+  </header>
+
+  <div class="verdict">
+    <h2>Ek line ka sach</h2>
+    <p><span class="good">Backend money-logic majboot hai</span> — payment→customer→subscription→invoice atomic aur bharosemand. Foundation solid.</p>
+    <p><span class="bad">Kamzori "surface" par hai</span> — app kai jagah <b>nakli data</b> dikhata hai (jaise wo asli ho), kai buttons <b>"ho gaya" bolte hain par kuch karte nahi</b>, aur kuch <b>numbers galat label</b> ke saath hain. Ye seedhe bharose (trust) ko todta hai — aur yahi wo cheez hai jise world-class banana hai.</p>
+    <p style="margin-top:10px; color:var(--ink); font-weight:600">Nateeja: "kaam karta hai" se "surakshit + bharosemand lagta hai" tak ka gap — mostly polish, deep rewrite nahi.</p>
+  </div>
+
+  <!-- BIGGEST PATTERN -->
+  <section>
+    <div class="sec-head"><h2>Sabse bada pattern: "Dikhawa"</h2><span class="lens">nakli data + nakli success</span></div>
+    <p class="sec-note">Ye ek hi problem baar-baar aati hai aur sabse zyada nuksaan karti hai — kyunki money-app me bharosa sab kuch hai. Ek naya customer (ya aap khud khaali workspace me) jab ye dekhega, to app "jhootha" lagega. <b>Ye P0 hai — soft-launch se pehle.</b></p>
+
+    <div class="card flag">
+      <div class="top"><span class="chip">P0 · Trust-killer</span><h3>App nakli cheezein "asli" ki tarah dikhata hai</h3></div>
+      <ul class="tight">
+        <li><b>Notification bell 100% nakli</b> — brand-new khaali workspace me bhi "₹3.05L from Acme Corp", "New lead Maple Studios" jaise 10 fake events. <span class="mono">notification-panel.tsx:36</span></li>
+        <li><b>Online Orders page mock data</b> — fake orders (Acme, Echo Pharma) real ke saath mila deta hai; "Revenue MTD" aur "+3 vs yesterday" sab fiction. <span class="mono">online-orders/page.tsx:75,688</span></li>
+        <li><b>"Closed this month" asal me all-time hai</b> — accepted quotes par koi date filter nahi. Hero money number galat label. <span class="mono">dashboard/page.tsx:124</span></li>
+        <li><b>Har tenant ke reminder me "Excel Technologies" hardcoded</b> — doosra reseller apne customer ko aapke naam se message bhejega. <span class="mono">aging/page.tsx:258</span></li>
+        <li><b>Nakli "ho gaya" toasts</b> — "Bulk reminder sent", "renewal reminders sent to 12 customers", Subscriptions "Renew"/"Bulk email" button — <b>kuch nahi bhejta</b>, phir bhi success. <span class="mono">renewals · subscriptions · online-orders · command-palette</span></li>
+        <li><b>Churn-risk reasons invente kiye hue</b> — "NPS 3/10", "5 support tickets" lead ke ID se banaye gaye, real nahi. <span class="mono">renewals/page.tsx:61</span></li>
+        <li><b>Setup checklist ke green ticks</b> — sab skip karo tab bhi "Company verified ✓ / Data imported ✓" dikhata hai. <span class="mono">setup/page.tsx:515</span></li>
+        <li><b>Balance Sheet "Balanced ✓"</b> — hamesha green (plug figure se), kabhi fail ho hi nahi sakta → jhootha bharosa; CA turant shak karega. <span class="mono">balance-sheet/page.tsx:72</span></li>
+      </ul>
+      <div class="fix"><b>Fix:</b> Har jagah — ya asli data se jodo, ya honest empty-state / "Coming soon" dikhao. <b>Kabhi money-action ka nakli success mat dikhao.</b> Ye ek theme theek karne se app turant "bharosemand" feel karega.</div>
+    </div>
+  </section>
+
+  <!-- PSYCHOLOGICAL -->
+  <section>
+    <div class="sec-head"><h2>🧠 Psychological</h2><span class="lens">bharosa · chinta · "ab kya karu"</span></div>
+    <p class="sec-note">App owner ka <b>co-pilot</b> lagna chahiye — spreadsheet nahi. Abhi wo zyada "report" karta hai, "guide" kam.</p>
+
+    <div class="card"><div class="top"><span class="chip p1">P1</span><h3>Khaali dashboard = ₹0 ki deewar + laal "Not setup" flags</h3></div>
+      <p class="why">Naya owner subah app kholte hi teen ₹0 KPI + "Razorpay/GST/WhatsApp — Not setup" (amber/red) dekhta hai. Momentum ke bajaye chinta. "Health · System" card to roz ek developer status-page jaisa alarm hai.</p>
+      <div class="fix"><b>Fix:</b> Khaali tenant ke liye welcome + "Getting started" checklist hero dikhao; integration-status ko Settings me bhejo. <span class="mono">dashboard/page.tsx:479</span></div>
+    </div>
+
+    <div class="card"><div class="top"><span class="chip p1">P1</span><h3>Naye owner ke liye koi persistent "yahan se shuru karo" nahi</h3></div>
+      <p class="why">Setup wizard skippable hai aur ek baar complete hote hi sidebar se gayab. Dashboard par sirf ek chhupa "Re-run setup" button. "Kahan se shuru karu?" ka jawab kahin nahi.</p>
+      <div class="fix"><b>Fix:</b> Dashboard par ek dismissable checklist (Company details → Pehla customer → Pehla quote → Razorpay connect), real-data se driven.</div>
+    </div>
+
+    <div class="card"><div class="top"><span class="chip p2">P2</span><h3>Ek aadmi ka "Sales Leaderboard"</h3></div>
+      <p class="why">Solo reseller ko hamesha "You (you)" ka rank-1 leaderboard dikhta hai — competition of one, demotivating.</p>
+      <div class="fix"><b>Fix:</b> 2+ seller hon tabhi leaderboard; solo ke liye "is mahine N deal, ₹X — pichle mahine se ↑" (personal-best framing). <span class="mono">dashboard/page.tsx:391</span></div>
+    </div>
+
+    <div class="card"><div class="top"><span class="chip p1">P1</span><h3>"Kya main financially theek hu?" ka jawab kahin nahi</h3></div>
+      <p class="why">Dashboard pipeline/MRR/renewals batata hai, par wo ek cheez jo anxious owner chahta hai — "paisa theek aa raha? cash tight to nahi?" — kabhi seedhe nahi kehta. Sirf problems, kabhi reassurance nahi.</p>
+      <div class="fix"><b>Fix:</b> Ek line ka cashflow verdict — "Cash healthy — ₹X aaya, ₹Y aana baaki, kuch overdue nahi" (theek ho to green).</div>
+    </div>
+
+    <div class="card"><div class="top"><span class="chip p2">P2</span><h3>Customer "Health" score — verdict hai, "kyun" nahi</h3></div>
+      <p class="why">Bada "58/100" dikhta hai par kis wajah se (overdue paisa? kam seat use? tenure?) aur uthाne ke liye kya karu — kuch nahi. Chinta, par control nahi.</p>
+      <div class="fix"><b>Fix:</b> Score ke neeche top 1–2 reason dikhao ("↓ ₹X 45 din overdue", "↓ 20 me se 3 seat use") — number ko to-do banao. <span class="mono">customers/[id]/page.tsx:341</span></div>
+    </div>
+
+    <div class="card"><div class="top"><span class="chip p1">P1</span><h3>Money actions "unsafe" feel karte hain</h3></div>
+      <p class="why">Delete/reverse-payment purane browser ke <code>confirm()</code> box se (un-branded, mobile par bhadda), aur error par raw database text ("duplicate key violates constraint…") dikhta hai — owner ko lagta hai app crash ho gaya / paisa saved hua ya nahi.</p>
+      <div class="fix"><b>Fix:</b> Ek shared branded <code>ConfirmDialog</code> + friendly error messages (§11). Neeche Logical me detail.</div>
+    </div>
+  </section>
+
+  <!-- LOGICAL -->
+  <section>
+    <div class="sec-head"><h2>🔗 Logical</h2><span class="lens">numbers milna · dead-ends · correctness</span></div>
+    <p class="sec-note">Jahan cheezein "logically" toot-ti ya aapas me match nahi kartin.</p>
+
+    <div class="card"><div class="top"><span class="chip p0">P0</span><h3>"Revenue / Closed / MRR" — teen screen, teen matlab, koi pul nahi</h3></div>
+      <p class="why">Dashboard "closed" = accepted quotes; P&L "Revenue" = invoices; MRR = subscriptions. Teeno sahi hain, par non-accountant owner "₹4L closed / ₹2.6L revenue / ₹40k MRR" dekh kar confuse — kaunsa sach? Yahi finance dashboards par bharosa todta hai.</p>
+      <div class="fix"><b>Fix:</b> Har headline ke neeche ek plain line ("Jinpe customer ne haan ki" / "Jo invoice aapne kaate" / "Locked-in monthly"). Aur "at-risk" ki 3 alag threshold ek kar do.</div>
+    </div>
+
+    <div class="card"><div class="top"><span class="chip p1">P1</span><h3>Outstanding "paisa" customer-level par jodta hai, subscription-level par nahi</h3></div>
+      <p class="why">Do subscription wale customer (renewal ya do product — reseller ki roz ki baat) ke liye "paid ₹X of ₹Y" galat aata hai, aur "Pay" button galat quote khol sakta hai. <span class="mono">payments.ts:199</span></p>
+      <div class="fix"><b>Fix:</b> Lookup ko <code>subscription.quote_id</code> par karo, <code>customer_id</code> par nahi.</div>
+    </div>
+
+    <div class="card"><div class="top"><span class="chip p1">P1</span><h3>Refund "dikhta hai" par hai nahi — dead-end</h3></div>
+      <p class="why">Payments par "Refunded" tab + red badge hai (matlab refund support karta hai), par refund ka koi button nahi — hook kahin use hi nahi hua. Ekmatra "reversal" Delete hai (alag + destructive cheez). <span class="mono">payments/page.tsx:65</span></p>
+      <div class="fix"><b>Fix:</b> Ya asli <code>refund_payment</code> RPC (RFV number + outstanding recompute) button ke saath, ya tab/badge hata do jab tak na bane.</div>
+    </div>
+
+    <div class="card"><div class="top"><span class="chip p1">P1</span><h3>Marte / galat-label buttons</h3></div>
+      <p class="why">Subscriptions ka "Renew" (sabse zaroori) — koi onClick nahi; "Bulk renewal email" — koi onClick nahi; har revenue screen par "Export" — kuch nahi karta / "coming soon". Owner ko CA ke liye file chahiye hoti hai.</p>
+      <div class="fix"><b>Fix:</b> "Renew" ko existing renewal-quote flow se jodo; CSV export lagao (data client par hai already — trivial); jo na bane use hide karo.</div>
+    </div>
+
+    <div class="card"><div class="top"><span class="chip p1">P1</span><h3>GST invoice = ek irreversible click, koi confirm nahi</h3></div>
+      <p class="why">"Generate GST Invoice" turant ek sequential legal invoice number khparch kar deta hai — ek misclick = compliance headache (gap in numbering). <span class="mono">quotes/[id]/page.tsx:490</span></p>
+      <div class="fix"><b>Fix:</b> Ek confirm ("Ye GST tax invoice issue karega aur quote lock — proceed?").</div>
+    </div>
+
+    <div class="card"><div class="top"><span class="chip p0">P0</span><h3>Silent money-fail, par toast "ho gaya" bolta hai</h3></div>
+      <p class="why">TDS-receivable row fail ho jaye to sirf console error, par toast "TDS ₹X logged · chase Form 16A" — owner kabhi certificate chase nahi karta, ITR par asli paisa (TDS credit) kho deta hai. Waise hi: commitment missing ho to subscription ban-ta nahi par toast "activated 🎉".</p>
+      <div class="fix"><b>Fix:</b> Partial failure honestly dikhao ("Payment saved, par TDS row fail — manually add karo"); success sirf jab sach me hua ho.</div>
+    </div>
+
+    <div class="card"><div class="top"><span class="chip p2">P2</span><h3>"Remind" khaali mailto kholta hai, par "reminded" stamp kar deta hai</h3></div>
+      <p class="why">Recipient email mailto me nahi jaata (khaali "To"), phir bhi "Last reminder: today" mark ho jaata hai — receivable "reminded" dikhta hai jise contact hi nahi kiya. <span class="mono">payments/page.tsx:243</span></p>
+      <div class="fix"><b>Fix:</b> <code>mailto:${email}</code> bharो; stamp sirf asli send ke baad.</div>
+    </div>
+  </section>
+
+  <!-- USER FRIENDLY -->
+  <section>
+    <div class="sec-head"><h2>👆 User-friendly</h2><span class="lens">navigation · onboarding · mobile · jargon</span></div>
+
+    <div class="card"><div class="top"><span class="chip p1">P1</span><h3>52 nav items, 7 section — sab khule — deewar jaisa</h3></div>
+      <p class="why">Owner ko har section dikhta hai. Akela Accounting 14 items (roz-marra + saal-me-ek-baar mila-jula), HR 6 items. Solo reseller ke liye 80% shor. Sections default expanded — khud 6 fold karo.</p>
+      <div class="fix"><b>Fix:</b> Advanced sections (Accounting/HR/Procurement) default-collapsed, ya "Simple / Full" mode toggle; HR/Accounting tabhi dikhao jab employee/expense ho. <span class="mono">nav.ts · Sidebar.tsx</span></div>
+    </div>
+
+    <div class="card"><div class="top"><span class="chip p1">P1</span><h3>Leads / Enquiries / Deal Pipeline / Contacts / Customers — 5 mile-jule naam</h3></div>
+      <p class="why">Leads aur Deals ek hi component hain (bas filter alag); Enquiries ek email-inbox jo Leads ko feed karta hai; Contacts vs Customers alag. Non-technical owner ko 5 near-synonym, 5 icon. Code comment khud confusion maanta hai.</p>
+      <div class="fix"><b>Fix:</b> Ek "Pipeline" entry (Leads/Deals in-page tabs), Enquiries usi ka inbox-tab; Contacts vs Customers ka ek-line farq ("Log" vs "Paying accounts"). Distinct icons.</div>
+    </div>
+
+    <div class="card"><div class="top"><span class="chip p2">P2</span><h3>Jargon — MRR, receivable, LTV, ARPC — bina samjhaye</h3></div>
+      <p class="why">Dashboard/Customers par "MRR" bare khada hai; SaaS Metrics "investors jo dekhte hain" frame karta hai (owner fundraise nahi kar raha). CLAUDE.md khud in shabdon ko owner-unfriendly kehta hai.</p>
+      <div class="fix"><b>Fix:</b> Pehli baar par expand ("MRR — locked-in monthly income"), plain-English hint; SaaS Metrics "aapki recurring income" se shuru ho.</div>
+    </div>
+
+    <div class="card"><div class="top"><span class="chip p1">P1</span><h3>Mobile bottom-nav me koi "money" tab nahi</h3></div>
+      <p class="why">Bottom bar ke 5 me se 3 slot pipeline (Home/Leads/Deals/Tasks/More). Money-spine (Payments/Invoices/Quotes) 2 tap andar dabi. Owner phone se paisa check karta hai — wahi sabse mushkil.</p>
+      <div class="fix"><b>Fix:</b> Owner ke liye kam-se-kam ek money destination (Quotes ya Payments) bottom bar me. <span class="mono">MobileBottomNav.tsx</span></div>
+    </div>
+
+    <div class="card"><div class="top"><span class="chip p2">P2</span><h3>Touch targets 44px se chhote · empty-state ki bhaasha mismatch · search sirf ⌘K</h3></div>
+      <p class="why">Button/IconButton mobile par 28–36px (apne hi §20 rule "≥44px" ke khilaf) → mis-tap. Kuch empty-states random Hinglish, baaki English — koi setting control nahi. Global search sirf ⌘K par (mobile par invisible, non-technical owner ko pata nahi).</p>
+      <div class="fix"><b>Fix:</b> Mobile size-floor 44px; ek consistent voice; search field ko mobile par tappable + visible magnifier.</div>
+    </div>
+  </section>
+
+  <!-- ROADMAP -->
+  <section>
+    <div class="sec-head"><h2>Fix order — kis order me theek karein</h2></div>
+    <div class="road">
+      <div class="lane a">
+        <div class="tag">P0 · Soft-launch se pehle</div>
+        <div class="when">Trust seedhe todta hai</div>
+        <ol>
+          <li>Saara nakli data hatao (bell, online-orders, churn reasons, setup ticks)</li>
+          <li>Nakli success toasts band — ya asli kaam, ya "coming soon"</li>
+          <li>"Excel Technologies" → tenant naam (multi-tenant bug)</li>
+          <li>"Closed this month" ko sach me is-mahine karo (ya label badlo)</li>
+          <li>Silent money-fail (TDS/subscription) honestly dikhao</li>
+        </ol>
+      </div>
+      <div class="lane b">
+        <div class="tag">P1 · Fast-follow</div>
+        <div class="when">"Kaam karta" → "surakshit lagta"</div>
+        <ol>
+          <li>Naye owner ke liye getting-started checklist + calm empty dashboard</li>
+          <li>Ek shared branded ConfirmDialog + friendly errors</li>
+          <li>Number-definitions ek karo (Revenue/Closed/MRR/at-risk)</li>
+          <li>Dead buttons wire karo ya hide (Renew, Export→CSV)</li>
+          <li>Outstanding subscription-level; GST-invoice confirm</li>
+        </ol>
+      </div>
+      <div class="lane c">
+        <div class="tag">P2 · Polish</div>
+        <div class="when">World-class feel</div>
+        <ol>
+          <li>Nav simplify — collapse + Leads/Deals/Enquiries merge</li>
+          <li>Jargon → plain language</li>
+          <li>Mobile money-tab + 44px touch targets</li>
+          <li>Cashflow reassurance + customer-health "why"</li>
+          <li>Consistent empty-state voice, CSV everywhere</li>
+        </ol>
+      </div>
+    </div>
+  </section>
+
+  <!-- WHATS SOLID -->
+  <section>
+    <div class="solid">
+      <h3>✓ Jo pehle se majboot hai (taaki tasveer poori rahe)</h3>
+      <ul>
+        <li><b>DB money-spine atomic + tenant-safe</b> — payment→customer→subscription→invoice, sequential GST numbering, roll-forward renewal — sab bharosemand.</li>
+        <li><b>Kuch screens genuinely badhiya</b> — partial-payment preview, over-payment warning, P&L/SaaS ke Hinglish "iska matlab" insight blocks (yahi voice dashboard par bhi laao).</li>
+        <li><b>Ab tak ke fixes</b> — Leads dedup, color-hierarchy, Contacts/Leads scroll, overdue cleanup — sahi disha me.</li>
+      </ul>
+    </div>
+  </section>
+
+  <div class="foot">
+    Study method: 4 parallel code-audits (money-spine · nav/onboarding · dashboard/psychology · trust/consistency), har finding actual <code>file:line</code> se. Ye report batati hai <i>kya</i> theek karna hai; koi code abhi badla nahi gaya. Priority ke hisaab se ek-ek karke theek karenge — money-correctness pehle.
+  </div>
+
+</div>

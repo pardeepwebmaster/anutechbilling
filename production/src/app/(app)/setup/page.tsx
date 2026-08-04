@@ -23,17 +23,23 @@ import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { useCurrentUser } from "@/lib/hooks/useCurrentUser";
+import { useCustomers } from "@/lib/queries/customers";
 import { useUpdateTenant } from "@/lib/queries/tenant";
 import { GST_STATE_BY_CODE, gstStateFromGstin, isValidGstin, validateGstin } from "@/lib/utils";
 import GstinVerifyCard from "@/components/features/gstin/gstin-verify-card";
 
 // ─── Step config ──────────────────────────────────────────────────────────────
 
+// Order = first-value first. Company (needed for GST) → Import customers (the step
+// that actually lights up renewals/margins/dashboard) → then the two integration
+// steps that can only be *started* here and finish later (Razorpay KYC, Google CSP
+// approval). Index 0 must stay Company (saves the tenant) and index 3 stays the last
+// content step before Done (fires finishSetup); see `next()`.
 const STEPS = [
   { id: "company",  label: "Company",    icon: "building" },
+  { id: "import",   label: "Import",     icon: "upload"   },
   { id: "razorpay", label: "Razorpay",   icon: "rupee"    },
   { id: "csp",      label: "Google CSP", icon: "globe"    },
-  { id: "import",   label: "Import",     icon: "upload"   },
   { id: "done",     label: "All set",    icon: "rocket"   },
 ] as const;
 
@@ -291,9 +297,9 @@ function StepRazorpay({
             <Icon name="check" size={20} />
           </div>
           <div>
-            <p className="font-semibold text-emerald-700">Razorpay connected</p>
+            <p className="font-semibold text-emerald-700">Razorpay marked as set up</p>
             <p className="text-sm text-ink-3">
-              Live mode · 2% transaction fee · T+2 settlement to HDFC ••4521
+              Finish + verify the live connection in Settings → Integrations before taking real payments.
             </p>
           </div>
         </div>
@@ -381,12 +387,14 @@ function StepCsp({
             provision tenants from your Partner Console. We'll notify you the moment
             approval comes through.
           </p>
-          <button
-            onClick={() => update("cspStage", "approved")}
-            className="mt-3 text-xs text-indigo-600 underline hover:no-underline"
-          >
-            [Demo] Simulate approval received
-          </button>
+          {process.env.NODE_ENV !== "production" && (
+            <button
+              onClick={() => update("cspStage", "approved")}
+              className="mt-3 text-xs text-indigo-600 underline hover:no-underline"
+            >
+              [Demo] Simulate approval received
+            </button>
+          )}
         </div>
       )}
 
@@ -396,9 +404,10 @@ function StepCsp({
             <Icon name="check" size={20} />
           </div>
           <div>
-            <p className="font-semibold text-emerald-700">Google CSP API approved!</p>
+            <p className="font-semibold text-emerald-700">Google CSP connected</p>
             <p className="text-sm text-ink-3">
-              Tenant provisioning is now fully automated · Sync runs every 15 minutes
+              You can reconcile subscriptions against Google from the Subscriptions page.
+              Provisioning new licenses is still done in your Google Partner console for now.
             </p>
           </div>
         </div>
@@ -509,14 +518,7 @@ function StepImport({
 
 // ─── Step 5: Done ────────────────────────────────────────────────────────────
 
-const DONE_CHECKLIST = [
-  { label: "Company verified",        status: "done"    as const },
-  { label: "GST e-invoice ready",     status: "done"    as const },
-  { label: "Razorpay connected",      status: "done"    as const },
-  { label: "Google CSP API",          status: "pending" as const, note: "Approval in 5–7 days" },
-  { label: "Customer data imported",  status: "done"    as const },
-  { label: "WhatsApp Business API",   status: "todo"    as const, note: "Set up later" },
-];
+type ChecklistItem = { label: string; status: "done" | "pending" | "todo"; note?: string };
 
 const NEXT_STEPS = [
   "Send your first quote — open Quote Builder",
@@ -528,6 +530,33 @@ const NEXT_STEPS = [
 
 function StepDone() {
   const [checked, setChecked] = React.useState<Set<number>>(new Set());
+
+  // Derive the checklist from REAL state — never claim GSTIN/customers are done
+  // when they aren't (a "Start fresh" user hasn't imported anyone).
+  const { data: me } = useCurrentUser();
+  const { data: customers } = useCustomers();
+  const hasCustomers = (customers?.length ?? 0) > 0;
+  const gstinStatus: ChecklistItem["status"] =
+    me?.tenantGstinVerifiedAt ? "done" : me?.tenantGstin ? "pending" : "todo";
+
+  const doneChecklist: ChecklistItem[] = [
+    {
+      label: gstinStatus === "done" ? "Company GSTIN verified" : "Company GSTIN",
+      status: gstinStatus,
+      note: gstinStatus === "done" ? undefined
+        : gstinStatus === "pending" ? "Verify it in Settings → Company"
+        : "Add your GSTIN in Settings → Company",
+    },
+    { label: "GST tax invoice (PDF)", status: "done", note: "e-invoice IRN/QR coming later" },
+    { label: "Razorpay payments",     status: "todo", note: "Finish in Settings → Integrations" },
+    { label: "Google CSP API",        status: "pending", note: "Approval in 5–7 days" },
+    {
+      label: hasCustomers ? "Customers added" : "Add your customers",
+      status: hasCustomers ? "done" : "todo",
+      note: hasCustomers ? undefined : "Import a CSV or add your first customer",
+    },
+    { label: "WhatsApp Business API",  status: "todo", note: "Set up later" },
+  ];
 
   return (
     <div className="py-4 text-center">
@@ -544,7 +573,7 @@ function StepDone() {
 
       {/* Status checklist */}
       <div className="mx-auto mt-6 grid max-w-md grid-cols-2 gap-2.5 text-left">
-        {DONE_CHECKLIST.map((it) => (
+        {doneChecklist.map((it) => (
           <div key={it.label} className="flex items-center gap-2 text-sm">
             <span
               className={cn(
@@ -830,9 +859,9 @@ export default function SetupPage() {
         {/* ── Step content ── */}
         <Card className="p-6">
           {step === 0 && <StepCompany  data={data} update={update} />}
-          {step === 1 && <StepRazorpay data={data} update={update} />}
-          {step === 2 && <StepCsp      data={data} update={update} />}
-          {step === 3 && <StepImport   data={data} update={update} />}
+          {step === 1 && <StepImport   data={data} update={update} />}
+          {step === 2 && <StepRazorpay data={data} update={update} />}
+          {step === 3 && <StepCsp      data={data} update={update} />}
           {step === 4 && <StepDone />}
         </Card>
 

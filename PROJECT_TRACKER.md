@@ -280,7 +280,7 @@ Legend: ✅ shipped · 🟡 partial · 🔴 missing · 🅿️ parked
 | Banking module | https://resellersos-490252291080.asia-south1.run.app/accounting/banking |
 | GitHub repo | https://github.com/Pardeep-byte1/resellersos |
 | Supabase project | https://supabase.com/dashboard/project/ontpnqjoysjgrlsukecm |
-| Cloud Run console | https://console.cloud.google.com/run/detail/asia-south1/resellersos/metrics?project=resellersos-prod |
+| Cloud Run console | https://console.cloud.google.com/run/detail/asia-south1/resellersos/metrics?project=resellsubsos-prod |
 | Google Cloud Console (OAuth) | https://console.cloud.google.com/apis/credentials |
 | Razorpay dashboard | https://dashboard.razorpay.com (test mode) |
 

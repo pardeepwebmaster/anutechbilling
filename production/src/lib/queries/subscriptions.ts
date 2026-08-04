@@ -4,6 +4,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
 import type { Subscription } from "@/lib/supabase/database.types";
 
@@ -73,6 +74,64 @@ export function useSetSubscriptionDomain() {
       qc.invalidateQueries({ queryKey: ["subscriptions"] });
       qc.invalidateQueries({ queryKey: ["customers"] });
     },
+  });
+}
+
+/**
+ * Correct a subscription's details (data-entry fix). Touches only the
+ * subscription record's own fields — it does NOT re-bill or alter the linked
+ * payment/quote/invoice (those are separate money artifacts). Use it to fix a
+ * mis-typed plan / seats / price / dates / status on a manual or imported sub.
+ */
+export function useUpdateSubscription() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: {
+      id: string;
+      patch: {
+        plan?: string;
+        vendor?: Subscription["vendor"];
+        seats?: number;
+        mrr?: number;
+        start_date?: string | null;
+        renewal_date?: string | null;
+        status?: Subscription["status"];
+      };
+    }) => {
+      const supabase = createClient();
+      const { error } = await supabase.from("subscriptions").update(input.patch).eq("id", input.id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["subscriptions"] });
+      qc.invalidateQueries({ queryKey: ["customers"] });
+      toast.success("Subscription corrected");
+    },
+    onError: (err) => toast.error((err as Error).message),
+  });
+}
+
+/**
+ * Delete a manual / imported subscription (correct a mistake). Guarded RPC:
+ * blocks if it came from a paid quote (delete that payment instead) or a linked
+ * PO has progressed past draft. Drops draft POs, then the subscription.
+ */
+export function useDeleteSubscription() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const supabase = createClient();
+      const { error } = await supabase.rpc("delete_subscription", { p_subscription_id: id });
+      if (error) throw new Error(error.message);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["subscriptions"] });
+      qc.invalidateQueries({ queryKey: ["outstanding-receivables"] });
+      qc.invalidateQueries({ queryKey: ["purchase-orders"] });
+      qc.invalidateQueries({ queryKey: ["nav-badges"] });
+      toast.success("Subscription deleted");
+    },
+    onError: (err) => toast.error((err as Error).message),
   });
 }
 

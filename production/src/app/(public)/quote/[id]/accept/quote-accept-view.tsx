@@ -10,32 +10,46 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { rupee, formatDate } from "@/lib/utils";
-import type { Quote, QuoteLineItem, LineCommitment } from "@/lib/supabase/database.types";
+import { isForeignCurrency, formatForeign } from "@/lib/currency";
+import type { LineCommitment, BillingCycle } from "@/lib/supabase/database.types";
+import {
+  cycleInvoicesPerYear, cycleUnitLabel, cycleScheduleLabel, cycleFromLegacyCommitment,
+} from "@/lib/quotes/billing";
 
-function invoicesPerYear(c?: LineCommitment): number {
-  if (c === "annual_yearly")       return 1;
-  if (c === "annual_half_yearly")  return 2;
-  if (c === "annual_quarterly")    return 4;
-  return 12;
-}
-function billingUnitLabel(c?: LineCommitment): string {
-  if (c === "annual_yearly")       return "/yr";
-  if (c === "annual_half_yearly")  return "/half-yr";
-  if (c === "annual_quarterly")    return "/qtr";
-  return "/mo";
-}
-function billingScheduleLabel(c?: LineCommitment): string {
-  if (c === "monthly")             return "Monthly (flex)";
-  if (c === "annual_monthly")      return "Annual commit · monthly billing";
-  if (c === "annual_quarterly")    return "Annual commit · quarterly billing";
-  if (c === "annual_half_yearly")  return "Annual commit · half-yearly billing";
-  if (c === "annual_yearly")       return "Annual commit · single yearly invoice";
-  return "Annual";
+/** Customer-SAFE quote shape — no cost/margin. Built server-side in page.tsx. */
+export type PublicQuote = {
+  id: string;
+  status: string;
+  customer_name: string;
+  subtotal: number;
+  discount_pct: number;
+  tax_rate: number;
+  amount: number | null;
+  expires_date: string | null;
+  notes: string | null;
+  billing_cycle?: BillingCycle;
+  /** Billing currency + rate (migration 0153). Foreign → show the whole quote in
+   *  that currency; the ₹ books value stays canonical server-side. */
+  currency?: string | null;
+  exchange_rate?: number | null;
+};
+export type PublicLine = {
+  id: string;
+  name: string;
+  qty: number;
+  rate: number;
+  commitment?: LineCommitment;
+};
+
+function scheduleLabel(commitment: LineCommitment | undefined, cycle: BillingCycle): string {
+  const tier = commitment === "monthly" ? "Monthly (flex)" : "Annual commit";
+  return `${tier} · ${cycleScheduleLabel(cycle)}`;
 }
 
 interface Props {
-  quote:         Quote;
-  lineItems:     QuoteLineItem[];
+  quote:         PublicQuote;
+  lineItems:     PublicLine[];
+  token:         string;
   tenantName:    string;
   tenantGstin:   string | null;
   tenantEmail:   string | null;
@@ -44,31 +58,57 @@ interface Props {
 }
 
 export function QuoteAcceptView({
-  quote, lineItems, tenantName, tenantGstin, tenantEmail, tenantPhone, tenantAddress,
+  quote, lineItems, token, tenantName, tenantGstin, tenantEmail, tenantPhone, tenantAddress,
 }: Props) {
   const [accepting, setAccepting] = React.useState(false);
   const [accepted, setAccepted] = React.useState(quote.status === "accepted");
 
-  const discount = Math.round(quote.subtotal * (quote.discount_pct / 100));
-  const taxable  = quote.subtotal - discount;
-  const tax      = Math.round(taxable * (quote.tax_rate / 100));
-  const total    = quote.amount ?? taxable + tax;
+  // ── Money, computed CONSISTENTLY in the display currency ──
+  // For a foreign quote we work per-unit in the client's currency (₹ ÷ rate,
+  // rounded to 2dp) and derive the line amounts + totals from THAT — so qty × rate
+  // always equals the amount and the lines sum to the total. Converting each ₹
+  // figure independently would let a rounded unit rate disagree with the exact
+  // total (e.g. 32 × $32.00 ≠ $1,023.88). The books stay the canonical ₹.
+  const fxRate    = quote.exchange_rate && quote.exchange_rate > 0 ? quote.exchange_rate : 1;
+  const isForeign = isForeignCurrency(quote.currency);
+  const dRound = (v: number) => (isForeign ? Math.round(v * 100) / 100 : Math.round(v));
+  const toDisp = (inr: number) => (isForeign ? dRound(inr / fxRate) : inr);
+  const fmtC   = (v: number) => (isForeign ? formatForeign(v, quote.currency ?? "") : rupee(v));
 
   const firstCommitment = lineItems[0]?.commitment;
-  const sharedBilling =
-    lineItems.length > 0 &&
-    lineItems.every(l => invoicesPerYear(l.commitment) === invoicesPerYear(firstCommitment));
-  const billingN    = sharedBilling ? invoicesPerYear(firstCommitment) : 1;
-  const billingUnit = sharedBilling ? billingUnitLabel(firstCommitment) : "";
-  const perInvoice  = sharedBilling && billingN > 1;
-  const fmt = (n: number) =>
-    perInvoice ? `${rupee(Math.round(n / billingN))}${billingUnit}` : rupee(n);
+  const effectiveCycle: BillingCycle = quote.billing_cycle ?? cycleFromLegacyCommitment(firstCommitment);
+  const billingN    = cycleInvoicesPerYear(effectiveCycle);
+  const billingUnit = cycleUnitLabel(effectiveCycle);
+  const perInvoice  = billingN > 1;
+
+  // Per-line figures (annual) in the display currency — rounded unit → amount.
+  const dispLines = lineItems.map((line) => {
+    const unit   = toDisp(line.rate);       // per seat / year
+    const amount = dRound(line.qty * unit); // line total / year
+    return { line, unit, amount };
+  });
+  // ₹ canonical — used as-is for a domestic quote (no rounding drift vs the saved
+  // amount); foreign rebuilds in the display currency from the rounded lines.
+  const discountInr = Math.round(quote.subtotal * (quote.discount_pct / 100));
+  const taxableInr  = quote.subtotal - discountInr;
+  const taxInr      = Math.round(taxableInr * (quote.tax_rate / 100));
+  const totalInr    = quote.amount ?? (taxableInr + taxInr);
+  const dSubtotal = isForeign ? dRound(dispLines.reduce((s, x) => s + x.amount, 0)) : quote.subtotal;
+  const dDiscount = isForeign ? dRound(dSubtotal * (quote.discount_pct / 100)) : discountInr;
+  const dTaxable  = isForeign ? dRound(dSubtotal - dDiscount) : taxableInr;
+  const dTax      = isForeign ? dRound(dTaxable * (quote.tax_rate / 100)) : taxInr;
+  const dTotal    = isForeign ? dRound(dTaxable + dTax) : totalInr;
+
+  // Format an ANNUAL display-currency figure, slicing per-invoice when the cycle
+  // bills more than once a year.
+  const fmtInv = (annual: number) =>
+    perInvoice ? `${fmtC(dRound(annual / billingN))}${billingUnit}` : fmtC(annual);
 
   const handleAccept = async () => {
-    if (!confirm(`Accept quote ${quote.id} for ${rupee(total)}?\n\nWe'll notify ${tenantName} and share payment instructions.`)) return;
+    if (!confirm(`Accept quote ${quote.id} for ${fmtC(dTotal)}?\n\nWe'll notify ${tenantName} and share payment instructions.`)) return;
     setAccepting(true);
     try {
-      const res = await fetch(`/api/public/quote/${quote.id}/accept`, { method: "POST" });
+      const res = await fetch(`/api/public/quote/${quote.id}/accept?t=${encodeURIComponent(token)}`, { method: "POST" });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "Could not accept");
       setAccepted(true);
@@ -87,7 +127,7 @@ export function QuoteAcceptView({
     }
     const subject = `Changes requested on quote ${quote.id}`;
     const body =
-      `Hi ${tenantName},\n\nI'd like to discuss some changes on quote ${quote.id} (total ${rupee(total)}) before accepting.\n\n` +
+      `Hi ${tenantName},\n\nI'd like to discuss some changes on quote ${quote.id} (total ${fmtC(dTotal)}) before accepting.\n\n` +
       `My questions / changes:\n\n[Type your message here]\n\nThanks,\n${quote.customer_name}`;
     window.location.href = `mailto:${tenantEmail}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
   };
@@ -102,8 +142,8 @@ export function QuoteAcceptView({
           </div>
           <h1 className="font-serif text-3xl text-ink mb-2">Quote accepted</h1>
           <p className="text-sm text-ink-3">
-            <b className="text-ink">{tenantName}</b> has been notified. You'll receive an email
-            shortly with the GST-compliant invoice and payment instructions.
+            <b className="text-ink">{tenantName}</b> has been notified and will reach out with
+            payment instructions. Your GST invoice is issued once payment is received.
           </p>
           <div className="bg-paper-2 rounded-lg p-4 mt-6 text-sm text-left">
             <div className="flex justify-between mb-1.5">
@@ -112,11 +152,11 @@ export function QuoteAcceptView({
             </div>
             <div className="flex justify-between mb-1.5">
               <span className="text-ink-3">Total</span>
-              <span className="font-serif text-lg">{rupee(total)}</span>
+              <span className="font-serif text-lg">{fmtC(dTotal)}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-ink-3">Billing</span>
-              <span>{billingScheduleLabel(firstCommitment)}</span>
+              <span>{scheduleLabel(firstCommitment, effectiveCycle)}</span>
             </div>
           </div>
           <Button
@@ -127,6 +167,35 @@ export function QuoteAcceptView({
           >
             Print this confirmation
           </Button>
+        </div>
+      </div>
+    );
+  }
+
+  // ──────────── No-longer-available screen (expired / rejected) ────────────
+  // These states can't be accepted (the API rejects them), so don't show the
+  // customer a working "Accept" button that only errors when clicked.
+  if (quote.status === "expired" || quote.status === "rejected") {
+    return (
+      <div className="min-h-screen bg-paper-2/30 flex items-start justify-center py-10 px-4">
+        <div className="max-w-2xl w-full bg-paper rounded-xl shadow-sm border border-hairline p-8 md:p-12 text-center">
+          <div className="w-16 h-16 mx-auto mb-5 rounded-full bg-rose/15 grid place-items-center">
+            <Icon name="alert" size={32} className="text-rose" />
+          </div>
+          <h1 className="font-serif text-3xl text-ink mb-2">
+            {quote.status === "expired" ? "This quote has expired" : "This quote is no longer available"}
+          </h1>
+          <p className="text-sm text-ink-3">
+            Quote <span className="font-mono">{quote.id}</span> can no longer be accepted online.
+            Please contact <b className="text-ink">{tenantName}</b> for an updated quote.
+          </p>
+          {tenantEmail && (
+            <Button asChild variant="primary" className="mt-6">
+              <a href={`mailto:${tenantEmail}?subject=${encodeURIComponent(`New quote request (ref ${quote.id})`)}`}>
+                Request a fresh quote
+              </a>
+            </Button>
+          )}
         </div>
       </div>
     );
@@ -192,10 +261,10 @@ export function QuoteAcceptView({
               <p className="font-serif text-lg leading-tight">{quote.customer_name}</p>
             </div>
             <div className="sm:text-right">
-              {sharedBilling && firstCommitment && (
+              {lineItems.length > 0 && firstCommitment && (
                 <>
                   <p className="text-[10px] uppercase tracking-widest text-ink-3 font-semibold mb-1.5">Billing schedule</p>
-                  <p className="text-sm">{billingScheduleLabel(firstCommitment)}</p>
+                  <p className="text-sm">{scheduleLabel(firstCommitment, effectiveCycle)}</p>
                   {billingN > 1 && (
                     <p className="text-[11px] text-ink-3">{billingN} invoices per year</p>
                   )}
@@ -215,44 +284,33 @@ export function QuoteAcceptView({
               </tr>
             </thead>
             <tbody>
-              {lineItems.map((line) => {
-                const lineN    = invoicesPerYear(line.commitment);
-                const lineUnit = billingUnitLabel(line.commitment);
-                const showPer  = lineN > 1;
-                const rate     = showPer ? Math.round(line.rate / lineN) : line.rate;
-                const amount   = line.qty * rate;
-                return (
-                  <tr key={line.id} className="border-b border-hairline">
-                    <td className="py-3 text-sm">
-                      <p className="font-medium">{line.name}</p>
-                      {line.commitment && (
-                        <p className="text-[11px] text-ink-3 mt-0.5">
-                          {billingScheduleLabel(line.commitment)}
-                        </p>
-                      )}
-                    </td>
-                    <td className="py-3 text-right text-sm tabular-nums">{line.qty}</td>
-                    <td className="py-3 text-right text-sm tabular-nums">
-                      {rupee(rate)}{showPer ? lineUnit : ""}
-                    </td>
-                    <td className="py-3 text-right text-sm tabular-nums font-medium">
-                      {rupee(amount)}{showPer ? lineUnit : ""}
-                    </td>
-                  </tr>
-                );
-              })}
+              {dispLines.map(({ line, unit, amount }) => (
+                <tr key={line.id} className="border-b border-hairline">
+                  <td className="py-3 text-sm">
+                    <p className="font-medium">{line.name}</p>
+                    {line.commitment && (
+                      <p className="text-[11px] text-ink-3 mt-0.5">
+                        {scheduleLabel(line.commitment, effectiveCycle)}
+                      </p>
+                    )}
+                  </td>
+                  <td className="py-3 text-right text-sm tabular-nums">{line.qty}</td>
+                  <td className="py-3 text-right text-sm tabular-nums">{fmtInv(unit)}</td>
+                  <td className="py-3 text-right text-sm tabular-nums font-medium">{fmtInv(amount)}</td>
+                </tr>
+              ))}
             </tbody>
           </table>
 
           {/* Totals */}
           <div className="flex justify-end mb-6">
             <div className="w-full max-w-xs space-y-2 text-sm">
-              <Row label="Subtotal" value={fmt(quote.subtotal)} />
+              <Row label="Subtotal" value={fmtInv(dSubtotal)} />
               {quote.discount_pct > 0 && (
-                <Row label={`Discount (${quote.discount_pct}%)`} value={`−${fmt(discount)}`} accent />
+                <Row label={`Discount (${quote.discount_pct}%)`} value={`−${fmtInv(dDiscount)}`} accent />
               )}
-              <Row label="Taxable" value={fmt(taxable)} />
-              <Row label={`GST (${quote.tax_rate}%)`} value={fmt(tax)} />
+              <Row label="Taxable" value={fmtInv(dTaxable)} />
+              <Row label={`GST (${quote.tax_rate}%)`} value={fmtInv(dTax)} />
               <div className="border-t-2 border-ink pt-2 mt-2">
                 <div className="flex justify-between items-baseline">
                   <span className="text-[11px] uppercase tracking-widest font-semibold">
@@ -262,14 +320,14 @@ export function QuoteAcceptView({
                   </span>
                   <span className="font-serif text-2xl tabular-nums">
                     {perInvoice
-                      ? `${rupee(Math.round(total / billingN))}${billingUnit}`
-                      : rupee(total)}
+                      ? `${fmtC(dRound(dTotal / billingN))}${billingUnit}`
+                      : fmtC(dTotal)}
                   </span>
                 </div>
                 {perInvoice && (
                   <div className="flex justify-between items-baseline mt-1.5 text-ink-3">
                     <span className="text-[11px]">Annual contract value</span>
-                    <span className="text-sm tabular-nums">{rupee(total)}/yr</span>
+                    <span className="text-sm tabular-nums">{fmtC(dTotal)}/yr</span>
                   </div>
                 )}
                 {!perInvoice && billingN === 1 && (
@@ -299,7 +357,7 @@ export function QuoteAcceptView({
               onClick={handleAccept}
               className="w-full justify-center"
             >
-              Accept this quote · {rupee(total)}
+              Accept this quote · {fmtC(dTotal)}
             </Button>
             <Button
               variant="ghost"
@@ -311,7 +369,7 @@ export function QuoteAcceptView({
             </Button>
             <p className="text-[11px] text-ink-3 text-center leading-relaxed pt-2">
               By accepting, you agree to the pricing and billing terms shown above. {tenantName} will
-              issue a GST invoice with payment instructions. No payment is taken on this page.
+              share payment instructions and issue your GST invoice once payment is received. No payment is taken on this page.
             </p>
           </div>
         </div>

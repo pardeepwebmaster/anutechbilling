@@ -13,12 +13,14 @@
  * Configure via vercel.json or your scheduler of choice.
  *
  * Auth: Same Bearer-token pattern as the renewals cron. Set CRON_SECRET
- * in env. In dev without the secret, route is open.
+ * in env. FAIL CLOSED — without the secret configured the route refuses
+ * (503), and a wrong/missing bearer → 401 (constant-time compare). (SEC-3)
  */
 
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/server";
 import { sendEmail } from "@/lib/email/send";
+import { timingSafeEqualStr } from "@/lib/crypto/timing-safe";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -36,11 +38,13 @@ interface CronResult {
 }
 
 function checkAuth(req: Request): NextResponse | null {
+  // FAIL CLOSED (SEC-3): this job expires trials + emails under service-role.
+  // No secret configured → refuse (was: fail-open "dev mode — allow").
   const secret = process.env.CRON_SECRET?.trim();
-  if (!secret) return null; // dev mode — allow
+  if (!secret) return NextResponse.json({ error: "cron not configured" }, { status: 503 });
   const header = req.headers.get("authorization") ?? "";
   const match  = /^Bearer\s+(.+)$/i.exec(header);
-  if (!match || match[1] !== secret) {
+  if (!timingSafeEqualStr(match?.[1] ?? "", secret)) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
   return null;

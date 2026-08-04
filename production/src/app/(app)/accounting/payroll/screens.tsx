@@ -1,0 +1,1452 @@
+/**
+ * Payroll + Leave.
+ *
+ * Three tabs — Employees, Run payroll, Leave. Salary is booked as a Salaries
+ * expense (earned = gross − LOP); only net pay leaves the bank; advance
+ * recovery reduces the employee's loan; withheld TDS/PF/ESI is a liability
+ * settled via "Pay statutory dues". All money movement is atomic (RPCs 0087).
+ */
+"use client";
+
+import * as React from "react";
+
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { Icon } from "@/components/ui/icon";
+import { Skeleton } from "@/components/ui/skeleton";
+import { EmptyState } from "@/components/shared/empty-state";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
+} from "@/components/ui/dialog";
+import { rupee, formatDate, cn } from "@/lib/utils";
+import { computeEsi, isEsiEligible, ESI_WAGE_CEILING } from "@/lib/payroll/esi";
+import { computePf, PF_WAGE_CEILING } from "@/lib/payroll/pf";
+import { useBankAccounts } from "@/lib/queries/bank";
+import { useEmployeeLoans } from "@/lib/queries/employee-loans";
+import { useCurrentUser } from "@/lib/hooks/useCurrentUser";
+import { downloadPayslipPDF } from "@/lib/pdf";
+import { periodLabel } from "@/lib/pdf/PayslipPDF";
+import { toast } from "sonner";
+import {
+  useEmployees, useUpsertEmployee, useDeleteEmployee, useSetEmployeePin,
+  useLeaveEntries, useCreateLeaveEntry, useDeleteLeaveEntry,
+  useHolidays, useCreateHoliday, useDeleteHoliday,
+  useSalaryPayments, usePaySalary, useDeleteSalaryPayment, useEmployeeSalaryHistory,
+  useStatutoryDues, usePayStatutoryDues,
+  useAttendance, useAttendanceNetwork, useSetAttendanceNetwork, getSelfieUrl,
+  LEAVE_TYPE_LABEL,
+  type Employee, type LeaveKind, type Attendance, type SalaryPayment,
+} from "@/lib/queries/payroll";
+import type { CurrentUserInfo } from "@/lib/hooks/useCurrentUser";
+import { EmployeeDetailDrawer } from "@/components/features/payroll/employee-detail-drawer";
+import { OfferLetterDialog } from "@/components/features/payroll/offer-letter-dialog";
+
+function todayISO(): string {
+  return new Date(Date.now() + 5.5 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
+function currentPeriod(): string {
+  return new Date(Date.now() + 5.5 * 60 * 60 * 1000).toISOString().slice(0, 7); // YYYY-MM
+}
+function fmtTimeIST(iso: string | null): string {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit" });
+}
+function fyStartISO(): string {
+  const d = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
+  const y = d.getUTCMonth() < 3 ? d.getUTCFullYear() - 1 : d.getUTCFullYear();
+  return `${y}-04-01`;
+}
+const selectCls = "w-full rounded-md border border-hairline bg-paper px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-amber";
+
+/** Shared page shell for the HR screens (consistent header + width). */
+export function HrPageShell({ title, sub, children }: { title: string; sub: string; children: React.ReactNode }) {
+  return (
+    <div className="p-4 md:p-6 lg:p-8 max-w-[1800px] mx-auto">
+      <div className="mb-5">
+        <h1 className="font-serif text-3xl md:text-4xl tracking-tight">{title}</h1>
+        <p className="text-sm text-ink-3 mt-1">{sub}</p>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+export function PayrollScreen() {
+  const dues = useStatutoryDues();
+  const [payDuesOpen, setPayDuesOpen] = React.useState(false);
+
+  return (
+    <HrPageShell title="Payroll" sub="Run monthly payroll — salary posts as an expense; only net pay leaves your bank.">
+      {/* Statutory dues banner */}
+      {(dues.data?.payable ?? 0) > 0 && (
+        <Card className="mb-5 p-3 md:p-4 border-amber/40 bg-amber-soft/30">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="text-sm text-ink-2">
+              <b className="text-ink">{rupee(dues.data!.payable)}</b> statutory dues withheld (TDS/PF/ESI) — pending payment to govt.
+            </div>
+            <Button variant="outline" size="sm" onClick={() => setPayDuesOpen(true)}>Record statutory payment</Button>
+          </div>
+        </Card>
+      )}
+
+      <PayrollTab />
+
+      {payDuesOpen && <PayDuesDialog payable={dues.data?.payable ?? 0} onClose={() => setPayDuesOpen(false)} />}
+    </HrPageShell>
+  );
+}
+
+// ── Employees tab ─────────────────────────────────────────────────────────
+export function EmployeesTab() {
+  const q = useEmployees();
+  const leaveQ = useLeaveEntries();
+  const del = useDeleteEmployee();
+  const [edit, setEdit] = React.useState<Employee | null | "new">(null);
+  const [viewEmp, setViewEmp] = React.useState<Employee | null>(null);
+  const [offerEmp, setOfferEmp] = React.useState<Employee | null>(null);
+  const rows = q.data ?? [];
+
+  const confirmDelete = (e: Employee) => {
+    if (window.confirm(`Remove ${e.name}? This deletes the employee and their attendance/leave records. (Blocked if they have salary payments — deactivate those instead.)`)) {
+      del.mutate(e.id);
+    }
+  };
+
+  const paidLeaveTaken = (empId: string) => {
+    const fy = fyStartISO();
+    return (leaveQ.data ?? [])
+      .filter((l) => l.employee_id === empId && l.type !== "unpaid" && l.from_date >= fy)
+      .reduce((s, l) => s + l.days, 0);
+  };
+
+  return (
+    <>
+      <div className="flex justify-end mb-3">
+        <Button variant="primary" icon="plus" onClick={() => setEdit("new")}>Add employee</Button>
+      </div>
+      {q.isLoading ? (
+        <div className="space-y-3">{[1, 2, 3].map((i) => <Skeleton key={i} className="h-14 w-full" />)}</div>
+      ) : rows.length === 0 ? (
+        <Card className="py-2"><EmptyState icon="users" title="No employees yet" body="Add the people you pay a salary to." action={<Button variant="primary" icon="plus" onClick={() => setEdit("new")}>Add employee</Button>} /></Card>
+      ) : (
+        <Card className="overflow-hidden">
+          <table className="w-full text-sm">
+            <thead className="bg-paper-2/50 text-[10px] uppercase tracking-wider text-ink-3 font-semibold">
+              <tr>
+                <th className="text-left px-4 py-3">Employee</th>
+                <th className="text-right px-4 py-3">Monthly salary</th>
+                <th className="text-left px-4 py-3">Joined</th>
+                <th className="text-right px-4 py-3">Paid leave left (FY)</th>
+                <th className="text-left px-4 py-3">Status</th>
+                <th className="text-right px-4 py-3">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-hairline">
+              {rows.map((e) => (
+                <tr key={e.id} className="hover:bg-paper-2/40">
+                  <td className="px-4 py-3 font-medium">
+                    <button
+                      type="button"
+                      onClick={() => setViewEmp(e)}
+                      className="text-ink hover:text-amber-ink hover:underline text-left"
+                      title="Open full profile & documents"
+                    >
+                      {e.name}
+                    </button>
+                  </td>
+                  <td className={cn("px-4 py-3 text-right font-mono font-semibold tabular-nums", e.monthly_gross > 0 ? "text-ink" : "text-amber-ink")}>{rupee(e.monthly_gross)}</td>
+                  <td className="px-4 py-3 text-ink-2">{e.joining_date ? formatDate(e.joining_date) : "—"}</td>
+                  <td className="px-4 py-3 text-right font-mono">{Math.max(0, e.leave_allowance - paidLeaveTaken(e.id))} / {e.leave_allowance}</td>
+                  <td className="px-4 py-3"><Badge kind={e.is_active ? "success" : "muted"} dot>{e.is_active ? "Active" : "Inactive"}</Badge></td>
+                  <td className="px-4 py-3 text-right">
+                    <div className="inline-flex items-center gap-1 justify-end">
+                      <Button variant="ghost" size="sm" icon="file" onClick={() => setOfferEmp(e)}>Offer letter</Button>
+                      <Button variant="ghost" size="sm" onClick={() => setEdit(e)}>Edit</Button>
+                      <Button variant="ghost" size="sm" icon="trash" aria-label={`Delete ${e.name}`}
+                        className="!text-rose hover:!bg-rose/10"
+                        loading={del.isPending}
+                        onClick={() => confirmDelete(e)} />
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Card>
+      )}
+      {edit !== null && <EmployeeDialog employee={edit === "new" ? null : edit} onClose={() => setEdit(null)} />}
+      {offerEmp && <OfferLetterDialog employee={offerEmp} onClose={() => setOfferEmp(null)} />}
+      <EmployeeDetailDrawer
+        employee={viewEmp ? (rows.find((r) => r.id === viewEmp.id) ?? viewEmp) : null}
+        open={viewEmp !== null}
+        onOpenChange={(o) => { if (!o) setViewEmp(null); }}
+        onEdit={() => { if (viewEmp) { setEdit(viewEmp); setViewEmp(null); } }}
+      />
+    </>
+  );
+}
+
+/** Compact labelled field wrapper for the employee form. */
+function Field({ label, required, children }: { label: React.ReactNode; required?: boolean; children: React.ReactNode }) {
+  return (
+    <div className="min-w-0">
+      <label className="block text-xs font-medium text-ink-2 mb-1">
+        {label}{required && <span className="text-rose"> *</span>}
+      </label>
+      {children}
+    </div>
+  );
+}
+
+function EmployeeDialog({ employee, onClose }: { employee: Employee | null; onClose: () => void }) {
+  const save = useUpsertEmployee();
+  const setPin = useSetEmployeePin();
+  const [name, setName] = React.useState(employee?.name ?? "");
+  const [gross, setGross] = React.useState(String(employee?.monthly_gross ?? ""));
+  const [joined, setJoined] = React.useState(employee?.joining_date ?? "");
+  const [allowance, setAllowance] = React.useState(String(employee?.leave_allowance ?? 18));
+  const [active, setActive] = React.useState(employee?.is_active ?? true);
+  const [pin, setPinValue] = React.useState("");
+  const [email, setEmail] = React.useState(employee?.email ?? "");
+  const [phone, setPhone] = React.useState(employee?.phone ?? "");
+  const [designation, setDesignation] = React.useState(employee?.designation ?? "");
+  const [dob, setDob] = React.useState(employee?.date_of_birth ?? "");
+  const [address, setAddress] = React.useState(employee?.address ?? "");
+  const [ecName, setEcName] = React.useState(employee?.emergency_contact_name ?? "");
+  const [ecPhone, setEcPhone] = React.useState(employee?.emergency_contact_phone ?? "");
+  const [pan, setPan] = React.useState(employee?.pan ?? "");
+  const [pfNo, setPfNo] = React.useState(employee?.pf_no ?? "");
+  const [esiNo, setEsiNo] = React.useState(employee?.esi_no ?? "");
+  const [esiApplicable, setEsiApplicable] = React.useState<boolean>(employee?.esi_applicable ?? false);
+  const [esiTouched, setEsiTouched] = React.useState(false);
+  const [pfApplicable, setPfApplicable] = React.useState<boolean>(employee?.pf_applicable ?? false);
+  // For a NEW employee, suggest ESI coverage from the wage ceiling until the
+  // user decides for themselves. Existing employees keep their saved value.
+  React.useEffect(() => {
+    if (!esiTouched && !employee) setEsiApplicable(isEsiEligible(Math.round(Number(gross) || 0)));
+  }, [gross, esiTouched, employee]);
+
+  const pinValid = pin === "" || /^[0-9]{4,6}$/.test(pin);
+
+  async function submit() {
+    if (!name.trim() || !pinValid) return;
+    const id = await save.mutateAsync({
+      id: employee?.id, name: name.trim(), monthly_gross: Math.round(Number(gross) || 0),
+      joining_date: joined || null, leave_allowance: Math.round(Number(allowance) || 0), is_active: active,
+      email: email.trim() || null, phone: phone.trim() || null, designation: designation.trim() || null,
+      date_of_birth: dob || null, address: address.trim() || null,
+      emergency_contact_name: ecName.trim() || null, emergency_contact_phone: ecPhone.trim() || null,
+      pan: pan.trim().toUpperCase() || null, pf_no: pfNo.trim() || null, esi_no: esiNo.trim() || null,
+      esi_applicable: esiApplicable, pf_applicable: pfApplicable,
+    });
+    if (pin && id) await setPin.mutateAsync({ employeeId: id, pin });
+    onClose();
+  }
+
+  return (
+    <Dialog open onOpenChange={(v) => { if (!v) onClose(); }}>
+      <DialogContent className="md:!max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>{employee ? "Edit employee" : "Add employee"}</DialogTitle>
+          <DialogDescription>
+            {employee ? `Update ${employee.name}'s profile, payroll & contact details.` : "Add a person you pay a salary to — you can fill only the basics now and the rest later."}
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-5">
+          {/* Basics */}
+          <section className="space-y-3">
+            <p className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold">Basics</p>
+            <Field label="Full name" required>
+              <Input value={name} onChange={(e) => setName(e.target.value)} autoFocus placeholder="e.g. Abhishek Sharma" />
+            </Field>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <Field label="Designation">
+                <Input value={designation} onChange={(e) => setDesignation(e.target.value)} placeholder="e.g. Sales Executive" />
+              </Field>
+              <Field label="Date of birth">
+                <Input type="date" value={dob} onChange={(e) => setDob(e.target.value)} />
+              </Field>
+              <Field label="Mobile">
+                <Input inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+91 98765 43210" />
+              </Field>
+              <Field label="Email">
+                <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@company.com" />
+              </Field>
+            </div>
+            <Field label="Address">
+              <Input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Residential address" />
+            </Field>
+          </section>
+
+          {/* Payroll & statutory */}
+          <section className="space-y-3 border-t border-hairline pt-4">
+            <p className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold">Payroll &amp; statutory</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <Field label="Monthly salary (₹, gross)">
+                <Input type="number" min={0} value={gross} onChange={(e) => setGross(e.target.value)} />
+              </Field>
+              <Field label="Paid leave / year">
+                <Input type="number" min={0} value={allowance} onChange={(e) => setAllowance(e.target.value)} />
+              </Field>
+              <Field label="Joining date">
+                <Input type="date" value={joined} onChange={(e) => setJoined(e.target.value)} />
+              </Field>
+              <Field label="PAN">
+                <Input value={pan} onChange={(e) => setPan(e.target.value)} placeholder="ABCDE1234F" className="uppercase" maxLength={10} />
+              </Field>
+              <Field label="PF number">
+                <Input value={pfNo} onChange={(e) => setPfNo(e.target.value)} placeholder="Optional" />
+              </Field>
+              <Field label="ESI number">
+                <Input value={esiNo} onChange={(e) => setEsiNo(e.target.value)} placeholder="Optional" />
+              </Field>
+            </div>
+            <label className="flex items-start gap-2 rounded-md border border-hairline p-3 cursor-pointer hover:border-hairline-strong">
+              <input
+                type="checkbox"
+                checked={esiApplicable}
+                onChange={(e) => { setEsiTouched(true); setEsiApplicable(e.target.checked); }}
+                className="mt-0.5 rounded border-hairline"
+              />
+              <span className="text-xs text-ink-2">
+                <b className="text-ink">ESI applicable</b> — deduct 0.75% from salary + accrue 3.25% employer share each month.
+                <span className="block text-ink-3 mt-0.5">Auto-suggested for gross ≤ ₹{ESI_WAGE_CEILING.toLocaleString("en-IN")}/month. Uncheck if this employee is exempt.</span>
+              </span>
+            </label>
+            <label className="flex items-start gap-2 rounded-md border border-hairline p-3 cursor-pointer hover:border-hairline-strong">
+              <input
+                type="checkbox"
+                checked={pfApplicable}
+                onChange={(e) => setPfApplicable(e.target.checked)}
+                className="mt-0.5 rounded border-hairline"
+              />
+              <span className="text-xs text-ink-2">
+                <b className="text-ink">PF applicable</b> — deduct 12% from salary + accrue 12% employer share each month.
+                <span className="block text-ink-3 mt-0.5">Computed on wage capped at ₹{PF_WAGE_CEILING.toLocaleString("en-IN")}. Tick for employees with an EPFO account.</span>
+              </span>
+            </label>
+          </section>
+
+          {/* Emergency & access */}
+          <section className="space-y-3 border-t border-hairline pt-4">
+            <p className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold">Emergency &amp; access</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <Field label="Emergency contact">
+                <Input value={ecName} onChange={(e) => setEcName(e.target.value)} placeholder="Name" />
+              </Field>
+              <Field label="Emergency phone">
+                <Input inputMode="tel" value={ecPhone} onChange={(e) => setEcPhone(e.target.value)} placeholder="+91 …" />
+              </Field>
+            </div>
+            <Field label={<>Attendance PIN {employee?.pin_hash ? <span className="text-emerald font-normal">· already set</span> : ""}</>}>
+              <Input inputMode="numeric" value={pin} onChange={(e) => setPinValue(e.target.value.replace(/\D/g, ""))}
+                placeholder={employee?.pin_hash ? "Enter new 4–6 digits to reset" : "Set a 4–6 digit PIN"} maxLength={6} />
+              {!pinValid
+                ? <p className="mt-1 text-[11px] text-rose">PIN must be 4–6 digits.</p>
+                : <p className="mt-1 text-[11px] text-ink-3">Used at the attendance kiosk to check in / out.</p>}
+            </Field>
+            <label className="flex items-center gap-2 text-sm text-ink-2">
+              <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} className="w-4 h-4 accent-amber" />
+              Active employee
+            </label>
+          </section>
+        </div>
+
+        <DialogFooter>
+          <Button variant="ghost" onClick={onClose} disabled={save.isPending || setPin.isPending}>Cancel</Button>
+          <Button variant="primary" loading={save.isPending || setPin.isPending} disabled={!name.trim() || !pinValid} onClick={submit}>Save</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ── Payroll tab ─────────────────────────────────────────────────────────────
+export function PayrollTab() {
+  const [period, setPeriod] = React.useState(currentPeriod());
+  const empQ = useEmployees();
+  const payQ = useSalaryPayments(period);
+  const meQ = useCurrentUser();
+  const accountsQ = useBankAccounts();
+  const [payFor, setPayFor] = React.useState<Employee | null>(null);
+  const [calendarFor, setCalendarFor] = React.useState<Employee | null>(null);
+  const undoSalary = useDeleteSalaryPayment();
+
+  const employees = (empQ.data ?? []).filter((e) => e.is_active);
+  const paidByEmp = new Map((payQ.data ?? []).map((p) => [p.employee_id, p]));
+  const totalNet = (payQ.data ?? []).reduce((s, p) => s + p.net, 0);
+  const acctName = new Map((accountsQ.data ?? []).map((a) => [a.id, a.name]));
+
+  return (
+    <>
+      <Card className="mb-4 p-3 md:p-4">
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="text-xs text-ink-3 font-semibold uppercase tracking-wide">Month</label>
+          <input type="month" value={period} onChange={(e) => setPeriod(e.target.value)}
+            className="px-3 py-1.5 text-sm rounded-md border border-hairline bg-paper" />
+          <div className="ml-auto text-sm text-ink-2">Payroll this month: <b className="text-ink">{rupee(totalNet)}</b></div>
+        </div>
+      </Card>
+
+      {empQ.isLoading ? (
+        <div className="space-y-3">{[1, 2, 3].map((i) => <Skeleton key={i} className="h-14 w-full" />)}</div>
+      ) : employees.length === 0 ? (
+        <Card className="py-2"><EmptyState icon="users" title="No active employees" body="Add employees first, then run payroll." /></Card>
+      ) : (
+        <Card className="overflow-hidden">
+          <table className="w-full text-sm">
+            <thead className="bg-paper-2/50 text-[10px] uppercase tracking-wider text-ink-3 font-semibold">
+              <tr>
+                <th className="text-left px-4 py-3">Employee</th>
+                <th className="text-right px-4 py-3">Monthly salary</th>
+                <th className="text-right px-4 py-3">Net</th>
+                <th className="text-right px-4 py-3">Action</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-hairline">
+              {employees.map((e) => {
+                const p = paidByEmp.get(e.id);
+                return (
+                  <tr key={e.id} className="hover:bg-paper-2/40">
+                    <td className="px-4 py-3 font-medium text-ink">{e.name}</td>
+                    <td className="px-4 py-3 text-right font-mono text-ink-2">{rupee(e.monthly_gross)}</td>
+                    <td className="px-4 py-3 text-right font-mono">{p ? rupee(p.net) : <span className="text-ink-3">—</span>}</td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center justify-end gap-2">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          icon="calendar"
+                          title={`See ${e.name}'s full-year payroll`}
+                          onClick={() => setCalendarFor(e)}
+                        />
+                      {p ? (
+                        <div className="flex items-center justify-end gap-2">
+                          {p.paid_status === "paid" ? (
+                            <Badge kind="success" dot>Paid</Badge>
+                          ) : p.paid_status === "partial" ? (
+                            <Badge kind="warning" dot title={`Partly paid — ${rupee(p.net - p.paid_amount)} still owed. Reconcile another bank line to clear the balance.`}>
+                              Partial · {rupee(p.paid_amount)}/{rupee(p.net)}
+                            </Badge>
+                          ) : (
+                            <Badge kind="warning" dot title="Payroll run — awaiting the bank debit to be reconciled">Awaiting reconcile</Badge>
+                          )}
+                          <PayslipButton employee={e} payment={p} me={meQ.data ?? null} paidVia={p.bank_account_id ? acctName.get(p.bank_account_id) ?? null : null} />
+                          {p.paid_amount === 0 && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              icon="trash"
+                              loading={undoSalary.isPending}
+                              title="Undo this salary — reverses the expense so you can pay it again"
+                              onClick={() => {
+                                if (window.confirm(`Undo ${e.name}'s salary for this month?\n\nThis removes the salary + its booked expense so you can pay it again. (Blocked only once it's reconciled to a bank line — un-reconcile that first.)`)) {
+                                  undoSalary.mutate(p.id);
+                                }
+                              }}
+                            >
+                              Undo
+                            </Button>
+                          )}
+                        </div>
+                      ) : (
+                        <Button variant="primary" size="sm" onClick={() => setPayFor(e)}>Pay salary</Button>
+                      )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </Card>
+      )}
+      {payFor && <PaySalaryDialog employee={payFor} period={period} onClose={() => setPayFor(null)} />}
+      {calendarFor && (
+        <EmployeePayrollYearDialog
+          employee={calendarFor}
+          anchorPeriod={period}
+          onClose={() => setCalendarFor(null)}
+          onPickMonth={(mp) => { setPeriod(mp); setCalendarFor(null); }}
+        />
+      )}
+    </>
+  );
+}
+
+/** Full-year (Indian FY, Apr→Mar) payroll for ONE employee — opened by clicking
+ *  their name. Shows every month's salary + status + running total, and lets the
+ *  operator jump to any month to pay / undo / view it. */
+function EmployeePayrollYearDialog({
+  employee, anchorPeriod, onClose, onPickMonth,
+}: {
+  employee: Employee;
+  anchorPeriod: string;               // "YYYY-MM" currently selected on the page
+  onClose: () => void;
+  onPickMonth: (period: string) => void;
+}) {
+  const { data: history, isLoading } = useEmployeeSalaryHistory(employee.id);
+
+  // Indian FY containing the anchor month (Apr→Mar).
+  const [ay, am] = anchorPeriod.split("-").map(Number);
+  const fyStart = am >= 4 ? ay : ay - 1;
+  const months = Array.from({ length: 12 }, (_, i) => {
+    const abs = 4 + i;                                   // 4..15
+    const year = abs <= 12 ? fyStart : fyStart + 1;
+    const month = ((abs - 1) % 12) + 1;                  // 4..12,1,2,3
+    return { period: `${year}-${String(month).padStart(2, "0")}`, year, month };
+  });
+  const byPeriod = new Map((history ?? []).map((p) => [p.period, p]));
+
+  const totalEarned = (history ?? [])
+    .filter((p) => months.some((m) => m.period === p.period))
+    .reduce((s, p) => s + p.net, 0);
+  const totalCleared = (history ?? [])
+    .filter((p) => months.some((m) => m.period === p.period))
+    .reduce((s, p) => s + p.paid_amount, 0);
+  const runCount = months.filter((m) => byPeriod.has(m.period)).length;
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="md:!max-w-lg">
+        <DialogHeader>
+          <DialogTitle>{employee.name} — payroll FY {fyStart}–{String(fyStart + 1).slice(-2)}</DialogTitle>
+          <DialogDescription>
+            Salary month by month (Apr–Mar). Tap a month to open it and pay / undo / view.
+          </DialogDescription>
+        </DialogHeader>
+
+        {isLoading ? (
+          <div className="space-y-2">{[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-10 w-full" />)}</div>
+        ) : (
+          <>
+            <div className="rounded-md border border-hairline overflow-hidden">
+              <table className="w-full text-sm">
+                <thead className="bg-paper-2/50 text-[10px] uppercase tracking-wider text-ink-3 font-semibold">
+                  <tr>
+                    <th className="text-left px-3 py-2">Month</th>
+                    <th className="text-right px-3 py-2">Net pay</th>
+                    <th className="text-right px-3 py-2">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-hairline">
+                  {months.map((m) => {
+                    const p = byPeriod.get(m.period);
+                    const label = new Date(m.year, m.month - 1, 1)
+                      .toLocaleDateString("en-IN", { month: "short", year: "numeric" });
+                    return (
+                      <tr key={m.period} className="hover:bg-paper-2/40">
+                        <td className="px-3 py-2">
+                          <button
+                            type="button"
+                            onClick={() => onPickMonth(m.period)}
+                            className="text-ink hover:text-amber-ink hover:underline"
+                          >
+                            {label}
+                          </button>
+                        </td>
+                        <td className="px-3 py-2 text-right font-mono">
+                          {p ? rupee(p.net) : <span className="text-ink-3">—</span>}
+                          {p && p.paid_status === "partial" && (
+                            <span className="block text-[10px] text-ink-3">paid {rupee(p.paid_amount)}</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2 text-right">
+                          {!p ? (
+                            <span className="text-[11px] text-ink-3">Not run</span>
+                          ) : p.paid_status === "paid" ? (
+                            <Badge kind="success" size="sm" dot>Paid</Badge>
+                          ) : p.paid_status === "partial" ? (
+                            <Badge kind="warning" size="sm" dot>Partial</Badge>
+                          ) : (
+                            <Badge kind="warning" size="sm" dot>Unpaid</Badge>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="mt-3 grid grid-cols-3 gap-2 text-center">
+              <div className="rounded-md border border-hairline bg-paper-2/30 py-2">
+                <div className="text-[10px] uppercase tracking-wider text-ink-3">Months run</div>
+                <div className="font-serif text-lg text-ink">{runCount}/12</div>
+              </div>
+              <div className="rounded-md border border-hairline bg-paper-2/30 py-2">
+                <div className="text-[10px] uppercase tracking-wider text-ink-3">Year net</div>
+                <div className="font-serif text-lg text-ink">{rupee(totalEarned)}</div>
+              </div>
+              <div className="rounded-md border border-hairline bg-paper-2/30 py-2">
+                <div className="text-[10px] uppercase tracking-wider text-ink-3">Cleared</div>
+                <div className="font-serif text-lg text-emerald">{rupee(totalCleared)}</div>
+              </div>
+            </div>
+          </>
+        )}
+
+        <DialogFooter>
+          <Button type="button" variant="default" onClick={onClose}>Close</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** Download this month's payslip as a PDF the owner can share on WhatsApp/email. */
+function PayslipButton({
+  employee, payment, me, paidVia,
+}: {
+  employee: Employee;
+  payment: SalaryPayment;
+  me: CurrentUserInfo | null;
+  paidVia: string | null;
+}) {
+  const [busy, setBusy] = React.useState(false);
+
+  async function download() {
+    setBusy(true);
+    try {
+      const safeName = employee.name.replace(/[^a-zA-Z0-9]+/g, "-").replace(/^-|-$/g, "");
+      await downloadPayslipPDF(
+        {
+          company: {
+            name:    me?.tenantName ?? "Company",
+            address: me?.tenantAddress ?? null,
+            email:   me?.tenantEmail ?? null,
+            phone:   me?.tenantPhone ?? null,
+            gstin:   me?.tenantGstin ?? null,
+          },
+          employee: {
+            name:  employee.name,
+            pan:   employee.pan,
+            pfNo:  employee.pf_no,
+            esiNo: employee.esi_no,
+          },
+          period:           payment.period,
+          payDate:          payment.pay_date,
+          paidVia,
+          gross:            payment.gross,
+          lopDays:          payment.lop_days,
+          lopAmount:        payment.lop_amount,
+          incentive:        payment.incentive,
+          advanceRecovered: payment.advance_recovered,
+          tds:              payment.tds,
+          pf:               payment.pf,
+          esi:              payment.esi,
+          other:            payment.other_deduction,
+          net:              payment.net,
+        },
+        `Payslip-${safeName}-${periodLabel(payment.period).replace(" ", "-")}.pdf`,
+      );
+    } catch (err) {
+      toast.error((err as Error).message || "Could not build the payslip");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Button variant="ghost" size="sm" icon="download" loading={busy} onClick={download}>
+      Payslip
+    </Button>
+  );
+}
+
+function PaySalaryDialog({ employee, period, onClose }: { employee: Employee; period: string; onClose: () => void }) {
+  const accountsQ = useBankAccounts();
+  const loansQ = useEmployeeLoans();
+  const attQ = useAttendance(period);
+  const leaveQ = useLeaveEntries();
+  const holQ = useHolidays();
+  const pay = usePaySalary();
+  const accounts = (accountsQ.data ?? []).filter((a) => a.is_active);
+
+  // Active advances for this employee (matched by name).
+  const advances = (loansQ.data ?? []).filter(
+    (l) => l.status === "active" && l.outstanding > 0 && l.employee_name.trim().toLowerCase() === employee.name.trim().toLowerCase(),
+  );
+
+  const [gross, setGross]   = React.useState(String(employee.monthly_gross));
+  const [bonus, setBonus]   = React.useState("0");
+  const [lopDays, setLopDays] = React.useState("0");
+  const [lopAmt, setLopAmt]   = React.useState("0");
+  const [advId, setAdvId]     = React.useState("");
+  const [advAmt, setAdvAmt]   = React.useState("0");
+  const [tds, setTds]         = React.useState("0");
+  const [pf, setPf]           = React.useState("0");
+  const [pfEdited, setPfEdited] = React.useState(false);
+  const [esi, setEsi]         = React.useState("0");
+  const [esiEdited, setEsiEdited] = React.useState(false);
+  const [other, setOther]     = React.useState("0");
+  const [accountId, setAccountId] = React.useState("");
+  const [date, setDate]       = React.useState(todayISO());
+
+  React.useEffect(() => { if (!accountId && accounts.length > 0) setAccountId(accounts[0].id); }, [accounts, accountId]);
+  React.useEffect(() => { if (!advId && advances.length > 0) setAdvId(advances[0].id); }, [advances, advId]);
+
+  const n = (s: string) => Math.max(0, Math.round(Number(s) || 0));
+  const grossN = n(gross), bonusN = n(bonus), lopN = n(lopAmt), advN = n(advAmt), tdsN = n(tds), pfN = n(pf), esiN = n(esi), otherN = n(other);
+  const earned = Math.max(0, grossN - lopN) + bonusN;
+  const net = earned - advN - tdsN - pfN - esiN - otherN;
+
+  // ── ESI (auto) — employee 0.75% (deducted from net) + employer 3.25% (extra
+  //    company cost, NOT deducted). Base = monthly wage (gross − LOP), bonus
+  //    excluded. Coverage comes from the employee's esi_applicable flag.
+  const esiWage = Math.max(0, grossN - lopN);
+  const esiCalc = computeEsi(esiWage, employee.esi_applicable);
+  React.useEffect(() => {
+    if (!esiEdited) setEsi(String(esiCalc.employee));
+  }, [esiCalc.employee, esiEdited]);
+  const esiEmployerN = esiCalc.employer;
+
+  // ── PF (auto) — employee 12% (deducted from net) + employer 12% (extra company
+  //    cost, NOT deducted). Computed on the wage capped at ₹15,000.
+  const pfCalc = computePf(esiWage, employee.pf_applicable);
+  React.useEffect(() => {
+    if (!pfEdited) setPf(String(pfCalc.employee));
+  }, [pfCalc.employee, pfEdited]);
+  const pfEmployerN = pfCalc.employer;
+
+  const selectedAdv = advances.find((a) => a.id === advId);
+  const advTooMuch = advN > 0 && selectedAdv ? advN > selectedAdv.outstanding : false;
+  const valid = grossN > 0 && net >= 0 && Boolean(accountId) && !advTooMuch && (advN === 0 || Boolean(advId));
+
+  // Auto-fill LOP amount from days (gross / 30) unless the user overrode it.
+  function onLopDays(v: string) {
+    setLopDays(v);
+    const d = Number(v) || 0;
+    setLopAmt(String(Math.round((grossN / 30) * d)));
+  }
+
+  // Suggested LOP from attendance + unpaid leave. Non-working days (Sunday
+  // weekly-off AND company holidays) are excluded from "expected", so an absence
+  // on a holiday is never docked as loss-of-pay.
+  const lopSuggestion = React.useMemo(() => {
+    const [yy, mm] = period.split("-").map(Number);
+    const monthStart = new Date(Date.UTC(yy, mm - 1, 1));
+    const monthEnd = new Date(Date.UTC(yy, mm, 0));
+    const todayUTC = new Date(todayISO() + "T00:00:00Z");
+    const rangeEnd = todayUTC < monthEnd ? todayUTC : monthEnd;
+    const rangeStart = employee.joining_date && employee.joining_date > `${period}-01`
+      ? new Date(employee.joining_date + "T00:00:00Z") : monthStart;
+    const holidaySet = new Set((holQ.data ?? []).map((h) => h.holiday_date));
+    let expected = 0;
+    for (const d = new Date(rangeStart); d <= rangeEnd; d.setUTCDate(d.getUTCDate() + 1)) {
+      const iso = d.toISOString().slice(0, 10);
+      if (d.getUTCDay() !== 0 && !holidaySet.has(iso)) expected++;
+    }
+    const present = new Set((attQ.data ?? []).filter((a) => a.employee_id === employee.id && a.check_in).map((a) => a.work_date)).size;
+    const monthLeaves = (leaveQ.data ?? []).filter((l) => l.employee_id === employee.id && l.from_date <= `${period}-31` && l.to_date >= `${period}-01`);
+    const paidLeave = monthLeaves.filter((l) => l.type !== "unpaid").reduce((s, l) => s + l.days, 0);
+    const unpaidLeave = monthLeaves.filter((l) => l.type === "unpaid").reduce((s, l) => s + l.days, 0);
+    const absent = Math.max(0, expected - present - paidLeave - unpaidLeave);
+    return { present, absent, unpaidLeave, lopDays: absent + unpaidLeave };
+  }, [period, employee, attQ.data, leaveQ.data, holQ.data]);
+
+  function applyLopSuggestion() {
+    onLopDays(String(lopSuggestion.lopDays));
+  }
+
+  async function submit() {
+    if (!valid) return;
+    await pay.mutateAsync({
+      employeeId: employee.id, period, payDate: date, gross: grossN,
+      lopDays: Number(lopDays) || 0, lopAmount: lopN, incentive: bonusN,
+      advanceRecovered: advN, advanceLoanId: advN > 0 ? advId : null,
+      tds: tdsN, pf: pfN, esi: esiN, esiEmployer: esiEmployerN, pfEmployer: pfEmployerN, other: otherN, bankAccountId: accountId,
+    });
+    onClose();
+  }
+
+  return (
+    <Dialog open onOpenChange={(v) => { if (!v) onClose(); }}>
+      <DialogContent className="md:!max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Pay salary — {employee.name}</DialogTitle>
+          <DialogDescription>Period {period}. This books the salary + deductions now; the net pay clears your bank once you reconcile the debit in Banking.</DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-1">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-ink-2 mb-1">Gross salary (₹)</label>
+              <Input type="number" min={0} value={gross} onChange={(e) => setGross(e.target.value)} />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-ink-2 mb-1">Pay from</label>
+              <select value={accountId} onChange={(e) => setAccountId(e.target.value)} className={selectCls}>
+                {accounts.length === 0 && <option value="">Add an account in Banking</option>}
+                {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+              </select>
+            </div>
+          </div>
+
+          <div className="rounded-md border border-hairline p-3 space-y-2">
+            <div className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold">Earnings (on top of salary)</div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-ink-2 mb-1">Bonus / Incentive (₹)</label>
+                <Input type="number" min={0} value={bonus} onChange={(e) => setBonus(e.target.value)} />
+              </div>
+            </div>
+            <p className="text-[11px] text-ink-3">One-time bonus/incentive for this month — added to net pay + the Salaries expense, shown separately on the payslip.</p>
+          </div>
+
+          <div className="rounded-md border border-hairline p-3 space-y-3">
+            <div className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold">Deductions</div>
+            <div className="flex items-center justify-between gap-2 rounded bg-paper-2/50 px-2.5 py-1.5 text-[11px] text-ink-3">
+              <span>From attendance: <b className="text-ink-2">{lopSuggestion.present}</b> present · <b className="text-ink-2">{lopSuggestion.absent}</b> absent · <b className="text-ink-2">{lopSuggestion.unpaidLeave}</b> unpaid leave → LOP <b className="text-ink">{lopSuggestion.lopDays}d</b></span>
+              <button type="button" onClick={applyLopSuggestion} className="shrink-0 rounded border border-hairline px-2 py-0.5 font-medium text-ink hover:bg-paper">Apply</button>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-ink-2 mb-1">Unpaid leave (LOP) days</label>
+                <Input type="number" min={0} value={lopDays} onChange={(e) => onLopDays(e.target.value)} />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-ink-2 mb-1">LOP amount (₹)</label>
+                <Input type="number" min={0} value={lopAmt} onChange={(e) => setLopAmt(e.target.value)} />
+              </div>
+            </div>
+            {advances.length > 0 && (
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-ink-2 mb-1">Advance recovery (₹)</label>
+                  <Input type="number" min={0} value={advAmt} onChange={(e) => setAdvAmt(e.target.value)} />
+                  {advTooMuch && <p className="mt-1 text-[11px] text-rose">Max {rupee(selectedAdv?.outstanding ?? 0)}.</p>}
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-ink-2 mb-1">From advance</label>
+                  <select value={advId} onChange={(e) => setAdvId(e.target.value)} className={selectCls}>
+                    {advances.map((a) => <option key={a.id} value={a.id}>{rupee(a.outstanding)} outstanding</option>)}
+                  </select>
+                </div>
+              </div>
+            )}
+            <div className="grid grid-cols-2 gap-3">
+              <div><label className="block text-xs font-medium text-ink-2 mb-1">TDS (₹)</label><Input type="number" min={0} value={tds} onChange={(e) => setTds(e.target.value)} /></div>
+              <div>
+                <label className="block text-xs font-medium text-ink-2 mb-1">
+                  PF — employee (₹){employee.pf_applicable && !pfEdited && <span className="text-emerald ml-1 font-normal">auto 12%</span>}
+                </label>
+                <Input type="number" min={0} value={pf} onChange={(e) => { setPfEdited(true); setPf(e.target.value); }} />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-ink-2 mb-1">
+                  ESI — employee (₹){employee.esi_applicable && !esiEdited && <span className="text-emerald ml-1 font-normal">auto 0.75%</span>}
+                </label>
+                <Input type="number" min={0} value={esi} onChange={(e) => { setEsiEdited(true); setEsi(e.target.value); }} />
+              </div>
+              <div><label className="block text-xs font-medium text-ink-2 mb-1">Other (₹)</label><Input type="number" min={0} value={other} onChange={(e) => setOther(e.target.value)} /></div>
+            </div>
+            {employee.esi_applicable ? (
+              <div className="rounded bg-paper-2/50 px-2.5 py-2 text-[11px] text-ink-2 space-y-0.5">
+                <div className="flex items-center justify-between">
+                  <span>Employer ESI (3.25%) — company's own cost, <b>not</b> cut from net</span>
+                  <span className="font-mono text-ink">{rupee(esiEmployerN)}</span>
+                </div>
+                <div className="flex items-center justify-between border-t border-hairline pt-0.5">
+                  <span>Total ESIC due this month (employee + employer)</span>
+                  <span className="font-mono text-ink font-semibold">{rupee(esiN + esiEmployerN)}</span>
+                </div>
+              </div>
+            ) : (
+              <p className="text-[11px] text-ink-3">ESI not applicable — gross above the ₹{ESI_WAGE_CEILING.toLocaleString("en-IN")} ceiling (or turned off for this employee).</p>
+            )}
+            {employee.pf_applicable && (
+              <div className="rounded bg-paper-2/50 px-2.5 py-2 text-[11px] text-ink-2 space-y-0.5">
+                <div className="flex items-center justify-between">
+                  <span>Employer PF (12%) — company's own cost, <b>not</b> cut from net</span>
+                  <span className="font-mono text-ink">{rupee(pfEmployerN)}</span>
+                </div>
+                <div className="flex items-center justify-between border-t border-hairline pt-0.5">
+                  <span>Total PF challan this month (employee + employer)</span>
+                  <span className="font-mono text-ink font-semibold">{rupee(n(pf) + pfEmployerN)}</span>
+                </div>
+                <div className="text-ink-3">On wage capped at ₹{PF_WAGE_CEILING.toLocaleString("en-IN")}. (Admin/EDLI ~1% not included.)</div>
+              </div>
+            )}
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-ink-2 mb-1">Pay date</label>
+            <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+          </div>
+
+          <div className="rounded-md bg-paper-2/50 p-3 text-sm space-y-1">
+            <Row label="Salary earned (gross − LOP)" value={rupee(Math.max(0, grossN - lopN))} />
+            {bonusN > 0 && <Row label="+ Bonus / Incentive" value={`+${rupee(bonusN)}`} />}
+            {advN > 0 && <Row label="− Advance recovery" value={`−${rupee(advN)}`} />}
+            {(tdsN + pfN + esiN + otherN) > 0 && <Row label="− TDS / PF / ESI / other" value={`−${rupee(tdsN + pfN + esiN + otherN)}`} />}
+            <div className="flex items-center justify-between pt-1 border-t border-hairline font-semibold text-ink">
+              <span>Net pay (cash out)</span><span className="font-mono">{rupee(net)}</span>
+            </div>
+            {(esiEmployerN > 0 || pfEmployerN > 0) && (
+              <p className="text-[11px] text-ink-3 pt-1">
+                {esiEmployerN > 0 && <>+ {rupee(esiEmployerN)} employer ESI</>}
+                {esiEmployerN > 0 && pfEmployerN > 0 && " · "}
+                {pfEmployerN > 0 && <>+ {rupee(pfEmployerN)} employer PF</>}
+                {" "}accrues as a statutory due (paid later via the challan) — it does not leave the bank now.
+              </p>
+            )}
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="ghost" onClick={onClose} disabled={pay.isPending}>Cancel</Button>
+          <Button variant="primary" loading={pay.isPending} disabled={!valid} onClick={submit}>Pay {rupee(net > 0 ? net : 0)}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function Row({ label, value }: { label: string; value: string }) {
+  return <div className="flex items-center justify-between text-ink-2"><span>{label}</span><span className="font-mono">{value}</span></div>;
+}
+
+// ── Leave tab ─────────────────────────────────────────────────────────────
+export function LeaveTab() {
+  const empQ = useEmployees();
+  const leaveQ = useLeaveEntries();
+  const del = useDeleteLeaveEntry();
+  const [addOpen, setAddOpen] = React.useState(false);
+  const empName = new Map((empQ.data ?? []).map((e) => [e.id, e.name]));
+  const rows = leaveQ.data ?? [];
+
+  return (
+    <>
+      <HolidaysCard />
+      <div className="flex justify-end mb-3">
+        <Button variant="primary" icon="plus" onClick={() => setAddOpen(true)} disabled={(empQ.data ?? []).length === 0}>Record leave</Button>
+      </div>
+      {leaveQ.isLoading ? (
+        <div className="space-y-3">{[1, 2, 3].map((i) => <Skeleton key={i} className="h-12 w-full" />)}</div>
+      ) : rows.length === 0 ? (
+        <Card className="py-2"><EmptyState icon="clock" title="No leave recorded" body="Record leave — unpaid leave becomes loss-of-pay in payroll." /></Card>
+      ) : (
+        <Card className="overflow-hidden">
+          <table className="w-full text-sm">
+            <thead className="bg-paper-2/50 text-[10px] uppercase tracking-wider text-ink-3 font-semibold">
+              <tr>
+                <th className="text-left px-4 py-3">Employee</th>
+                <th className="text-left px-4 py-3">Dates</th>
+                <th className="text-right px-4 py-3">Days</th>
+                <th className="text-left px-4 py-3">Type</th>
+                <th className="text-right px-4 py-3"></th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-hairline">
+              {rows.map((l) => (
+                <tr key={l.id} className="hover:bg-paper-2/40">
+                  <td className="px-4 py-3 font-medium text-ink">{empName.get(l.employee_id) ?? "—"}</td>
+                  <td className="px-4 py-3 text-ink-2">{formatDate(l.from_date)}{l.to_date !== l.from_date ? ` – ${formatDate(l.to_date)}` : ""}</td>
+                  <td className="px-4 py-3 text-right font-mono">{l.days}</td>
+                  <td className="px-4 py-3">
+                    <Badge kind={l.type === "unpaid" ? "warning" : "info"}>{LEAVE_TYPE_LABEL[l.type]}</Badge>
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    <Button variant="ghost" size="sm" onClick={() => { if (window.confirm("Remove this leave entry?")) del.mutate(l.id); }}>Remove</Button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Card>
+      )}
+      {addOpen && <LeaveDialog employees={empQ.data ?? []} onClose={() => setAddOpen(false)} />}
+    </>
+  );
+}
+
+function HolidaysCard() {
+  const holQ = useHolidays();
+  const create = useCreateHoliday();
+  const del = useDeleteHoliday();
+  const [date, setDate] = React.useState("");
+  const [name, setName] = React.useState("");
+  const rows = holQ.data ?? [];
+  const add = async () => {
+    if (!date || !name.trim()) return;
+    await create.mutateAsync({ holiday_date: date, name: name.trim() });
+    setDate(""); setName("");
+  };
+  return (
+    <Card className="mb-4 p-4">
+      <div className="mb-3">
+        <div className="text-sm font-semibold text-ink">Company holidays</div>
+        <div className="text-[11px] text-ink-3">
+          Treated as non-working days in payroll — an absence on these dates is <b>not</b> docked as loss-of-pay (Sundays are already off).
+        </div>
+      </div>
+      <div className="flex flex-wrap items-end gap-2 mb-3">
+        <div>
+          <label className="block text-[11px] text-ink-3 mb-1">Date</label>
+          <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="w-44" />
+        </div>
+        <div className="flex-1 min-w-[160px]">
+          <label className="block text-[11px] text-ink-3 mb-1">Name</label>
+          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Diwali, Independence Day" />
+        </div>
+        <Button size="sm" variant="primary" icon="plus" onClick={add} disabled={!date || !name.trim() || create.isPending} loading={create.isPending}>Add</Button>
+      </div>
+      {rows.length === 0 ? (
+        <p className="text-[11px] text-ink-3">No holidays added yet — add your festival + national holidays so payroll doesn't dock pay for them.</p>
+      ) : (
+        <div className="flex flex-wrap gap-1.5">
+          {rows.map((h) => (
+            <span key={h.id} className="inline-flex items-center gap-1.5 rounded-full border border-hairline bg-paper-2/50 px-2.5 py-1 text-xs">
+              <span className="font-medium text-ink">{h.name}</span>
+              <span className="text-ink-3">{formatDate(h.holiday_date)}</span>
+              <button
+                type="button"
+                onClick={() => { if (window.confirm("Remove this holiday?")) del.mutate(h.id); }}
+                className="text-ink-3 hover:text-rose"
+                aria-label="Remove holiday"
+              >×</button>
+            </span>
+          ))}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function LeaveDialog({ employees, onClose }: { employees: Employee[]; onClose: () => void }) {
+  const create = useCreateLeaveEntry();
+  const leaveQ = useLeaveEntries();
+  const holQ = useHolidays();
+  const [empId, setEmpId] = React.useState(employees[0]?.id ?? "");
+  const [from, setFrom]   = React.useState(todayISO());
+  const [to, setTo]       = React.useState(todayISO());
+  const [days, setDays]   = React.useState("1");
+  const [type, setType]   = React.useState<LeaveKind>("casual");
+  const [notes, setNotes] = React.useState("");
+
+  const daysN = Number(days) || 0;
+  const valid = Boolean(empId) && daysN > 0 && from <= to;
+  const isPaidType = type !== "unpaid";
+  const emp = employees.find((e) => e.id === empId);
+  const allowance = emp?.leave_allowance ?? 0;
+
+  // Paid-leave used in the leave-year (Indian FY, Apr–Mar) of the 'from' date.
+  const fy = React.useMemo(() => {
+    const [y, m] = from.split("-").map(Number);
+    const sy = m >= 4 ? y : y - 1;
+    return { start: `${sy}-04-01`, end: `${sy + 1}-03-31` };
+  }, [from]);
+  const usage = React.useMemo(() => {
+    const mine = (leaveQ.data ?? []).filter(
+      (l) => l.employee_id === empId && l.from_date >= fy.start && l.from_date <= fy.end,
+    );
+    const byType: Record<string, number> = { casual: 0, sick: 0, earned: 0, unpaid: 0 };
+    for (const l of mine) byType[l.type] = (byType[l.type] ?? 0) + Number(l.days);
+    const paidTaken = byType.casual + byType.sick + byType.earned;
+    return { byType, paidTaken };
+  }, [leaveQ.data, empId, fy]);
+  const paidLeft = Math.max(0, allowance - usage.paidTaken);
+  const wouldExceed = isPaidType && usage.paidTaken + daysN > allowance;
+
+  // Auto working-day count for the chosen range (excludes Sundays + holidays).
+  const autoWorkingDays = React.useMemo(() => {
+    if (from > to) return 0;
+    const holidaySet = new Set((holQ.data ?? []).map((h) => h.holiday_date));
+    let n = 0;
+    for (const d = new Date(from + "T00:00:00Z"); d <= new Date(to + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() + 1)) {
+      const iso = d.toISOString().slice(0, 10);
+      if (d.getUTCDay() !== 0 && !holidaySet.has(iso)) n++;
+    }
+    return n;
+  }, [from, to, holQ.data]);
+
+  async function submit() {
+    if (!valid) return;
+    await create.mutateAsync({ employee_id: empId, from_date: from, to_date: to, days: daysN, type, notes: notes.trim() || null });
+    onClose();
+  }
+
+  return (
+    <Dialog open onOpenChange={(v) => { if (!v) onClose(); }}>
+      <DialogContent className="md:!max-w-md">
+        <DialogHeader>
+          <DialogTitle>Record leave</DialogTitle>
+          <DialogDescription>Unpaid leave becomes loss-of-pay (LOP) in that month&apos;s payroll.</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div>
+            <label className="block text-xs font-medium text-ink-2 mb-1">Employee</label>
+            <select value={empId} onChange={(e) => setEmpId(e.target.value)} className={selectCls}>
+              {employees.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
+            </select>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div><label className="block text-xs font-medium text-ink-2 mb-1">From</label><Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></div>
+            <div><label className="block text-xs font-medium text-ink-2 mb-1">To</label><Input type="date" value={to} onChange={(e) => setTo(e.target.value)} /></div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-ink-2 mb-1">Days</label>
+              <Input type="number" min={0.5} step={0.5} value={days} onChange={(e) => setDays(e.target.value)} />
+              {autoWorkingDays > 0 && autoWorkingDays !== daysN && (
+                <button type="button" onClick={() => setDays(String(autoWorkingDays))} className="mt-1 text-[11px] text-amber-ink underline hover:no-underline">
+                  Use {autoWorkingDays} working day{autoWorkingDays === 1 ? "" : "s"} (excl. Sun + holidays)
+                </button>
+              )}
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-ink-2 mb-1">Type</label>
+              <select value={type} onChange={(e) => setType(e.target.value as LeaveKind)} className={selectCls}>
+                <option value="casual">Casual (paid)</option>
+                <option value="sick">Sick (paid)</option>
+                <option value="earned">Earned (paid)</option>
+                <option value="unpaid">Unpaid (LOP)</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Paid-leave balance for the selected employee (this leave-year) */}
+          {emp && (
+            <div className="rounded-md bg-paper-2/50 px-3 py-2 text-[11px] text-ink-2">
+              <div className="flex items-center justify-between">
+                <span>Paid leave used this year (FY {fy.start.slice(0, 4)}–{fy.end.slice(2, 4)})</span>
+                <span className="font-mono"><b className="text-ink">{usage.paidTaken}</b> / {allowance} · {paidLeft} left</span>
+              </div>
+              <div className="text-ink-3 mt-0.5">
+                Casual {usage.byType.casual} · Sick {usage.byType.sick} · Earned {usage.byType.earned} · Unpaid {usage.byType.unpaid}
+              </div>
+            </div>
+          )}
+          {wouldExceed && (
+            <div className="rounded-md bg-rose-soft border border-rose/30 px-3 py-2 text-[11px] text-rose flex items-start gap-2">
+              <Icon name="alert" size={13} className="flex-shrink-0 mt-0.5" />
+              <span>
+                This is <b>{usage.paidTaken + daysN - allowance} day(s) over</b> the {allowance}-day paid allowance.
+                It'll still be saved — but consider recording the extra as <b>Unpaid (LOP)</b> so pay is docked correctly.
+              </span>
+            </div>
+          )}
+
+          <div>
+            <label className="block text-xs font-medium text-ink-2 mb-1">Note (optional)</label>
+            <Input value={notes} onChange={(e) => setNotes(e.target.value)} />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="ghost" onClick={onClose} disabled={create.isPending}>Cancel</Button>
+          <Button variant="primary" loading={create.isPending} disabled={!valid} onClick={submit}>Save</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ── Attendance tab ──────────────────────────────────────────────────────────
+function NetworkCard() {
+  const netQ = useAttendanceNetwork();
+  const setNet = useSetAttendanceNetwork();
+  const d = netQ.data;
+  const locked = (d?.allowedIps.length ?? 0) > 0;
+  return (
+    <Card className={cn("mb-4 p-3 md:p-4", locked ? "border-emerald/30" : "")}>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <div className="text-sm font-medium text-ink flex items-center gap-2">
+            <Icon name="lock" size={14} className={locked ? "text-emerald" : "text-ink-3"} />
+            Office network {locked ? "locked" : "not locked"}
+          </div>
+          <p className="text-[11px] text-ink-3 mt-0.5 max-w-xl">
+            {locked
+              ? "Attendance can only be marked from the office network(s) below — off-site marking is blocked."
+              : "Anyone with the kiosk link can mark from any network. Open this on the office WiFi and lock it to prevent off-site marking."}
+          </p>
+        </div>
+        <div className="flex gap-2 shrink-0">
+          <Button variant="primary" size="sm" loading={setNet.isPending} onClick={() => setNet.mutate({ action: "lock" })}>
+            Lock to this network
+          </Button>
+          {locked && <Button variant="ghost" size="sm" onClick={() => setNet.mutate({ action: "clear" })}>Turn off</Button>}
+        </div>
+      </div>
+      {d && (
+        <div className="mt-2 text-[11px] text-ink-3">
+          This network&apos;s IP: <span className="font-mono text-ink-2">{d.currentIp || "—"}</span>
+          {locked && (
+            <span className="ml-2">· Allowed:{d.allowedIps.map((ip) => (
+              <span key={ip} className="ml-1 font-mono text-ink-2">
+                {ip}
+                <button onClick={() => setNet.mutate({ action: "remove", ip })} className="ml-0.5 text-rose" aria-label={`Remove ${ip}`}>×</button>
+              </span>
+            ))}</span>
+          )}
+        </div>
+      )}
+
+      {/* Selfie requirement — the real anti buddy-punching control */}
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-hairline pt-3">
+        <div>
+          <div className="text-sm font-medium text-ink flex items-center gap-2">
+            <Icon name="eye" size={14} className={d?.requireSelfie ? "text-emerald" : "text-ink-3"} />
+            Selfie required to mark {d?.requireSelfie ? "· ON" : "· OFF"}
+          </div>
+          <p className="text-[11px] text-ink-3 mt-0.5 max-w-xl">
+            {d?.requireSelfie
+              ? "Every check-in captures a photo — knowing someone's PIN alone can't mark them present (no buddy-punching)."
+              : "PIN-only marking is allowed. Anyone who knows a PIN could mark that person present. Turn on to require a photo."}
+          </p>
+        </div>
+        <Button
+          variant={d?.requireSelfie ? "ghost" : "primary"}
+          size="sm"
+          loading={setNet.isPending}
+          onClick={() => setNet.mutate({ action: "require_selfie", value: !(d?.requireSelfie ?? true) })}
+        >
+          {d?.requireSelfie ? "Turn off" : "Require selfie"}
+        </Button>
+      </div>
+    </Card>
+  );
+}
+
+export function AttendanceTab() {
+  const [period, setPeriod] = React.useState(currentPeriod());
+  const empQ = useEmployees();
+  const attQ = useAttendance(period);
+  const employees = (empQ.data ?? []).filter((e) => e.is_active);
+
+  const byEmp = new Map<string, { present: number; last: string | null }>();
+  for (const a of attQ.data ?? []) {
+    const cur = byEmp.get(a.employee_id) ?? { present: 0, last: null };
+    if (a.check_in) cur.present += 1;
+    if (!cur.last || a.work_date > cur.last) cur.last = a.work_date;
+    byEmp.set(a.employee_id, cur);
+  }
+
+  return (
+    <>
+      <NetworkCard />
+
+      <Card className="mb-4 p-3 md:p-4">
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="text-xs text-ink-3 font-semibold uppercase tracking-wide">Month</label>
+          <input type="month" value={period} onChange={(e) => setPeriod(e.target.value)}
+            className="px-3 py-1.5 text-sm rounded-md border border-hairline bg-paper" />
+          <Button variant="primary" icon="external" className="ml-auto"
+            onClick={() => window.open("/attendance/kiosk", "_blank", "noopener")}>
+            Open kiosk
+          </Button>
+        </div>
+        <p className="mt-2 text-[11px] text-ink-3">
+          Open the kiosk on your office tablet/phone (kept logged in) — employees tap their name + PIN to check in/out.
+          Set each employee&apos;s PIN in the Employees tab.
+        </p>
+      </Card>
+
+      {empQ.isLoading ? (
+        <div className="space-y-3">{[1, 2, 3].map((i) => <Skeleton key={i} className="h-12 w-full" />)}</div>
+      ) : employees.length === 0 ? (
+        <Card className="py-2"><EmptyState icon="users" title="No active employees" body="Add employees and set their PINs first." /></Card>
+      ) : (
+        <Card className="overflow-hidden">
+          <table className="w-full text-sm">
+            <thead className="bg-paper-2/50 text-[10px] uppercase tracking-wider text-ink-3 font-semibold">
+              <tr>
+                <th className="text-left px-4 py-3">Employee</th>
+                <th className="text-left px-4 py-3">PIN</th>
+                <th className="text-right px-4 py-3">Days present</th>
+                <th className="text-left px-4 py-3">Last seen</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-hairline">
+              {employees.map((e) => {
+                const s = byEmp.get(e.id);
+                return (
+                  <tr key={e.id} className="hover:bg-paper-2/40">
+                    <td className="px-4 py-3 font-medium text-ink">{e.name}</td>
+                    <td className="px-4 py-3">
+                      {e.pin_hash ? <Badge kind="success">Set</Badge> : <Badge kind="warning">Not set</Badge>}
+                    </td>
+                    <td className="px-4 py-3 text-right font-mono">{s?.present ?? 0}</td>
+                    <td className="px-4 py-3 text-ink-2">{s?.last ? formatDate(s.last) : "—"}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </Card>
+      )}
+
+      {employees.length > 0 && (
+        <AttendanceRegister period={period} employees={employees} attendance={attQ.data ?? []} />
+      )}
+
+      <TodayCheckins attendance={attQ.data ?? []} employees={employees} />
+    </>
+  );
+}
+
+/** Monthly attendance register (muster): employees × days, P = present. */
+function AttendanceRegister({ period, employees, attendance }: { period: string; employees: Employee[]; attendance: Attendance[] }) {
+  const [yy, mm] = period.split("-").map(Number);
+  if (!yy || !mm) return null;
+  const days = new Date(yy, mm, 0).getDate();          // last day of this month
+  const today = todayISO();
+  const monthLabel = new Date(yy, mm - 1, 1).toLocaleDateString("en-IN", { month: "long", year: "numeric" });
+  const dayList = Array.from({ length: days }, (_, i) => i + 1);
+
+  // "employeeId|YYYY-MM-DD" → attendance record
+  const byKey = new Map<string, Attendance>();
+  for (const a of attendance) byKey.set(`${a.employee_id}|${a.work_date}`, a);
+  const dateFor = (d: number) => `${period}-${String(d).padStart(2, "0")}`;
+
+  return (
+    <Card className="mt-4 overflow-hidden">
+      <div className="flex items-center justify-between border-b border-hairline px-4 py-3">
+        <div className="text-[10px] font-semibold uppercase tracking-wider text-ink-3">Attendance register · {monthLabel}</div>
+        <div className="text-[11px] text-ink-3"><span className="font-semibold text-emerald">P</span> = present · – = absent</div>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="text-sm">
+          <thead className="bg-paper-2/50 text-[10px] text-ink-3">
+            <tr>
+              <th className="sticky left-0 z-10 bg-paper-2 px-3 py-2 text-left min-w-[130px]">Employee</th>
+              {dayList.map((d) => (
+                <th key={d} className={cn("px-1.5 py-2 text-center font-medium tabular-nums", dateFor(d) === today && "text-amber-ink font-bold")}>{d}</th>
+              ))}
+              <th className="px-3 py-2 text-right">Present</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-hairline">
+            {employees.map((e) => {
+              const present = dayList.filter((d) => byKey.get(`${e.id}|${dateFor(d)}`)?.check_in).length;
+              return (
+                <tr key={e.id} className="hover:bg-paper-2/30">
+                  <td className="sticky left-0 z-10 bg-paper px-3 py-2 font-medium text-ink whitespace-nowrap">{e.name}</td>
+                  {dayList.map((d) => {
+                    const rec = byKey.get(`${e.id}|${dateFor(d)}`);
+                    const isPresent = Boolean(rec?.check_in);
+                    const future = dateFor(d) > today;
+                    return (
+                      <td
+                        key={d}
+                        className="px-1.5 py-2 text-center"
+                        title={isPresent ? `In ${fmtTimeIST(rec!.check_in)}${rec!.check_out ? ` · Out ${fmtTimeIST(rec!.check_out)}` : ""}` : undefined}
+                      >
+                        {isPresent ? <span className="font-semibold text-emerald">P</span> : future ? <span className="text-ink-3/25">·</span> : <span className="text-ink-3/40">–</span>}
+                      </td>
+                    );
+                  })}
+                  <td className="px-3 py-2 text-right font-mono font-semibold text-ink">{present}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </Card>
+  );
+}
+
+function TodayCheckins({ attendance, employees }: { attendance: Attendance[]; employees: Employee[] }) {
+  const today = todayISO();
+  const empName = new Map(employees.map((e) => [e.id, e.name]));
+  const rows = attendance.filter((a) => a.work_date === today);
+  if (rows.length === 0) return null;
+  return (
+    <Card className="mt-4 overflow-hidden">
+      <div className="px-4 py-3 border-b border-hairline text-[10px] uppercase tracking-wider text-ink-3 font-semibold">Today&apos;s check-ins</div>
+      <ul className="divide-y divide-hairline">
+        {rows.map((a) => (
+          <li key={a.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5 text-sm">
+            <span className="font-medium text-ink">{empName.get(a.employee_id) ?? "—"}</span>
+            <span className="ml-auto text-xs text-ink-3">In {fmtTimeIST(a.check_in)}{a.check_out ? ` · Out ${fmtTimeIST(a.check_out)}` : ""}</span>
+            {a.selfie_in && <SelfieButton path={a.selfie_in} label="in" />}
+            {a.selfie_out && <SelfieButton path={a.selfie_out} label="out" />}
+          </li>
+        ))}
+      </ul>
+    </Card>
+  );
+}
+
+function SelfieButton({ path, label }: { path: string; label: string }) {
+  const [loading, setLoading] = React.useState(false);
+  async function view() {
+    setLoading(true);
+    const url = await getSelfieUrl(path);
+    setLoading(false);
+    if (url) window.open(url, "_blank", "noopener");
+  }
+  return (
+    <button onClick={view} disabled={loading} className="inline-flex items-center gap-1 text-[11px] text-indigo hover:underline disabled:opacity-50">
+      <Icon name="eye" size={12} /> {label}
+    </button>
+  );
+}
+
+// ── Pay statutory dues ──────────────────────────────────────────────────────
+function PayDuesDialog({ payable, onClose }: { payable: number; onClose: () => void }) {
+  const accountsQ = useBankAccounts();
+  const pay = usePayStatutoryDues();
+  const accounts = (accountsQ.data ?? []).filter((a) => a.is_active);
+  const [amount, setAmount] = React.useState(String(payable));
+  const [kind, setKind]     = React.useState("mixed");
+  const [date, setDate]     = React.useState(todayISO());
+  const [accountId, setAccountId] = React.useState("");
+  React.useEffect(() => { if (!accountId && accounts.length > 0) setAccountId(accounts[0].id); }, [accounts, accountId]);
+
+  const amt = Math.max(0, Math.round(Number(amount) || 0));
+  const tooMuch = amt > payable;
+  const valid = amt > 0 && !tooMuch && Boolean(accountId);
+
+  async function submit() {
+    if (!valid) return;
+    await pay.mutateAsync({ amount: amt, kind, paidOn: date, bankAccountId: accountId });
+    onClose();
+  }
+
+  return (
+    <Dialog open onOpenChange={(v) => { if (!v) onClose(); }}>
+      <DialogContent className="md:!max-w-md">
+        <DialogHeader>
+          <DialogTitle>Record statutory payment</DialogTitle>
+          <DialogDescription>Pay withheld TDS/PF/ESI to govt. Payable: <b className="text-ink">{rupee(payable)}</b>.</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div>
+            <label className="block text-xs font-medium text-ink-2 mb-1">Amount (₹)</label>
+            <Input type="number" min={1} value={amount} onChange={(e) => setAmount(e.target.value)} />
+            {tooMuch && <p className="mt-1 text-[11px] text-rose">Can&apos;t exceed payable {rupee(payable)}.</p>}
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-ink-2 mb-1">Type</label>
+            <select value={kind} onChange={(e) => setKind(e.target.value)} className={selectCls}>
+              <option value="mixed">Mixed</option>
+              <option value="tds">TDS</option>
+              <option value="pf">PF</option>
+              <option value="esi">ESI</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-ink-2 mb-1">Paid from</label>
+            <select value={accountId} onChange={(e) => setAccountId(e.target.value)} className={selectCls}>
+              {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-ink-2 mb-1">Date</label>
+            <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="ghost" onClick={onClose} disabled={pay.isPending}>Cancel</Button>
+          <Button variant="primary" loading={pay.isPending} disabled={!valid} onClick={submit}>Pay {amt > 0 && !tooMuch ? rupee(amt) : ""}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}

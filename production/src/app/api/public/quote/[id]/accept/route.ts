@@ -8,18 +8,26 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/server";
 import { isQuoteExpired } from "@/lib/utils";
+import { quoteTokenMatches } from "@/lib/quotes/accept-token";
 
-export async function POST(_request: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
   const supabase = createAdminClient();
 
-  // 1. Fetch the quote to validate state
+  // 1. Fetch the quote to validate state + authorize the caller by token
   const { data: quote, error: qErr } = await supabase
     .from("quotes")
-    .select("id, status, payment_status, expires_date, customer_name, tenant_id")
+    .select("id, status, payment_status, expires_date, customer_name, tenant_id, public_token")
     .eq("id", params.id)
     .maybeSingle();
 
   if (qErr || !quote) {
+    return NextResponse.json({ error: "Quote not found" }, { status: 404 });
+  }
+
+  // Authorization: the link carries an unguessable ?t=<token> (SEC-1). Without a
+  // matching token we behave exactly like "not found" — no enumeration signal.
+  const token = request.nextUrl.searchParams.get("t");
+  if (!quoteTokenMatches(token, quote.public_token)) {
     return NextResponse.json({ error: "Quote not found" }, { status: 404 });
   }
 

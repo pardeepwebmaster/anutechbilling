@@ -27,7 +27,7 @@ export type BankAccountRow = {
   bank_name:            string;
   account_number_last4: string | null;
   ifsc:                 string | null;
-  account_type:         "current" | "savings" | "overdraft" | "fixed_deposit" | "cash" | "other";
+  account_type:         "current" | "savings" | "overdraft" | "fixed_deposit" | "cash" | "other" | "credit_card";
   opening_balance:      number;
   opening_balance_date: string;
   is_active:            boolean;
@@ -49,7 +49,7 @@ export type BankTransactionRow = {
   balance_after:    number | null;
   reference:        string | null;
   source:           "manual" | "csv_upload" | "api_fetch";
-  matched_to_type:  "payment" | "expense" | "vendor_bill" | "transfer" | "manual" | null;
+  matched_to_type:  "payment" | "project" | "expense" | "vendor_bill" | "transfer" | "salary" | "split" | "manual" | null;
   matched_to_id:    string | null;
   matched_at:       string | null;
   matched_by:       string | null;
@@ -322,7 +322,15 @@ export function useImportBankTransactions() {
       if (meErr) throw meErr;
 
       const validRows = input.rows
-        .filter((r) => (r.debit ?? 0) > 0 || (r.credit ?? 0) > 0)
+        .map((r) => {
+          // A bank line is debit XOR credit — coerce to non-negative integers so
+          // a stray minus/decimal can't break the integer column or the
+          // debit_xor_credit CHECK, then keep only clean single-sided rows.
+          const debit  = Math.max(0, Math.round(r.debit  ?? 0));
+          const credit = Math.max(0, Math.round(r.credit ?? 0));
+          return { ...r, debit, credit };
+        })
+        .filter((r) => (r.debit > 0) !== (r.credit > 0))   // exactly one side positive
         .map((r) => ({
           ...r,
           tenant_id:       me!.tenant_id,
@@ -331,7 +339,7 @@ export function useImportBankTransactions() {
         }));
 
       if (validRows.length === 0) {
-        throw new Error("No valid transactions to import (each row needs debit or credit > 0)");
+        throw new Error("No valid transactions to import (each row needs exactly one of debit or credit > 0)");
       }
 
       const { data, error } = await supabase
@@ -347,7 +355,13 @@ export function useImportBankTransactions() {
       toast.success(`${inserted} transaction${inserted === 1 ? "" : "s"} imported`);
     },
     onError: (err) => {
-      toast.error(err instanceof Error ? err.message : "Import failed");
+      // Supabase/PostgREST errors aren't Error instances — dig out their message
+      // so the real reason shows instead of a blank "Import failed".
+      const msg =
+        err instanceof Error ? err.message
+        : (err && typeof err === "object" && "message" in err) ? String((err as { message: unknown }).message)
+        : "Import failed";
+      toast.error(msg || "Import failed");
     },
   });
 }
@@ -365,7 +379,7 @@ export function useReconcileTransaction() {
   return useMutation({
     mutationFn: async (input: {
       transactionId: string;
-      matchedToType: "payment" | "expense" | "vendor_bill" | "transfer" | "salary" | "manual" | null;
+      matchedToType: "payment" | "project" | "expense" | "vendor_bill" | "transfer" | "salary" | "split" | "manual" | null;
       matchedToId:   string | null;
       confidence?:   "exact" | "high" | "low" | "manual";
     }) => {
@@ -393,15 +407,73 @@ export function useReconcileTransaction() {
         .select()
         .single();
       if (error) throw error;
+      // Keep the project-payment ↔ bank-line reverse link in sync (a project
+      // payment stores which bank line reconciled it). Clear any stale link to
+      // this line first, then set it when matching to a project payment.
+      await supabase.from("project_payments")
+        .update({ bank_txn_id: null }).eq("bank_txn_id", input.transactionId);
+      if (input.matchedToType === "project" && input.matchedToId) {
+        await supabase.from("project_payments")
+          .update({ bank_txn_id: input.transactionId }).eq("id", input.matchedToId);
+      }
+      // Same for a single expense match, so `reconciled_txn_id` reliably marks
+      // every reconciled expense (used to filter split-match candidates).
+      await supabase.from("expenses")
+        .update({ reconciled_txn_id: null }).eq("reconciled_txn_id", input.transactionId);
+      if (input.matchedToType === "expense" && input.matchedToId) {
+        await supabase.from("expenses")
+          .update({ reconciled_txn_id: input.transactionId }).eq("id", input.matchedToId);
+      }
+      // Un-reconciling a line booked as capital / director's loan removes the
+      // linked Balance-Sheet classification too, so the two never drift apart.
+      if (!input.matchedToType) {
+        await supabase.from("balance_sheet_items").delete().eq("bank_txn_id", input.transactionId);
+        // Un-reconciling a statutory (TDS/PF/ESI) challan line reverses the
+        // statutory-dues payment it recorded, so the payable snaps back.
+        await supabase.from("statutory_dues_payments").delete().eq("bank_txn_id", input.transactionId);
+      }
       return data as BankTransactionRow;
     },
     onSuccess: (row) => {
       qc.invalidateQueries({ queryKey: ["bank_transactions", row.bank_account_id] });
+      // A salary/expense match (or its reversal) changes payroll paid-status +
+      // the balance sheet's salary-payable, so refresh those views too.
+      qc.invalidateQueries({ queryKey: ["salary-payments"] });
+      qc.invalidateQueries({ queryKey: ["expenses"] });
+      qc.invalidateQueries({ queryKey: ["balance-sheet"] });
       toast.success(row.matched_to_type ? "Reconciled" : "Un-reconciled");
     },
     onError: (err) => {
       toast.error(err instanceof Error ? err.message : "Reconcile failed");
     },
+  });
+}
+
+/**
+ * Match ONE money-out bank line to MULTIPLE expenses that add up to it (e.g.
+ * several bills, or 2 months' salary — salaries are booked as expenses — paid
+ * in one transfer). Tags the line 'split' and links every selected expense;
+ * salary-expenses also flip their salary to paid. Un-reconcile reverts all.
+ */
+export function useReconcileExpensesToBankTxn() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { transactionId: string; expenseIds: string[] }) => {
+      const supabase = createClient();
+      const { error } = await supabase.rpc("reconcile_expenses_to_bank_txn", {
+        p_bank_txn_id:  input.transactionId,
+        p_expense_ids:  input.expenseIds,
+      });
+      if (error) throw new Error(error.message);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["bank_transactions"] });
+      qc.invalidateQueries({ queryKey: ["expenses"] });
+      qc.invalidateQueries({ queryKey: ["salary-payments"] });
+      qc.invalidateQueries({ queryKey: ["balance-sheet"] });
+      toast.success("Expenses matched & reconciled");
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : "Reconcile failed"),
   });
 }
 
@@ -437,12 +509,101 @@ export function useBookTxnAsExpense() {
 }
 
 /**
+ * Book an unmatched money-OUT line as a statutory (TDS/PF/ESI) challan payment,
+ * and reconcile it — in one step. Records a statutory_dues_payments row (which
+ * reduces the statutory payable) linked to THIS imported line, so no duplicate/
+ * phantom bank line is created (unlike the old pay_statutory_dues flow).
+ */
+export function useBookBankTxnAsStatutory() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: {
+      transactionId: string; accountId: string;
+      kind: "tds" | "pf" | "esi" | "mixed"; notes?: string | null;
+    }) => {
+      const supabase = createClient();
+      const { error } = await supabase.rpc("book_bank_txn_as_statutory", {
+        p_txn_id: input.transactionId,
+        p_kind:   input.kind,
+        p_notes:  input.notes ?? null,
+      });
+      if (error) throw new Error(error.message);
+    },
+    onSuccess: (_d, input) => {
+      qc.invalidateQueries({ queryKey: ["bank_transactions", input.accountId] });
+      qc.invalidateQueries({ queryKey: ["statutory-dues"] });
+      qc.invalidateQueries({ queryKey: ["balance-sheet"] });
+      toast.success("Booked as statutory payment & reconciled");
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : "Couldn't book statutory payment"),
+  });
+}
+
+/**
+ * Book an unmatched money-IN bank line as owner's capital (equity) or a
+ * director's loan (liability), and reconcile it — in one step. Adds the matching
+ * Balance-Sheet line (linked to this bank txn) so opening deposits / promoter
+ * funds are classified correctly instead of leaking into retained earnings.
+ */
+export function useBookBankCredit() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: {
+      transactionId: string; accountId: string;
+      kind: "capital" | "director_loan"; label: string; notes?: string | null;
+    }) => {
+      const supabase = createClient();
+      const { error } = await supabase.rpc("book_bank_credit", {
+        p_txn_id: input.transactionId,
+        p_kind:   input.kind,
+        p_label:  input.label,
+        p_notes:  input.notes ?? null,
+      });
+      if (error) throw new Error(error.message);
+    },
+    onSuccess: (_d, input) => {
+      qc.invalidateQueries({ queryKey: ["bank_transactions", input.accountId] });
+      qc.invalidateQueries({ queryKey: ["balance-sheet"] });
+      toast.success(input.kind === "capital" ? "Booked as owner's capital & reconciled" : "Booked as director's loan & reconciled");
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : "Couldn't book this credit"),
+  });
+}
+
+/**
+ * Book a bank line as money GIVEN TO / RETURNED BY a person (a loan/advance) —
+ * a balance-sheet asset, NOT income or expense. Works for both money-out
+ * (given) and money-in (returned); the RPC picks the direction from the line.
+ */
+export function useBookBankAdvance() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { transactionId: string; accountId: string; counterparty: string; kind: "given" | "received"; notes?: string | null }) => {
+      const supabase = createClient();
+      const { error } = await supabase.rpc("book_bank_advance", {
+        p_txn_id:       input.transactionId,
+        p_counterparty: input.counterparty,
+        p_kind:         input.kind,
+        p_notes:        input.notes ?? null,
+      });
+      if (error) throw new Error(error.message);
+    },
+    onSuccess: (_d, input) => {
+      qc.invalidateQueries({ queryKey: ["bank_transactions", input.accountId] });
+      qc.invalidateQueries({ queryKey: ["balance-sheet"] });
+      toast.success("Booked as a loan/advance & reconciled — P&L not affected");
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : "Couldn't book this"),
+  });
+}
+
+/**
  * Server-side match-suggestion helper. Returns nearest payments/expenses by
  * amount + date proximity. Used in the reconcile picker so the operator
  * sees "Match to TechVista ₹5,21,088 (exact)" without typing.
  */
 export type MatchSuggestion = {
-  match_type:       "payment" | "expense" | "salary";
+  match_type:       "payment" | "project" | "expense" | "salary";
   match_id:         string;
   match_label:      string;
   match_amount:     number;

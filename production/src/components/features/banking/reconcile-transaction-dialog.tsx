@@ -18,6 +18,7 @@
 "use client";
 
 import * as React from "react";
+import { useRouter } from "next/navigation";
 
 import {
   Sheet,
@@ -35,11 +36,16 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   useSuggestMatches,
   useReconcileTransaction,
+  useReconcileExpensesToBankTxn,
   useBookTxnAsExpense,
+  useBookBankCredit,
+  useBookBankAdvance,
+  useBookBankTxnAsStatutory,
   type BankTransactionRow,
   type MatchSuggestion,
 } from "@/lib/queries/bank";
-import { EXPENSE_CATEGORIES } from "@/lib/queries/expenses";
+import { EXPENSE_CATEGORIES, useUnreconciledExpenses } from "@/lib/queries/expenses";
+import { useUnreconciledSalaries } from "@/lib/queries/payroll";
 import { rupee, formatDate } from "@/lib/utils";
 
 interface Props {
@@ -49,9 +55,58 @@ interface Props {
 }
 
 export function ReconcileTransactionDialog({ open, onOpenChange, transaction }: Props) {
+  const router = useRouter();
   const { data: suggestions, isLoading: sugLoading } = useSuggestMatches(transaction?.id ?? null);
   const reconcile = useReconcileTransaction();
   const bookExpense = useBookTxnAsExpense();
+  const bookCredit = useBookBankCredit();
+  const bookAdvance = useBookBankAdvance();
+  const bookStatutory = useBookBankTxnAsStatutory();
+  const reconcileExpenses = useReconcileExpensesToBankTxn();
+  const { data: candidateExpenses } = useUnreconciledExpenses();
+  const { data: payableSalaries } = useUnreconciledSalaries();
+
+  // Multi-expense "split" match (money-out lines): pick several expenses that
+  // add up to this one bank line (e.g. several bills, or 2 months' salary —
+  // salaries are booked as expenses — paid in one transfer).
+  const [pickedExpenses, setPickedExpenses] = React.useState<Set<string>>(new Set());
+  const [showSplit, setShowSplit] = React.useState(false);
+  const [showSalary, setShowSalary] = React.useState(false);
+  React.useEffect(() => { setPickedExpenses(new Set()); setShowSplit(false); setShowSalary(false); }, [transaction?.id]);
+  const toggleExpense = (id: string) =>
+    setPickedExpenses((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  const pickedExpenseTotal = (candidateExpenses ?? [])
+    .filter((e) => pickedExpenses.has(e.id))
+    .reduce((sum, e) => sum + e.amount, 0);
+
+  const handleExpenseSplit = async () => {
+    if (!transaction || pickedExpenses.size === 0) return;
+    try {
+      await reconcileExpenses.mutateAsync({ transactionId: transaction.id, expenseIds: Array.from(pickedExpenses) });
+      onOpenChange(false);
+    } catch { /* hook toasts */ }
+  };
+
+  // Apply this money-out line to a salary (full or partial). The line's amount
+  // is added to the salary's paid_amount by the DB trigger; if it's less than
+  // the salary's remaining, the salary goes "partially paid" and the balance
+  // stays owed until another line clears it.
+  const handleSalaryMatch = async (salaryId: string) => {
+    if (!transaction) return;
+    try {
+      await reconcile.mutateAsync({
+        transactionId: transaction.id,
+        matchedToType: "salary",
+        matchedToId:   salaryId,
+        confidence:    "manual",
+      });
+      onOpenChange(false);
+    } catch { /* hook toasts */ }
+  };
 
   // "Book as expense" form (money-out lines only).
   const [bookCategory, setBookCategory] = React.useState("");
@@ -70,6 +125,65 @@ export function ReconcileTransactionDialog({ open, onOpenChange, transaction }: 
         category:      bookCategory,
         vendor:        bookVendor || null,
         gst:           Math.max(0, Math.round(Number(bookGst) || 0)),
+        notes:         transaction.description,
+      });
+      onOpenChange(false);
+    } catch { /* hook toasts the error */ }
+  };
+
+  // "Book this money-in as…" (credit lines): capital / director's loan. Books
+  // the Balance-Sheet line AND reconciles this line in one step.
+  const [creditKind, setCreditKind] = React.useState<"capital" | "director_loan">("capital");
+  const [creditLabel, setCreditLabel] = React.useState("");
+  React.useEffect(() => { setCreditKind("capital"); setCreditLabel(""); }, [transaction?.id]);
+
+  const handleBookCredit = async () => {
+    if (!transaction) return;
+    try {
+      await bookCredit.mutateAsync({
+        transactionId: transaction.id,
+        accountId:     transaction.bank_account_id,
+        kind:          creditKind,
+        label:         creditLabel.trim() || (creditKind === "capital" ? "Owner's capital" : "Director's loan"),
+        notes:         transaction.description,
+      });
+      onOpenChange(false);
+    } catch { /* hook toasts the error */ }
+  };
+
+  // "Money given to / returned by a person" (loan/advance) — works for BOTH
+  // money-out (given) and money-in (returned). Books a balance-sheet asset,
+  // never P&L. Just needs the person's name.
+  // "given" = I lent (asset) · "received" = someone lent me (liability).
+  const [advanceParty, setAdvanceParty] = React.useState("");
+  const [advanceKind, setAdvanceKind] = React.useState<"given" | "received">("given");
+  React.useEffect(() => { setAdvanceParty(""); setAdvanceKind("given"); }, [transaction?.id]);
+  const handleBookAdvance = async () => {
+    if (!transaction || !advanceParty.trim()) return;
+    try {
+      await bookAdvance.mutateAsync({
+        transactionId: transaction.id,
+        accountId:     transaction.bank_account_id,
+        counterparty:  advanceParty.trim(),
+        kind:          advanceKind,
+        notes:         transaction.description,
+      });
+      onOpenChange(false);
+    } catch { /* hook toasts the error */ }
+  };
+
+  // Statutory (TDS/PF/ESI) challan — money-out. Records a statutory-dues
+  // payment against THIS imported line (settles the payable) — no phantom line.
+  const [showStatutory, setShowStatutory] = React.useState(false);
+  const [statutoryKind, setStatutoryKind] = React.useState<"esi" | "pf" | "tds" | "mixed">("esi");
+  React.useEffect(() => { setShowStatutory(false); setStatutoryKind("esi"); }, [transaction?.id]);
+  const handleBookStatutory = async () => {
+    if (!transaction) return;
+    try {
+      await bookStatutory.mutateAsync({
+        transactionId: transaction.id,
+        accountId:     transaction.bank_account_id,
+        kind:          statutoryKind,
         notes:         transaction.description,
       });
       onOpenChange(false);
@@ -187,10 +301,10 @@ export function ReconcileTransactionDialog({ open, onOpenChange, transaction }: 
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2 mb-0.5">
                           <Badge
-                            kind={s.match_type === "payment" ? "success" : s.match_type === "salary" ? "warning" : "muted"}
+                            kind={s.match_type === "payment" ? "success" : s.match_type === "project" ? "info" : s.match_type === "salary" ? "warning" : "muted"}
                             size="sm"
                           >
-                            {s.match_type === "payment" ? "Payment" : s.match_type === "salary" ? "Salary" : "Expense"}
+                            {s.match_type === "payment" ? "Payment" : s.match_type === "project" ? "Project" : s.match_type === "salary" ? "Salary" : "Expense"}
                           </Badge>
                           <ConfidencePill confidence={s.match_confidence} />
                         </div>
@@ -215,6 +329,100 @@ export function ReconcileTransactionDialog({ open, onOpenChange, transaction }: 
               )}
             </div>
 
+            {/* Book money-IN as capital / a director's loan — credit lines only.
+                Adds the Balance-Sheet line AND reconciles, in one step. */}
+            {isCredit && (
+              <div className="rounded-md border border-emerald/40 bg-emerald/5 p-3">
+                <p className="text-xs font-semibold text-ink-2 mb-1">Money put into the business?</p>
+                <p className="text-[11px] text-ink-3 mb-3 leading-relaxed">
+                  Account opening / promoter funds — this {rupee(amount)} is <b>not income</b>. Book it correctly and reconcile in one step.
+                </p>
+                <div className="space-y-2">
+                  <div className="grid grid-cols-1 gap-1.5">
+                    <label className={`flex items-start gap-2 rounded-md border px-3 py-2 cursor-pointer ${creditKind === "capital" ? "border-emerald bg-emerald/10" : "border-hairline"}`}>
+                      <input type="radio" name="creditKind" checked={creditKind === "capital"} onChange={() => setCreditKind("capital")} className="mt-1" />
+                      <span>
+                        <span className="block text-sm text-ink">Owner&apos;s capital <span className="text-ink-3">(equity)</span></span>
+                        <span className="block text-[11px] text-ink-3">Poonji — business me daali, wapas nahi leni.</span>
+                      </span>
+                    </label>
+                    <label className={`flex items-start gap-2 rounded-md border px-3 py-2 cursor-pointer ${creditKind === "director_loan" ? "border-emerald bg-emerald/10" : "border-hairline"}`}>
+                      <input type="radio" name="creditKind" checked={creditKind === "director_loan"} onChange={() => setCreditKind("director_loan")} className="mt-1" />
+                      <span>
+                        <span className="block text-sm text-ink">Director&apos;s loan <span className="text-ink-3">(liability)</span></span>
+                        <span className="block text-[11px] text-ink-3">Temporary daala — company wapas degi.</span>
+                      </span>
+                    </label>
+                  </div>
+                  <Input
+                    value={creditLabel}
+                    onChange={(e) => setCreditLabel(e.target.value)}
+                    placeholder={creditKind === "capital" ? "Label (default: Owner's capital)" : "Label (default: Director's loan)"}
+                  />
+                </div>
+                <Button
+                  size="sm"
+                  variant="primary"
+                  icon="check"
+                  className="mt-3"
+                  loading={bookCredit.isPending}
+                  onClick={handleBookCredit}
+                >
+                  Book {rupee(amount)} as {creditKind === "capital" ? "capital" : "director's loan"}
+                </Button>
+              </div>
+            )}
+
+            {/* Loan / advance between you and a person — BOTH sides. Not income,
+                not expense: books a balance-sheet ASSET (you lent) or LIABILITY
+                (you borrowed) so the P&L is untouched; the pair nets to zero once
+                settled. Two choices cover all four cases. */}
+            <div className="rounded-md border border-indigo/40 bg-indigo-soft/25 p-3">
+              <p className="text-xs font-semibold text-ink-2 mb-1">Loan / advance with a person?</p>
+              <p className="text-[11px] text-ink-3 mb-2.5 leading-relaxed">
+                This {rupee(amount)} is <b>not income or expense</b> — it&apos;s a loan/advance. Pick who lent, so it books correctly (P&amp;L stays clean).
+              </p>
+              <div className="grid grid-cols-1 gap-1.5 mb-2.5">
+                <label className={`flex items-start gap-2 rounded-md border px-3 py-2 cursor-pointer ${advanceKind === "given" ? "border-indigo bg-indigo/10" : "border-hairline"}`}>
+                  <input type="radio" name="advanceKind" checked={advanceKind === "given"} onChange={() => setAdvanceKind("given")} className="mt-1" />
+                  <span>
+                    <span className="block text-sm text-ink">
+                      {isCredit ? "A loan/advance I GAVE has come back" : "I am GIVING a loan/advance"}
+                    </span>
+                    <span className="block text-[11px] text-ink-3">Maine diya — paisa mera, wapas aana hai (asset).</span>
+                  </span>
+                </label>
+                <label className={`flex items-start gap-2 rounded-md border px-3 py-2 cursor-pointer ${advanceKind === "received" ? "border-indigo bg-indigo/10" : "border-hairline"}`}>
+                  <input type="radio" name="advanceKind" checked={advanceKind === "received"} onChange={() => setAdvanceKind("received")} className="mt-1" />
+                  <span>
+                    <span className="block text-sm text-ink">
+                      {isCredit ? "Someone GAVE me a loan" : "I am REPAYING a loan someone gave me"}
+                    </span>
+                    <span className="block text-[11px] text-ink-3">Mujhe mila — paisa unka, wapas dena hai (liability).</span>
+                  </span>
+                </label>
+              </div>
+              <Input
+                value={advanceParty}
+                onChange={(e) => setAdvanceParty(e.target.value)}
+                placeholder="Person's name (e.g. Julie Rawat)"
+              />
+              <Button
+                size="sm"
+                variant="primary"
+                icon="check"
+                className="mt-3"
+                disabled={!advanceParty.trim()}
+                loading={bookAdvance.isPending}
+                onClick={handleBookAdvance}
+              >
+                Book {rupee(amount)} as{" "}
+                {advanceKind === "given"
+                  ? (isCredit ? "an advance returned to you (asset)" : "a loan/advance you gave (asset)")
+                  : (isCredit ? "a loan received (liability)" : "a loan you repaid (liability)")}
+              </Button>
+            </div>
+
             {/* Book directly as an expense — money-out lines only. Creates the
                 expense (P&L) and reconciles this line, with NO extra cash leg. */}
             {!isCredit && (
@@ -230,7 +438,9 @@ export function ReconcileTransactionDialog({ open, onOpenChange, transaction }: 
                     className="w-full rounded-md border border-hairline bg-paper px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-amber/40"
                   >
                     <option value="" disabled>Choose category…</option>
-                    {EXPENSE_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                    {/* Salaries are NOT a plain expense — they're booked in Payroll
+                        (payslip + statutory + paid-status), so they're excluded here. */}
+                    {EXPENSE_CATEGORIES.filter((c) => c !== "Salaries").map((c) => <option key={c} value={c}>{c}</option>)}
                   </select>
                   <div className="grid grid-cols-2 gap-2">
                     <Input value={bookVendor} onChange={(e) => setBookVendor(e.target.value)} placeholder="Vendor / payee (optional)" />
@@ -248,18 +458,191 @@ export function ReconcileTransactionDialog({ open, onOpenChange, transaction }: 
                 >
                   Book {rupee(amount)} expense
                 </Button>
+                <p className="mt-2.5 text-[11px] text-ink-3 leading-relaxed">
+                  Paying a salary?{" "}
+                  <button
+                    type="button"
+                    onClick={() => { onOpenChange(false); router.push("/accounting/payroll" as never); }}
+                    className="text-amber-ink font-medium underline hover:no-underline"
+                  >
+                    Open Payroll &amp; Leave →
+                  </button>{" "}
+                  run it there (payslip + statutory), then reconcile this line to it under “Combine multiple expenses”.
+                </p>
+              </div>
+            )}
+
+            {/* Statutory challan (TDS/PF/ESI) — money-out. Settles the statutory
+                payable against THIS imported line; no duplicate line is made. */}
+            {!isCredit && (
+              <div className="rounded-md border border-hairline p-3">
+                <button
+                  type="button"
+                  onClick={() => setShowStatutory((v) => !v)}
+                  className="w-full flex items-center justify-between text-left"
+                >
+                  <span className="text-xs font-semibold text-ink-2">Statutory payment (ESI / PF / TDS challan)?</span>
+                  <Icon name={showStatutory ? "chevron_up" : "chevron_down"} size={14} className="text-ink-3" />
+                </button>
+                {showStatutory && (
+                  <div className="mt-2 space-y-2">
+                    <p className="text-[11px] text-ink-3">
+                      Records this {rupee(amount)} as a statutory payment to the government and clears it from your “dues payable”. Pick which challan this is:
+                    </p>
+                    <div className="grid grid-cols-4 gap-1.5">
+                      {(["esi", "pf", "tds", "mixed"] as const).map((k) => (
+                        <button
+                          key={k}
+                          type="button"
+                          onClick={() => setStatutoryKind(k)}
+                          className={`rounded-md border px-2 py-1.5 text-xs font-medium uppercase ${statutoryKind === k ? "border-indigo bg-indigo/10 text-indigo" : "border-hairline text-ink-2"}`}
+                        >
+                          {k}
+                        </button>
+                      ))}
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="primary"
+                      icon="check"
+                      disabled={bookStatutory.isPending}
+                      loading={bookStatutory.isPending}
+                      onClick={handleBookStatutory}
+                    >
+                      Book {rupee(amount)} as {statutoryKind.toUpperCase()} paid
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Pay (part of) a salary — money-out lines. Applies THIS line's
+                amount to a chosen salary. If it's less than the full salary,
+                the salary goes "partially paid" and the rest stays owed. */}
+            {!isCredit && (payableSalaries ?? []).length > 0 && (
+              <div className="rounded-md border border-hairline p-3">
+                <button
+                  type="button"
+                  onClick={() => setShowSalary((v) => !v)}
+                  className="w-full flex items-center justify-between text-left"
+                >
+                  <span className="text-xs font-semibold text-ink-2">Pay a salary (full or part)</span>
+                  <Icon name={showSalary ? "chevron_up" : "chevron_down"} size={14} className="text-ink-3" />
+                </button>
+                {!showSalary ? (
+                  <p className="text-[11px] text-ink-3 mt-1 leading-relaxed">
+                    Paid a salary from this {rupee(amount)}? Pick it — if it&apos;s less than the full salary, the rest stays owed as a balance.
+                  </p>
+                ) : (
+                  <ul className="mt-2 space-y-1 max-h-56 overflow-y-auto pr-1">
+                    {(payableSalaries ?? []).map((s) => {
+                      const fits = s.remaining >= amount; // guard against over-paying a salary
+                      const full = s.remaining === amount;
+                      return (
+                        <li key={s.id}>
+                          <div className="flex items-center gap-2 rounded-md border border-hairline px-2.5 py-1.5">
+                            <span className="flex-1 min-w-0">
+                              <span className="block text-sm text-ink truncate">
+                                {s.employee_name} · {s.period}
+                              </span>
+                              <span className="block text-[10px] text-ink-3">
+                                {s.paid_status === "partial"
+                                  ? `Paid ${rupee(s.paid_amount)} / ${rupee(s.net)} · ${rupee(s.remaining)} left`
+                                  : `Salary ${rupee(s.net)}`}
+                              </span>
+                            </span>
+                            <Button
+                              size="sm"
+                              variant={fits ? "primary" : "ghost"}
+                              disabled={!fits || reconcile.isPending}
+                              title={fits ? undefined : `This line (${rupee(amount)}) is more than the ${rupee(s.remaining)} left on this salary`}
+                              onClick={() => handleSalaryMatch(s.id)}
+                            >
+                              {full ? "Pay in full" : `Apply ${rupee(amount)}`}
+                            </Button>
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </div>
+            )}
+
+            {/* Combine several expenses into one bank line (money-out only).
+                e.g. multiple bills, or 2 months' salary, paid in one transfer. */}
+            {!isCredit && (candidateExpenses ?? []).length > 0 && (
+              <div className="rounded-md border border-hairline p-3">
+                <button
+                  type="button"
+                  onClick={() => setShowSplit((v) => !v)}
+                  className="w-full flex items-center justify-between text-left"
+                >
+                  <span className="text-xs font-semibold text-ink-2">Combine multiple expenses</span>
+                  <Icon name={showSplit ? "chevron_up" : "chevron_down"} size={14} className="text-ink-3" />
+                </button>
+                {!showSplit && (
+                  <p className="text-[11px] text-ink-3 mt-1 leading-relaxed">
+                    Paid several bills — or 2 months&apos; salary — in one transfer? Tick the expenses that add up to {rupee(amount)}.
+                  </p>
+                )}
+                {showSplit && (
+                  <div className="mt-2 space-y-2">
+                    <ul className="max-h-52 overflow-y-auto space-y-1 pr-1">
+                      {(candidateExpenses ?? []).map((e) => (
+                        <li key={e.id}>
+                          <label className="flex items-center gap-2 rounded-md border border-hairline px-2.5 py-1.5 cursor-pointer hover:border-hairline-strong">
+                            <input
+                              type="checkbox"
+                              checked={pickedExpenses.has(e.id)}
+                              onChange={() => toggleExpense(e.id)}
+                              className="rounded border-hairline"
+                            />
+                            <span className="flex-1 min-w-0">
+                              <span className="block text-sm text-ink truncate">
+                                {e.category}{e.vendor_name ? ` · ${e.vendor_name}` : ""}
+                              </span>
+                              <span className="block text-[10px] text-ink-3 truncate">
+                                {formatDate(e.expense_date)}{e.description ? ` · ${e.description}` : ""}
+                              </span>
+                            </span>
+                            <span className="font-mono text-sm text-ink shrink-0">{rupee(e.amount)}</span>
+                          </label>
+                        </li>
+                      ))}
+                    </ul>
+                    <div className={`flex items-center justify-between text-[12px] font-medium ${pickedExpenseTotal === amount ? "text-emerald" : "text-ink-3"}`}>
+                      <span>{pickedExpenses.size} selected</span>
+                      <span className="font-mono">
+                        {rupee(pickedExpenseTotal)} / {rupee(amount)}{pickedExpenseTotal === amount ? " ✓" : ""}
+                      </span>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="primary"
+                      icon="check"
+                      disabled={pickedExpenses.size === 0 || pickedExpenseTotal !== amount || reconcileExpenses.isPending}
+                      loading={reconcileExpenses.isPending}
+                      onClick={handleExpenseSplit}
+                    >
+                      Reconcile {pickedExpenses.size || ""} expense{pickedExpenses.size === 1 ? "" : "s"}
+                    </Button>
+                  </div>
+                )}
               </div>
             )}
 
             {/* Manual reconcile escape hatch */}
             <div className="rounded-md border border-hairline bg-paper-2/30 p-3">
               <p className="text-xs font-semibold text-ink-2 mb-1">
-                None of these match?
+                None of these match? / Failed or reversed?
               </p>
               <p className="text-[11px] text-ink-3 mb-3 leading-relaxed">
-                Mark this reconciled without linking it to a customer payment
-                or vendor expense. Useful for bank charges, interest income,
-                or transfers between your own accounts.
+                Mark this reconciled without any income/expense entry. Use it for
+                bank charges, interest, own-account transfers — and for a{" "}
+                <b>failed / reversed transaction</b> (e.g. ATM didn&apos;t dispense
+                but was debited, then reversed): mark <b>both</b> the −₹ and the +₹
+                line this way. They cancel out, so nothing needs to be booked.
               </p>
               <Button
                 size="sm"

@@ -22,15 +22,68 @@ import {
   type Expense,
 } from "@/lib/queries/expenses";
 import { AddExpenseDialog } from "@/components/features/accounting/add-expense-dialog";
+import { useSalaryPayments } from "@/lib/queries/payroll";
 
-function thisMonthRange(): { from: string; to: string } {
-  const now    = new Date();
-  const ist    = new Date(now.getTime() + 5.5 * 60 * 60 * 1000);
-  const yyyy   = ist.getUTCFullYear();
-  const mm     = String(ist.getUTCMonth() + 1).padStart(2, "0");
-  const today  = String(ist.getUTCDate()).padStart(2, "0");
-  return { from: `${yyyy}-${mm}-01`, to: `${yyyy}-${mm}-${today}` };
+type DateRange = { from: string; to: string };
+
+/** Reconcile tag shown next to a Salaries expense's category. Salary expenses
+ *  reflect their salary's paid-status (which supports PARTIAL payments); every
+ *  other expense uses its own reconciled_txn_id. */
+type SalMini = { paid_status: "unpaid" | "partial" | "paid"; paid_amount: number; net: number };
+function reconcileTag(e: Expense, sal?: SalMini):
+  { tone: "emerald" | "amber"; label: string; title?: string } | null {
+  if (e.category === "Salaries" && sal) {
+    if (sal.paid_status === "paid") return { tone: "emerald", label: "✓ Reconciled" };
+    if (sal.paid_status === "partial") {
+      return {
+        tone: "amber",
+        label: `◐ Partial · ${rupee(sal.paid_amount)}/${rupee(sal.net)}`,
+        title: `Partly reconciled — ${rupee(sal.net - sal.paid_amount)} still owed. Reconcile another bank line in Banking to clear it.`,
+      };
+    }
+    return null; // unpaid salary — no tag
+  }
+  if (e.reconciled_txn_id) return { tone: "emerald", label: "✓ Reconciled" };
+  return null;
 }
+function ReconcileTag({ tone, label, title }: { tone: "emerald" | "amber"; label: string; title?: string }) {
+  const cls = tone === "emerald" ? "bg-emerald/10 text-emerald" : "bg-amber-soft text-amber-ink";
+  return (
+    <span title={title} className={`ml-2 inline-flex items-center gap-0.5 rounded-full ${cls} px-1.5 py-0.5 text-[10px] font-medium align-middle`}>
+      {label}
+    </span>
+  );
+}
+
+const iso = (y: number, m: number, d: number) =>
+  `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+const lastDay = (y: number, m: number) => new Date(Date.UTC(y, m, 0)).getUTCDate(); // m = 1..12
+
+function istNow() {
+  const n = new Date();
+  const ist = new Date(n.getTime() + 5.5 * 60 * 60 * 1000);
+  return { y: ist.getUTCFullYear(), m: ist.getUTCMonth() + 1, d: ist.getUTCDate() };
+}
+
+function thisMonthRange(): DateRange {
+  const { y, m, d } = istNow();
+  return { from: iso(y, m, 1), to: iso(y, m, d) };
+}
+
+// Quick presets (Indian FY = Apr 1 → Mar 31).
+const RANGE_PRESETS: { id: string; label: string; range: () => DateRange }[] = [
+  { id: "month",    label: "This month",   range: () => { const { y, m } = istNow(); return { from: iso(y, m, 1), to: iso(y, m, lastDay(y, m)) }; } },
+  { id: "quarter",  label: "This quarter", range: () => { const { y, m } = istNow(); const qs = Math.floor((m - 1) / 3) * 3 + 1; return { from: iso(y, qs, 1), to: iso(y, qs + 2, lastDay(y, qs + 2)) }; } },
+  { id: "half",     label: "Half-year",    range: () => {
+      // FY half-years (Indian FY Apr–Mar): H1 = Apr–Sep, H2 = Oct–Mar.
+      const { y, m } = istNow();
+      if (m >= 4 && m <= 9) return { from: iso(y, 4, 1),  to: iso(y, 9, 30) };       // H1
+      if (m >= 10)          return { from: iso(y, 10, 1), to: iso(y + 1, 3, 31) };   // H2 (Oct–Dec side)
+      return { from: iso(y - 1, 10, 1), to: iso(y, 3, 31) };                          // H2 (Jan–Mar side)
+    } },
+  { id: "fy",       label: "This FY",      range: () => { const { y, m } = istNow(); const fs = m >= 4 ? y : y - 1; return { from: iso(fs, 4, 1), to: iso(fs + 1, 3, 31) }; } },
+  { id: "prevfy",   label: "Previous FY",  range: () => { const { y, m } = istNow(); const fs = m >= 4 ? y : y - 1; return { from: iso(fs - 1, 4, 1), to: iso(fs, 3, 31) }; } },
+];
 
 export default function ExpensesPage() {
   const [range, setRange]     = React.useState(thisMonthRange());
@@ -41,6 +94,13 @@ export default function ExpensesPage() {
   const q       = useExpenses({ from: range.from, to: range.to, category: catFilter || undefined });
   const totalsQ = useExpensesTotals(range);
   const del     = useDeleteExpense();
+  const salariesQ = useSalaryPayments();
+
+  // expense_id → its salary payment (for the partial/paid reconcile tag).
+  const salByExpense = React.useMemo(
+    () => new Map((salariesQ.data ?? []).filter((s) => s.expense_id).map((s) => [s.expense_id as string, s])),
+    [salariesQ.data],
+  );
 
   const rows      = q.data ?? [];
   const isLoading = q.isLoading;
@@ -82,6 +142,27 @@ export default function ExpensesPage() {
 
       {/* Filter strip */}
       <Card className="mb-5 p-3 md:p-4">
+        {/* Quick range presets */}
+        <div className="flex flex-wrap items-center gap-1.5 mb-3">
+          {RANGE_PRESETS.map((p) => {
+            const r = p.range();
+            const active = range.from === r.from && range.to === r.to;
+            return (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => setRange(r)}
+                className={`rounded-full px-3 py-1 text-xs font-medium border transition-colors ${
+                  active
+                    ? "bg-amber text-white border-amber"
+                    : "bg-paper border-hairline text-ink-2 hover:border-hairline-strong"
+                }`}
+              >
+                {p.label}
+              </button>
+            );
+          })}
+        </div>
         <div className="flex flex-wrap items-center gap-3">
           <label className="text-xs text-ink-3 font-semibold uppercase tracking-wide">From</label>
           <input type="date" value={range.from}
@@ -141,7 +222,10 @@ export default function ExpensesPage() {
                 {rows.map((e) => (
                   <tr key={e.id} className="hover:bg-paper-2/40">
                     <td className="px-3 py-3 text-ink-2 whitespace-nowrap">{formatDate(e.expense_date)}</td>
-                    <td className="px-3 py-3 text-ink whitespace-nowrap">{e.category}</td>
+                    <td className="px-3 py-3 text-ink whitespace-nowrap">
+                      {e.category}
+                      {(() => { const t = reconcileTag(e, salByExpense.get(e.id)); return t ? <ReconcileTag {...t} /> : null; })()}
+                    </td>
                     <td className="px-3 py-3 text-ink-2 whitespace-nowrap">{e.vendor_name ?? "—"}</td>
                     <td className="px-3 py-3 text-ink-3">
                       <span className="block max-w-[280px] truncate" title={e.description ?? undefined}>{e.description ?? "—"}</span>
@@ -176,7 +260,10 @@ export default function ExpensesPage() {
               <li key={e.id}>
                 <Card className="p-4">
                   <div className="flex items-start justify-between gap-2 mb-1">
-                    <div className="font-medium text-ink leading-tight">{e.category}</div>
+                    <div className="font-medium text-ink leading-tight">
+                      {e.category}
+                      {(() => { const t = reconcileTag(e, salByExpense.get(e.id)); return t ? <ReconcileTag {...t} /> : null; })()}
+                    </div>
                     <div className="font-serif text-xl text-ink leading-none">{rupee(e.amount)}</div>
                   </div>
                   <div className="text-[11px] text-ink-3 mb-1.5">

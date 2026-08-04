@@ -18,6 +18,8 @@ import {
   StyleSheet,
 } from "@react-pdf/renderer";
 import { rupee, formatDate } from "@/lib/utils";
+import { isExportSupply } from "@/lib/gst/place-of-supply";
+import { isForeignCurrency, foreignEquivalent, formatForeign } from "@/lib/currency";
 import type {
   Invoice,
   QuoteLineItem,
@@ -45,6 +47,10 @@ export interface InvoicePDFProps {
   customerEmail?:   string | null;
   customerAddress?: string | null;
   customerState?:   string | null;
+  customerCountry?: string | null;   // foreign → export (zero-rated under LUT)
+  currency?:        string | null;   // billing currency (books stay ₹)
+  exchangeRate?:    number | null;   // INR per unit of currency
+  termsConditions?: string | null;   // document-level T&C (migration 0162)
 
   // Tenant (supplier)
   tenantName:    string;
@@ -323,13 +329,23 @@ export function InvoicePDF(props: InvoicePDFProps) {
   const {
     invoice, lineItems, subtotal, discountPct, discount, taxable, taxRate, tax, total,
     interState = false,
-    customerGstin, customerEmail, customerAddress, customerState,
+    customerGstin, customerEmail, customerAddress, customerState, customerCountry,
+    currency, exchangeRate, termsConditions,
     tenantName, tenantGstin, tenantEmail, tenantPhone, tenantAddress, tenantState,
   } = props;
 
   const cgst = interState ? 0 : Math.round(tax / 2);
   const sgst = interState ? 0 : tax - cgst;
   const igst = interState ? tax : 0;
+  // Export supply (recipient outside India) → zero-rated under LUT, no GST.
+  const isExport = isExportSupply(customerCountry);
+  const isForeign = isForeignCurrency(currency);
+  const rate = exchangeRate ?? 1;
+  // Foreign-currency (export) invoices are shown in the CLIENT's currency (USD…)
+  // — that's what an international customer asks for. The books stay ₹, so the INR
+  // equivalent is printed as a GST/GSTR-1 reference. `money()` renders every amount
+  // in the invoice's display currency.
+  const money = (inr: number) => (isForeign ? formatForeign(foreignEquivalent(inr, rate), currency ?? "") : rupee(inr));
 
   const advances: InvoiceAdvanceAdjustment[] = invoice.adjusted_advances ?? [];
   const advancesTotal = advances.reduce((acc, a) => acc + a.amount, 0);
@@ -391,7 +407,7 @@ export function InvoicePDF(props: InvoicePDFProps) {
           <View style={s.metaCell}>
             <Text style={s.metaLabel}>Place of supply</Text>
             <Text style={s.metaValue}>
-              {interState ? "Inter-state (IGST)" : "Intra-state (CGST + SGST)"}
+              {isExport ? `Export · ${customerCountry ?? "outside India"}` : interState ? "Inter-state (IGST)" : "Intra-state (CGST + SGST)"}
             </Text>
           </View>
         </View>
@@ -426,8 +442,8 @@ export function InvoicePDF(props: InvoicePDFProps) {
                 </View>
                 <Text style={s.tdHsn}>998313</Text>
                 <Text style={s.tdQty}>{li.qty}</Text>
-                <Text style={s.tdRate}>{rupee(li.rate)}</Text>
-                <Text style={s.tdAmt}>{rupee(li.qty * li.rate)}</Text>
+                <Text style={s.tdRate}>{money(li.rate)}</Text>
+                <Text style={s.tdAmt}>{money(li.qty * li.rate)}</Text>
               </View>
             ))
           )}
@@ -438,39 +454,51 @@ export function InvoicePDF(props: InvoicePDFProps) {
           <View style={s.totalsBox}>
             <View style={s.totalRow}>
               <Text style={s.totalLabel}>Subtotal</Text>
-              <Text style={s.totalValue}>{rupee(subtotal)}</Text>
+              <Text style={s.totalValue}>{money(subtotal)}</Text>
             </View>
             {discountPct > 0 && (
               <View style={s.totalRow}>
                 <Text style={s.totalLabel}>Discount ({discountPct}%)</Text>
-                <Text style={s.totalValueAccent}>-{rupee(discount)}</Text>
+                <Text style={s.totalValueAccent}>-{money(discount)}</Text>
               </View>
             )}
             <View style={[s.totalRow, s.totalRowDivider]}>
               <Text style={s.totalLabel}>Taxable value</Text>
-              <Text style={s.totalValue}>{rupee(taxable)}</Text>
+              <Text style={s.totalValue}>{money(taxable)}</Text>
             </View>
-            {interState ? (
+            {isExport ? (
+              <View style={s.totalRow}>
+                <Text style={s.totalLabel}>Export — zero-rated (LUT), no GST</Text>
+                <Text style={s.totalValue}>{money(0)}</Text>
+              </View>
+            ) : interState ? (
               <View style={s.totalRow}>
                 <Text style={s.totalLabel}>IGST @ {taxRate}%</Text>
-                <Text style={s.totalValue}>{rupee(igst)}</Text>
+                <Text style={s.totalValue}>{money(igst)}</Text>
               </View>
             ) : (
               <>
                 <View style={s.totalRow}>
                   <Text style={s.totalLabel}>CGST @ {taxRate / 2}%</Text>
-                  <Text style={s.totalValue}>{rupee(cgst)}</Text>
+                  <Text style={s.totalValue}>{money(cgst)}</Text>
                 </View>
                 <View style={s.totalRow}>
                   <Text style={s.totalLabel}>SGST @ {taxRate / 2}%</Text>
-                  <Text style={s.totalValue}>{rupee(sgst)}</Text>
+                  <Text style={s.totalValue}>{money(sgst)}</Text>
                 </View>
               </>
             )}
             <View style={s.grandTotalRow}>
               <Text style={s.grandLabel}>Invoice total</Text>
-              <Text style={s.grandValue}>{rupee(total)}</Text>
+              <Text style={s.grandValue}>{money(total)}</Text>
             </View>
+            {isForeign && (
+              /* Books stay ₹ — print the INR equivalent for GST / GSTR-1 filing. */
+              <View style={s.totalRow}>
+                <Text style={s.totalLabel}>INR equivalent (for GST) @ Rs {exchangeRate}/{currency}</Text>
+                <Text style={s.totalValue}>{rupee(total)}</Text>
+              </View>
+            )}
           </View>
         </View>
 
@@ -486,16 +514,16 @@ export function InvoicePDF(props: InvoicePDFProps) {
                 <Text style={s.advVoucher}>{adv.voucher_no ?? "—"}</Text>
                 <Text style={s.advDate}>{formatDate(adv.received_at)}</Text>
                 <Text style={s.advMethod}>{adv.method.toUpperCase()}</Text>
-                <Text style={s.advAmount}>{rupee(adv.amount)}</Text>
+                <Text style={s.advAmount}>{money(adv.amount)}</Text>
               </View>
             ))}
             <View style={s.advTotal}>
               <Text>Advance adjusted</Text>
-              <Text>{rupee(advancesTotal)}</Text>
+              <Text>{money(advancesTotal)}</Text>
             </View>
             <View style={[s.advTotal, { borderTopWidth: 0, paddingTop: 2, marginTop: 2 }]}>
               <Text style={s.netLabel}>Net payable</Text>
-              <Text style={s.netValue}>{rupee(netPayable)}</Text>
+              <Text style={s.netValue}>{money(netPayable)}</Text>
             </View>
           </View>
         )}
@@ -512,8 +540,14 @@ export function InvoicePDF(props: InvoicePDFProps) {
           </Text>
           <Text style={s.footerLine}>
             <Text style={s.footerBold}>Payment terms: </Text>
-            Net 30 days from invoice date. UPI / NEFT / Razorpay accepted.
+            {invoice.due_date ? `Due by ${formatDate(invoice.due_date)}. ` : ""}UPI / NEFT / Razorpay accepted.
           </Text>
+          {termsConditions?.trim() ? (
+            <Text style={[s.footerLine, { marginTop: 6 }]}>
+              <Text style={s.footerBold}>Terms &amp; conditions: </Text>
+              {termsConditions.trim()}
+            </Text>
+          ) : null}
           <Text style={[s.footerLine, { marginTop: 8, fontFamily: "Helvetica-Bold", color: COLORS.ink2 }]}>
             For {tenantName}
           </Text>

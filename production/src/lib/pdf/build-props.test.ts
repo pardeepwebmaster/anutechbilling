@@ -38,11 +38,38 @@ describe("buildInvoicePdfProps", () => {
     expect(buildInvoicePdfProps({ invoice, quote, customer, tenant }).interState).toBe(true);
   });
 
-  it("falls back to invoice.amount when there is no quote", () => {
+  it("carries the quote's foreign currency onto the invoice PDF (export USD invoice)", () => {
+    const usdQuote = { ...quote, currency: "USD", exchange_rate: 83 } as unknown as Quote;
+    const p = buildInvoicePdfProps({ invoice, quote: usdQuote, customer: null, tenant });
+    expect(p.currency).toBe("USD");
+    expect(p.exchangeRate).toBe(83);
+  });
+
+  it("has no foreign currency for a domestic (₹) quote", () => {
+    const p = buildInvoicePdfProps({ invoice, quote, customer: null, tenant });
+    expect(p.currency ?? null).toBeNull();
+  });
+
+  it("quote-less invoice derives real GST from the inclusive amount (MONEY-5)", () => {
+    // No quote (e.g. project-milestone invoice) + no persisted breakdown →
+    // reverse-derive at 18% so the PDF shows real GST, not ₹0.
     const p = buildInvoicePdfProps({ invoice, quote: null, customer: null, tenant });
     expect(p.total).toBe(38232);
-    expect(p.subtotal).toBe(38232);
+    expect(p.subtotal).toBe(32400);   // taxable = round(38232 × 100/118)
+    expect(p.taxable).toBe(32400);
+    expect(p.tax).toBe(5832);         // 38232 − 32400
+    expect(p.taxRate).toBe(18);
     expect(p.lineItems).toEqual([]);
+  });
+
+  it("quote-less invoice uses the breakdown persisted on the invoice (migration 0116)", () => {
+    const inv = { id: "INV-2", amount: 118000, customer_name: "Acme", tenant_id: "t1",
+      taxable_value: 100000, tax_amount: 18000, tax_rate: 18, inter_state: true } as unknown as Invoice;
+    const p = buildInvoicePdfProps({ invoice: inv, quote: null, customer: null, tenant });
+    expect(p.taxable).toBe(100000);
+    expect(p.tax).toBe(18000);
+    expect(p.total).toBe(118000);
+    expect(p.interState).toBe(true);  // persisted head wins
   });
 });
 

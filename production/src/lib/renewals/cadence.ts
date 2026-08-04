@@ -104,25 +104,37 @@ export function decideCadence(input: CadenceInput): CadenceDecision {
     };
   }
 
-  // Future — match the cadence trigger table
-  const trigger = CADENCE_TRIGGERS.find((t) => t.daysOut === daysOut);
+  // Future — CATCH-UP match (audit bug #21): fire the most-urgent cadence
+  // trigger that should have fired by today — the trigger with the smallest
+  // daysOut still ≥ today's daysOut. So a missed cron day (outage / deploy) or
+  // a renewal_date nudged onto a non-trigger day (T-2, T-1) still fires the
+  // right reminder instead of being silently skipped until T-0.
+  //
+  // We never resend a step already reached: cadence state progresses linearly
+  // through CADENCE_TRIGGERS, so we only send when the target step is MORE
+  // advanced (higher index) than the current state. The cron's
+  // renewal_email_log adds a second, independent (sub, step) idempotency guard.
+  const reached = CADENCE_TRIGGERS.filter((t) => daysOut <= t.daysOut);
+  const trigger = reached.length > 0 ? reached[reached.length - 1] : null;
   if (trigger) {
+    const rankOf = (s: RenewalState) => CADENCE_TRIGGERS.findIndex((t) => t.step === s);
+    const isTerminal = input.currentState === "renewed" || input.currentState === "suspended";
     return {
-      targetState:    trigger.step,
+      targetState:      trigger.step,
       daysUntilRenewal: daysOut,
-      shouldSendEmail: input.currentState !== trigger.step,
-      tone:           trigger.tone,
-      shouldSuspend:  false,
+      shouldSendEmail:  !isTerminal && rankOf(trigger.step) > rankOf(input.currentState),
+      tone:             trigger.tone,
+      shouldSuspend:    false,
     };
   }
 
-  // Between triggers — keep current state, no email
+  // Before the first trigger (d ≥ 16) — pending, no email
   return {
-    targetState:    daysOut >= 16 ? "pending" : input.currentState,
+    targetState:      "pending",
     daysUntilRenewal: daysOut,
-    shouldSendEmail: false,
-    tone:           null,
-    shouldSuspend:  false,
+    shouldSendEmail:  false,
+    tone:             null,
+    shouldSuspend:    false,
   };
 }
 

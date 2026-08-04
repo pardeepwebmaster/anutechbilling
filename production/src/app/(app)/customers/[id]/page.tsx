@@ -15,53 +15,64 @@ import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 
-import { useCustomer, useDeleteCustomer, customerDeleteBlockReason } from "@/lib/queries/customers";
+import { useCustomer, useDeleteCustomer, useCustomerOpenCredit, customerDeleteBlockReason } from "@/lib/queries/customers";
+import { useCustomerGroups } from "@/lib/queries/customer-groups";
 import { useCustomerSubscriptions } from "@/lib/queries/subscriptions";
 import { useCustomerInvoices, useCustomerQuotes } from "@/lib/queries/invoices";
+import { usePayments } from "@/lib/queries/payments";
 import { useCustomerProjects } from "@/lib/queries/projects";
+import { CreateProjectQuoteDialog } from "@/components/features/projects/create-project-quote-dialog";
 import { Card } from "@/components/ui/card";
 import { Button, IconButton } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/shared/empty-state";
-import { TabBar, type TabBarItem } from "@/components/ui/tabs";
+import { TabBar } from "@/components/ui/tabs";
 import { Icon } from "@/components/ui/icon";
-import { formatDate, formatPhone, rupee, daysBetween, cn } from "@/lib/utils";
+import { formatDate, rupee, daysBetween, cn } from "@/lib/utils";
 import {
   deriveCustomerInsights,
   CustomerMetricBar,
   NextBestActionCard,
-  CustomerContactActions,
   SubscriptionList,
   CustomerActivity,
-  CustomerDetailsGrid,
+  CustomerIdentityRail,
 } from "@/components/features/customers/customer-insights";
-import { AddCustomerForm } from "@/components/features/customers/add-customer-form";
+import { AddReferralDialog } from "@/components/features/referrals/add-referral-dialog";
+import { useReferralAgreements } from "@/lib/queries/referral-partners";
+import { InvoiceChooserDialog } from "@/components/features/invoices/invoice-chooser-dialog";
 
 export default function CustomerDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
 
   const { data: customer, isLoading, error } = useCustomer(params.id);
+  const { data: allGroups } = useCustomerGroups();
   const { data: subs }     = useCustomerSubscriptions(params.id);
   const { data: invoices } = useCustomerInvoices(params.id);
   const { data: quotes }   = useCustomerQuotes(params.id);
   const { data: projects } = useCustomerProjects(params.id);
+  const { data: openCredit } = useCustomerOpenCredit(params.id);
+  const { data: allPayments } = usePayments();
 
   const searchParams = useSearchParams();
-  const [tab, setTab] = React.useState("activity");
-  const [editOpen, setEditOpen] = React.useState(false);
+  const [mainTab, setMainTab] = React.useState<"overview" | "transactions" | "statement">("overview");
+  const [svcView, setSvcView] = React.useState<"subscription" | "project">("subscription");
+  const [projQuoteOpen, setProjQuoteOpen] = React.useState(false);
+  const [referralOpen, setReferralOpen] = React.useState(false);
+  const [invoiceOpen, setInvoiceOpen] = React.useState(false);
+  const [projInvoiceOpen, setProjInvoiceOpen] = React.useState(false);
+  const { data: agreements } = useReferralAgreements(params.id);
   const deleteCustomer = useDeleteCustomer();
 
-  // Deep-link: /customers/[id]?edit=1 opens the edit form straight away
+  // Deep-link: /customers/[id]?edit=1 sends straight to the full-page edit form
   // (used by the "Complete customer" nudge on a project with missing GST info).
   const editParamHandled = React.useRef(false);
   React.useEffect(() => {
     if (editParamHandled.current) return;
     if (searchParams.get("edit") === "1") {
       editParamHandled.current = true;
-      setEditOpen(true);
-      router.replace(`/customers/${params.id}` as never);
+      router.replace(`/customers/${params.id}/edit` as never);
     }
   }, [searchParams, router, params.id]);
 
@@ -107,7 +118,28 @@ export default function CustomerDetailPage() {
   const allSubs = subs ?? [];
   const allInvoices = invoices ?? [];
   const allQuotes = quotes ?? [];
-  const insights = deriveCustomerInsights(c, allSubs, allInvoices);
+  const allProjects = projects ?? [];
+  const insights = deriveCustomerInsights(c, allSubs, allInvoices, allProjects, allQuotes);
+  const customerPayments = (allPayments ?? []).filter((p) => p.customer_id === c.id);
+
+  // Unified transactions feed (Zoho "Transactions" tab) — every money record.
+  const txns = [
+    ...allInvoices.map((i) => ({ date: i.invoice_date, type: "Invoice" as const, ref: i.id, amount: i.amount, status: i.status, onClick: undefined as (() => void) | undefined })),
+    ...customerPayments.map((p) => ({ date: p.status === "refunded" ? (p.refunded_at ?? p.received_at) : p.received_at, type: p.status === "refunded" ? ("Refund" as const) : ("Payment" as const), ref: p.receipt_voucher_no ?? p.id, amount: p.amount, status: p.status, onClick: undefined as (() => void) | undefined })),
+    ...allQuotes.map((q) => ({ date: q.created_date, type: "Quote" as const, ref: q.id, amount: q.amount, status: q.status, onClick: () => router.push(`/quotes/${q.id}` as never) })),
+    ...allProjects.map((p) => ({ date: p.created_at, type: "Project" as const, ref: p.title, amount: p.total_amount, status: p.status, onClick: () => router.push(`/projects/${p.id}` as never) })),
+  ].sort((a, b) => (b.date ?? "").localeCompare(a.date ?? ""));
+
+  // Running-balance ledger (Zoho "Statement" tab). Invoice = debit (owed),
+  // payment = credit; positive closing balance = receivable still owed.
+  const ledgerRaw = [
+    ...allInvoices.map((i) => ({ date: i.invoice_date, desc: `Invoice ${i.id}`, debit: i.amount, credit: 0 })),
+    ...customerPayments.filter((p) => p.status === "received").map((p) => ({ date: p.received_at, desc: `Payment received${p.receipt_voucher_no ? ` · ${p.receipt_voucher_no}` : ""}`, debit: 0, credit: p.amount })),
+    ...customerPayments.filter((p) => p.status === "refunded").map((p) => ({ date: p.refunded_at ?? p.received_at, desc: `Refund${p.receipt_voucher_no ? ` · ${p.receipt_voucher_no}` : ""}`, debit: p.amount, credit: 0 })),
+  ].sort((a, b) => (a.date ?? "").localeCompare(b.date ?? ""));
+  let runningBal = 0;
+  const ledger = ledgerRaw.map((e) => { runningBal += e.debit - e.credit; return { ...e, balance: runningBal }; });
+  const closingBalance = runningBal;
 
   // Guarded delete — only an "empty" customer (no money history) can be removed.
   // Client check disables the button; the delete_customer RPC enforces it too
@@ -130,15 +162,9 @@ export default function CustomerDetailPage() {
     : tenureDays >= 30 ? `${Math.floor(tenureDays / 30)}mo`
     : `${Math.max(tenureDays, 0)}d`;
 
-  const healthBadgeKind = c.health >= 85 ? "success" : c.health >= 70 ? "warning" : "danger";
-  const healthLabel = c.health >= 85 ? "Healthy" : c.health >= 70 ? "Watch" : "At risk";
-  const healthColor = c.health >= 85 ? "text-emerald" : c.health >= 70 ? "text-amber-ink" : "text-rose";
-
-  const tabs: TabBarItem[] = [
-    { id: "activity", label: "Activity" },
-    { id: "quotes", label: "Quotes", count: (allQuotes.length + (projects ?? []).length) || undefined },
-    { id: "invoices", label: "Invoices", count: allInvoices.length || undefined },
-  ];
+  const TXN_BADGE: Record<string, "info" | "success" | "danger" | "muted" | "warning"> = {
+    Invoice: "info", Payment: "success", Refund: "danger", Quote: "muted", Project: "warning",
+  };
 
   return (
     <div className="p-4 md:p-6 lg:p-8 max-w-[1240px] mx-auto">
@@ -150,46 +176,30 @@ export default function CustomerDetailPage() {
             <p className="text-xs uppercase tracking-wider text-ink-3 font-semibold mb-1">
               Customer · since {formatDate(c.since)} · {tenure}
             </p>
-            <h1 className="font-serif text-3xl md:text-4xl leading-tight">{c.name}</h1>
-            {/* Contact line under the company name — person + mobile + email, tappable */}
-            <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
-              {c.contact_name && (
-                <span className="inline-flex items-center gap-1.5 text-ink-2">
-                  <Icon name="user" size={13} className="text-ink-3" />
-                  {c.contact_name}
-                </span>
-              )}
-              {c.contact_phone && (
-                <a
-                  href={`tel:${c.contact_phone.replace(/\s+/g, "")}`}
-                  className="inline-flex items-center gap-1.5 text-ink-2 hover:text-amber-ink transition-colors"
-                >
-                  <Icon name="phone" size={13} className="text-ink-3" />
-                  <span className="tabular-nums">{formatPhone(c.contact_phone)}</span>
-                </a>
-              )}
-              {c.contact_email && (
-                <a
-                  href={`mailto:${c.contact_email}`}
-                  className="inline-flex items-center gap-1.5 text-ink-2 hover:text-amber-ink transition-colors"
-                >
-                  <Icon name="mail" size={13} className="text-ink-3" />
-                  <span className="font-mono text-xs">{c.contact_email}</span>
-                </a>
-              )}
-              {(c.domain || c.state) && (
-                <span className="inline-flex items-center gap-1.5 text-ink-3">
-                  {c.domain && <span className="font-mono text-xs">{c.domain}</span>}
-                  {c.domain && c.state && <span>·</span>}
-                  {c.state && <span>{c.state}</span>}
-                </span>
-              )}
-            </div>
+            <h1 className="font-serif text-3xl md:text-4xl leading-tight">{c.display_name || c.name}</h1>
+            {(c.contact_name || c.domain) && (
+              <p className="mt-1 text-sm text-ink-3">
+                {c.contact_name}{c.contact_name && c.contact_title ? ` · ${c.contact_title}` : ""}
+                {c.contact_name && c.domain ? "  ·  " : ""}
+                {c.domain && <span className="font-mono text-xs">{c.domain}</span>}
+              </p>
+            )}
+            {c.group_id && (() => {
+              const g = (allGroups ?? []).find((x) => x.id === c.group_id);
+              return g ? (
+                <Link href={`/customers/groups/${g.id}` as never} className="mt-1.5 inline-flex items-center gap-1 text-xs text-amber hover:underline">
+                  <Icon name="layout" size={12} /> Part of group: {g.name}
+                </Link>
+              ) : null;
+            })()}
           </div>
         </div>
         <div className="flex gap-2 flex-wrap items-center">
-          <CustomerContactActions customer={c} />
-          <Button icon="edit" onClick={() => setEditOpen(true)}>Edit</Button>
+          <Button icon="award" onClick={() => setReferralOpen(true)}>
+            {(agreements ?? []).some((a) => a.status === "active") ? "Referral ✓" : "Add referral"}
+          </Button>
+          <Button icon="edit" onClick={() => router.push(`/customers/${c.id}/edit` as never)}>Edit</Button>
+          <Button icon="receipt" onClick={() => setInvoiceOpen(true)}>Invoice</Button>
           <Button variant="primary" icon="plus" onClick={() => router.push(`/quotes/new?customer=${c.id}` as any)}>New quote</Button>
           <Button
             icon="trash"
@@ -205,32 +215,82 @@ export default function CustomerDetailPage() {
         </div>
       </div>
 
+      {/* Top tabs — Zoho-style customer 360 */}
+      <TabBar
+        value={mainTab}
+        onChange={(v) => setMainTab(v as "overview" | "transactions" | "statement")}
+        items={[
+          { id: "overview",     label: "Overview" },
+          { id: "transactions", label: "Transactions", count: txns.length || undefined },
+          { id: "statement",    label: "Statement" },
+        ]}
+        className="mb-5"
+      />
+
+      {mainTab === "overview" && (
+      <>
       {/* Answer-bar */}
       <div className="mb-4">
         <CustomerMetricBar insights={insights} />
       </div>
+
+      {/* Advance credit held (from an earlier overpayment) — adjustable against the next bill */}
+      {(openCredit ?? 0) > 0 && (
+        <div className="mb-4 flex items-center gap-2 rounded-md border border-emerald/30 bg-emerald-soft/40 px-3 py-2 text-sm">
+          <Icon name="rupee" size={15} className="text-emerald flex-shrink-0" />
+          <span className="text-ink">
+            <b>{rupee(openCredit ?? 0)}</b> advance credit — will be offered to adjust against this customer's next payment.
+          </span>
+        </div>
+      )}
 
       {/* Next-best-action */}
       <div className="mb-6">
         <NextBestActionCard nba={insights.nba} customer={c} />
       </div>
 
-      {/* Body — relationship left, status/detail right */}
-      <div className="grid grid-cols-1 lg:grid-cols-[1.5fr_1fr] gap-4">
-        {/* LEFT */}
-        <div className="space-y-4">
+      {/* Body — identity rail (Zoho-style) on the left, money + activity on the right */}
+      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,340px)_1fr] gap-5">
+        {/* LEFT — who / where / tax + billing details */}
+        <CustomerIdentityRail c={c} />
+
+        {/* RIGHT — subscriptions + activity */}
+        <div className="space-y-4 min-w-0">
           <Card
             title="Subscriptions & projects"
-            sub={allSubs.length > 0 ? `${insights.activeSubs.length} active` : undefined}
+            sub={svcView === "subscription"
+              ? (allSubs.length > 0 ? `${insights.activeSubs.length} active` : undefined)
+              : ((projects ?? []).length > 0 ? `${(projects ?? []).length} project${(projects ?? []).length > 1 ? "s" : ""}` : undefined)}
             actions={
-              <Button size="sm" variant="primary" icon="plus" onClick={() => router.push(`/quotes/new?customer=${c.id}` as any)}>
-                Add service
+              <Button
+                size="sm"
+                variant="primary"
+                icon="plus"
+                onClick={() =>
+                  svcView === "project"
+                    ? setProjQuoteOpen(true)
+                    : router.push(`/quotes/new?customer=${c.id}` as any)
+                }
+              >
+                {svcView === "project" ? "New project quote" : "New subscription"}
               </Button>
             }
           >
-            <SubscriptionList subs={allSubs} />
-            {(projects ?? []).length > 0 && (
-              <div className="mt-3">
+            <div className="mb-3">
+              <TabBar
+                value={svcView}
+                onChange={(v) => setSvcView(v as "subscription" | "project")}
+                items={[
+                  { id: "subscription", label: "Subscription", count: allSubs.length || undefined },
+                  { id: "project",      label: "Project",      count: (projects ?? []).length || undefined },
+                ]}
+              />
+            </div>
+
+            {svcView === "subscription" && <SubscriptionList subs={allSubs} />}
+
+            {svcView === "project" && (
+              (projects ?? []).length > 0 ? (
                 <RecordTable
                   head={["Project", "Total (incl GST)", "Outstanding", "Status", "Created"]}
                   rows={(projects ?? []).map((p) => ({
@@ -246,87 +306,84 @@ export default function CustomerDetailPage() {
                     ],
                   }))}
                 />
-              </div>
+              ) : (
+                <p className="text-sm text-ink-3 py-6 text-center">No projects for this customer yet.</p>
+              )
             )}
           </Card>
 
-          <Card flush>
-            <div className="px-4 pt-3">
-              <TabBar value={tab} onChange={setTab} items={tabs} />
-            </div>
-            <div className="p-4">
-              {tab === "activity" && <CustomerActivity subs={allSubs} invoices={allInvoices} quotes={allQuotes} limit={15} />}
-              {tab === "quotes" && (
-                (allQuotes.length + (projects ?? []).length) > 0 ? (
-                  <RecordTable
-                    head={["Quote / Project", "Type", "Amount", "Status", "Created"]}
-                    rows={[
-                      ...allQuotes.map((q) => ({
-                        onClick: () => router.push(`/quotes/${q.id}` as any),
-                        cells: [
-                          <span key="id" className="font-mono text-xs">{q.id}</span>,
-                          "Subscription",
-                          <span key="a" className="tabular-nums font-medium">{rupee(q.amount)}</span>,
-                          <Badge key="b" kind="info" dot>{q.status}</Badge>,
-                          formatDate(q.created_date),
-                        ],
-                      })),
-                      ...(projects ?? []).map((p) => ({
-                        onClick: () => router.push(`/projects/${p.id}` as any),
-                        cells: [
-                          <span key="t" className="font-medium">{p.title}</span>,
-                          "Project",
-                          <span key="a" className="tabular-nums font-medium">{rupee(p.total_amount)}</span>,
-                          <Badge key="b" kind={p.status === "completed" ? "success" : p.status === "cancelled" ? "muted" : p.status === "quoted" ? "info" : "warning"} dot>
-                            {p.status === "quoted" ? "Quotation" : p.status}
-                          </Badge>,
-                          formatDate(p.created_at),
-                        ],
-                      })),
-                    ]}
-                  />
-                ) : <EmptyState icon="file" title="No quotes yet" body="Create the first quote for this customer." compact
-                      action={<Button variant="primary" icon="plus" onClick={() => router.push(`/quotes/new?customer=${c.id}` as any)}>New quote</Button>} />
-              )}
-              {tab === "invoices" && (
-                allInvoices.length > 0 ? (
-                  <RecordTable
-                    head={["Invoice", "Date", "Due", "Amount", "Status"]}
-                    rows={allInvoices.map((i) => ({
-                      cells: [
-                        <span key="id" className="font-mono text-xs">{i.id}</span>,
-                        formatDate(i.invoice_date),
-                        i.due_date ? formatDate(i.due_date) : "—",
-                        <span key="a" className="tabular-nums font-medium">{rupee(i.amount)}</span>,
-                        <Badge key="b" kind={i.status === "paid" ? "success" : i.status === "overdue" ? "danger" : "warning"} dot>{i.status}</Badge>,
-                      ],
-                    }))}
-                  />
-                ) : <EmptyState icon="receipt" title="No invoices yet" body="Invoices generate automatically when a quote is accepted + paid." compact />
-              )}
-            </div>
-          </Card>
-        </div>
-
-        {/* RIGHT */}
-        <div className="space-y-4">
-          <Card title="Health">
-            <div className="text-center py-2 pb-4">
-              <div className={cn("font-serif text-6xl leading-none", healthColor)}>
-                {c.health}<span className="text-2xl text-ink-3">/100</span>
-              </div>
-              <div className="mt-3"><Badge kind={healthBadgeKind} dot>{healthLabel}</Badge></div>
-              <p className="text-[11px] text-ink-3 mt-2">Customer for {tenure}</p>
-            </div>
-          </Card>
-
-          <Card title="Details">
-            <CustomerDetailsGrid c={c} />
+          <Card title="Recent activity">
+            <CustomerActivity subs={allSubs} invoices={allInvoices} quotes={allQuotes} limit={12} />
           </Card>
         </div>
       </div>
+      </>
+      )}
 
-      <AddCustomerForm open={editOpen} onOpenChange={setEditOpen} customer={c} />
+      {/* ─────────── Transactions — every money record ─────────── */}
+      {mainTab === "transactions" && (
+        <Card flush>
+          <div className="p-4">
+            {txns.length > 0 ? (
+              <RecordTable
+                head={["Date", "Type", "Reference", "Amount", "Status"]}
+                rows={txns.map((t) => ({
+                  onClick: t.onClick,
+                  cells: [
+                    formatDate(t.date),
+                    <Badge key="ty" kind={TXN_BADGE[t.type]} dot>{t.type}</Badge>,
+                    <span key="r" className="font-mono text-xs">{t.ref}</span>,
+                    <span key="a" className="tabular-nums font-medium">{rupee(t.amount)}</span>,
+                    <span key="s" className="text-ink-2 capitalize">{t.status}</span>,
+                  ],
+                }))}
+              />
+            ) : (
+              <EmptyState icon="receipt" title="No transactions yet" body="Quotes, invoices and payments for this customer will appear here." compact />
+            )}
+          </div>
+        </Card>
+      )}
+
+      {/* ─────────── Statement — running-balance ledger ─────────── */}
+      {mainTab === "statement" && (
+        <Card flush>
+          <div className="p-4">
+            {ledger.length > 0 ? (
+              <>
+                <div className="mb-4 flex items-center justify-between gap-3 flex-wrap">
+                  <p className="text-sm text-ink-3">Account statement — invoices billed vs payments received.</p>
+                  <div className="text-right">
+                    <div className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold">Closing balance</div>
+                    <div className={cn("font-serif text-xl tabular-nums", closingBalance > 0 ? "text-rose" : "text-emerald")}>
+                      {closingBalance > 0 ? `${rupee(closingBalance)} owed` : closingBalance < 0 ? `${rupee(-closingBalance)} credit` : rupee(0)}
+                    </div>
+                  </div>
+                </div>
+                <RecordTable
+                  head={["Date", "Details", "Debit", "Credit", "Balance"]}
+                  rows={ledger.map((e) => ({
+                    cells: [
+                      formatDate(e.date),
+                      e.desc,
+                      <span key="d" className="tabular-nums text-ink-2">{e.debit ? rupee(e.debit) : "—"}</span>,
+                      <span key="cr" className="tabular-nums text-emerald">{e.credit ? rupee(e.credit) : "—"}</span>,
+                      <span key="b" className="tabular-nums font-medium">{rupee(e.balance)}</span>,
+                    ],
+                  }))}
+                />
+              </>
+            ) : (
+              <EmptyState icon="file" title="No statement yet" body="Once this customer has invoices and payments, a running statement appears here." compact />
+            )}
+          </div>
+        </Card>
+      )}
+
+      <CreateProjectQuoteDialog open={projQuoteOpen} onOpenChange={setProjQuoteOpen} prefillCustomerId={c.id} />
+      <AddReferralDialog open={referralOpen} onOpenChange={setReferralOpen} customerId={c.id} customerName={c.name} />
+      <InvoiceChooserDialog open={invoiceOpen} onOpenChange={setInvoiceOpen} customerId={c.id} onChooseProject={() => setProjInvoiceOpen(true)} />
+      <CreateProjectQuoteDialog open={projInvoiceOpen} onOpenChange={setProjInvoiceOpen} mode="invoice" prefillCustomerId={c.id} />
     </div>
   );
 }

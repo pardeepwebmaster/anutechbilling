@@ -117,6 +117,13 @@ export function ItemForm({ open, onOpenChange, item }: ItemFormProps) {
       [tier]: { ...(p[tier] ?? blankTier), [field]: Math.max(0, value) },
     }));
   };
+  // Real USD price (per seat / month) for export deals.
+  const setUsd = (field: "msrp" | "wholesale", value: number) => {
+    setPrices((p) => ({
+      ...p,
+      usd: { ...(p.usd ?? blankTier), [field]: Math.max(0, value) },
+    }));
+  };
 
   const {
     register,
@@ -169,6 +176,8 @@ export function ItemForm({ open, onOpenChange, item }: ItemFormProps) {
       const v = prices[tier];
       if (v && (v.msrp > 0 || v.wholesale > 0)) cleanPrices[tier] = v;
     }
+    // Preserve the optional real USD price (per seat / month) for export deals.
+    if (prices.usd && (prices.usd.msrp > 0 || prices.usd.wholesale > 0)) cleanPrices.usd = prices.usd;
 
     if (Object.keys(cleanPrices).length === 0) {
       // No tier filled — error out
@@ -392,6 +401,50 @@ export function ItemForm({ open, onOpenChange, item }: ItemFormProps) {
                 </div>
               );
             })}
+          </div>
+
+          {/* ─── USD price (export / international deals) ─── */}
+          <div className="rounded-lg border border-hairline overflow-hidden">
+            <div className="px-3 py-2 bg-paper-2 border-b border-hairline">
+              <div className="text-sm font-semibold text-ink inline-flex items-center gap-2 flex-wrap">
+                🌍 USD price <Badge kind="info" size="sm">Export · optional</Badge>
+              </div>
+              <div className="text-[11px] text-ink-3">
+                Product ka <b>asli USD price</b> (jaise Google ka published $ rate) — ₹ se convert NAHI.
+                International customer ko USD me quote/invoice tab ye use hoga. Khaali chhodo to ₹ price
+                convert ho jayega.
+              </div>
+            </div>
+            <div className="px-4 py-3 grid grid-cols-2 gap-3">
+              <FormField label="USD price (customer)" htmlFor="usd_msrp">
+                <Input
+                  id="usd_msrp"
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  prefix="$"
+                  suffix="/seat/mo"
+                  placeholder="0.00"
+                  value={prices.usd?.msrp || ""}
+                  onChange={(e) => setUsd("msrp", parseFloat(e.target.value) || 0)}
+                  className="text-right tabular-nums"
+                />
+              </FormField>
+              <FormField label="USD cost (wholesale)" htmlFor="usd_wholesale">
+                <Input
+                  id="usd_wholesale"
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  prefix="$"
+                  suffix="/seat/mo"
+                  placeholder="0.00"
+                  value={prices.usd?.wholesale || ""}
+                  onChange={(e) => setUsd("wholesale", parseFloat(e.target.value) || 0)}
+                  className="text-right tabular-nums"
+                />
+              </FormField>
+            </div>
           </div>
 
           {/* ─── Partner pricing (distributor only) ─── */}

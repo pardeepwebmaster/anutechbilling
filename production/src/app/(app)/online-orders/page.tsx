@@ -13,6 +13,7 @@ import * as React from "react";
 import { toast } from "sonner";
 import { GeminiCard } from "@/components/shared/gemini-card";
 import { EmptyState } from "@/components/shared/empty-state";
+import { Skeleton } from "@/components/ui/skeleton";
 import { KPI } from "@/components/shared/kpi";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -69,119 +70,6 @@ interface Order {
   nextAction:  string;
 }
 
-// ─── Mock data ────────────────────────────────────────────────────────────────
-// Replace with Supabase `orders` table query once buy flow is live.
-
-const ONLINE_ORDERS: Order[] = [
-  {
-    id: "ORD-2026-0089", type: "paid", createdAt: "20 May · 09:42 AM",
-    company: "Acme Corp Pvt Ltd", domain: "acmecorp.com", gstin: "27AAACA1234B1Z5",
-    contact: { name: "Rajesh Kumar", email: "rajesh@acmecorp.com", phone: "+91 98765 43210" },
-    tier: "Business Standard", seats: 25, billing: "annual",
-    monthlyRate: 864, lineTotal: 259200, gst: 46656, total: 305856,
-    trialDay: null, trialEndsOn: null,
-    razorpayId: "pay_NMxAbc7891", invoiceNo: "INV-2026-0156",
-    status: "provisioning", source: "buy-workspace-v2",
-    progress: { payment: "done", invoice: "done", tenant: "active", users: "pending", dns: "pending", welcome: "pending" },
-    amAssigned: "Pardeep A", nextAction: "Tenant creation in progress · ETA 3 min",
-  },
-  {
-    id: "ORD-2026-0088", type: "paid", createdAt: "20 May · 08:14 AM",
-    company: "Echo Pharma Ltd", domain: "echopharma.in", gstin: "27AABCE5678D1Z2",
-    contact: { name: "Dr. Verma", email: "drverma@echopharma.in", phone: "+91 98201 22233" },
-    tier: "Business Plus", seats: 60, billing: "annual",
-    monthlyRate: 1380, lineTotal: 993600, gst: 178848, total: 1172448,
-    trialDay: null, trialEndsOn: null,
-    razorpayId: "pay_NMxDef4521", invoiceNo: "INV-2026-0155",
-    status: "dns-pending", source: "buy-workspace-v2",
-    progress: { payment: "done", invoice: "done", tenant: "done", users: "done", dns: "active", welcome: "pending" },
-    amAssigned: "Pardeep A", nextAction: "Waiting on customer to add MX records · sent guide 2h ago",
-  },
-  {
-    id: "ORD-2026-0087", type: "paid", createdAt: "19 May · 11:38 PM",
-    company: "Foxtrot Logistics", domain: "foxtrotlog.com", gstin: "29AABCF9999K1Z0",
-    contact: { name: "Anil Sharma", email: "anil@foxtrotlog.com", phone: "+91 99800 12345" },
-    tier: "Business Starter", seats: 8, billing: "annual",
-    monthlyRate: 270, lineTotal: 25920, gst: 4666, total: 30586,
-    trialDay: null, trialEndsOn: null,
-    razorpayId: "pay_NMxGhi7733", invoiceNo: "INV-2026-0154",
-    status: "active", source: "buy-workspace-v2",
-    progress: { payment: "done", invoice: "done", tenant: "done", users: "done", dns: "done", welcome: "done" },
-    amAssigned: "Anjali R", nextAction: "Live · health-check email scheduled for Day 7",
-  },
-  {
-    id: "ORD-2026-0086", type: "paid", createdAt: "19 May · 04:11 PM",
-    company: "Hotel Asia Mumbai", domain: "hotelasia.in", gstin: "27AAAAH2345R2Z9",
-    contact: { name: "Sunita Patel", email: "sunita@hotelasia.in", phone: "+91 97694 88112" },
-    tier: "Business Standard", seats: 40, billing: "annual",
-    monthlyRate: 864, lineTotal: 414720, gst: 74650, total: 489370,
-    trialDay: null, trialEndsOn: null,
-    razorpayId: "pay_NMxJkl2210", invoiceNo: "INV-2026-0153",
-    status: "issue", source: "buy-workspace-v2",
-    progress: { payment: "done", invoice: "done", tenant: "failed", users: "pending", dns: "pending", welcome: "pending" },
-    amAssigned: "Pardeep A", nextAction: "⚠ Domain already exists in another tenant — needs manual resolution",
-  },
-  {
-    id: "TRL-2026-0042", type: "trial", createdAt: "20 May · 11:15 AM",
-    company: "Beta Industries Pvt Ltd", domain: "betaind.in", gstin: null,
-    contact: { name: "Priya Menon", email: "priya@betaind.in", phone: "+91 98765 11111" },
-    tier: "Business Starter", seats: 15, billing: null,
-    monthlyRate: 270, lineTotal: null, gst: null, total: null,
-    trialDay: 1, trialEndsOn: "03 Jun 2026",
-    razorpayId: null, invoiceNo: null,
-    status: "trial-active", source: "buy-workspace-v2",
-    progress: { signup: "done", domainVerify: "done", tenant: "done", welcome: "done", day3CheckIn: "pending", day10Convert: "pending" },
-    amAssigned: "Pardeep A", nextAction: "Call within 2 hours · then Day 3 check-in",
-  },
-  {
-    id: "TRL-2026-0041", type: "trial", createdAt: "17 May · 02:30 PM",
-    company: "Delta Foods Pvt Ltd", domain: "deltafoods.co.in", gstin: null,
-    contact: { name: "Karthik N", email: "karthik@deltafoods.co.in", phone: "+91 90400 55667" },
-    tier: "Business Standard", seats: 22, billing: null,
-    monthlyRate: 864, lineTotal: null, gst: null, total: null,
-    trialDay: 4, trialEndsOn: "31 May 2026",
-    razorpayId: null, invoiceNo: null,
-    status: "trial-active", source: "buy-workspace-v2",
-    progress: { signup: "done", domainVerify: "done", tenant: "done", welcome: "done", day3CheckIn: "done", day10Convert: "pending" },
-    amAssigned: "Anjali R", nextAction: "Migration call scheduled for tomorrow 4 PM",
-  },
-  {
-    id: "TRL-2026-0040", type: "trial", createdAt: "10 May · 09:00 AM",
-    company: "Cosmo Tech Solutions", domain: "cosmotech.in", gstin: null,
-    contact: { name: "Vikram J", email: "vikram@cosmotech.in", phone: "+91 88600 12345" },
-    tier: "Business Standard", seats: 18, billing: null,
-    monthlyRate: 864, lineTotal: null, gst: null, total: null,
-    trialDay: 11, trialEndsOn: "24 May 2026",
-    razorpayId: null, invoiceNo: null,
-    status: "trial-converting", source: "buy-workspace-v2",
-    progress: { signup: "done", domainVerify: "done", tenant: "done", welcome: "done", day3CheckIn: "done", day10Convert: "active" },
-    amAssigned: "Pardeep A", nextAction: "Quote sent · awaiting Razorpay payment",
-  },
-  {
-    id: "TRL-2026-0039", type: "trial", createdAt: "06 May · 11:20 AM",
-    company: "Gamma Realty", domain: "gammarealty.com", gstin: null,
-    contact: { name: "Mehul P", email: "mehul@gammarealty.com", phone: "+91 96200 99887" },
-    tier: "Business Starter", seats: 6, billing: null,
-    monthlyRate: 270, lineTotal: null, gst: null, total: null,
-    trialDay: 15, trialEndsOn: "20 May 2026",
-    razorpayId: null, invoiceNo: null,
-    status: "trial-expired", source: "buy-workspace-v2",
-    progress: { signup: "done", domainVerify: "done", tenant: "done", welcome: "done", day3CheckIn: "done", day10Convert: "done" },
-    amAssigned: "Anjali R", nextAction: "Did not convert · tenant suspended · send winback email",
-  },
-  {
-    id: "ORD-2026-0085", type: "paid", createdAt: "18 May · 10:00 AM",
-    company: "Indigo Travels Ltd", domain: "indigotravels.co.in", gstin: "27AABCI3344L1Z5",
-    contact: { name: "Rohan S", email: "rohan@indigotravels.co.in", phone: "+91 99800 77665" },
-    tier: "Business Standard", seats: 32, billing: "annual",
-    monthlyRate: 864, lineTotal: 331776, gst: 59720, total: 391496,
-    trialDay: null, trialEndsOn: null,
-    razorpayId: "pay_NMxOpq3344", invoiceNo: "INV-2026-0152",
-    status: "active", source: "buy-workspace-v2",
-    progress: { payment: "done", invoice: "done", tenant: "done", users: "done", dns: "done", welcome: "done" },
-    amAssigned: "Pardeep A", nextAction: "Live · NPS survey scheduled for Day 30",
-  },
-];
 
 // ─── Status config ────────────────────────────────────────────────────────────
 
@@ -661,34 +549,44 @@ export default function OnlineOrdersPage() {
   const [tab, setTab]       = React.useState("all");
   const [search, setSearch] = React.useState("");
   const [openId, setOpenId] = React.useState<string | null>(null);
-  const [orders, setOrders] = React.useState<Order[]>(ONLINE_ORDERS);
+  const [orders, setOrders]   = React.useState<Order[]>([]);
+  const [loading, setLoading] = React.useState(true);
+  // Honest failure surface: without this a failed fetch silently left orders=[]
+  // and rendered "No orders yet" — a real load error masquerading as an empty
+  // buy-flow. Track the error + expose a retry instead.
+  const [loadError, setLoadError] = React.useState(false);
 
   // Fetch real leads with source from the buy page (paid enquiries + trials).
   // RLS scopes by tenant automatically; no need to pass tenant_id here.
-  React.useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const supabase = createClient();
-      const { data, error } = await supabase
-        .from("leads")
-        .select("id, company, contact_name, contact_email, contact_phone, plan, seats, value, stage, source, notes, created_at")
-        .ilike("source", "buy-workspace%")
-        .order("created_at", { ascending: false })
-        .limit(100);
+  const load = React.useCallback(async (signal?: { cancelled: boolean }) => {
+    setLoading(true);
+    setLoadError(false);
+    const supabase = createClient();
+    const { data, error } = await supabase
+      .from("leads")
+      .select("id, company, contact_name, contact_email, contact_phone, plan, seats, value, stage, source, notes, created_at")
+      .ilike("source", "buy-workspace%")
+      .order("created_at", { ascending: false })
+      .limit(100);
 
-      if (cancelled) return;
-      if (error) {
-        console.error("[online-orders] fetch failed:", error);
-        return;
-      }
-      const real = (data ?? []).map((r) => leadToOrder(r as LeadRow));
-      // Merge real data first, then keep demo orders below for layout/testing
-      // until the catalog has enough real orders. (Set to just `real` once
-      // you want to drop the seed demo entirely.)
-      setOrders(real.length > 0 ? [...real, ...ONLINE_ORDERS] : ONLINE_ORDERS);
-    })();
-    return () => { cancelled = true; };
+    if (signal?.cancelled) return;
+    if (error) {
+      console.error("[online-orders] fetch failed:", error);
+      setLoadError(true);
+      setLoading(false);
+      return;
+    }
+    // Real orders only — no demo/seed data. An empty buy-flow correctly shows
+    // an empty state, never fabricated revenue.
+    setOrders((data ?? []).map((r) => leadToOrder(r as LeadRow)));
+    setLoading(false);
   }, []);
+
+  React.useEffect(() => {
+    const signal = { cancelled: false };
+    void load(signal);
+    return () => { signal.cancelled = true; };
+  }, [load]);
 
   const openOrder = orders.find((o) => o.id === openId) ?? null;
 
@@ -732,14 +630,14 @@ export default function OnlineOrdersPage() {
   ];
 
   return (
-    <div className="mx-auto max-w-[1800px] px-8 pb-20 pt-7">
+    <div className="mx-auto max-w-[1800px] px-4 md:px-8 pb-20 pt-7">
       {/* ── Page header ── */}
       <div className="mb-6 flex items-start justify-between gap-4">
         <div>
           <h1 className="font-serif text-3xl text-ink">Online Orders</h1>
           <p className="mt-1 text-sm text-ink-3">
             Live pipeline from <strong>buy-workspace-v2</strong> · Paid + Trial ·{" "}
-            {ONLINE_ORDERS.length} total
+            {orders.length} total
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
@@ -868,7 +766,17 @@ export default function OnlineOrdersPage() {
         </div>
 
         {/* Table */}
-        {filtered.length === 0 ? (
+        {loading ? (
+          <div className="space-y-2 p-3">{[0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-14 w-full" />)}</div>
+        ) : loadError ? (
+          <EmptyState
+            icon="alert"
+            title="Couldn't load your orders"
+            body="Something went wrong fetching orders from the buy flow. This is a load error, not an empty inbox — check your connection and try again."
+            action={<Button variant="primary" icon="refresh" onClick={() => void load()}>Retry</Button>}
+            compact
+          />
+        ) : filtered.length === 0 ? (
           <EmptyState
             icon="inbox"
             title={

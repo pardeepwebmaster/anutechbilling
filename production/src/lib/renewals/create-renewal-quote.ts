@@ -23,6 +23,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database, QuoteLineItem } from "@/lib/supabase/database.types";
 import { grossAmount } from "@/lib/quotes/amounts";
+import { isExportSupply } from "@/lib/gst/place-of-supply";
 
 // The actual typed Supabase client. createAdminClient() returns this shape,
 // so the strict rpc/from overloads stay intact when callers pass it in.
@@ -90,8 +91,17 @@ export async function createOrGetRenewalQuote(
   const newQuoteId = nextNumber as unknown as string;
   if (!newQuoteId) return null;
 
+  // Export (international) customer → zero-rated under LUT: the renewal quote
+  // must NOT add GST (the old hardcoded 18% wrongly taxed foreign auto-renewals).
+  let renewalTaxRate = 18;
+  if (input.customerId) {
+    const { data: cust } = await supabase
+      .from("customers").select("country").eq("id", input.customerId).maybeSingle();
+    if (isExportSupply(cust?.country)) renewalTaxRate = 0;
+  }
+
   const annualAmount = Math.max(0, Math.round((input.mrr ?? 0) * 12)); // ex-GST subtotal
-  const grossAnnual  = grossAmount(annualAmount, 18);                  // GST-inclusive payable
+  const grossAnnual  = grossAmount(annualAmount, renewalTaxRate);      // GST-inclusive payable (or ex-GST for export)
   const perSeatRate  = Math.round(annualAmount / Math.max(1, input.seats));
   const perSeatCost  = Math.round((annualAmount * 0.83) / Math.max(1, input.seats));
 
@@ -124,7 +134,7 @@ export async function createOrGetRenewalQuote(
     subtotal:       annualAmount,
     total_cost:     Math.round(annualAmount * 0.83),
     discount_pct:   0,
-    tax_rate:       18,
+    tax_rate:       renewalTaxRate,   // 0 for an export (zero-rated) customer
     is_renewal:       true,  // ← Drives the "Renewal" badge in /quotes list + detail + PDF
     extension_months: 12,    // standard 1-year renewal; extensions use 24/36 via createExtensionQuote
     notes:            input.notes
@@ -143,7 +153,7 @@ export async function createOrGetRenewalQuote(
     amount:      grossAnnual,
     subtotal:    annualAmount,
     discountPct: 0,
-    taxRate:     18,
+    taxRate:     renewalTaxRate,
     lineItems,
     created:     true,
   };

@@ -19,8 +19,11 @@ import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
+import { Card } from "@/components/ui/card";
+import { Avatar } from "@/components/ui/avatar";
 import { Textarea } from "@/components/ui/textarea";
-import { formatDate, rupee, daysBetween, cn } from "@/lib/utils";
+import { formatDate, formatPhone, initials, rupee, daysBetween, cn } from "@/lib/utils";
+import { isExportSupply } from "@/lib/gst/place-of-supply";
 
 // ════════════════════════════════════════════════════════════════════════
 // Pure logic
@@ -30,7 +33,7 @@ export type Nba = {
   icon: string;
   title: string;
   body: string;
-  cta?: { label: string; kind: "draft" | "profile" | "quote"; channel?: "whatsapp" | "email"; purpose?: "followup" | "reminder" };
+  cta?: { label: string; kind: "draft" | "profile" | "quote" | "open_quote"; channel?: "whatsapp" | "email"; purpose?: "followup" | "reminder"; quoteId?: string };
 };
 
 export type CustomerInsights = {
@@ -38,7 +41,8 @@ export type CustomerInsights = {
   totalMRR: number;
   seatsTotal: number;
   seatsUsed: number;
-  outstanding: number;
+  outstanding: number;        // subscriptions + project receivables
+  projectReceivable: number;  // money owed on accepted projects
   lifetimePaid: number;
   overdueCount: number;
   nearestRenewal?: string;
@@ -51,13 +55,26 @@ export function deriveCustomerInsights(
   c: Customer,
   subs: Subscription[],
   invoices: Invoice[],
+  /** Accepted/active project sales — used to add project money to Outstanding. */
+  projects: { status: string; receivable: number }[] = [],
+  /** Existing quotes — so the next-best-action doesn't say "first quote" when
+   *  the customer already has drafts/sent quotes sitting there. */
+  quotes: { id: string; status: string; created_date?: string | null }[] = [],
 ): CustomerInsights {
   const activeSubs = subs.filter((s) => s.status === "active");
   const totalMRR = activeSubs.reduce((s, x) => s + (x.mrr ?? 0), 0);
   const seatsTotal = activeSubs.reduce((s, x) => s + (x.seats ?? 0), 0);
   const seatsUsed = activeSubs.reduce((s, x) => s + (x.used ?? 0), 0);
 
-  const outstanding = subs.reduce((s, x) => s + (x.outstanding_amount ?? 0), 0);
+  // Outstanding = subscription dues + accepted-project receivables. Without the
+  // project side a customer with an unpaid project wrongly showed "All clear".
+  const subsOutstanding = subs.reduce((s, x) => s + (x.outstanding_amount ?? 0), 0);
+  const activeProjects = projects.filter((p) => p.status === "active");
+  const projectReceivable = projects
+    .filter((p) => p.status === "active" || p.status === "completed")
+    .reduce((s, p) => s + Math.max(0, p.receivable ?? 0), 0);
+  const outstanding = subsOutstanding + projectReceivable;
+
   const lifetimePaid = invoices.filter((i) => i.status === "paid").reduce((s, x) => s + (x.amount ?? 0), 0);
   const overdueCount = invoices.filter((i) => i.status === "overdue").length;
 
@@ -70,49 +87,104 @@ export function deriveCustomerInsights(
   const firstName = (c.contact_name || c.name).split(/\s+/)[0];
   const phone = c.contact_phone?.replace(/\s+/g, "");
 
-  const nba = computeNBA({ customer: c, firstName, phone, outstanding, overdueCount, renewalDays, subCount: subs.length });
+  // Existing quotes → so we suggest sending/chasing them instead of "first quote".
+  const draftQuotes = quotes.filter((q) => q.status === "draft");
+  const openQuotes  = quotes.filter((q) => q.status === "sent" || q.status === "viewed");
+  const byNewest = (a: { created_date?: string | null }, b: { created_date?: string | null }) =>
+    (b.created_date ?? "").localeCompare(a.created_date ?? "");
+  const actionableQuote = [...draftQuotes].sort(byNewest)[0] ?? [...openQuotes].sort(byNewest)[0];
 
-  return { activeSubs, totalMRR, seatsTotal, seatsUsed, outstanding, lifetimePaid, overdueCount, nearestRenewal, renewalDays, nba };
+  const nba = computeNBA({
+    customer: c, firstName, phone, outstanding, overdueCount, renewalDays,
+    subCount: subs.length, projectReceivable, activeProjectCount: activeProjects.length, projectCount: projects.length,
+    draftCount: draftQuotes.length, openCount: openQuotes.length, actionableQuoteId: actionableQuote?.id,
+  });
+
+  return { activeSubs, totalMRR, seatsTotal, seatsUsed, outstanding, projectReceivable, lifetimePaid, overdueCount, nearestRenewal, renewalDays, nba };
 }
 
 function computeNBA(args: {
   customer: Customer; firstName: string; phone?: string;
   outstanding: number; overdueCount: number; renewalDays: number | null; subCount: number;
+  projectReceivable: number; activeProjectCount: number; projectCount: number;
+  draftCount: number; openCount: number; actionableQuoteId?: string;
 }): Nba {
-  const { customer, firstName, phone, outstanding, overdueCount, renewalDays, subCount } = args;
+  const { customer, firstName, phone, outstanding, overdueCount, renewalDays, subCount, projectReceivable, activeProjectCount, projectCount, draftCount, openCount, actionableQuoteId } = args;
   const canMessage = !!phone || !!customer.contact_email;
   const channel: "whatsapp" | "email" = phone ? "whatsapp" : "email";
 
+  // 1. Money owed — subscriptions AND/OR project payments.
   if (outstanding > 0 || overdueCount > 0) {
+    const projPart = projectReceivable > 0 ? ` · ${rupee(projectReceivable)} project` : "";
     return {
       tone: "danger",
       icon: "alert",
-      title: `${rupee(outstanding)} outstanding${overdueCount > 0 ? ` · ${overdueCount} overdue invoice${overdueCount > 1 ? "s" : ""}` : ""}`,
-      body: "Collect this before it ages further — let AI draft a friendly reminder you can edit and send.",
+      title: `${rupee(outstanding)} outstanding${projPart}${overdueCount > 0 ? ` · ${overdueCount} overdue invoice${overdueCount > 1 ? "s" : ""}` : ""}`,
+      body: projectReceivable > 0
+        ? "Includes a project payment still owed — collect it before it ages. AI can draft a friendly reminder."
+        : "Collect this before it ages further — let AI draft a friendly reminder you can edit and send.",
       cta: canMessage ? { label: "Draft reminder with AI", kind: "draft", channel, purpose: "reminder" } : undefined,
     };
   }
 
+  // 2. Renewal coming up.
   if (renewalDays != null && renewalDays <= 30) {
     return {
       tone: "warning",
       icon: "refresh",
       title: renewalDays < 0 ? `Renewal ${-renewalDays} day(s) overdue` : `Renewal due in ${renewalDays} day(s)`,
       body: "Review the renewal quote and send it before service lapses.",
-      cta: { label: "Create renewal quote", kind: "quote" },
+      cta: { label: "Send renewal quote", kind: "quote" },
     };
   }
 
-  if (subCount === 0) {
+  // 3. An active project (paid up) is in flight — follow up on the milestone.
+  if (activeProjectCount > 0) {
+    return {
+      tone: "info",
+      icon: "package",
+      title: `${activeProjectCount} project${activeProjectCount > 1 ? "s" : ""} in progress`,
+      body: "Follow up on the project milestone — keep it moving and raise the invoice on completion.",
+      cta: canMessage ? { label: "Draft a project check-in with AI", kind: "draft", channel, purpose: "followup" } : undefined,
+    };
+  }
+
+  // 4. No subscription / project yet — but the action depends on whether quotes
+  //    already exist. Only push a BRAND-NEW quote when there are none.
+  if (subCount === 0 && projectCount === 0) {
+    // 4a. Draft quote(s) sitting unsent → finish + send them.
+    if (draftCount > 0) {
+      return {
+        tone: "warning",
+        icon: "file",
+        title: `${draftCount} draft quote${draftCount > 1 ? "s" : ""} not sent yet`,
+        body: `Review and send ${draftCount > 1 ? "them" : "it"} so ${firstName} can accept and pay.`,
+        cta: actionableQuoteId ? { label: "Review & send quote", kind: "open_quote", quoteId: actionableQuoteId } : undefined,
+      };
+    }
+    // 4b. Quote(s) already sent, awaiting a decision → follow up.
+    if (openCount > 0) {
+      return {
+        tone: "info",
+        icon: "clock",
+        title: `${openCount} quote${openCount > 1 ? "s" : ""} awaiting ${firstName}'s decision`,
+        body: "You've sent a quote — a friendly nudge helps close it. AI can draft one.",
+        cta: (phone || customer.contact_email)
+          ? { label: "Draft a follow-up with AI", kind: "draft", channel: phone ? "whatsapp" : "email", purpose: "followup" }
+          : (actionableQuoteId ? { label: "Open the quote", kind: "open_quote", quoteId: actionableQuoteId } : undefined),
+      };
+    }
+    // 4c. Genuinely new — no quotes at all → send the first one.
     return {
       tone: "info",
       icon: "plus",
-      title: "No subscription yet",
+      title: "No quote yet",
       body: `Send ${firstName} the first quote — turn this contact into recurring revenue.`,
       cta: { label: "Create first quote", kind: "quote" },
     };
   }
 
+  // 5. Existing customer, all clear → keep the relationship warm.
   return {
     tone: "success",
     icon: "check_circle",
@@ -146,14 +218,18 @@ export function buildCustomerActivity(subs: Subscription[], invoices: Invoice[],
 
 /** 4-KPI answer-bar — health / owed / value in one glance (real numbers). */
 export function CustomerMetricBar({ insights }: { insights: CustomerInsights }) {
-  const { outstanding, overdueCount, lifetimePaid, totalMRR, activeSubs, seatsUsed, seatsTotal, nearestRenewal, renewalDays } = insights;
+  const { outstanding, projectReceivable, overdueCount, lifetimePaid, totalMRR, activeSubs, seatsUsed, seatsTotal, nearestRenewal, renewalDays } = insights;
+  const outHint = [
+    overdueCount > 0 ? `${overdueCount} overdue` : null,
+    projectReceivable > 0 ? `${rupee(projectReceivable, { compact: projectReceivable >= 100000 })} project` : null,
+  ].filter(Boolean).join(" · ") || undefined;
   return (
     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
       <MetricCard
         label="Outstanding"
-        value={outstanding > 0 ? rupee(outstanding) : "All clear"}
+        value={outstanding > 0 ? rupee(outstanding, { compact: outstanding >= 100000 }) : "All clear"}
         tone={outstanding > 0 ? "danger" : "success"}
-        hint={overdueCount > 0 ? `${overdueCount} overdue` : undefined}
+        hint={outHint}
       />
       <MetricCard label="Lifetime paid" value={lifetimePaid > 0 ? rupee(lifetimePaid, { compact: lifetimePaid >= 100000 }) : "—"} />
       <MetricCard
@@ -232,9 +308,17 @@ export function NextBestActionCard({ nba, customer }: { nba: Nba; customer: Cust
         <div className="text-sm font-medium text-ink leading-snug">{nba.title}</div>
         <p className="text-xs text-ink-2 mt-0.5 leading-relaxed">{nba.body}</p>
 
-        {cta && (cta.kind === "profile" || cta.kind === "quote") && (
+        {cta && (cta.kind === "profile" || cta.kind === "quote" || cta.kind === "open_quote") && (
           <div className="mt-2.5">
-            <Button size="sm" variant="primary" onClick={() => router.push((cta.kind === "quote" ? `/quotes/new?customer=${customer.id}` : `/customers/${customer.id}`) as never)}>
+            <Button
+              size="sm"
+              variant="primary"
+              onClick={() => router.push((
+                cta.kind === "quote"      ? `/quotes/new?customer=${customer.id}`
+                : cta.kind === "open_quote" ? `/quotes/${cta.quoteId}`
+                : `/customers/${customer.id}`
+              ) as never)}
+            >
               {cta.label}
             </Button>
           </div>
@@ -420,6 +504,112 @@ export function CustomerDetailsGrid({ c }: { c: Customer }) {
           <p className="text-sm text-ink-2 whitespace-pre-wrap">{c.notes}</p>
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * CustomerIdentityRail — the Zoho-style left column on the customer 360 page:
+ * WHO this customer is (contact + quick actions), WHERE (billing/shipping
+ * address), and the tax/billing facts (Other details). All read-only, real data.
+ */
+export function CustomerIdentityRail({ c }: { c: Customer }) {
+  const phone = c.contact_phone?.replace(/\s+/g, "");
+  const foreign = isExportSupply(c.country);
+
+  const billing = [
+    c.address,
+    [c.city, c.state].filter(Boolean).join(", "),
+    c.pin_code,
+    c.country && c.country !== "India" ? c.country : null,
+  ].filter(Boolean) as string[];
+
+  const ship = c.shipping_address;
+  const shipLines = ship
+    ? ([ship.attention, ship.address, [ship.city, ship.state].filter(Boolean).join(", "), ship.zip, ship.country]
+        .filter(Boolean) as string[])
+    : [];
+
+  const tds = c.tds_default_rate_pct != null ? `${c.tds_default_section ?? "TDS"} @ ${c.tds_default_rate_pct}%` : null;
+  const terms =
+    c.payment_terms_days == null ? "Net 30 (default)"
+    : c.payment_terms_days === 0 ? "Due on receipt"
+    : `Net ${c.payment_terms_days}`;
+
+  return (
+    <div className="space-y-4">
+      {/* Contact person + quick actions */}
+      <Card>
+        <div className="flex items-start gap-3">
+          <Avatar initials={initials(c.contact_name || c.name) || "?"} color="amber" size="md" />
+          <div className="min-w-0 flex-1">
+            <div className="font-medium text-ink truncate">{c.contact_name || c.name}</div>
+            {c.contact_title && <div className="text-[11px] text-ink-3">{c.contact_title}</div>}
+            <div className="mt-1.5 space-y-1">
+              {c.contact_email && (
+                <a href={`mailto:${c.contact_email}`} className="flex items-center gap-1.5 text-xs text-ink-2 hover:text-amber-ink transition-colors">
+                  <Icon name="mail" size={12} className="text-ink-3 flex-shrink-0" />
+                  <span className="font-mono truncate">{c.contact_email}</span>
+                </a>
+              )}
+              {phone && (
+                <a href={`tel:${phone}`} className="flex items-center gap-1.5 text-xs text-ink-2 hover:text-amber-ink transition-colors">
+                  <Icon name="phone" size={12} className="text-ink-3 flex-shrink-0" />
+                  <span className="tabular-nums">{formatPhone(phone)}</span>
+                </a>
+              )}
+            </div>
+          </div>
+        </div>
+        <div className="mt-3 pt-3 border-t border-hairline">
+          <CustomerContactActions customer={c} />
+        </div>
+      </Card>
+
+      {/* Address */}
+      <Card title="Address">
+        <div>
+          <div className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold mb-1">Billing</div>
+          {billing.length ? (
+            <address className="not-italic text-sm text-ink-2 leading-relaxed">
+              {billing.map((line, i) => <div key={i}>{line}</div>)}
+            </address>
+          ) : <p className="text-sm text-ink-3 italic">No billing address</p>}
+        </div>
+        <div className="mt-3 pt-3 border-t border-hairline">
+          <div className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold mb-1">Shipping</div>
+          {shipLines.length ? (
+            <address className="not-italic text-sm text-ink-2 leading-relaxed">
+              {shipLines.map((line, i) => <div key={i}>{line}</div>)}
+            </address>
+          ) : <p className="text-sm text-ink-3">Same as billing</p>}
+        </div>
+      </Card>
+
+      {/* Other details — tax + billing facts */}
+      <Card title="Other details">
+        <dl className="grid grid-cols-2 gap-y-3 gap-x-4">
+          <Field label="Customer type" value={c.customer_type === "individual" ? "Individual" : "Business"} />
+          <Field label="Currency" value={foreign ? "USD" : "INR"} />
+          {!foreign && (
+            <Field
+              label="GSTIN" value={c.gstin} mono
+              badge={c.gstin ? (c.gstin_verified_at ? { kind: "success", text: "verified" } : { kind: "muted", text: "unverified" }) : undefined}
+            />
+          )}
+          <Field label={foreign ? "State / Province" : "Place of supply"} value={c.state} />
+          {!foreign && c.tan && <Field label="TAN" value={c.tan} mono />}
+          {!foreign && tds && <Field label="TDS" value={tds} />}
+          <Field label="Payment terms" value={terms} />
+          <Field label="Customer since" value={formatDate(c.since)} />
+        </dl>
+        {c.notes && (
+          <div className="mt-4 pt-3 border-t border-hairline">
+            <div className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold mb-1.5">Notes</div>
+            <p className="text-sm text-ink-2 whitespace-pre-wrap">{c.notes}</p>
+          </div>
+        )}
+      </Card>
     </div>
   );
 }

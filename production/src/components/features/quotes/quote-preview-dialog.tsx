@@ -16,28 +16,16 @@ import {
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { rupee, formatDate } from "@/lib/utils";
-import type { QuoteLineItem, LineCommitment } from "@/lib/supabase/database.types";
+import { isForeignCurrency, foreignEquivalent, formatForeign } from "@/lib/currency";
+import type { QuoteLineItem, LineCommitment, BillingCycle } from "@/lib/supabase/database.types";
+import {
+  cycleInvoicesPerYear, cycleUnitLabel, cycleScheduleLabel, cycleFromLegacyCommitment,
+} from "@/lib/quotes/billing";
 
-/** Number of invoices the customer receives per year */
-function invoicesPerYear(c?: LineCommitment): number {
-  if (c === "annual_yearly")       return 1;
-  if (c === "annual_half_yearly")  return 2;
-  if (c === "annual_quarterly")    return 4;
-  return 12; // monthly or annual_monthly (default)
-}
-function billingUnitLabel(c?: LineCommitment): string {
-  if (c === "annual_yearly")       return "/yr";
-  if (c === "annual_half_yearly")  return "/half-yr";
-  if (c === "annual_quarterly")    return "/qtr";
-  return "/mo";
-}
-function billingScheduleLabel(c?: LineCommitment): string {
-  if (c === "monthly")             return "Monthly (flex)";
-  if (c === "annual_monthly")      return "Annual commit · monthly billing";
-  if (c === "annual_quarterly")    return "Annual commit · quarterly billing";
-  if (c === "annual_half_yearly")  return "Annual commit · half-yearly billing";
-  if (c === "annual_yearly")       return "Annual commit · single yearly invoice";
-  return "Annual";
+/** Price tier + billing frequency, combined for a line (frequency is quote-level). */
+function scheduleLabel(commitment: LineCommitment | undefined, cycle: BillingCycle): string {
+  const tier = commitment === "monthly" ? "Monthly (flex)" : "Annual commit";
+  return `${tier} · ${cycleScheduleLabel(cycle)}`;
 }
 
 interface Props {
@@ -66,8 +54,16 @@ interface Props {
   tax:           number;
   total:         number;
   interState:    boolean;
+  /** Export supply (recipient outside India) → zero-rated under LUT, no GST. */
+  isExport?:     boolean;
+  /** Billing currency + rate — foreign → the whole quote shows in that currency. */
+  currency?:     string | null;
+  exchangeRate?: number | null;
+  /** Quote-level invoice frequency (migration 0161); falls back to legacy per-line commitment. */
+  billingCycle?: BillingCycle;
   validityDays:  number;
   notes:         string;
+  termsConditions?: string | null;
   isProspect?:   boolean;
 }
 
@@ -93,26 +89,34 @@ export function QuotePreviewDialog({
   tax,
   total,
   interState,
+  isExport = false,
+  currency,
+  exchangeRate,
+  billingCycle,
   validityDays,
   notes,
+  termsConditions,
   isProspect = false,
 }: Props) {
   // First letter of tenant name → brand monogram (e.g. "Excel Technologies" → "E")
   const brandInitial = (tenantName?.trim()?.[0] ?? "?").toUpperCase();
   const expiresOn = new Date(Date.now() + validityDays * 86400000);
 
-  // Detect shared billing cycle across all line items
+  // Billing frequency is a single quote-level value (migration 0161). Fall back
+  // to the legacy per-line commitment for quotes written before the split.
   const firstCommitment: LineCommitment | undefined = lineItems[0]?.commitment;
-  const sharedBilling =
-    lineItems.length > 0 &&
-    lineItems.every(
-      (l) => invoicesPerYear(l.commitment) === invoicesPerYear(firstCommitment),
-    );
-  const billingN     = sharedBilling ? invoicesPerYear(firstCommitment) : 1;
-  const billingUnit  = sharedBilling ? billingUnitLabel(firstCommitment) : "";
-  const perInvoice   = sharedBilling && billingN > 1;
+  const effectiveCycle: BillingCycle = billingCycle ?? cycleFromLegacyCommitment(firstCommitment);
+  const billingN     = cycleInvoicesPerYear(effectiveCycle);
+  const billingUnit  = cycleUnitLabel(effectiveCycle);
+  const perInvoice   = billingN > 1;
+  // Foreign customer → show the whole quote in their currency (USD…); books stay ₹,
+  // so the INR equivalent is printed as a GST reference near the total.
+  const isForeign    = isForeignCurrency(currency);
+  const fxRate       = exchangeRate ?? 1;
+  const money        = (n: number) =>
+    isForeign ? formatForeign(foreignEquivalent(n, fxRate), currency ?? "") : rupee(n);
   const fmt          = (n: number) =>
-    perInvoice ? `${rupee(Math.round(n / billingN))}${billingUnit}` : rupee(n);
+    perInvoice ? `${money(Math.round(n / billingN))}${billingUnit}` : money(n);
 
   const handlePrint = () => {
     window.print();
@@ -206,14 +210,16 @@ export function QuotePreviewDialog({
                 Place of supply
               </p>
               <p className="text-sm">
-                {interState ? "Inter-state (IGST applies)" : "Intra-state (CGST + SGST)"}
+                {isExport
+                  ? "Export · zero-rated under LUT (no GST)"
+                  : interState ? "Inter-state (IGST applies)" : "Intra-state (CGST + SGST)"}
               </p>
-              {sharedBilling && firstCommitment && (
+              {lineItems.length > 0 && firstCommitment && (
                 <>
                   <p className="text-[10px] uppercase tracking-widest text-ink-3 font-semibold mt-3 mb-1.5">
                     Billing schedule
                   </p>
-                  <p className="text-sm">{billingScheduleLabel(firstCommitment)}</p>
+                  <p className="text-sm">{scheduleLabel(firstCommitment, effectiveCycle)}</p>
                   {billingN > 1 && (
                     <p className="text-[11px] text-ink-3">{billingN} invoices per year</p>
                   )}
@@ -245,8 +251,9 @@ export function QuotePreviewDialog({
                 </tr>
               ) : (
                 lineItems.map((line) => {
-                  const lineN    = invoicesPerYear(line.commitment);
-                  const lineUnit = billingUnitLabel(line.commitment);
+                  // Frequency is quote-level now (0161) — every line shares it.
+                  const lineN    = billingN;
+                  const lineUnit = billingUnit;
                   const showPer  = lineN > 1;
                   const rate     = showPer ? Math.round(line.rate / lineN) : line.rate;
                   const amount   = line.qty * rate;
@@ -257,7 +264,7 @@ export function QuotePreviewDialog({
                         <p className="text-[11px] text-ink-3 mt-0.5">
                           Per seat{showPer ? "" : " per year"} · HSN 998313
                           {line.commitment && (
-                            <> · {billingScheduleLabel(line.commitment)}</>
+                            <> · {scheduleLabel(line.commitment, effectiveCycle)}</>
                           )}
                         </p>
                         {line.bulk && line.domains && line.domains.length > 0 && (
@@ -268,13 +275,13 @@ export function QuotePreviewDialog({
                       </td>
                       <td className="py-3 text-right text-sm tabular-nums">{line.qty}</td>
                       <td className="py-3 text-right text-sm tabular-nums">
-                        {rupee(rate)}{showPer ? lineUnit : ""}
+                        {money(rate)}{showPer ? lineUnit : ""}
                       </td>
                       <td className="py-3 text-right text-sm tabular-nums font-medium">
-                        <div>{rupee(amount)}{showPer ? lineUnit : ""}</div>
+                        <div>{money(amount)}{showPer ? lineUnit : ""}</div>
                         {showPer && (
                           <div className="text-[10px] font-normal text-ink-3">
-                            = {rupee(line.qty * line.rate)}/yr
+                            = {money(line.qty * line.rate)}/yr
                           </div>
                         )}
                       </td>
@@ -301,7 +308,9 @@ export function QuotePreviewDialog({
                   />
                 )}
                 <Row label="Taxable amount" value={fmt(taxable)} />
-                {interState ? (
+                {isExport ? (
+                  <Row label="Export — zero-rated (LUT), no GST" value={money(0)} />
+                ) : interState ? (
                   <Row label={`IGST (${taxRate}%)`} value={fmt(tax)} />
                 ) : (
                   <>
@@ -316,14 +325,20 @@ export function QuotePreviewDialog({
                     </span>
                     <span className="font-serif text-2xl tabular-nums">
                       {perInvoice
-                        ? `${rupee(Math.round(total / billingN))}${billingUnit}`
-                        : rupee(total)}
+                        ? `${money(Math.round(total / billingN))}${billingUnit}`
+                        : money(total)}
                     </span>
                   </div>
                   {perInvoice && (
                     <div className="flex justify-between items-baseline mt-1.5 text-ink-3">
                       <span className="text-[11px]">Annual contract value</span>
-                      <span className="text-sm tabular-nums">{rupee(total)}/yr</span>
+                      <span className="text-sm tabular-nums">{money(total)}/yr</span>
+                    </div>
+                  )}
+                  {isForeign && (
+                    <div className="flex justify-between items-baseline mt-1.5 text-ink-3">
+                      <span className="text-[11px]">INR equivalent (for GST) @ ₹{exchangeRate}/{currency}</span>
+                      <span className="text-sm tabular-nums">{rupee(total)}</span>
                     </div>
                   )}
                 </div>
@@ -339,6 +354,18 @@ export function QuotePreviewDialog({
               </p>
               <p className="text-sm text-ink-2 whitespace-pre-wrap leading-relaxed">
                 {notes}
+              </p>
+            </div>
+          )}
+
+          {/* Terms & conditions */}
+          {termsConditions?.trim() && (
+            <div className={`mb-6 ${notes ? "" : "pt-4 border-t border-hairline"}`}>
+              <p className="text-[10px] uppercase tracking-widest text-ink-3 font-semibold mb-1.5">
+                Terms &amp; conditions
+              </p>
+              <p className="text-sm text-ink-2 whitespace-pre-wrap leading-relaxed">
+                {termsConditions.trim()}
               </p>
             </div>
           )}

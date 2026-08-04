@@ -118,6 +118,23 @@ export async function POST(
 
   // ── 3a. SIMULATION — no creds → record_payment directly ────────────────
   if (!razorpayConfigured) {
+    // MONEY-SAFETY: never silently mark a REAL customer's invoice paid for ₹0.
+    // The record-payment simulation (for demos/local dev) is gated to non-prod;
+    // in production without Razorpay wired, tell the customer online pay isn't
+    // available yet rather than settling the invoice for no money.
+    const allowSimulation =
+      process.env.NODE_ENV !== "production" ||
+      process.env.ALLOW_PORTAL_PAY_SIMULATION === "1";
+    if (!allowSimulation) {
+      return NextResponse.json(
+        {
+          error:
+            "Online payment isn't available yet. Please contact us to pay by bank transfer / UPI — we'll confirm and update your invoice.",
+          notConfigured: true,
+        },
+        { status: 503 },
+      );
+    }
     const simRef = `SIM-INVPAY-${invoice.quote_id}-${user.id.slice(0, 8)}`;
     const { error: rpcErr } = await admin.rpc("record_payment", {
       p_quote_id: invoice.quote_id,

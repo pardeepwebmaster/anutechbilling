@@ -19,13 +19,6 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { FormField } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Button, IconButton } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { MarginPill, computeMargin } from "@/components/features/margin-pill";
@@ -35,31 +28,23 @@ import { BulkDomainsDialog } from "@/components/features/quotes/bulk-domains-dia
 import { ViewDomainsDialog } from "@/components/features/quotes/view-domains-dialog";
 import { QuotePreviewDialog } from "@/components/features/quotes/quote-preview-dialog";
 import { useCustomers } from "@/lib/queries/customers";
+import { CustomerCombobox } from "@/components/features/customers/customer-combobox";
+import { AddCustomerForm } from "@/components/features/customers/add-customer-form";
 import { useCreateQuote, useQuote } from "@/lib/queries/quotes";
+import { useGenerateInvoice } from "@/lib/queries/invoices";
 import { useUpdateLead, useLeads } from "@/lib/queries/leads";
 import { useItems } from "@/lib/queries/items";
 import { useCurrentUser } from "@/lib/hooks/useCurrentUser";
-import { isInterStateSupply } from "@/lib/gst/place-of-supply";
+import { isInterStateSupply, isExportSupply } from "@/lib/gst/place-of-supply";
+import { COUNTRIES } from "@/lib/gst/countries";
+import { BILLING_CURRENCIES, isForeignCurrency, formatForeign } from "@/lib/currency";
 import { addOrMergeLine } from "@/lib/quotes/line-items";
 import { rupee, formatDate, GST_STATE_BY_CODE } from "@/lib/utils";
 import { cn } from "@/lib/utils";
-import type { QuoteLineItem, LineCommitment } from "@/lib/supabase/database.types";
-
-/** Number of invoices the customer receives per year for a given commitment */
-function invoicesPerYear(c: LineCommitment): number {
-  if (c === "annual_yearly")       return 1;
-  if (c === "annual_half_yearly")  return 2;
-  if (c === "annual_quarterly")    return 4;
-  return 12; // monthly or annual_monthly
-}
-
-/** Per-invoice unit label (e.g., "/mo", "/qtr", "/half-yr", "/yr") */
-function billingUnitLabel(c: LineCommitment): string {
-  if (c === "annual_yearly")       return "/yr";
-  if (c === "annual_half_yearly")  return "/half-yr";
-  if (c === "annual_quarterly")    return "/qtr";
-  return "/mo";
-}
+import type { QuoteLineItem, LineCommitment, BillingCycle } from "@/lib/supabase/database.types";
+import {
+  BILLING_CYCLE_OPTIONS, cycleInvoicesPerYear, cycleUnitLabel,
+} from "@/lib/quotes/billing";
 
 // Quote IDs are allocated at SAVE time via the central document-numbering RPC
 // (see migration 0004_document_series.sql) — this guarantees sequential per-tenant
@@ -91,6 +76,7 @@ export function QuoteBuilder() {
   const catalog = React.useMemo(() => (allCatalog ?? []).filter((c) => c.item_type !== "one_time"), [allCatalog]);
   const { data: currentUser } = useCurrentUser();
   const createQuote     = useCreateQuote();
+  const generateInvoice = useGenerateInvoice();
   const updateLead = useUpdateLead();
 
   // Lead pre-fill context (when navigated from Lead Detail → Send Quote).
@@ -113,6 +99,14 @@ export function QuoteBuilder() {
   // Duplicate / revise an existing quote ("edit & resend" workflow)
   const duplicateOf       = searchParams.get("duplicate");
   const urlCustomer       = searchParams.get("customer");  // Customer 360 → "Add service"
+  // Invoice mode (?invoice=1): the same builder, but on save it generates a GST
+  // invoice immediately (a "direct invoice") instead of just saving a quote.
+  const isInvoiceMode     = searchParams.get("invoice") === "1";
+  const [invoiceRecurring, setInvoiceRecurring] = React.useState(false);
+  // The route's static <title> says "New Quote"; correct it in invoice mode.
+  React.useEffect(() => {
+    if (isInvoiceMode) document.title = "New Invoice · ResellerOS";
+  }, [isInvoiceMode]);
   const { data: sourceQuote } = useQuote(duplicateOf ?? undefined);
 
   // Look up the lead from the cached useLeads() query so the operator can
@@ -175,11 +169,100 @@ export function QuoteBuilder() {
   // gets created later when record_payment fires (lead → customer cascade).
   // This unblocks the "no customers yet" dead-end the picker had.
   const [prospectName, setProspectName] = React.useState<string>("");
+  // Typed-prospect country — lets a NEW international prospect (no lead, no
+  // customer record) be detected as an export (zero-rated).
+  const [prospectCountry, setProspectCountry] = React.useState<string>("India");
+  // Place of supply for a TYPED prospect (no customer record yet) — drives the
+  // GST split (CGST+SGST intra vs IGST inter). Without it an inter-state prospect
+  // silently defaulted to intra-state. India only (export = zero-rated, no state).
+  const [prospectStateCode, setProspectStateCode] = React.useState<string>("");
   const [validityDays, setValidityDays] = React.useState(30);
+  // Invoice payment terms → net days for the due date (Due on Receipt / Net 15/30/45).
+  // Drives the displayed due date + is saved so generate_invoice stamps it (0163).
+  const [paymentTermsDays, setPaymentTermsDays] = React.useState(30);
+  // Document-level terms & conditions (Zoho-style), shown on the quote/invoice PDF.
+  const [termsConditions, setTermsConditions] = React.useState("");
   const [taxRate, setTaxRate] = React.useState(18);
+  // Foreign currency (international clients) — books stay INR; this is the
+  // billing currency + rate shown to the customer. INR = domestic.
+  const [currency, setCurrency] = React.useState("INR");
+  const [exchangeRate, setExchangeRate] = React.useState(1);
+  // Quote-level billing cycle (invoice frequency) — INDEPENDENT of a line's
+  // price-tier commitment (migration 0161). A flex-monthly line forces 'monthly'
+  // (see effectiveCycle below).
+  const [billingCycle, setBillingCycle] = React.useState<BillingCycle>("yearly");
+  // Live FX helper — auto-fills ₹/unit from the internet so the operator never
+  // hand-types a stale rate. `fxInfo` shows provenance (as-of date); `fxAuto`
+  // marks the current rate as auto-fetched (an edit clears it → "manual").
+  const [fxLoading, setFxLoading] = React.useState(false);
+  const [fxInfo, setFxInfo] = React.useState<{ asOf: string | null } | null>(null);
+  const [fxAuto, setFxAuto] = React.useState(false);
+  const fetchLatestFx = React.useCallback(async (cur: string) => {
+    const c = (cur ?? "").toUpperCase();
+    if (!c || c === "INR") return;
+    setFxLoading(true);
+    try {
+      const res = await fetch(`/api/fx/latest?from=${encodeURIComponent(c)}`);
+      const data = await res.json();
+      if (!res.ok || typeof data.rate !== "number") {
+        toast.error(data.error ?? "Couldn't fetch the latest rate — enter it manually.");
+        return;
+      }
+      setExchangeRate(data.rate);
+      setFxInfo({ asOf: data.asOf ?? null });
+      setFxAuto(true);
+      toast.success(`Latest rate: ₹${data.rate}/${c}`);
+    } catch {
+      toast.error("Couldn't reach the rates service — enter it manually.");
+    } finally {
+      setFxLoading(false);
+    }
+  }, []);
+  // Prospect country (lead mode) — lets a NEW international lead's quote be
+  // detected as an export (zero-rated) before a customer record exists.
+  const leadCountryInit = leadFromQuery?.country ?? "India";
+  const [leadCountry, setLeadCountry] = React.useState(leadCountryInit);
+  React.useEffect(() => { if (leadCountryInit) setLeadCountry(leadCountryInit); }, [leadCountryInit]);
   const [notes, setNotes] = React.useState("");
   const [lineItems, setLineItems] = React.useState<QuoteLineItem[]>([]);
+  // For a foreign (USD) quote: which price basis to bill on when an item has BOTH
+  // a ₹ price and a real foreign price. "international" = use the item's catalog
+  // USD price (fall back to ₹-converted if none); "india" = always the ₹ price
+  // converted at the rate. Per-quote choice; line rates stay hand-editable.
+  const [usdPricingBasis, setUsdPricingBasis] = React.useState<"international" | "india">("international");
+  // Round off the final foreign payable total (default on). Display-only — books stay ₹.
+  const [roundTotal, setRoundTotal] = React.useState(true);
+
+  // Re-price catalog-linked lines when the billing currency / exchange rate changes,
+  // so switching to USD uses each item's REAL USD price (books stay ₹ = USD × rate),
+  // and switching back to INR restores the ₹ catalog price. Custom lines (no item_id)
+  // are left untouched — the operator owns those numbers.
+  React.useEffect(() => {
+    if (!catalog || catalog.length === 0) return;
+    const usdMode = (currency ?? "INR").toUpperCase() === "USD";
+    const fx = exchangeRate && exchangeRate > 0 ? exchangeRate : 1;
+    setLineItems((prev) => prev.map((l) => {
+      if (!l.item_id || l.bulk) return l;
+      const it = catalog.find((c) => c.id === l.item_id);
+      if (!it) return l;
+      let annualRate: number, annualCost: number;
+      const usd = it.prices?.usd;
+      if (usdMode && usdPricingBasis === "international" && usd && usd.msrp > 0) {
+        annualRate = Math.round(usd.msrp * 12 * fx);
+        annualCost = Math.round(usd.wholesale * 12 * fx);
+      } else {
+        const commitment = l.commitment ?? "annual_yearly";
+        const tier = it.prices?.[commitment === "monthly" ? "monthly" : "annual"];
+        annualRate = (tier?.msrp ?? it.msrp) * 12;
+        annualCost = (tier?.wholesale ?? it.wholesale) * 12;
+      }
+      return l.rate === annualRate && l.cost === annualCost ? l : { ...l, rate: annualRate, cost: annualCost };
+    }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currency, exchangeRate, catalog, usdPricingBasis]);
+
   const [addOpen, setAddOpen] = React.useState(false);
+  const [addCustomerOpen, setAddCustomerOpen] = React.useState(false);
   const [bulkOpen, setBulkOpen] = React.useState(false);
   const [viewDomains, setViewDomains] = React.useState<{ name: string; domains: Array<{ domain: string; seats: number }> } | null>(null);
   const [previewOpen, setPreviewOpen] = React.useState(false);
@@ -328,6 +411,9 @@ export function QuoteBuilder() {
       setLineItems(items);
     }
     if (sourceQuote.tax_rate     != null) setTaxRate(sourceQuote.tax_rate);
+    if (sourceQuote.billing_cycle)        setBillingCycle(sourceQuote.billing_cycle);
+    if (sourceQuote.payment_terms_days != null) setPaymentTermsDays(sourceQuote.payment_terms_days);
+    if (sourceQuote.terms_conditions)     setTermsConditions(sourceQuote.terms_conditions);
     if (sourceQuote.notes)                setNotes(sourceQuote.notes);
 
     toast.success(`Revising ${sourceQuote.id} — edit anything, then Save & send`);
@@ -347,13 +433,24 @@ export function QuoteBuilder() {
 
   // Derived customer fields
   const customer = customers?.find((c) => c.id === customerId);
+  // Invoice mode: pre-fill the payment terms from the customer's default (0164).
+  // Fires when a customer with a saved term is selected; a manual Terms change
+  // still wins (this only re-runs if the selected customer's term changes).
+  React.useEffect(() => {
+    if (isInvoiceMode && customer?.payment_terms_days != null) {
+      setPaymentTermsDays(customer.payment_terms_days);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [customer?.payment_terms_days, isInvoiceMode]);
   // GST head: compare the customer's state vs OUR (the seller/tenant's) state.
   // Previously hardcoded a seller of "27" (Maharashtra), which was wrong for any
   // other tenant. Now derived consistently via the shared helper. (audit #18-20)
   // Buyer's place of supply: for a prospect (lead mode) there's no customer
   // record yet, so use the state captured on the quote builder; otherwise the
   // picked customer's state. Drives CGST+SGST (intra) vs IGST (inter).
-  const buyerStateCode = isLeadMode ? (leadStateCode || null) : (customer?.state_code ?? null);
+  const buyerStateCode = isLeadMode
+    ? (leadStateCode || null)
+    : (customerId ? (customer?.state_code ?? null) : (prospectStateCode || null));
   const interState = isInterStateSupply(buyerStateCode, currentUser?.tenantStateCode);
 
   // Selling gross = the (negotiated) rate × qty. This is the actual revenue and
@@ -371,32 +468,82 @@ export function QuoteBuilder() {
   const customerDiscount    = Math.max(0, listGross - subtotal);
   const customerDiscountPct = listGross > 0 ? Math.round((customerDiscount / listGross) * 100) : 0;
   const taxable           = subtotal;
-  const tax               = Math.round(taxable * (taxRate / 100));
+  // Export (international) customer → the supply is zero-rated under LUT: no
+  // GST is added. Detected from the customer's country (foreign = export).
+  // For a prospect/lead quote (no customer record yet) export can't be inferred
+  // here — mark the customer as export once created. (Phase 1c: lead country.)
+  const isExport          = isExportSupply(isLeadMode ? leadCountry : (customer?.country ?? (!customerId ? prospectCountry : null)));
+
+  // Foreign (export) customer on a NEW quote → default the billing currency to
+  // USD (books still record in ₹) so the operator doesn't have to remember to
+  // switch — a foreign client expects a foreign-currency invoice. One-shot, only
+  // while still on the INR default: never fights a manual choice or an edited quote.
+  const fxAutoDefaulted = React.useRef(false);
+  React.useEffect(() => {
+    if (fxAutoDefaulted.current || duplicateOf) return;
+    if (!isExport || currency !== "INR") return;
+    fxAutoDefaulted.current = true;
+    setCurrency("USD");
+    setExchangeRate(1);
+    setFxAuto(false);
+    void fetchLatestFx("USD");
+  }, [isExport, currency, duplicateOf, fetchLatestFx]);
+
+  const effectiveTaxRate  = isExport ? 0 : taxRate;
+  const tax               = Math.round(taxable * (effectiveTaxRate / 100));
   const total             = taxable + tax;
+  // Foreign-currency billing (books stay ₹). The whole builder renders in `currency`
+  // via curFmt(); the stored quote.amount is always ₹ `total`.
+  const isForeign         = isForeignCurrency(currency);
   const margin            = computeMargin(totalCost, taxable);
 
-  // Billing-cycle display: if EVERY line item shares the same billing term, show
-  // totals in that per-invoice unit (with the annual amount as a small hint).
-  // Mixed billing cycles → totals stay annual.
-  const firstCommitment = (lineItems[0]?.commitment ?? "annual_yearly") as LineCommitment;
-  const sharedBilling =
-    lineItems.length > 0 &&
-    lineItems.every(
-      (l) => invoicesPerYear(l.commitment ?? "annual_yearly") === invoicesPerYear(firstCommitment),
-    );
-  const sharedBillingN     = sharedBilling ? invoicesPerYear(firstCommitment) : 1;
-  const sharedBillingUnit  = sharedBilling ? billingUnitLabel(firstCommitment) : "";
-  const showPerInvoice     = sharedBilling && sharedBillingN > 1;
+  // Billing frequency is now a single QUOTE-LEVEL choice (migration 0161),
+  // independent of any line's price-tier commitment. A flex-monthly line forces
+  // the whole quote to monthly billing (a no-commitment plan can only bill
+  // monthly). All lines share this frequency, so totals show the per-invoice unit.
+  const hasFlexMonthly     = lineItems.some((l) => (l.commitment ?? "annual_yearly") === "monthly");
+  const effectiveCycle: BillingCycle = hasFlexMonthly ? "monthly" : billingCycle;
+  const billingN           = cycleInvoicesPerYear(effectiveCycle);
+  const billingUnit        = cycleUnitLabel(effectiveCycle);
+  const showPerInvoice     = billingN > 1;
   const totalsLabel        =
-    !sharedBilling                 ? "Subtotal (annual)"           :
-    sharedBillingN === 12          ? "Subtotal (monthly recurring)" :
-    sharedBillingN === 4           ? "Subtotal (quarterly)"         :
-    sharedBillingN === 2           ? "Subtotal (half-yearly)"       :
+    billingN === 12 ? "Subtotal (monthly recurring)" :
+    billingN === 4  ? "Subtotal (quarterly)"         :
+    billingN === 2  ? "Subtotal (half-yearly)"       :
     "Subtotal (annual)";
-  const fmtTotal = (n: number) =>
-    showPerInvoice
-      ? rupee(Math.round(n / sharedBillingN)) + sharedBillingUnit
-      : rupee(n);
+  // Foreign (USD) billing: show the WHOLE builder in the client's currency so it
+  // matches the quote/invoice they receive. The books stay ₹ (canonical line.rate);
+  // every displayed figure goes through the consistent helpers below. The rate
+  // must be set (> 1) or the ₹ books would be wrong — fxMissing gates the flow.
+  const isUsdBill = isForeign && (currency ?? "").toUpperCase() === "USD";
+  const fxRate    = exchangeRate && exchangeRate > 0 ? exchangeRate : 1;
+  const fxMissing = isForeign && (!exchangeRate || exchangeRate <= 1);
+
+  // ── Display-currency figures, CONSISTENT with the per-unit rate shown ──
+  // For a foreign quote we round each unit rate in the client's currency and
+  // build the line amounts + totals from THAT, so qty × rate == amount and the
+  // lines sum to the total (a plain ₹ ÷ rate per figure would let a rounded rate
+  // disagree with the exact total, e.g. 32 × $32.00 ≠ $1,023.88). For ₹ the
+  // values fall back to the canonical figures above (no rounding drift).
+  const dRound = (v: number) => (isUsdBill ? Math.round(v * 100) / 100 : Math.round(v));
+  const toDisp = (inr: number) => (isUsdBill ? dRound(inr / fxRate) : inr);
+  const fmtDispC = (v: number) => (isUsdBill ? formatForeign(v, currency ?? "USD") : rupee(v));
+  const dispAmt  = (perSeatInr: number, qty: number, discPct = 0) => dRound(qty * toDisp(perSeatInr) * (1 - discPct / 100));
+  const dispGross    = isUsdBill ? dRound(lineItems.reduce((s, l) => s + dRound(l.qty * toDisp(l.rate)), 0)) : grossSubtotal;
+  const dispLineDisc = isUsdBill ? dRound(lineItems.reduce((s, l) => s + dRound(l.qty * toDisp(l.rate) * ((l.discount_pct ?? 0) / 100)), 0)) : lineDiscountTotal;
+  const dispSubtotal = isUsdBill ? dRound(dispGross - dispLineDisc) : subtotal;
+  const dispTaxable  = dispSubtotal;
+  const dispTax      = isUsdBill ? dRound(dispTaxable * (effectiveTaxRate / 100)) : tax;
+  const dispTotal    = isUsdBill ? dRound(dispTaxable + dispTax) : total;
+  const dispListGross = isUsdBill ? dRound(lineItems.reduce((s, l) => s + dRound(l.qty * toDisp(l.list_rate ?? l.rate)), 0)) : listGross;
+  const dispCustomerDiscount = Math.max(0, dRound(dispListGross - dispSubtotal));
+  // Per-invoice-aware formatter for a DISPLAY-currency ANNUAL figure.
+  const fmtTotalC = (annualDisp: number) =>
+    showPerInvoice ? `${fmtDispC(dRound(annualDisp / billingN))}${billingUnit}` : fmtDispC(annualDisp);
+  const fmtPayableC = (annualDisp: number) =>
+    isUsdBill
+      ? (roundTotal ? formatForeign(Math.round(annualDisp), currency ?? "USD", 0) : formatForeign(annualDisp, currency ?? "USD"))
+      : rupee(annualDisp);
 
   // Line item handlers
   const addLine = (line: QuoteLineItem) => {
@@ -513,13 +660,30 @@ export function QuoteBuilder() {
         total_cost:    totalCost,
         // Discount is baked into each line's rate (see totals) — nothing applied on top.
         discount_pct:  0,
-        tax_rate:      taxRate,
-        amount:        total,
+        tax_rate:      effectiveTaxRate,   // 0 for an export (zero-rated) customer
+        amount:        total,              // canonical ₹ (books stay INR)
+        currency:      currency,
+        exchange_rate: isForeign ? exchangeRate : 1,
+        billing_cycle: effectiveCycle,   // quote-level invoice frequency (0161)
+        // Invoice payment terms → generate_invoice stamps the due date (0163).
+        payment_terms_days: isInvoiceMode ? paymentTermsDays : null,
+        terms_conditions:   termsConditions.trim() || null,
         status,
         notes:         notes || null,
         expires_date:  expiresDate.toISOString().slice(0, 10),
         seats:         lineItems.reduce((s, l) => s + l.qty, 0),
         plan:          lineItems[0]?.name ?? null,
+        // Direct invoice: a one-time invoice must NOT create a subscription on
+        // payment; a recurring one should. Ignored for normal quotes.
+        is_one_off:    isInvoiceMode ? !invoiceRecurring : false,
+        // Typed-prospect place-of-supply (0167). Only meaningful when there's no
+        // lead and no picked customer — those carry their own state. Persisted so
+        // record_payment can stamp it on the auto-created customer → the tax
+        // invoice gets the correct GST head (IGST vs CGST+SGST) instead of a
+        // stateless intra-state default.
+        prospect_state_code: (!isLeadMode && !customerId && prospectStateCode) ? prospectStateCode : null,
+        prospect_state:      (!isLeadMode && !customerId && prospectStateCode) ? (GST_STATE_BY_CODE[prospectStateCode] ?? null) : null,
+        prospect_country:    (!isLeadMode && !customerId) ? (prospectCountry.trim() || "India") : null,
       });
 
       // If created from a lead AND quote actually went out (not just saved as
@@ -566,6 +730,7 @@ export function QuoteBuilder() {
           ...(leadEmail   !== leadEmailInit                         && { contact_email: leadEmail   || null }),
           ...(leadStateCode !== leadStateInit && { state_code: leadStateCode || null, state: leadStateCode ? (GST_STATE_BY_CODE[leadStateCode] ?? null) : null }),
           ...(leadGstin     !== leadGstinInit && { gstin: leadGstin.trim() || null }),
+          ...(leadCountry   !== leadCountryInit && { country: leadCountry.trim() || "India" }),
         };
         if (Object.keys(contactPatch).length > 0) {
           try {
@@ -574,6 +739,21 @@ export function QuoteBuilder() {
             /* don't block redirect */
           }
         }
+      }
+
+      // Invoice mode: generate the GST invoice immediately from the just-created
+      // quote, then land on the invoices list. (Reuses the tested generate_invoice.)
+      if (isInvoiceMode) {
+        try {
+          await generateInvoice.mutateAsync(quote.id);
+        } catch {
+          // The quote is saved; if invoice generation failed the hook toasts —
+          // fall back to the quote so nothing is lost.
+          router.push(`/quotes/${quote.id}` as any);
+          return;
+        }
+        router.push("/invoices" as any);
+        return;
       }
 
       const suffix = afterAction ? `?send=${afterAction}` : "";
@@ -591,10 +771,12 @@ export function QuoteBuilder() {
           <IconButton icon="arrow_left" aria-label="Back" onClick={() => router.back()} />
           <div>
             <p className="text-xs uppercase tracking-wider text-ink-3 font-semibold mb-1">
-              Quotation · Auto-generated
+              {isInvoiceMode ? "Direct invoice · GST tax invoice" : "Quotation · Auto-generated"}
             </p>
             <h1 className="font-serif text-3xl md:text-4xl leading-tight">
-              {quoteId ?? <span className="text-ink-3">Q-…-…-…</span>}
+              {isInvoiceMode
+                ? "New invoice"
+                : (quoteId ?? <span className="text-ink-3">Q-…-…-…</span>)}
             </h1>
             <p className="text-sm text-ink-3 mt-1">
               For <b className="text-ink">{isLeadMode ? leadCompany : (customer?.name ?? prospectName.trim() ?? "—")}</b>
@@ -701,7 +883,21 @@ export function QuoteBuilder() {
                   />
                 </FormField>
               </div>
-              {leadStateCode && (
+              <FormField label="Country" htmlFor="leadCountry">
+                <select
+                  id="leadCountry"
+                  value={leadCountry}
+                  onChange={(e) => setLeadCountry(e.target.value)}
+                  className="w-full rounded-md border border-hairline bg-paper px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-amber/40"
+                >
+                  {COUNTRIES.map((ctry) => <option key={ctry} value={ctry}>{ctry}</option>)}
+                </select>
+              </FormField>
+              {isExport ? (
+                <p className="text-[11px] flex items-start gap-1 -mt-1 text-indigo-ink">
+                  🌍 Export ({leadCountry}) → zero-rated under LUT, no GST
+                </p>
+              ) : leadStateCode && (
                 <p className="text-[11px] flex items-center gap-1 -mt-1">
                   {interState
                     ? <span className="text-amber-ink">⚠ Inter-state → IGST {taxRate}% will apply</span>
@@ -720,61 +916,70 @@ export function QuoteBuilder() {
           /* ───── Customer Details (existing customer OR new prospect flow) ───── */
           <Card title="Customer Details">
             <div className="space-y-3">
-              <FormField label="Existing customer" htmlFor="customer">
+              <FormField label={isInvoiceMode ? "Customer" : "Existing customer"} htmlFor="customer">
                 {customersLoading ? (
                   <Skeleton className="h-9" />
-                ) : customers && customers.length > 0 ? (
-                  <Select
+                ) : (
+                  <CustomerCombobox
+                    id="customer"
                     value={customerId}
-                    onValueChange={(v) => {
+                    onChange={(v) => {
                       setCustomerId(v);
                       // Picking an existing customer clears the prospect name
                       // so there's a single source of truth.
                       if (v) setProspectName("");
                     }}
-                  >
-                    <SelectTrigger id="customer">
-                      <SelectValue placeholder="Pick a customer" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {customers.map((c) => (
-                        <SelectItem key={c.id} value={c.id}>
-                          {c.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                ) : (
-                  <p className="text-xs text-ink-3 italic px-1 py-2">
-                    No saved customers yet — type a new prospect below.
-                  </p>
+                    onCreateNew={() => setAddCustomerOpen(true)}
+                  />
                 )}
               </FormField>
 
               {/* Free-text prospect entry — works WITH or WITHOUT existing customers.
                   Operator can quote a brand-new company without first creating a
                   customer record. customer_id stays null on this quote; a real
-                  customer auto-creates on first payment (record_payment RPC). */}
+                  customer auto-creates on first payment (record_payment RPC).
+                  HIDDEN in invoice mode: a GST tax invoice is issued NOW, so it must
+                  carry a real customer (no "auto-create on payment"). */}
+              {/* New-prospect entry — shown only when NO existing customer is
+                  picked, so the two paths are a clear either/or (not both at once).
+                  Clear the customer above (✕) to switch back to a new prospect.
+                  Hidden in invoice mode: a GST invoice must carry a real customer. */}
+              {!isInvoiceMode && !customerId && (
               <FormField
                 label={customers && customers.length > 0 ? "Or type a new prospect" : "Prospect name"}
-                required={!customerId}
+                required
                 htmlFor="prospectName"
               >
                 <Input
                   id="prospectName"
                   placeholder="Acme Corp Pvt Ltd"
                   value={prospectName}
-                  onChange={(e) => {
-                    setProspectName(e.target.value);
-                    // Typing clears the customer pick — single source of truth.
-                    if (e.target.value && customerId) setCustomerId("");
-                  }}
+                  onChange={(e) => setProspectName(e.target.value)}
                 />
                 <p className="text-[10px] text-ink-3 mt-1">
                   Use this for new prospects who haven&apos;t made a payment yet.
                   We&apos;ll auto-create the customer record when they pay.
                 </p>
               </FormField>
+              )}
+
+              {!customerId && (
+                <FormField label="Country" htmlFor="prospectCountry">
+                  <select
+                    id="prospectCountry"
+                    value={prospectCountry}
+                    onChange={(e) => setProspectCountry(e.target.value)}
+                    className="w-full rounded-md border border-hairline bg-paper px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-amber/40"
+                  >
+                    {COUNTRIES.map((ctry) => <option key={ctry} value={ctry}>{ctry}</option>)}
+                  </select>
+                  {isExport && (
+                    <p className="mt-1 text-[11px] text-indigo-ink">
+                      🌍 Export ({prospectCountry}) → zero-rated under LUT, no GST
+                    </p>
+                  )}
+                </FormField>
+              )}
 
               <div className="grid grid-cols-2 gap-3">
                 <FormField label="Company website" htmlFor="domain">
@@ -798,100 +1003,137 @@ export function QuoteBuilder() {
               </div>
 
               <FormField label="Place of supply" htmlFor="state">
-                <Input
-                  id="state"
-                  value={customer?.state ?? ""}
-                  readOnly
-                  className="bg-paper-2 cursor-default"
-                  placeholder="—"
-                />
-                {customer && (
-                  <p className="text-[11px] mt-1 flex items-center gap-1">
-                    {interState ? (
-                      <span className="text-amber-ink">⚠ Inter-state → IGST {taxRate}% will apply</span>
-                    ) : (
-                      <span className="text-emerald">✓ Intra-state → CGST + SGST split</span>
+                {customerId ? (
+                  // Existing customer → their saved state (read-only).
+                  <>
+                    <Input id="state" value={customer?.state ?? ""} readOnly className="bg-paper-2 cursor-default" placeholder="—" />
+                    {customer && (
+                      <p className="text-[11px] mt-1 flex items-center gap-1">
+                        {isExport ? (
+                          <span className="text-indigo-ink">🌍 Export ({customer?.country}) → zero-rated under LUT, no GST</span>
+                        ) : interState ? (
+                          <span className="text-amber-ink">⚠ Inter-state → IGST {taxRate}% will apply</span>
+                        ) : (
+                          <span className="text-emerald">✓ Intra-state → CGST + SGST split</span>
+                        )}
+                      </p>
                     )}
-                  </p>
+                  </>
+                ) : isExport ? (
+                  <Input id="state" value="Export — zero-rated, no GST" readOnly className="bg-paper-2 cursor-default" />
+                ) : (
+                  // Typed India prospect → editable so GST (CGST+SGST vs IGST) is correct.
+                  <>
+                    <select
+                      id="state"
+                      value={prospectStateCode}
+                      onChange={(e) => setProspectStateCode(e.target.value)}
+                      className="w-full rounded-md border border-hairline bg-paper px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-amber/40"
+                    >
+                      <option value="">Select state (for GST)</option>
+                      {Object.entries(GST_STATE_BY_CODE)
+                        .sort((a, b) => a[1].localeCompare(b[1]))
+                        .map(([code, name]) => <option key={code} value={code}>{name} ({code})</option>)}
+                    </select>
+                    <p className="text-[11px] mt-1 flex items-center gap-1">
+                      {!prospectStateCode ? (
+                        <span className="text-ink-3">Pick the customer&apos;s state so GST (CGST+SGST vs IGST) is correct.</span>
+                      ) : interState ? (
+                        <span className="text-amber-ink">⚠ Inter-state → IGST {taxRate}% will apply</span>
+                      ) : (
+                        <span className="text-emerald">✓ Intra-state → CGST + SGST split</span>
+                      )}
+                    </p>
+                  </>
                 )}
               </FormField>
             </div>
           </Card>
         )}
 
-        {/* Quote Settings — pushed below Line Items via flex order (see container) */}
-        <Card title="Quote Settings" className="order-last">
+        {/* Settings sit ABOVE the line items — the currency + exchange rate + pricing
+            basis + billing cycle chosen here drive how each line is priced/displayed,
+            so they must be set before adding items (true for quotes AND invoices). */}
+        <Card title={isInvoiceMode ? "Invoice Settings" : "Quote Settings"}>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-6 gap-y-4 items-start">
 
-            {/* Billing cycle — prominent quote-level picker.
-                Indian SME customers overwhelmingly prefer ANNUAL UPFRONT.
-                This picker syncs all line items in one click; per-line
-                override still works inside the line items table. */}
+            {/* Billing cycle — quote-level invoice FREQUENCY, independent of any
+                line's price tier (migration 0161). Always enabled (a quote-level
+                choice, not gated on line items). A flex-monthly line forces the
+                whole quote to monthly billing — a no-commitment plan can only
+                bill monthly. Per-line PRICE tier (Monthly-flex vs Annual) is a
+                separate control in the items table. */}
             <div>
               <label className="text-xs font-medium text-ink-3 mb-1.5 block">Billing cycle</label>
               <select
-                value={(() => {
-                  // Reflect the shared billing of the annual line items (flex-monthly
-                  // lines keep their own billing and are excluded). Mixed → blank.
-                  const annualLines = lineItems.filter((l) => (l.commitment ?? "annual_yearly") !== "monthly");
-                  if (annualLines.length === 0) return "";
-                  const c = annualLines[0].commitment ?? "annual_yearly";
-                  if (!annualLines.every((l) => (l.commitment ?? "annual_yearly") === c)) return "";
-                  return c === "annual_yearly" ? "yearly"
-                       : c === "annual_half_yearly" ? "half_yearly"
-                       : c === "annual_quarterly" ? "quarterly"
-                       : c === "annual_monthly" ? "monthly" : "";
-                })()}
-                disabled={lineItems.length === 0}
-                onChange={(e) => {
-                  const id = e.target.value;
-                  if (!id) return;
-                  const target: LineCommitment =
-                    id === "yearly"      ? "annual_yearly"      :
-                    id === "half_yearly" ? "annual_half_yearly" :
-                    id === "quarterly"   ? "annual_quarterly"   :
-                    "annual_monthly";
-                  // Only reprice the BILLING of annual lines; flex-monthly lines keep
-                  // their own (their price tier depends on the commitment).
-                  setLineItems((prev) => prev.map((l) =>
-                    (l.commitment ?? "annual_yearly") === "monthly" ? l : { ...l, commitment: target },
-                  ));
-                }}
-                className="w-full rounded-md border border-hairline bg-paper px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-amber/40 disabled:opacity-50 disabled:cursor-not-allowed"
+                value={effectiveCycle}
+                onChange={(e) => setBillingCycle(e.target.value as BillingCycle)}
+                disabled={hasFlexMonthly}
+                className="w-full rounded-md border border-hairline bg-paper px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-amber/40 disabled:opacity-60 disabled:cursor-not-allowed"
               >
-                <option value="">Select billing cycle…</option>
-                <option value="yearly">Annual — 1 invoice/yr (popular)</option>
-                <option value="half_yearly">Half-yearly — 2 invoices/yr</option>
-                <option value="quarterly">Quarterly — 4 invoices/yr</option>
-                <option value="monthly">Monthly — 12 invoices/yr</option>
+                {BILLING_CYCLE_OPTIONS.map((o) => (
+                  <option key={o.id} value={o.id}>{o.label}</option>
+                ))}
               </select>
               <p className="mt-1.5 text-[11px] text-ink-3">
-                Applies to the whole quote. Most Indian customers prefer annual upfront. Each line’s Annual vs Monthly-flex commitment is set in the items table.
+                {hasFlexMonthly
+                  ? "A line is “Monthly flex” — a no-commitment plan bills monthly, so the whole invoice is monthly."
+                  : <>How often invoices go out. Applies to the whole {isInvoiceMode ? "invoice" : "quote"} — separate from each line’s Monthly-flex vs Annual <b>price</b> (set in the items table).</>}
               </p>
             </div>
 
             {/* Valid / Expires / GST — 3 across, filling the right half */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 self-start">
-            <FormField label="Valid for (days)" htmlFor="validity">
-              <Input
-                id="validity"
-                type="number"
-                min={1}
-                max={365}
-                value={validityDays}
-                onChange={(e) => setValidityDays(parseInt(e.target.value) || 30)}
-                className="tabular-nums"
-              />
-            </FormField>
+            {isInvoiceMode ? (
+              /* Zoho-style Terms → Due date. The chosen net-days are saved and
+                 generate_invoice (0163) stamps the invoice due date from them. */
+              <>
+                <FormField label="Terms" htmlFor="terms">
+                  <select
+                    id="terms"
+                    value={paymentTermsDays}
+                    onChange={(e) => setPaymentTermsDays(parseInt(e.target.value))}
+                    className="w-full rounded-md border border-hairline bg-paper px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-amber/40"
+                  >
+                    <option value={0}>Due on receipt</option>
+                    <option value={15}>Net 15</option>
+                    <option value={30}>Net 30</option>
+                    <option value={45}>Net 45</option>
+                  </select>
+                </FormField>
+                <FormField label="Due date" htmlFor="due">
+                  <Input
+                    id="due"
+                    value={formatDate(new Date(Date.now() + paymentTermsDays * 86400000))}
+                    readOnly
+                    className="bg-paper-2 cursor-default font-mono"
+                  />
+                </FormField>
+              </>
+            ) : (
+              <>
+                <FormField label="Valid for (days)" htmlFor="validity">
+                  <Input
+                    id="validity"
+                    type="number"
+                    min={1}
+                    max={365}
+                    value={validityDays}
+                    onChange={(e) => setValidityDays(parseInt(e.target.value) || 30)}
+                    className="tabular-nums"
+                  />
+                </FormField>
 
-            <FormField label="Expires on" htmlFor="expires">
-              <Input
-                id="expires"
-                value={formatDate(new Date(Date.now() + validityDays * 86400000))}
-                readOnly
-                className="bg-paper-2 cursor-default font-mono"
-              />
-            </FormField>
+                <FormField label="Expires on" htmlFor="expires">
+                  <Input
+                    id="expires"
+                    value={formatDate(new Date(Date.now() + validityDays * 86400000))}
+                    readOnly
+                    className="bg-paper-2 cursor-default font-mono"
+                  />
+                </FormField>
+              </>
+            )}
 
             <FormField label="GST rate %" htmlFor="taxRate">
               <Input
@@ -900,12 +1142,112 @@ export function QuoteBuilder() {
                 min={0}
                 max={28}
                 suffix="%"
-                value={taxRate}
+                // Export supply is zero-rated under LUT — show 0% and lock the field
+                // so it never contradicts the "Export → no GST" badge above.
+                value={isExport ? 0 : taxRate}
                 onChange={(e) => setTaxRate(parseInt(e.target.value) || 18)}
-                helper="Default 18% for SaaS · HSN 998313"
+                disabled={isExport}
+                helper={isExport ? "Export → zero-rated under LUT · no GST" : "Default 18% for SaaS · HSN 998313"}
+                className={isExport ? "bg-paper-2 cursor-not-allowed" : undefined}
               />
             </FormField>
             </div>
+
+            {/* International billing — set the currency + rate BEFORE adding items so
+                the catalog picker shows each product's real USD price (books stay ₹). */}
+            {isExport && (
+              <div className="lg:col-span-2 rounded-md bg-indigo-soft/40 border border-indigo/20 p-3 space-y-2">
+                <p className="text-[11px] font-semibold text-indigo-ink">🌍 International billing · books stay in ₹</p>
+                <div className="grid grid-cols-2 gap-3 max-w-sm">
+                  <FormField label="Bill in currency" htmlFor="billingCurrency">
+                    <select
+                      id="billingCurrency"
+                      value={currency}
+                      onChange={(e) => {
+                        const next = e.target.value;
+                        setCurrency(next);
+                        setFxInfo(null);
+                        setFxAuto(false);
+                        if (next === "INR") { setExchangeRate(1); }
+                        // Auto-fetch the latest ₹/unit the moment a foreign
+                        // currency is picked — no stale hand-typed number.
+                        else { setExchangeRate(1); void fetchLatestFx(next); }
+                      }}
+                      className="w-full rounded-md border border-hairline bg-paper px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber/40"
+                    >
+                      {BILLING_CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </FormField>
+                  <FormField label="Exchange rate (₹ per unit)" htmlFor="billingRate">
+                    <div className="flex items-center gap-1.5">
+                      <Input
+                        id="billingRate"
+                        type="text"
+                        inputMode="decimal"
+                        value={String(exchangeRate)}
+                        onChange={(e) => { setExchangeRate(parseFloat(e.target.value) || 1); setFxAuto(false); }}
+                        disabled={!isForeign}
+                        placeholder="₹ / unit"
+                      />
+                      {isForeign && (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="default"
+                          icon="refresh"
+                          loading={fxLoading}
+                          onClick={() => void fetchLatestFx(currency)}
+                          title="Fetch the latest rate from the internet"
+                        >
+                          Latest
+                        </Button>
+                      )}
+                    </div>
+                  </FormField>
+                </div>
+                {/* Which price to bill on when an item has both a ₹ and a real USD price */}
+                <div className="flex items-center gap-2 flex-wrap pt-0.5">
+                  <span className="text-[11px] font-medium text-indigo-ink">Pricing basis:</span>
+                  <div className="inline-flex rounded-md border border-indigo/30 bg-paper p-0.5">
+                    {([["international", `International ${currency}`], ["india", `India rate → ${currency}`]] as const).map(([val, label]) => (
+                      <button
+                        key={val}
+                        type="button"
+                        onClick={() => setUsdPricingBasis(val)}
+                        className={cn(
+                          "px-2.5 py-1 text-[11px] rounded transition-colors",
+                          usdPricingBasis === val ? "bg-indigo text-white font-medium" : "text-ink-3 hover:text-ink",
+                        )}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                  <span className="text-[10px] text-ink-3">
+                    {usdPricingBasis === "international"
+                      ? `Har item ka apna ${currency} price (jiska set hai); warna ₹ convert.`
+                      : `Sabka ₹ price rate pe ${currency} me convert.`}
+                  </span>
+                </div>
+                {fxMissing ? (
+                  <p className="text-[11px] text-rose font-medium">
+                    ⚠ Exchange rate set karo (₹ per {currency}) — abhi 1 hai, isliye numbers galat aayenge.
+                    {fxLoading ? " Latest rate laa rahe hain…" : " Ya “Latest” dabao."}
+                  </p>
+                ) : isForeign && fxAuto ? (
+                  <p className="text-[11px] text-emerald">
+                    ✓ Latest rate: <b>₹{exchangeRate}/{currency}</b>
+                    {fxInfo?.asOf ? ` · as of ${fxInfo.asOf}` : ""} (auto — edit karke override kar sakte ho).
+                    Books ₹ me record hongi (GST).
+                  </p>
+                ) : isForeign ? (
+                  <p className="text-[11px] text-indigo-ink">
+                    Sab amounts ab <b>{currency}</b> me — customer ko yehi dikhega. Books ₹ me record hongi (GST).
+                    Catalog items apna real {currency} price use karenge (Items me set karo); warna ₹ convert hoga.
+                  </p>
+                ) : null}
+              </div>
+            )}
           </div>
         </Card>
 
@@ -949,16 +1291,13 @@ export function QuoteBuilder() {
           <div className="md:hidden divide-y divide-hairline">
             {lineItems.map((line) => {
               const commitment  = line.commitment ?? "annual_yearly";
-              const billingN    = invoicesPerYear(commitment);
-              const unitLabel   = billingUnitLabel(commitment);
+              const unitLabel   = billingUnit;   // quote-level frequency (0161)
               const displayRate = Math.round(line.rate / billingN);
               const displayCost = Math.round(line.cost / billingN);
               const commitType: "monthly" | "annual" = commitment === "monthly" ? "monthly" : "annual";
               const lineDiscountPct = line.discount_pct ?? 0;
               const netRate  = line.rate * (1 - lineDiscountPct / 100);
               const lineMargin = computeMargin(line.cost * line.qty, netRate * line.qty);
-              const lineGross  = line.qty * line.rate;
-              const lineNet    = lineGross - Math.round(lineGross * (lineDiscountPct / 100));
               return (
                 <div key={line.id} className="p-3 space-y-2.5">
                   <div className="flex items-start justify-between gap-2">
@@ -990,10 +1329,11 @@ export function QuoteBuilder() {
                       )}
                     </label>
                     <label className="block">
-                      <span className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold">Rate ₹{unitLabel}</span>
+                      <span className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold">Rate {isUsdBill ? "$" : "₹"}{unitLabel}</span>
                       <input
-                        type="number" min={0} value={displayRate}
-                        onChange={(e) => updateRate(line.id, (parseInt(e.target.value) || 0) * billingN)}
+                        type="number" min={0} step={isUsdBill ? "0.01" : "1"}
+                        value={isUsdBill ? Number((displayRate / fxRate).toFixed(2)) : displayRate}
+                        onChange={(e) => { const v = parseFloat(e.target.value) || 0; updateRate(line.id, (isUsdBill ? Math.round(v * fxRate) : Math.round(v)) * billingN); }}
                         className="mt-0.5 w-full px-2 py-1.5 text-sm tabular-nums border border-hairline rounded bg-paper focus:outline-none focus:ring-2 focus:ring-amber focus:border-amber"
                       />
                     </label>
@@ -1018,17 +1358,18 @@ export function QuoteBuilder() {
                     </label>
                   </div>
                   <div className="text-[11px] text-ink-3 inline-flex items-center gap-1 flex-wrap">
-                    <span>Cost ₹</span>
+                    <span>Cost {isUsdBill ? "$" : "₹"}</span>
                     <input
-                      type="number" min={0} value={displayCost}
-                      onChange={(e) => updateCost(line.id, (parseInt(e.target.value) || 0) * billingN)}
+                      type="number" min={0} step={isUsdBill ? "0.01" : "1"}
+                      value={isUsdBill ? Number((displayCost / fxRate).toFixed(2)) : displayCost}
+                      onChange={(e) => { const v = parseFloat(e.target.value) || 0; updateCost(line.id, (isUsdBill ? Math.round(v * fxRate) : Math.round(v)) * billingN); }}
                       className="w-14 px-1 py-0.5 text-[11px] text-right tabular-nums border border-hairline rounded bg-paper focus:outline-none focus:ring-1 focus:ring-amber focus:border-amber"
                     />
                     <span>/seat{unitLabel} · Margin {lineMargin.marginPct}%</span>
                   </div>
                   <div className="flex items-center justify-between border-t border-hairline pt-2">
                     <span className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold">Amount</span>
-                    <span className="font-medium text-sm tabular-nums">{rupee(lineNet)}{billingN > 1 ? " /yr" : ""}</span>
+                    <span className="font-medium text-sm tabular-nums">{fmtDispC(dispAmt(line.rate, line.qty, line.discount_pct ?? 0))}{billingN > 1 ? " /yr" : ""}</span>
                   </div>
                 </div>
               );
@@ -1057,14 +1398,10 @@ export function QuoteBuilder() {
                 // Display unit depends on commitment + billing term.
                 // Storage is always ₹/seat/YEAR — divide by invoicesPerYear for display.
                 const commitment  = line.commitment ?? "annual_yearly";
-                const billingN    = invoicesPerYear(commitment);
-                const unitLabel   = billingUnitLabel(commitment);
+                const unitLabel   = billingUnit;   // quote-level frequency (0161)
                 const displayRate = Math.round(line.rate / billingN);
                 const displayCost = Math.round(line.cost / billingN);
                 const isPerInvoice = billingN > 1; // anything other than yearly invoice
-                const lineGross   = line.qty * line.rate;
-                const lineDiscount = Math.round(lineGross * (lineDiscountPct / 100));
-                const lineNet     = lineGross - lineDiscount;
 
                 // When user edits, convert back to annual for storage
                 const handleRateChange = (raw: number) => updateRate(line.id, raw * billingN);
@@ -1092,12 +1429,16 @@ export function QuoteBuilder() {
                         </button>
                       )}
                       <div className="text-[11px] text-ink-3 mt-0.5 tabular-nums flex items-center gap-1.5 flex-wrap">
-                        <span>Cost ₹</span>
+                        <span>Cost {isUsdBill ? "$" : "₹"}</span>
                         <input
                           type="number"
                           min={0}
-                          value={displayCost}
-                          onChange={(e) => handleCostChange(parseInt(e.target.value) || 0)}
+                          step={isUsdBill ? "0.01" : "1"}
+                          value={isUsdBill ? Number((displayCost / fxRate).toFixed(2)) : displayCost}
+                          onChange={(e) => {
+                            const v = parseFloat(e.target.value) || 0;
+                            handleCostChange(isUsdBill ? Math.round(v * fxRate) : Math.round(v));
+                          }}
                           className="w-16 px-1 py-0.5 text-[11px] text-right tabular-nums border border-hairline rounded bg-paper focus:outline-none focus:ring-1 focus:ring-amber focus:border-amber"
                         />
                         <span>/seat{unitLabel} · Margin {lineMargin.marginPct}%</span>
@@ -1150,12 +1491,16 @@ export function QuoteBuilder() {
                     </td>
                     <td className="p-2 text-right">
                       <div className="flex items-center justify-end gap-1">
-                        <span className="text-xs text-ink-3">₹</span>
+                        <span className="text-xs text-ink-3">{isUsdBill ? "$" : "₹"}</span>
                         <input
                           type="number"
                           min={0}
-                          value={displayRate}
-                          onChange={(e) => handleRateChange(parseInt(e.target.value) || 0)}
+                          step={isUsdBill ? "0.01" : "1"}
+                          value={isUsdBill ? Number((displayRate / fxRate).toFixed(2)) : displayRate}
+                          onChange={(e) => {
+                            const v = parseFloat(e.target.value) || 0;
+                            handleRateChange(isUsdBill ? Math.round(v * fxRate) : Math.round(v));
+                          }}
                           className="w-24 px-2 py-1 text-sm text-right tabular-nums border border-hairline rounded bg-paper focus:outline-none focus:ring-2 focus:ring-amber focus:border-amber"
                         />
                         <span className="text-[10px] text-ink-3 ml-0.5">{unitLabel}</span>
@@ -1165,21 +1510,21 @@ export function QuoteBuilder() {
                       {isPerInvoice ? (
                         <>
                           {/* Per-invoice amount = what customer pays each billing cycle */}
-                          <div>{rupee(line.qty * displayRate)}{unitLabel}</div>
+                          <div>{fmtDispC(dispAmt(displayRate, line.qty, lineDiscountPct))}{unitLabel}</div>
                           <div className="text-[10px] text-ink-3 font-normal">
-                            = {rupee(lineNet)}/yr
+                            = {fmtDispC(dispAmt(line.rate, line.qty, lineDiscountPct))}/yr
                             {lineDiscountPct > 0 && (
-                              <span className="text-ink-3"> (was {rupee(lineGross)})</span>
+                              <span className="text-ink-3"> (was {fmtDispC(dispAmt(line.rate, line.qty))})</span>
                             )}
                           </div>
                         </>
                       ) : (
                         // Yearly bill — single annual invoice
                         <div>
-                          {rupee(lineNet)}
+                          {fmtDispC(dispAmt(line.rate, line.qty, lineDiscountPct))}
                           {lineDiscountPct > 0 && (
                             <div className="text-[10px] text-ink-3 font-normal line-through">
-                              {rupee(lineGross)}
+                              {fmtDispC(dispAmt(line.rate, line.qty))}
                             </div>
                           )}
                         </div>
@@ -1210,10 +1555,23 @@ export function QuoteBuilder() {
               <Textarea
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
-                placeholder="Pricing valid for 30 days. Onboarding includes DNS, MX, SPF, DKIM, DMARC setup. Free training (2 sessions)."
+                placeholder={isInvoiceMode
+                  ? "Appears on the invoice — e.g. what the charge is for, payment terms."
+                  : "Pricing valid for 30 days. Onboarding includes DNS, MX, SPF, DKIM, DMARC setup. Free training (2 sessions)."}
                 rows={6}
               />
-              <p className="text-[11px] text-ink-3 mt-1">Shown on customer-facing quote PDF.</p>
+              <p className="text-[11px] text-ink-3 mt-1">Shown on customer-facing {isInvoiceMode ? "invoice" : "quote"} PDF.</p>
+
+              {/* Terms & Conditions (Zoho-style) — document-level, separate from notes. */}
+              <div className="mt-4">
+                <label className="text-xs font-medium text-ink-2 block mb-1.5">Terms &amp; conditions</label>
+                <Textarea
+                  value={termsConditions}
+                  onChange={(e) => setTermsConditions(e.target.value)}
+                  placeholder="Your standard terms — e.g. late-payment interest, jurisdiction, warranty. Printed at the bottom of the document."
+                  rows={3}
+                />
+              </div>
             </div>
 
             {/* Totals (right) */}
@@ -1223,33 +1581,50 @@ export function QuoteBuilder() {
                   separate discount input — you discount by lowering the rate. */}
               {customerDiscount > 0 && (
                 <>
-                  <TotalRow label="List price" value={fmtTotal(listGross)} />
+                  <TotalRow label="List price" value={fmtTotalC(dispListGross)} />
                   <div className="flex items-center justify-between text-sm text-emerald">
                     <span>Quote discount ({customerDiscountPct}%)</span>
                     <span className="tabular-nums">
-                      −{showPerInvoice ? rupee(Math.round(customerDiscount / sharedBillingN)) + sharedBillingUnit : fmtTotal(customerDiscount)}
+                      −{fmtTotalC(dispCustomerDiscount)}
                     </span>
                   </div>
                 </>
               )}
-              <TotalRow label={customerDiscount > 0 ? "Subtotal (after discount)" : totalsLabel} value={fmtTotal(subtotal)} />
+              <TotalRow label={customerDiscount > 0 ? "Subtotal (after discount)" : totalsLabel} value={fmtTotalC(dispSubtotal)} />
 
-              <TotalRow label="Taxable amount" value={fmtTotal(taxable)} />
+              <TotalRow label="Taxable amount" value={fmtTotalC(dispTaxable)} />
 
-              <div className="text-[11px] text-ink-3 italic flex items-center gap-1 py-1">
-                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <circle cx="12" cy="12" r="10" />
-                  <path d="M12 16v-4M12 8h.01" />
-                </svg>
-                {interState ? `Different state → IGST applicable` : `Same state → CGST + SGST split`} @ {taxRate}%
-              </div>
+              {isExport ? (
+                <div className="text-[11px] text-indigo-ink flex items-start gap-1 py-1">
+                  <span>🌍</span>
+                  <span>Export ({customer?.country}) → <b>zero-rated under LUT</b> · no GST (CGST/SGST/IGST) applies</span>
+                </div>
+              ) : (
+                <div className="text-[11px] text-ink-3 italic flex items-center gap-1 py-1">
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <circle cx="12" cy="12" r="10" />
+                    <path d="M12 16v-4M12 8h.01" />
+                  </svg>
+                  {interState ? `Different state → IGST applicable` : `Same state → CGST + SGST split`} @ {taxRate}%
+                </div>
+              )}
 
-              {interState ? (
-                <TotalRow label={`IGST (${taxRate}%)`} value={fmtTotal(tax)} />
+              {/* Foreign billing SUMMARY (read-only) — the currency + rate are set once
+                  up top (Settings), so here we just confirm what the customer is billed. */}
+              {isForeign && (
+                <div className="rounded-md bg-indigo-soft/40 border border-indigo/20 p-2.5 my-1">
+                  <p className="text-[11px] text-indigo-ink">
+                    🌍 Customer billed in <b>{currency}</b> @ ₹{exchangeRate}/{currency} · books record <b>{rupee(total)}</b> (for GST)
+                  </p>
+                </div>
+              )}
+
+              {isExport ? null : interState ? (
+                <TotalRow label={`IGST (${taxRate}%)`} value={fmtTotalC(dispTax)} />
               ) : (
                 <>
-                  <TotalRow label={`CGST (${taxRate / 2}%)`} value={fmtTotal(Math.round(tax / 2))} />
-                  <TotalRow label={`SGST (${taxRate / 2}%)`} value={fmtTotal(tax - Math.round(tax / 2))} />
+                  <TotalRow label={`CGST (${taxRate / 2}%)`} value={fmtTotalC(dRound(dispTax / 2))} />
+                  <TotalRow label={`SGST (${taxRate / 2}%)`} value={fmtTotalC(dRound(dispTax - dRound(dispTax / 2)))} />
                 </>
               )}
 
@@ -1259,24 +1634,40 @@ export function QuoteBuilder() {
                   <span className="text-xs uppercase tracking-wider text-ink-3 font-semibold">
                     {/* When all lines are annual_yearly (single yearly invoice),
                         the customer pays the FULL amount upfront — Indian SME default. */}
-                    {!showPerInvoice && sharedBillingN === 1
+                    {!showPerInvoice && billingN === 1
                       ? "Total payable now"
                       : "Grand total"}
                   </span>
                   <div className="text-right">
                     <span className="font-serif text-3xl text-amber tabular-nums">
                       {showPerInvoice
-                        ? rupee(Math.round(total / sharedBillingN))
-                        : rupee(total)}
+                        ? fmtPayableC(dRound(dispTotal / billingN))
+                        : fmtPayableC(dispTotal)}
                     </span>
                     {showPerInvoice && (
                       <div className="text-[11px] text-ink-3 font-normal mt-0.5">
-                        per invoice ({sharedBillingN}/yr) · = {rupee(total)} / year
+                        per invoice ({billingN}/yr) · = {fmtPayableC(dispTotal)} / year
                       </div>
                     )}
-                    {!showPerInvoice && sharedBillingN === 1 && (
+                    {isForeign && (
+                      <label className="mt-1 flex items-center justify-end gap-1.5 text-[11px] text-ink-3 cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={roundTotal}
+                          onChange={(e) => setRoundTotal(e.target.checked)}
+                          className="rounded border-hairline"
+                        />
+                        Round off total
+                      </label>
+                    )}
+                    {!showPerInvoice && billingN === 1 && (
                       <div className="text-[11px] text-emerald font-medium mt-0.5">
                         ✓ Single invoice · pay once for full year
+                      </div>
+                    )}
+                    {isForeign && (
+                      <div className="text-[11px] text-indigo-ink font-medium mt-0.5">
+                        = {rupee(total)} in books (for GST) @ ₹{exchangeRate}/{currency}
                       </div>
                     )}
                   </div>
@@ -1301,15 +1692,52 @@ export function QuoteBuilder() {
         <div className="order-last sticky bottom-0 z-20 -mx-4 -mb-4 flex items-center justify-between gap-3 flex-wrap border-t border-hairline bg-paper px-4 py-3 shadow-[0_-6px_16px_-10px_rgba(0,0,0,0.25)] md:-mx-6 md:-mb-6 md:px-6 lg:-mx-8 lg:-mb-8 lg:px-8">
           <div className="flex items-baseline gap-2">
             <span className="text-[11px] uppercase tracking-wider text-ink-3 font-semibold">
-              {!showPerInvoice && sharedBillingN === 1 ? "Total payable now" : "Total"}
+              {!showPerInvoice && billingN === 1 ? "Total payable now" : "Total"}
             </span>
             <span className="font-serif text-2xl text-amber tabular-nums">
-              {showPerInvoice ? rupee(Math.round(total / sharedBillingN)) : rupee(total)}
+              {showPerInvoice ? fmtPayableC(dRound(dispTotal / billingN)) : fmtPayableC(dispTotal)}
             </span>
             {showPerInvoice && (
-              <span className="text-[11px] text-ink-3">/invoice · {rupee(total)}/yr</span>
+              <span className="text-[11px] text-ink-3">/invoice · {fmtPayableC(dispTotal)}/yr</span>
             )}
           </div>
+          {isInvoiceMode ? (
+            /* Invoice mode — one-time/recurring choice + a single "Create invoice". */
+            <div className="flex gap-2 flex-wrap items-center">
+              <div className="inline-flex rounded-lg border border-hairline bg-paper-2/40 p-1 text-xs">
+                {[{ k: false, l: "One-time" }, { k: true, l: "Recurring" }].map((o) => (
+                  <button
+                    key={String(o.k)}
+                    type="button"
+                    onClick={() => setInvoiceRecurring(o.k)}
+                    className={`px-3 py-1.5 rounded-md transition-colors ${
+                      invoiceRecurring === o.k ? "bg-paper text-ink shadow-sm font-medium" : "text-ink-3 hover:text-ink"
+                    }`}
+                  >
+                    {o.l}
+                  </button>
+                ))}
+              </div>
+              <Button
+                icon="file"
+                onClick={() => {
+                  if (lineItems.length === 0) { toast.error("Add at least one line item to preview"); return; }
+                  setPreviewOpen(true);
+                }}
+              >
+                Preview
+              </Button>
+              <Button
+                variant="primary"
+                icon="receipt"
+                onClick={() => handleSubmit("sent")}
+                loading={createQuote.isPending || generateInvoice.isPending}
+                disabled={!customerId && !prospectName.trim()}
+              >
+                Create invoice
+              </Button>
+            </div>
+          ) : (
           <div className="flex gap-2 flex-wrap">
           <Button variant="ghost" icon="copy" onClick={() => handleSubmit("draft")} loading={createQuote.isPending}>
             Save draft
@@ -1350,11 +1778,18 @@ export function QuoteBuilder() {
             Save &amp; send quote
           </Button>
           </div>
+          )}
         </div>
       )}
 
       {/* Add item modal */}
-      <AddLineItemDialog open={addOpen} onOpenChange={setAddOpen} onAdd={addLine} />
+      <AddLineItemDialog open={addOpen} onOpenChange={setAddOpen} onAdd={addLine} currency={currency} exchangeRate={exchangeRate} pricingBasis={usdPricingBasis} />
+      {/* "New customer" from the picker — auto-selects the created customer. */}
+      <AddCustomerForm
+        open={addCustomerOpen}
+        onOpenChange={setAddCustomerOpen}
+        onCreated={(newId) => { setCustomerId(newId); setProspectName(""); }}
+      />
       <BulkDomainsDialog open={bulkOpen} onOpenChange={setBulkOpen} catalog={catalog} customerId={customerId} onAdd={addLine} />
       <ViewDomainsDialog
         open={!!viewDomains}
@@ -1382,10 +1817,15 @@ export function QuoteBuilder() {
         discountPct={0}
         discount={0}
         taxable={taxable}
-        taxRate={taxRate}
+        taxRate={effectiveTaxRate}
         tax={tax}
         total={total}
         interState={interState}
+        isExport={isExport}
+        currency={currency}
+        exchangeRate={exchangeRate}
+        billingCycle={effectiveCycle}
+        termsConditions={termsConditions}
         validityDays={validityDays}
         notes={notes}
         isProspect={isLeadMode}

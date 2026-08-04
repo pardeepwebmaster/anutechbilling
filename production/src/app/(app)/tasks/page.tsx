@@ -15,7 +15,6 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { toast } from "sonner";
 import {
   useTasks,
   useCompleteTask,
@@ -25,9 +24,15 @@ import {
   type TaskWithLink,
 } from "@/lib/queries/tasks";
 import { AddTaskDialog } from "@/components/features/tasks/add-task-dialog";
+import { useTeamMembers, memberLabel, type TeamMember } from "@/lib/queries/team";
+import { useCurrentUser } from "@/lib/hooks/useCurrentUser";
 import { Card } from "@/components/ui/card";
 import { Button, IconButton } from "@/components/ui/button";
+import { FAB } from "@/components/ui/fab";
 import { Badge } from "@/components/ui/badge";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
+} from "@/components/ui/dialog";
 import { TabBar, type TabBarItem } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/shared/empty-state";
@@ -73,8 +78,33 @@ export default function TasksPage() {
     { id: "all",      label: "All",      count: all.data?.length      ?? 0 },
   ];
 
-  const visibleTasks = tab === "all" ? (all.data ?? []) : (active.data ?? []);
+  const { data: members = [] } = useTeamMembers();
+  const { data: me } = useCurrentUser();
+  const memberById = React.useMemo(() => new Map(members.map((m) => [m.id, m])), [members]);
+  const [assignee, setAssignee] = React.useState<string>("all");
+
+  // Per-person open (pending) task counts — the "workload at a glance".
+  const openByOwner = React.useMemo(() => {
+    const m = new Map<string, number>();
+    for (const t of all.data ?? []) {
+      if (t.status !== "pending" || !t.owner_id) continue;
+      m.set(t.owner_id, (m.get(t.owner_id) ?? 0) + 1);
+    }
+    return m;
+  }, [all.data]);
+  const totalOpen = React.useMemo(() => (all.data ?? []).filter((t) => t.status === "pending").length, [all.data]);
+  const myOpen = me?.userId ? openByOwner.get(me.userId) ?? 0 : 0;
+
+  const rawVisible = tab === "all" ? (all.data ?? []) : (active.data ?? []);
+  const visibleTasks =
+    assignee === "all"  ? rawVisible :
+    assignee === "mine" ? rawVisible.filter((t) => t.owner_id === me?.userId) :
+                          rawVisible.filter((t) => t.owner_id === assignee);
   const isLoading = tab === "all" ? all.isLoading : active.isLoading;
+  // Honest error surface — without this a failed load renders a cheerful
+  // "Nothing on your plate today." (false positive). Capture + retry instead.
+  const loadError = tab === "all" ? all.error : active.error;
+  const refetchTasks = tab === "all" ? all.refetch : active.refetch;
 
   return (
     <div className="p-4 md:p-6 lg:p-8 max-w-[1100px] mx-auto">
@@ -99,15 +129,42 @@ export default function TasksPage() {
       </div>
 
       {/* Tabs */}
-      <div className="mb-4">
+      <div className="mb-3">
         <TabBar items={tabs} value={tab} onChange={(v) => setTab(v as TaskBucket)} />
       </div>
+
+      {/* Workload — per-person open-task counts + quick "Mine" toggle. Click to filter. */}
+      {members.length > 1 && (
+        <div className="mb-4 flex flex-wrap items-center gap-1.5">
+          <WorkloadChip label="👥 Everyone" count={totalOpen} active={assignee === "all"} onClick={() => setAssignee("all")} />
+          {me?.userId && (
+            <WorkloadChip label="🙋 Mine" count={myOpen} active={assignee === "mine"} onClick={() => setAssignee("mine")} />
+          )}
+          {members.filter((m) => m.id !== me?.userId).map((m) => (
+            <WorkloadChip
+              key={m.id}
+              label={memberLabel(m)}
+              count={openByOwner.get(m.id) ?? 0}
+              active={assignee === m.id}
+              onClick={() => setAssignee(m.id)}
+            />
+          ))}
+        </div>
+      )}
 
       {/* List */}
       {isLoading ? (
         <div className="space-y-2">
           {[0, 1, 2].map((i) => <Skeleton key={i} className="h-20" />)}
         </div>
+      ) : loadError ? (
+        <EmptyState
+          icon="alert"
+          title="Couldn't load your tasks"
+          body="Something went wrong fetching your tasks. This isn't 'inbox zero' — check your connection and try again."
+          action={<Button variant="primary" icon="refresh" onClick={() => void refetchTasks()}>Retry</Button>}
+          compact
+        />
       ) : visibleTasks.length === 0 ? (
         <EmptyState
           icon={tab === "done" ? "check_circle" : "clock"}
@@ -133,7 +190,9 @@ export default function TasksPage() {
       ) : (
         <Card>
           <ul className="divide-y divide-hairline">
-            {visibleTasks.map((t) => <TaskRow key={t.id} task={t} onEdit={setEditingTask} />)}
+            {visibleTasks.map((t) => (
+              <TaskRow key={t.id} task={t} onEdit={setEditingTask} assignee={t.owner_id ? memberById.get(t.owner_id) : null} />
+            ))}
           </ul>
         </Card>
       )}
@@ -150,15 +209,36 @@ export default function TasksPage() {
           task={editingTask}
         />
       )}
+
+      {/* Mobile primary — the header "Add task" scrolls away behind a long queue. */}
+      <FAB icon="plus" label="Add task" onClick={() => setAddOpen(true)} />
     </div>
   );
 }
 
+// ─── Workload filter chip (per-person open-task count) ──────────────────────
+function WorkloadChip({ label, count, active, onClick }: { label: string; count: number; active: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
+        active ? "border-amber bg-amber-soft text-amber-ink" : "border-hairline text-ink-2 hover:bg-paper-2",
+      )}
+    >
+      <span>{label}</span>
+      <span className={cn("rounded-full px-1.5 tabular-nums", active ? "bg-amber/25 text-amber-ink" : "bg-paper-2 text-ink-3")}>{count}</span>
+    </button>
+  );
+}
+
 // ─── Row ──────────────────────────────────────────────────────────────────
-function TaskRow({ task, onEdit }: { task: TaskWithLink; onEdit: (t: TaskWithLink) => void }) {
+function TaskRow({ task, onEdit, assignee }: { task: TaskWithLink; onEdit: (t: TaskWithLink) => void; assignee?: TeamMember | null }) {
   const completeTask = useCompleteTask();
   const snoozeTask   = useSnoozeTask();
   const deleteTask   = useDeleteTask();
+  const [confirmOpen, setConfirmOpen] = React.useState(false);
 
   const due = new Date(task.due_at);
   const now = Date.now();
@@ -218,6 +298,11 @@ function TaskRow({ task, onEdit }: { task: TaskWithLink; onEdit: (t: TaskWithLin
           <span className="text-base leading-none">{kindMeta.icon}</span>
           <p className={cn("font-medium text-ink", isDone && "line-through")}>{task.title}</p>
           <Badge kind="muted">{kindMeta.label}</Badge>
+          {assignee && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-indigo-soft/60 text-indigo px-2 py-0.5 text-[11px] font-medium" title={`Assigned to ${memberLabel(assignee)}`}>
+              <Icon name="user" size={10} /> {memberLabel(assignee)}
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-3 mt-1 text-[12px]">
           <span className={cn(
@@ -274,16 +359,45 @@ function TaskRow({ task, onEdit }: { task: TaskWithLink; onEdit: (t: TaskWithLin
             variant="ghost"
             aria-label="Delete"
             title="Delete"
-            onClick={() => {
-              if (window.confirm(`Delete task "${task.title}"?`)) {
-                deleteTask.mutate(task.id);
-              } else {
-                toast("Cancelled");
-              }
-            }}
+            onClick={() => setConfirmOpen(true)}
           />
         </div>
       )}
+
+      {/* Delete confirmation — an in-app dialog (native window.confirm is
+          suppressed in some browsers/embeds and always returns false, which
+          made delete silently fail). */}
+      <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <DialogContent className="max-w-[420px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Icon name="trash" size={18} className="text-rose" />
+              Delete this task?
+            </DialogTitle>
+            <DialogDescription>
+              &ldquo;{task.title}&rdquo; permanently delete ho jayegi. Ye undo nahi hoga.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="ghost" onClick={() => setConfirmOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="danger"
+              icon="trash"
+              loading={deleteTask.isPending}
+              onClick={() => {
+                deleteTask.mutate(task.id, {
+                  onSuccess: () => setConfirmOpen(false),
+                });
+              }}
+            >
+              Delete task
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </li>
   );
 }

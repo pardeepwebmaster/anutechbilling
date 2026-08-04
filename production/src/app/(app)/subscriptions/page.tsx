@@ -5,10 +5,11 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { useSubscriptions, useSetSubscriptionDomain } from "@/lib/queries/subscriptions";
+import { useSubscriptions, useSetSubscriptionDomain, useDeleteSubscription } from "@/lib/queries/subscriptions";
 import { useActiveTrials } from "@/lib/queries/trials";
 import ExtendSubscriptionDialog from "@/components/features/subscriptions/extend-subscription-dialog";
 import AddSeatsDialog            from "@/components/features/subscriptions/add-seats-dialog";
+import { EditSubscriptionDialog } from "@/components/features/subscriptions/edit-subscription-dialog";
 import { ImportSubscriptionsDialog } from "@/components/features/subscriptions/import-subscriptions-dialog";
 import { ReconcileGoogleDialog } from "@/components/features/subscriptions/reconcile-google-dialog";
 import { ImportGoogleSubsDialog } from "@/components/features/subscriptions/import-google-subs-dialog";
@@ -19,11 +20,15 @@ import { EmptyState } from "@/components/shared/empty-state";
 import { StatStrip } from "@/components/shared/stat-strip";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button, IconButton } from "@/components/ui/button";
+import { FAB } from "@/components/ui/fab";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { TabBar, type TabBarItem } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Icon } from "@/components/ui/icon";
+import {
+  DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
 import { rupee, formatDate, daysBetween } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 import type { Subscription } from "@/lib/supabase/database.types";
@@ -54,6 +59,15 @@ export default function SubscriptionsPage() {
   const [search, setSearch] = React.useState("");
   const [extendSub,   setExtendSub]   = React.useState<Subscription | null>(null);
   const [addSeatsSub, setAddSeatsSub] = React.useState<Subscription | null>(null);
+  const [editSub,     setEditSub]     = React.useState<Subscription | null>(null);
+  const delSub = useDeleteSubscription();
+  const handleDeleteSub = (s: Subscription) => {
+    const msg = `Delete ${s.customer_name}'s "${s.plan}" subscription?\n\n`
+      + `This removes the subscription (and any draft purchase order for it). `
+      + `It's for correcting a wrong / duplicate entry.\n\n`
+      + `Blocked if it came from a paid quote — in that case delete the payment in Payments instead (that unwinds it cleanly).`;
+    if (window.confirm(msg)) delSub.mutate(s.id);
+  };
   const [importOpen,  setImportOpen]  = React.useState(false);
   const [reconcileOpen, setReconcileOpen] = React.useState(false);
   const [addGoogleOpen, setAddGoogleOpen] = React.useState(false);
@@ -164,8 +178,13 @@ export default function SubscriptionsPage() {
         <div className="flex gap-2 flex-wrap">
           <Button icon="refresh" onClick={() => setReconcileOpen(true)}>Reconcile Google</Button>
           <Button icon="upload" onClick={() => setImportOpen(true)}>Import</Button>
-          <Button variant="primary" icon="plus" onClick={() => toast.info("Subscriptions are created from accepted quotes")}>
-            Manual add
+          <Button
+            variant="primary"
+            icon="plus"
+            onClick={() => router.push("/quotes/new" as never)}
+            title="A subscription starts from a paid quote — this opens the quote builder"
+          >
+            New subscription
           </Button>
         </div>
       </div>
@@ -245,7 +264,7 @@ export default function SubscriptionsPage() {
           <GeminiCard
             title="Renewal intelligence"
             actions={
-              <Button size="sm" variant="primary" icon="mail">Bulk renewal email</Button>
+              <Button size="sm" variant="primary" icon="mail" onClick={() => router.push("/renewals" as never)}>Bulk renewal email</Button>
             }
             compact
           >
@@ -393,7 +412,7 @@ export default function SubscriptionsPage() {
                   <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Customer · Domain</th>
                   <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Plan</th>
                   <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Vendor</th>
-                  <th className="text-right p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Seats</th>
+                  <th className="text-right p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider" title="Licensed seats · seats in use">Seats</th>
                   <th className="text-right p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">MRR</th>
                   <th className="text-right p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider" title="Monthly margin">Margin</th>
                   <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Started</th>
@@ -423,20 +442,23 @@ export default function SubscriptionsPage() {
                           {s.vendor}
                         </Badge>
                       </td>
-                      <td className="p-3 text-right tabular-nums text-sm">
+                      {/* Seats — flag low utilization (unused licences = churn risk
+                          at renewal OR an upsell that never happened). */}
+                      <td className="p-3 text-right tabular-nums text-sm" title={`${s.seats} licensed · ${s.used} in use`}>
                         {s.seats}{" "}
-                        <span className="text-ink-3 text-xs">({s.used})</span>
+                        <span className={cn("text-xs", s.seats > 0 && s.used / s.seats < 0.5 ? "text-amber-ink font-medium" : "text-ink-3")}>· {s.used} used</span>
                       </td>
-                      <td className="p-3 text-right tabular-nums text-sm">{rupee(s.mrr)}</td>
+                      {/* MRR — the money, given weight. */}
+                      <td className="p-3 text-right tabular-nums">
+                        <span className="font-serif text-[15px] font-semibold text-ink">{rupee(s.mrr)}</span>
+                      </td>
+                      {/* Margin — colour-coded badge. */}
                       <td className="p-3 text-right">
-                        <div className="flex flex-col items-end">
-                          <span className={cn(
-                            "tabular-nums text-sm font-medium",
-                            m.marginPct >= 18 ? "text-emerald" : m.marginPct >= 14 ? "text-amber-ink" : "text-rose"
-                          )}>
-                            {rupee(m.margin)}
-                          </span>
-                          <span className="text-[10px] text-ink-3 tabular-nums">{m.marginPct}%</span>
+                        <div className="flex flex-col items-end gap-0.5">
+                          <Badge kind={m.marginPct >= 18 ? "success" : m.marginPct >= 14 ? "warning" : "danger"} size="sm">
+                            {m.marginPct}%
+                          </Badge>
+                          <span className="text-[10px] text-ink-3 tabular-nums">{rupee(m.margin)}</span>
                         </div>
                       </td>
                       <td className="p-3 text-sm text-ink-2">{s.start_date ? formatDate(s.start_date) : "—"}</td>
@@ -463,20 +485,42 @@ export default function SubscriptionsPage() {
                         )}
                       </td>
                       <td className="p-3">
-                        {s.status === "expired" ? (
-                          <Button size="sm" variant="danger" icon="alert">Action</Button>
-                        ) : isUrgent ? (
-                          <div className="flex gap-1">
-                            <Button size="sm" variant="primary" icon="phone">Renew</Button>
-                            <IconButton icon="plus"  aria-label="Add seats"  size="sm" title="Add seats (pro-rata)"    onClick={() => setAddSeatsSub(s)} />
-                            <IconButton icon="clock" aria-label="Extend term" size="sm" title="Extend by 1/2/3 years" onClick={() => setExtendSub(s)} />
-                          </div>
-                        ) : (
-                          <div className="flex gap-1">
-                            <Button     size="sm" icon="plus"  onClick={() => setAddSeatsSub(s)}>Seats</Button>
-                            <IconButton icon="clock" aria-label="Extend term" size="sm" title="Extend by 1/2/3 years" onClick={() => setExtendSub(s)} />
-                          </div>
-                        )}
+                        <div className="flex items-center gap-1">
+                          {s.status === "expired" ? (
+                            <Button size="sm" variant="danger" icon="refresh" title="Renew this subscription" onClick={() => router.push("/renewals" as never)}>Renew</Button>
+                          ) : isUrgent ? (
+                            <>
+                              <Button size="sm" variant="primary" icon="refresh" title="Send the renewal quote" onClick={() => router.push("/renewals" as never)}>Renew</Button>
+                              <IconButton icon="plus" aria-label="Add seats" size="sm" title="Add seats (pro-rata)" onClick={() => setAddSeatsSub(s)} />
+                            </>
+                          ) : (
+                            <Button size="sm" icon="plus" onClick={() => setAddSeatsSub(s)}>Seats</Button>
+                          )}
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <button
+                                type="button"
+                                aria-label="Subscription actions"
+                                className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-3 transition-colors hover:bg-paper-2 hover:text-ink data-[state=open]:bg-paper-2 data-[state=open]:text-ink"
+                              >
+                                <Icon name="more_h" size={20} />
+                              </button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="min-w-[13rem]">
+                              <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                              <DropdownMenuItem className="gap-2.5 py-2 cursor-pointer" onClick={() => setEditSub(s)}>
+                                <Icon name="edit" size={16} /> Correct details
+                              </DropdownMenuItem>
+                              <DropdownMenuItem className="gap-2.5 py-2 cursor-pointer" onClick={() => setExtendSub(s)}>
+                                <Icon name="clock" size={16} /> Extend term
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem className="gap-2.5 py-2 cursor-pointer text-rose" onClick={() => handleDeleteSub(s)}>
+                                <Icon name="trash" size={16} /> Delete subscription
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -504,7 +548,7 @@ export default function SubscriptionsPage() {
                   <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Customer · Domain</th>
                   <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Plan</th>
                   <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Vendor</th>
-                  <th className="text-right p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Seats</th>
+                  <th className="text-right p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider" title="Licensed seats · seats in use">Seats</th>
                   <th className="text-right p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">MRR</th>
                   <th className="text-right p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Margin</th>
                   <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Started</th>
@@ -573,6 +617,53 @@ export default function SubscriptionsPage() {
         </Card>
       )}
 
+      {/* Trials tab — mobile card list (phones only). Without this the Trials
+          tab was fully BLANK on mobile — the table is `hidden md:block` and the
+          main mobile card `<ul>` excludes trials. */}
+      {!isLoading && !error && tab === "trials" && filteredTrials.length > 0 && (
+        <ul className="md:hidden space-y-2">
+          {filteredTrials.map((t) => {
+            const dr = t.days_remaining ?? 0;
+            const planLabel = (t.plan ?? "")
+              .replace(/^google-workspace-/, "Google Workspace ")
+              .replace(/-/g, " ")
+              .replace(/\b\w/g, (c) => c.toUpperCase());
+            return (
+              <li key={t.id}>
+                <button
+                  type="button"
+                  onClick={() => router.push(`/leads?lead=${t.id}` as never)}
+                  className="w-full text-left bg-paper border border-hairline rounded-lg p-3"
+                >
+                  <div className="flex items-start justify-between gap-3 mb-2">
+                    <div className="min-w-0 flex-1">
+                      <p className="font-medium text-ink truncate">{t.company}</p>
+                      {t.domain && <p className="text-[11px] text-ink-3 font-mono truncate">{t.domain}</p>}
+                      <p className="text-[11px] text-ink-3 truncate mt-0.5">{planLabel} · {t.seats ?? 0} seats</p>
+                    </div>
+                    <Badge
+                      kind={dr <= 1 ? "danger" : dr <= 3 ? "warning" : dr <= 7 ? "info" : "muted"}
+                      size="sm"
+                      dot
+                    >
+                      {dr === 0 ? "today" : dr === 1 ? "1d left" : `${dr}d left`}
+                    </Badge>
+                  </div>
+                  <div className="flex items-center justify-between gap-2 pt-2 border-t border-hairline/60">
+                    <span className="text-[11px] text-ink-3">
+                      Trial ends {t.trial_expires_at ? formatDate(t.trial_expires_at) : "—"}
+                    </span>
+                    <Button size="sm" variant="primary" icon="check_circle" onClick={(e) => { e.stopPropagation(); router.push(`/leads?lead=${t.id}` as never); }}>
+                      Convert
+                    </Button>
+                  </div>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+
       {/* Trials tab — empty state */}
       {!isLoading && !error && tab === "trials" && filteredTrials.length === 0 && (
         <div className="mt-6">
@@ -613,6 +704,15 @@ export default function SubscriptionsPage() {
           sub={addSeatsSub}
           open={!!addSeatsSub}
           onOpenChange={(v) => { if (!v) setAddSeatsSub(null); }}
+        />
+      )}
+
+      {/* Correct subscription details */}
+      {editSub && (
+        <EditSubscriptionDialog
+          sub={editSub}
+          open={!!editSub}
+          onOpenChange={(v) => { if (!v) setEditSub(null); }}
         />
       )}
 
@@ -677,6 +777,9 @@ export default function SubscriptionsPage() {
           </Card>
         </div>
       )}
+
+      {/* Mobile primary — the header "New subscription" scrolls away on a phone. */}
+      <FAB icon="plus" label="New subscription" onClick={() => router.push("/quotes/new" as never)} />
     </div>
   );
 }

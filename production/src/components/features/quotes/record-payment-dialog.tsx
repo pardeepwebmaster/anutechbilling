@@ -34,7 +34,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { createClient } from "@/lib/supabase/client";
-import { rupee } from "@/lib/utils";
+import { rupee, bankLabel } from "@/lib/utils";
 import { fiscalYearFromDate, TDS_SECTIONS } from "@/lib/queries/tds-receivable";
 import { useBankAccounts } from "@/lib/queries/bank";
 
@@ -67,13 +67,6 @@ function computeTds(quoteAmountInclGst: number, ratePct: number): { preGST: numb
   const preGST = Math.round(quoteAmountInclGst * 100 / 118);
   const tds    = Math.round(preGST * ratePct / 100);
   return { preGST, tds };
-}
-
-/** TDS ID generator — keeps it short + globally unique-ish without RPC round-trip. */
-function newTdsId(): string {
-  const stamp = Date.now().toString(36).toUpperCase();
-  const rand  = Math.floor(Math.random() * 256).toString(16).padStart(2, "0").toUpperCase();
-  return `TDS-${stamp}-${rand}`;
 }
 
 interface RecordPaymentDialogProps {
@@ -139,6 +132,20 @@ export function RecordPaymentDialog({
     })();
   }, [open, customerId]);
 
+  // Open advance credit this customer already has (from earlier overpayments).
+  // Only for existing customers — a prospect quote has no customer row yet.
+  const [availableCredit, setAvailableCredit] = React.useState(0);
+  const [applyCredit, setApplyCredit] = React.useState(false);
+  React.useEffect(() => {
+    if (!open || !customerId) { setAvailableCredit(0); setApplyCredit(false); return; }
+    (async () => {
+      const supabase = createClient();
+      const { data } = await supabase
+        .from("customer_credits").select("amount").eq("customer_id", customerId).eq("status", "open");
+      setAvailableCredit((data ?? []).reduce((s, r) => s + (r.amount ?? 0), 0));
+    })();
+  }, [open, customerId]);
+
   const {
     register,
     handleSubmit,
@@ -161,6 +168,9 @@ export function RecordPaymentDialog({
   const watchedAmount = watch("amount") || 0;
   const tdsDeducted   = watch("tdsDeducted") || false;
   const tdsRatePct    = Number(watch("tdsRatePct") || 0);
+  // Has the user hand-edited the bank amount? Until they do, we keep it locked
+  // to (remaining − TDS) so net + TDS always settles the quote exactly.
+  const [amountEdited, setAmountEdited] = React.useState(false);
 
   // TDS computation — preGST × rate%
   const { preGST: quotePreGST, tds: tdsAmount } = React.useMemo(
@@ -168,10 +178,14 @@ export function RecordPaymentDialog({
     [tdsDeducted, tdsRatePct, expectedAmount],
   );
 
+  // Advance credit applied to this payment — capped at the remaining balance
+  // (can't apply more credit than is owed). Reduces the cash the customer needs.
+  const appliedCreditAmount  = applyCredit ? Math.min(availableCredit, remaining) : 0;
+
   // When TDS is checked, "amount received" represents the BANK amount
-  // (post-TDS). The amount we record_payment with is amount + TDS (since
-  // the TDS portion was settled to govt against the reseller's PAN).
-  const settledAgainstQuote  = tdsDeducted ? (watchedAmount + tdsAmount) : watchedAmount;
+  // (post-TDS). The amount we record_payment with is amount + TDS + any advance
+  // credit applied (both already-settled money, not fresh cash this transaction).
+  const settledAgainstQuote  = watchedAmount + (tdsDeducted ? tdsAmount : 0) + appliedCreditAmount;
   const newRunningTotal      = alreadyReceived + settledAgainstQuote;
   const willBePartial        = newRunningTotal < expectedAmount && newRunningTotal > 0;
   const willBeOverpaid       = newRunningTotal > expectedAmount;
@@ -181,6 +195,7 @@ export function RecordPaymentDialog({
       reset();
       setMethod("upi");
       setBankAccountId("");
+      setAmountEdited(false);
     } else {
       reset({
         amount:      remaining,
@@ -190,18 +205,17 @@ export function RecordPaymentDialog({
         tdsRatePct:  customerTdsDefaults.ratePct,
         customerTan: customerTdsDefaults.tan ?? "",
       });
+      setAmountEdited(false);
     }
   }, [open, reset, remaining, customerTdsDefaults]);
 
-  // Auto-reduce amount when TDS gets toggled ON — user typed full quote,
-  // but with TDS, bank gets quote − TDS.
+  // Keep the bank amount locked to (remaining − TDS) until the user hand-edits
+  // it, so net + TDS always settles the quote EXACTLY — no accidental ₹-few
+  // over/under-shoot that used to trip a false "excess payment" warning.
   React.useEffect(() => {
-    if (tdsDeducted && watchedAmount === remaining && remaining === expectedAmount) {
-      // First-payment full-amount case → drop bank amount by TDS
-      setValue("amount", Math.max(0, remaining - tdsAmount));
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tdsDeducted]);
+    if (amountEdited) return;
+    setValue("amount", Math.max(0, remaining - (tdsDeducted ? tdsAmount : 0) - appliedCreditAmount));
+  }, [tdsDeducted, tdsAmount, remaining, amountEdited, appliedCreditAmount, setValue]);
 
   const recordPayment = useMutation({
     mutationFn: async (data: FormData) => {
@@ -212,25 +226,94 @@ export function RecordPaymentDialog({
       // because the TDS portion is already deposited with govt against the
       // reseller's PAN — it's a receivable from govt, not from the customer.
       const tdsActive = !!data.tdsDeducted;
-      const settledAmount = tdsActive
-        ? data.amount + tdsAmount
-        : data.amount;
+
+      // Redeem advance credit FIRST (atomic + row-locked) so it can never be
+      // double-spent if the payment insert below fails. Use the amount the RPC
+      // actually consumed, not the requested amount.
+      let appliedCredit = 0;
+      if (appliedCreditAmount > 0 && customerId) {
+        const { data: consumed, error: rErr } = await supabase.rpc("redeem_customer_credits", {
+          p_customer_id: customerId,
+          p_amount:      appliedCreditAmount,
+          p_note:        `Applied to quote ${quoteId}`,
+        });
+        if (rErr) throw new Error(rErr.message);
+        appliedCredit = consumed ?? 0;
+      }
+
+      const settledAmount = (tdsActive ? data.amount + tdsAmount : data.amount) + appliedCredit;
 
       // ── 2. Single atomic RPC — replaces 7-9 chained client mutations.
-      const { data: r, error } = await supabase.rpc("record_payment", {
-        p_quote_id:  quoteId,
-        p_amount:    settledAmount,
-        p_method:    data.method as "upi" | "razorpay" | "bank_transfer" | "cheque" | "cash" | "other",
-        p_reference: data.reference,
-        p_notes:     [
-          data.notes || null,
-          tdsActive
-            ? `TDS ${data.tdsSection} @ ${tdsRatePct}% = ₹${tdsAmount.toLocaleString("en-IN")} on pre-GST ₹${quotePreGST.toLocaleString("en-IN")}`
-            : null,
-        ].filter(Boolean).join(" · ") || null,
-      });
-      if (error) throw error;
+      // When TDS is deducted, call record_payment_with_tds so the TDS receivable
+      // row commits in the SAME transaction (audit #22). Otherwise the plain
+      // record_payment path is completely unchanged.
+      const method = data.method as "upi" | "razorpay" | "bank_transfer" | "cheque" | "cash" | "other";
+      const notes  = [
+        data.notes || null,
+        tdsActive
+          ? `TDS ${data.tdsSection} @ ${tdsRatePct}% = ₹${tdsAmount.toLocaleString("en-IN")} on pre-GST ₹${quotePreGST.toLocaleString("en-IN")}`
+          : null,
+        appliedCredit > 0 ? `Advance credit applied ₹${appliedCredit.toLocaleString("en-IN")}` : null,
+      ].filter(Boolean).join(" · ") || null;
+
+      const { data: r, error } = tdsActive
+        ? await supabase.rpc("record_payment_with_tds", {
+            p_quote_id:     quoteId,
+            p_amount:       settledAmount,
+            p_method:       method,
+            p_reference:    data.reference,
+            p_notes:        notes,
+            p_tds_amount:   tdsAmount,
+            p_tds_gross:    quotePreGST,
+            p_tds_net_paid: data.amount,
+            p_tds_section:  data.tdsSection ?? "194J",
+            p_tds_rate_pct: tdsRatePct,
+            p_customer_tan: data.customerTan?.trim() || null,
+            p_invoice_id:   invoiceId ?? null,
+            p_fiscal_year:  fiscalYearFromDate(new Date().toISOString().slice(0, 10)),
+          })
+        : await supabase.rpc("record_payment", {
+            p_quote_id:  quoteId,
+            p_amount:    settledAmount,
+            p_method:    method,
+            p_reference: data.reference,
+            p_notes:     notes,
+          });
+      if (error) {
+        // Compensation: record_payment failed AFTER advance credit was redeemed
+        // above → put the credit back so the customer never silently loses it.
+        // (The proper long-term fix is folding redemption into record_payment's
+        // transaction; this saga keeps it safe without touching the money RPC.)
+        if (appliedCredit > 0 && customerId) {
+          try {
+            const { data: authC } = await supabase.auth.getUser();
+            const meC = authC?.user
+              ? (await supabase.from("users").select("tenant_id").eq("id", authC.user.id).maybeSingle()).data
+              : null;
+            if (meC) {
+              await supabase.from("customer_credits").insert({
+                tenant_id:       meC.tenant_id,
+                customer_id:     customerId,
+                amount:          appliedCredit,
+                source:          "overpayment",
+                source_quote_id: quoteId,
+                note:            `Restored — payment failed after ₹${appliedCredit} credit was applied to quote ${quoteId}`,
+                status:          "open",
+              });
+            }
+          } catch (compErr) {
+            console.error("[record-payment] credit compensation failed — advance credit may be lost, restore manually:", compErr);
+          }
+        }
+        throw error;
+      }
       if (!r) throw new Error("record_payment returned no result");
+
+      // Idempotent replay (same reference re-submitted / RQ retry): the payment
+      // already exists and record_payment did NOT insert a new row. Skip the
+      // best-effort TDS + overpayment-credit inserts below so they don't
+      // double-fire (which would duplicate a customer credit or a TDS row).
+      const isReplay = Boolean(r.already_recorded || r.idempotent_replay);
 
       // ── 2b. Tag which bank account received this money (best-effort) ──────
       // Additive to the RPC — a reporting/reconciliation aid, NOT a balance
@@ -244,58 +327,61 @@ export function RecordPaymentDialog({
         if (bankErr) console.error("[record-payment] bank_account tag failed (payment still recorded):", bankErr);
       }
 
-      // ── 3. Insert TDS receivable row (best-effort; failure is non-fatal)
-      if (tdsActive && tdsAmount > 0) {
-        // Get tenant_id via current user
-        const { data: authData } = await supabase.auth.getUser();
-        if (authData?.user) {
-          const { data: me } = await supabase
-            .from("users")
-            .select("tenant_id")
-            .eq("id", authData.user.id)
-            .maybeSingle();
-          if (me) {
-            const today  = new Date().toISOString().slice(0, 10);
-            const tdsErr = (await supabase.from("tds_receivable").insert({
-              id:                    newTdsId(),
-              tenant_id:             me.tenant_id,
-              invoice_id:            invoiceId ?? null,
-              payment_id:            r.payment_id,
-              customer_id:           customerId ?? null,
-              customer_name:         customerName,
-              customer_tan:          data.customerTan?.trim() || null,
-              section:               data.tdsSection ?? "194J",
-              rate_pct:              tdsRatePct,
-              gross_amount:          quotePreGST,
-              tds_amount:            tdsAmount,
-              net_paid:              data.amount,
-              fiscal_year:           fiscalYearFromDate(today),
-              payment_received_date: today,
-              status:                "pending_cert",
-              notes:                 `Auto-created from payment ${r.payment_id} on quote ${quoteId}`,
-            })).error;
-            if (tdsErr) {
-              // Don't fail the whole payment — just warn. Pardeep can add TDS row manually.
-              console.error("[record-payment] TDS row insert failed (payment still recorded):", tdsErr);
-            }
+      // ── 3. TDS receivable — now committed ATOMICALLY inside
+      // record_payment_with_tds above (audit #22): either the payment AND its
+      // TDS receivable both commit, or neither does. No more best-effort client
+      // insert that could silently drop the government TDS credit.
+      let tdsSaved = false;
+      if (!isReplay && tdsActive && tdsAmount > 0) {
+        tdsSaved = Boolean((r as { tds_saved?: boolean }).tds_saved);
+        // Remember the customer's TAN + TDS defaults for next time — a non-money
+        // UX convenience, safe to keep as a best-effort client update.
+        if (customerId && data.customerTan?.trim()) {
+          await supabase
+            .from("customers")
+            .update({
+              tan:                  data.customerTan.trim(),
+              tds_default_section:  data.tdsSection ?? "194J",
+              tds_default_rate_pct: tdsRatePct,
+            })
+            .eq("id", customerId);
+        }
+      }
 
-            // Auto-save customer's TAN + TDS defaults for next time
-            if (customerId && data.customerTan?.trim()) {
-              await supabase
-                .from("customers")
-                .update({
-                  tan:                  data.customerTan.trim(),
-                  tds_default_section:  data.tdsSection ?? "194J",
-                  tds_default_rate_pct: tdsRatePct,
-                })
-                .eq("id", customerId);
-            }
+      // ── 4. Overpayment → customer advance credit (best-effort, like TDS row).
+      // The RPC floors outstanding at 0, so any excess would otherwise vanish.
+      // Record only the INCREMENTAL excess this payment caused (so multiple
+      // installments don't double-count) as an 'open' credit for the customer.
+      const priorReceived = (r.total_received ?? 0) - settledAmount;
+      const priorOverpaid = Math.max(0, priorReceived - (r.expected ?? 0));
+      const overpaidNow   = Math.max(0, (r.total_received ?? 0) - (r.expected ?? 0));
+      const creditAmount  = Math.max(0, overpaidNow - priorOverpaid);
+      let creditRecorded  = 0;
+      if (!isReplay && creditAmount > 0 && r.customer_id) {
+        const { data: authData2 } = await supabase.auth.getUser();
+        if (authData2?.user) {
+          const { data: me2 } = await supabase
+            .from("users").select("tenant_id").eq("id", authData2.user.id).maybeSingle();
+          if (me2) {
+            const credErr = (await supabase.from("customer_credits").insert({
+              tenant_id:         me2.tenant_id,
+              customer_id:       r.customer_id,
+              amount:            creditAmount,
+              source:            "overpayment",
+              source_payment_id: r.payment_id,
+              source_quote_id:   quoteId,
+              note:              `Excess over quote ${quoteId}`,
+              status:            "open",
+            })).error;
+            if (credErr) console.error("[record-payment] customer credit insert failed (payment still recorded):", credErr);
+            else creditRecorded = creditAmount;
           }
         }
       }
 
       // Re-shape into the camelCase keys the onSuccess handler already consumes
       return {
+        overpaidCredit:         creditRecorded,
         newPaymentId:           r.payment_id,
         totalReceived:          r.total_received,
         expected:               r.expected,
@@ -309,8 +395,10 @@ export function RecordPaymentDialog({
         // Renewal roll-forward — added in migration 0010
         isRenewalQuote:         r.is_renewal_quote ?? false,
         renewalRolledForward:   r.renewal_rolled_forward ?? false,
-        // TDS — added in TDS Phase 2
-        tdsRecorded:            tdsActive,
+        // TDS — added in TDS Phase 2. tdsRecorded = did the row ACTUALLY save;
+        // tdsAttempted = TDS was requested (so we can warn if it failed).
+        tdsRecorded:            tdsSaved,
+        tdsAttempted:           tdsActive && tdsAmount > 0,
         tdsAmount:              tdsActive ? tdsAmount : 0,
       };
     },
@@ -328,6 +416,7 @@ export function RecordPaymentDialog({
       qc.invalidateQueries({ queryKey: ["outstanding-receivables"] });
       qc.invalidateQueries({ queryKey: ["nav-badges"] });
       qc.invalidateQueries({ queryKey: ["tds_receivable"] });
+      qc.invalidateQueries({ queryKey: ["customer_credits"] });
 
       if (res.renewalRolledForward) {
         // Renewal quote fully paid — subscription rolled forward 1 year
@@ -337,15 +426,22 @@ export function RecordPaymentDialog({
         // Partial payment against a renewal quote — sub NOT rolled forward yet
         toast.success(`Partial renewal payment recorded · ₹${res.outstanding.toLocaleString("en-IN")} still due to renew`, { duration: 6000 });
       } else if (res.convertedNow) {
-        // First payment on prospect — service starts, customer created
+        // First payment on prospect — customer created. Only claim the
+        // subscription was activated if the RPC actually created one (it skips
+        // creation when the quote has no billing commitment) — never fake it.
+        const subPart = res.subscriptionCreated ? " + subscription activated" : "";
         if (res.isFullyPaid) {
-          toast.success("Paid in full · Customer + subscription activated 🎉", { duration: 5000 });
+          toast.success(`Paid in full · Customer created${subPart} 🎉`, { duration: 5000 });
         } else {
-          toast.success(`Advance received · Customer + subscription activated`, { duration: 5000 });
-          setTimeout(() => toast.info(`₹${res.outstanding.toLocaleString("en-IN")} outstanding — service active, balance pending`, { duration: 6000 }), 600);
+          toast.success(`Advance received · Customer created${subPart}`, { duration: 5000 });
+          setTimeout(() => toast.info(`₹${res.outstanding.toLocaleString("en-IN")} outstanding — balance pending`, { duration: 6000 }), 600);
         }
         if (res.subscriptionCreated) {
           setTimeout(() => toast.success("Subscription created · renewal in 1 year", { duration: 5000 }), 1200);
+        } else {
+          // Money is in + customer created, but no subscription — surface it so
+          // the paid customer doesn't silently miss the renewal cycle.
+          setTimeout(() => toast.warning("No subscription created — check the quote's billing commitment, then add the subscription manually", { duration: 7000 }), 1200);
         }
       } else if (res.invoicePaid) {
         // Post-invoice balance payment that fully cleared the invoice
@@ -364,13 +460,31 @@ export function RecordPaymentDialog({
           { duration: 5000 },
         );
       }
-      // TDS receivable acknowledgement — fires as a second toast so it's
-      // visible without overshadowing the primary payment confirmation.
+      // Overpayment acknowledgement — money was received above the quote and
+      // saved as an advance credit (not lost).
+      if (res.overpaidCredit > 0) {
+        setTimeout(() => {
+          toast.info(
+            `₹${res.overpaidCredit.toLocaleString("en-IN")} received in excess — saved as an advance credit for ${customerName}. Adjust it against their next bill.`,
+            { duration: 8000 },
+          );
+        }, 900);
+      }
+      // TDS receivable acknowledgement — only when the row ACTUALLY saved.
       if (res.tdsRecorded && res.tdsAmount > 0) {
         setTimeout(() => {
           toast.info(
             `TDS receivable ₹${res.tdsAmount.toLocaleString("en-IN")} logged · chase Form 16A from ${customerName}`,
             { duration: 6000 },
+          );
+        }, 700);
+      } else if (res.tdsAttempted) {
+        // TDS was requested but the row failed to save — tell the truth so the
+        // owner adds it manually and doesn't lose the credit at ITR time.
+        setTimeout(() => {
+          toast.warning(
+            `Payment saved, but the TDS receivable row failed — add it manually so you don't lose the ₹${res.tdsAmount.toLocaleString("en-IN")} credit`,
+            { duration: 8000 },
           );
         }, 700);
       }
@@ -442,6 +556,28 @@ export function RecordPaymentDialog({
             </div>
           </div>
 
+          {/* Advance credit — this customer overpaid before; adjust it here */}
+          {availableCredit > 0 && customerId && (
+            <div className="rounded-md border border-emerald/30 bg-emerald-soft/40 px-3 py-2.5 text-xs">
+              <label className="flex items-start gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="mt-0.5"
+                  checked={applyCredit}
+                  onChange={(e) => { setApplyCredit(e.target.checked); setAmountEdited(false); }}
+                />
+                <div className="flex-1">
+                  <div className="font-medium text-ink">Apply advance credit — {rupee(availableCredit)} available</div>
+                  <div className="text-ink-3 mt-0.5">
+                    {applyCredit
+                      ? `${rupee(appliedCreditAmount)} adjusted against this quote — the customer pays that much less in cash.`
+                      : "This customer overpaid earlier. Tick to adjust it against this bill."}
+                  </div>
+                </div>
+              </label>
+            </div>
+          )}
+
           {/* Warning for over-payment */}
           {willBeOverpaid && (
             <div className="rounded-md bg-rose-soft border border-rose/30 px-3 py-2 text-xs text-rose flex items-start gap-2">
@@ -473,12 +609,12 @@ export function RecordPaymentDialog({
               error={errors.amount?.message}
               helper={
                 tdsDeducted
-                  ? `Net cash to your bank (after customer's TDS deduction). System will settle the full ₹${(watchedAmount + tdsAmount).toLocaleString("en-IN")} against the quote.`
+                  ? `Customer withheld ₹${tdsAmount.toLocaleString("en-IN")} TDS, so you should receive ₹${Math.max(0, remaining - tdsAmount).toLocaleString("en-IN")} in bank. Net + TDS = ₹${(watchedAmount + tdsAmount).toLocaleString("en-IN")} settles against the quote.`
                   : hasPriorPayments
                     ? `Defaults to remaining ${rupee(remaining)}. Edit if partial.`
                     : `Defaults to full ${rupee(expectedAmount)}. Edit if partial.`
               }
-              {...register("amount", { valueAsNumber: true })}
+              {...register("amount", { valueAsNumber: true, onChange: () => setAmountEdited(true) })}
             />
           </FormField>
 
@@ -514,7 +650,7 @@ export function RecordPaymentDialog({
                   <SelectItem value="none">Not linked</SelectItem>
                   {(bankAccounts ?? []).map((a) => (
                     <SelectItem key={a.id} value={a.id}>
-                      {a.name} · {a.bank_name} ••{a.account_number_last4}
+                      {a.name} · {bankLabel(a.bank_name, a.account_number_last4)}
                     </SelectItem>
                   ))}
                 </SelectContent>

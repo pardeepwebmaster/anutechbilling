@@ -10,6 +10,7 @@ import { toast } from "sonner";
 
 import {
   usePayments,
+  useDeletePayment,
   useOutstandingReceivables,
   useMarkReminderSent,
   useSuspendSubscription,
@@ -32,10 +33,19 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
+import { useResizableColumns, ResizableHandles } from "@/components/ui/resizable-columns";
 import { TabBar, type TabBarItem } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Icon } from "@/components/ui/icon";
-import { rupee, formatDate } from "@/lib/utils";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
+import { rupee, formatDate, bankLabel } from "@/lib/utils";
 
 const STATUS_TABS: TabBarItem[] = [
   { id: "all",       label: "All" },
@@ -52,8 +62,16 @@ const METHOD_META: Record<string, { label: string; icon: string }> = {
   other:         { label: "Other",      icon: "info" },
 };
 
+// Resizable table columns (left→right) + default widths.
+const PAY_COL_ORDER = ["date", "customer", "quote", "amount", "method", "reference", "status", "action"];
+const PAY_COL_DEFAULTS: Record<string, number> = {
+  date: 120, customer: 190, quote: 110, amount: 130, method: 160, reference: 150, status: 130, action: 90,
+};
+
 export default function PaymentsPage() {
   const [tab, setTab]       = React.useState<"all" | "received" | "refunded">("all");
+  const [view, setView]     = React.useState<"all" | "subscription" | "project">("all");
+  const { colW, startResize, totalWidth: payTableW } = useResizableColumns("ros_pay_colw", PAY_COL_DEFAULTS);
   const [search, setSearch] = React.useState("");
   // Payment currently open in the "edit details" sheet (null = closed).
   const [editPayment, setEditPayment] = React.useState<Payment | null>(null);
@@ -69,7 +87,7 @@ export default function PaymentsPage() {
   // Lookup: bankAccountId → short label (for the "received in" hint on a row)
   const bankNameById = React.useMemo(() => {
     const m = new Map<string, string>();
-    for (const a of bankAccounts ?? []) m.set(a.id, `${a.bank_name} ••${a.account_number_last4}`);
+    for (const a of bankAccounts ?? []) m.set(a.id, bankLabel(a.bank_name || a.name, a.account_number_last4));
     return m;
   }, [bankAccounts]);
   const markReminderSent  = useMarkReminderSent();
@@ -141,19 +159,45 @@ export default function PaymentsPage() {
   }
   const topMethod = Object.entries(methodBreakdown).sort((a, b) => b[1] - a[1])[0];
 
+  // Real CSV export of the currently-filtered payments (hand this file to your
+  // CA / accountant). Data is already in memory, so it's a plain Blob download —
+  // no fake "coming soon".
+  const handleExportCsv = () => {
+    if (filtered.length === 0) { toast.info("No payments to export"); return; }
+    const esc = (v: string) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+    const header = ["Date", "Customer", "Quote", "Amount", "Method", "Reference", "Status", "Receipt Voucher"];
+    const lines = filtered.map((p) => {
+      const ctx = quoteById.get(p.quote_id);
+      return [
+        formatDate(p.received_at), ctx?.customerName ?? "", p.quote_id, String(p.amount),
+        p.method ?? "", p.reference ?? "", p.status, p.receipt_voucher_no ?? "",
+      ].map(esc).join(",");
+    });
+    const csv = [header.map(esc).join(","), ...lines].join("\n");
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `payments-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    toast.success(`Exported ${filtered.length} payment${filtered.length === 1 ? "" : "s"} to CSV`);
+  };
+
   return (
     <div className="p-4 md:p-6 lg:p-8 max-w-[1800px] mx-auto space-y-6">
       {/* Header */}
       <div className="flex items-end justify-between gap-3 flex-wrap">
         <div>
           <p className="text-xs uppercase tracking-wider text-ink-3 font-semibold mb-1">Revenue</p>
-          <h1 className="font-serif text-3xl md:text-4xl leading-tight">Payments</h1>
+          <h1 className="font-serif text-3xl md:text-4xl leading-tight">Payments Received</h1>
           <p className="text-sm text-ink-3 mt-1">
             All payments received · partial / installments supported · ready for GST invoice
           </p>
         </div>
         <div className="flex gap-2 flex-wrap">
-          <Button icon="download" onClick={() => toast.info("Export coming soon")}>
+          <Button icon="download" onClick={handleExportCsv}>
             Export CSV
           </Button>
           <Button asChild variant="primary" icon="receipt">
@@ -162,6 +206,18 @@ export default function PaymentsPage() {
         </div>
       </div>
 
+      {/* All / Subscription / Project payments toggle (mirrors the Invoices page) */}
+      <TabBar
+        value={view}
+        onChange={(v) => setView(v as "all" | "subscription" | "project")}
+        items={[
+          { id: "all",          label: "All payments", count: ((payments?.length ?? 0) + projPays.length) || undefined },
+          { id: "subscription", label: "Subscription", count: (payments?.length ?? 0) || undefined },
+          { id: "project",      label: "Project",      count: projPays.length || undefined },
+        ]}
+      />
+
+      {(view === "subscription" || view === "all") && (<>
       {/* Compact metric strip (replaces the big KPI-card grid) */}
       {!isLoading && payments && (
         <StatStrip
@@ -193,7 +249,44 @@ export default function PaymentsPage() {
               </div>
             </div>
 
-            <div className="rounded-md border border-hairline bg-paper overflow-x-auto">
+            {/* Mobile card list — phones only. The desktop table's advanced
+                money ops (suspend / write-off) stay desktop-only; mobile keeps
+                the safe primary action (Record payment → the quote). */}
+            <ul className="md:hidden space-y-2">
+              {outstanding.map((o) => {
+                const ageKind =
+                  o.days_outstanding <= 7   ? "fresh"  :
+                  o.days_outstanding <= 15  ? "warning" :
+                  o.days_outstanding <= 30  ? "danger" : "danger";
+                return (
+                  <li key={o.subscription_id} className="rounded-lg border border-hairline bg-paper p-3">
+                    <div className="flex items-start justify-between gap-3 mb-2">
+                      <div className="min-w-0 flex-1">
+                        <p className="font-medium text-ink truncate">{o.customer_name}</p>
+                        <p className="text-[11px] text-ink-3 truncate mt-0.5">{o.plan}</p>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <p className="font-serif text-base tabular-nums text-rose">{rupee(o.outstanding_amount)}</p>
+                        <p className="text-[10px] text-ink-3">of {rupee(o.total_quote_amount)}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between gap-2 pt-2 border-t border-hairline/60">
+                      <div className="flex items-center gap-1.5">
+                        <Badge kind={ageKind === "fresh" ? "muted" : ageKind === "warning" ? "warning" : "danger"} size="sm" dot>{o.days_outstanding}d</Badge>
+                        <Badge kind={o.status === "active" ? "success" : o.status === "paused" ? "warning" : "muted"} size="sm">{o.status}</Badge>
+                      </div>
+                      {o.quote_id && (
+                        <Button asChild size="sm" variant="primary" icon="rupee">
+                          <Link href={`/quotes/${o.quote_id}` as any}>Record payment</Link>
+                        </Button>
+                      )}
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+
+            <div className="hidden md:block rounded-md border border-hairline bg-paper overflow-x-auto">
               <table className="w-full">
                 <thead className="bg-paper-2 border-b border-hairline">
                   <tr>
@@ -411,40 +504,46 @@ export default function PaymentsPage() {
         </ul>
       )}
 
-      {/* Desktop table */}
+      {/* Desktop table — drag the full-height divider between any two columns to resize. */}
       {!isLoading && !error && filtered.length > 0 && (
-        <Card flush className="hidden md:block">
-          <table className="w-full">
-            <thead className="bg-paper-2 border-b border-hairline">
-              <tr>
-                <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Date</th>
-                <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Customer</th>
-                <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Quote</th>
-                <th className="text-right p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Amount</th>
-                <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Method</th>
-                <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Reference</th>
-                <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Status</th>
-                <th className="w-20"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((p) => {
-                const ctx = quoteById.get(p.quote_id);
-                const customer = ctx?.customerId ? customerById.get(ctx.customerId) : undefined;
-                return (
-                  <PaymentRowView
-                    key={p.id}
-                    p={p}
-                    ctx={ctx}
-                    customer={customer}
-                    me={me}
-                    bankLabel={p.bank_account_id ? bankNameById.get(p.bank_account_id) : undefined}
-                    onEdit={() => setEditPayment(p)}
-                  />
-                );
-              })}
-            </tbody>
-          </table>
+        <Card flush className="hidden md:block overflow-x-auto">
+          <div className="relative" style={{ width: payTableW }}>
+            <table className="w-full table-fixed">
+              <colgroup>
+                {PAY_COL_ORDER.map((id) => <col key={id} style={{ width: colW[id] }} />)}
+              </colgroup>
+              <thead className="bg-paper-2 border-b border-hairline">
+                <tr>
+                  <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Date</th>
+                  <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Customer</th>
+                  <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Quote</th>
+                  <th className="text-right p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Amount</th>
+                  <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Method</th>
+                  <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Reference</th>
+                  <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Status</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((p) => {
+                  const ctx = quoteById.get(p.quote_id);
+                  const customer = ctx?.customerId ? customerById.get(ctx.customerId) : undefined;
+                  return (
+                    <PaymentRowView
+                      key={p.id}
+                      p={p}
+                      ctx={ctx}
+                      customer={customer}
+                      me={me}
+                      bankLabel={p.bank_account_id ? bankNameById.get(p.bank_account_id) : undefined}
+                      onEdit={() => setEditPayment(p)}
+                    />
+                  );
+                })}
+              </tbody>
+            </table>
+            <ResizableHandles colW={colW} order={PAY_COL_ORDER} startResize={startResize} />
+          </div>
         </Card>
       )}
 
@@ -455,16 +554,46 @@ export default function PaymentsPage() {
           A quote can have multiple payments (installments). Open the quote to see its full payment history.
         </div>
       )}
+      </>)}
 
-      {/* Project-sale payments — separate source (linked to a project, not a quote) */}
-      {projPays.length > 0 && (
-        <Card flush className="mt-4">
+      {/* ── PROJECT payments view (also shown under "All") ── */}
+      {(view === "project" || view === "all") && (
+        projPays.length === 0 ? (
+          view === "project" ? (
+          <EmptyState icon="package" title="No project payments yet"
+            body="Payments recorded against project milestones show here." />
+          ) : null
+        ) : (
+        <Card flush>
           <div className="px-4 py-3 border-b border-hairline flex items-center gap-2">
             <Icon name="package" size={15} className="text-ink-3" />
             <h2 className="text-sm font-semibold text-ink">Project payments</h2>
             <span className="text-[11px] text-ink-3">· {rupee(projCollected)} collected</span>
           </div>
-          <div className="overflow-x-auto">
+
+          {/* Mobile card list — phones only */}
+          <ul className="md:hidden divide-y divide-hairline">
+            {projPays.map((p) => (
+              <li key={p.id} className="px-4 py-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    {p.customer_id ? (
+                      <Link href={`/customers/${p.customer_id}` as never} className="font-medium text-ink hover:text-amber-ink hover:underline block truncate">{p.customer_name}</Link>
+                    ) : (
+                      <span className="font-medium text-ink block truncate">{p.customer_name}</span>
+                    )}
+                    <Link href={`/projects/${p.project_id}` as never} className="text-[11px] text-ink-2 hover:text-amber-ink hover:underline block truncate">{p.project_title}</Link>
+                    <p className="text-[11px] text-ink-3 mt-0.5 capitalize">
+                      {(p.method ?? "—").replace("_", " ")}{p.bank_txn_id ? " · reconciled" : ""} · {formatDate(p.received_at)}
+                    </p>
+                  </div>
+                  <p className="font-serif text-base tabular-nums text-ink shrink-0">{rupee(p.amount)}</p>
+                </div>
+              </li>
+            ))}
+          </ul>
+
+          <div className="hidden md:block overflow-x-auto">
             <table className="w-full text-sm min-w-[560px]">
               <thead className="bg-paper-2/50 text-[10px] uppercase tracking-wider text-ink-3">
                 <tr>
@@ -495,6 +624,7 @@ export default function PaymentsPage() {
             </table>
           </div>
         </Card>
+        )
       )}
 
       {/* Edit payment details (safe fields only — amount stays locked) */}
@@ -609,6 +739,17 @@ function PaymentRowView({
 }) {
   const methodInfo = METHOD_META[p.method];
   const [receiptOpen, setReceiptOpen] = React.useState(false);
+  const del = useDeletePayment();
+
+  // Delete = correct a wrong entry. Explains the reversal, then reverses via RPC
+  // (guards block if a GST invoice was issued / it's bank-reconciled).
+  const handleDelete = () => {
+    const msg = `Delete this ${rupee(p.amount)} payment on ${p.quote_id}?\n\n`
+      + `This reverses it: the quote's paid amount + the subscription's outstanding are recalculated. `
+      + `If it's the only payment, the subscription + auto-created purchase order from this sale are removed too (the customer is kept).\n\n`
+      + `Blocked if a GST invoice was already generated, or it's reconciled to a bank line — handle those first.`;
+    if (window.confirm(msg)) del.mutate(p.id);
+  };
 
   // Inter-state if customer's state-code differs from tenant's. Default = intra-state.
   const interState = Boolean(
@@ -619,20 +760,23 @@ function PaymentRowView({
 
   return (
     <tr className="border-b border-hairline last:border-0 hover:bg-paper-2/40">
-      <td className="p-3 text-xs text-ink-2">{formatDate(p.received_at)}</td>
-      <td className="p-3 text-sm font-medium text-ink">{ctx?.customerName ?? "—"}</td>
-      <td className="p-3">
+      <td className="p-3 text-xs text-ink-2 whitespace-nowrap truncate">{formatDate(p.received_at)}</td>
+      <td className="p-3 text-sm font-medium text-ink truncate" title={ctx?.customerName ?? undefined}>{ctx?.customerName ?? "—"}</td>
+      <td className="p-3" title={p.quote_id}>
         <Link
           href={`/quotes/${p.quote_id}` as any}
-          className="font-mono text-xs font-semibold text-ink hover:text-amber-ink hover:underline"
+          className="inline-flex items-center rounded-md bg-paper-2 px-1.5 py-0.5 font-mono text-[11px] font-semibold text-ink hover:text-amber-ink"
         >
-          {p.quote_id}
+          #{p.quote_id.split("-").pop()}
         </Link>
         {ctx?.paymentStatus === "partial" && (
           <div className="text-[10px] text-indigo mt-0.5">partial — open quote to see full history</div>
         )}
       </td>
-      <td className="p-3 text-right tabular-nums text-sm font-medium">{rupee(p.amount)}</td>
+      {/* Amount — cash in, the happiest number; give it weight. */}
+      <td className="p-3 text-right tabular-nums">
+        <span className="font-serif text-[15px] font-semibold text-emerald">{rupee(p.amount)}</span>
+      </td>
       <td className="p-3">
         {methodInfo ? (
           <span className="inline-flex items-center gap-1.5 text-xs">
@@ -643,12 +787,12 @@ function PaymentRowView({
           <span className="text-xs text-ink-3">{p.method}</span>
         )}
         {bankLabel && (
-          <div className="text-[10px] text-ink-3 mt-0.5 flex items-center gap-1">
-            <Icon name="receipt" size={9} /> {bankLabel}
+          <div className="text-[10px] text-ink-3 mt-0.5 flex items-center gap-1 truncate">
+            <Icon name="receipt" size={9} className="shrink-0" /> <span className="truncate">{bankLabel}</span>
           </div>
         )}
       </td>
-      <td className="p-3 font-mono text-xs text-ink-2 truncate max-w-[160px]">{p.reference ?? "—"}</td>
+      <td className="p-3 font-mono text-xs text-ink-2 truncate" title={p.reference ?? undefined}>{p.reference ?? "—"}</td>
       <td className="p-3">
         {p.status === "received" ? (
           <Badge kind="success" dot>received</Badge>
@@ -665,32 +809,40 @@ function PaymentRowView({
         )}
       </td>
       <td className="p-3 text-right">
-        <div className="flex justify-end gap-1">
-          {p.status === "received" && (
-            <Button
-              size="sm"
-              icon="edit"
-              variant="ghost"
-              onClick={onEdit}
-              title="Edit payment details (method / reference / date / notes)"
-            >
-              Edit
-            </Button>
-          )}
-          {p.status === "received" && me && (
-            <Button
-              size="sm"
-              icon="file"
-              variant="ghost"
-              onClick={() => setReceiptOpen(true)}
-              title="View / download GST receipt voucher"
-            >
-              Receipt
-            </Button>
-          )}
-          <Button asChild size="sm" icon="external" variant="ghost">
-            <Link href={`/quotes/${p.quote_id}` as any}>Open</Link>
-          </Button>
+        <div className="flex justify-end">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                aria-label="Payment actions"
+                className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-3 transition-colors hover:bg-paper-2 hover:text-ink data-[state=open]:bg-paper-2 data-[state=open]:text-ink"
+              >
+                <Icon name="more_h" size={20} />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="min-w-[12rem]">
+              <DropdownMenuLabel>Actions</DropdownMenuLabel>
+              <DropdownMenuItem asChild className="gap-2.5 py-2 cursor-pointer">
+                <Link href={`/quotes/${p.quote_id}` as any}>
+                  <Icon name="external" size={16} /> Open quote
+                </Link>
+              </DropdownMenuItem>
+              {p.status === "received" && (
+                <DropdownMenuItem className="gap-2.5 py-2 cursor-pointer" onClick={onEdit}>
+                  <Icon name="edit" size={16} /> Edit details
+                </DropdownMenuItem>
+              )}
+              {p.status === "received" && me && (
+                <DropdownMenuItem className="gap-2.5 py-2 cursor-pointer" onClick={() => setReceiptOpen(true)}>
+                  <Icon name="file" size={16} /> Receipt voucher
+                </DropdownMenuItem>
+              )}
+              <DropdownMenuSeparator />
+              <DropdownMenuItem className="gap-2.5 py-2 cursor-pointer text-rose" onClick={handleDelete}>
+                <Icon name="trash" size={16} /> Delete payment
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
         {me && (
           <ReceiptVoucherDialog

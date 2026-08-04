@@ -5,11 +5,10 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { useCustomers } from "@/lib/queries/customers";
+import { useRouter } from "next/navigation";
+import { useCustomers, useOpenCreditsByCustomer } from "@/lib/queries/customers";
 import { useSubscriptions } from "@/lib/queries/subscriptions";
 import { useOutstandingReceivables } from "@/lib/queries/payments";
-import { effectiveHealth } from "@/lib/utils";
-import { AddCustomerForm } from "@/components/features/customers/add-customer-form";
 import { FAB } from "@/components/ui/fab";
 import { ImportCustomersDialog } from "@/components/features/customers/import-customers-dialog";
 import { ImportDomainsDialog } from "@/components/features/customers/import-domains-dialog";
@@ -25,29 +24,35 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
-import { Avatar } from "@/components/ui/avatar";
+import { useResizableColumns, ResizableHandles } from "@/components/ui/resizable-columns";
 import { Input } from "@/components/ui/input";
 import { Icon } from "@/components/ui/icon";
-import { rupee, formatDate, cn } from "@/lib/utils";
+import { rupee, cn } from "@/lib/utils";
 
-// Saved-view segments (Zoho-style) — compact filters that replace the big KPI
-// cards. Each computed from already-loaded data (health + outstanding + subs).
-type ViewCtx = { eff: number; amount: number; hasSub: boolean };
+// Saved-view segments (Zoho-style) — compact filters over already-loaded data
+// (receivables + unused credit + subscriptions). No "health" — that was a static
+// placeholder, not a real signal; the list is contact + money oriented now.
+type ViewCtx = { amount: number; credit: number; hasSub: boolean };
 const VIEW_DEFS: { id: string; label: string; test: (x: ViewCtx) => boolean }[] = [
   { id: "all",        label: "All customers",      test: () => true },
-  { id: "atrisk",     label: "At-risk",            test: (x) => x.eff < 75 },
-  { id: "unpaid",     label: "Has outstanding",    test: (x) => x.amount > 0 },
+  { id: "unpaid",     label: "Has receivables",    test: (x) => x.amount > 0 },
+  { id: "credit",     label: "Has unused credit",  test: (x) => x.credit > 0 },
   { id: "subscribed", label: "With subscriptions", test: (x) => x.hasSub },
   { id: "nosub",      label: "No subscription",    test: (x) => !x.hasSub },
-  { id: "healthy",    label: "Healthy",            test: (x) => x.eff >= 85 },
 ];
+
+// Zoho-Books-style columns: contact + place of supply + receivables + unused credits.
+const CUST_COL_ORDER = ["name", "contact", "email", "phone", "state", "receivables", "credits"];
+const CUST_COL_DEFAULTS: Record<string, number> = {
+  name: 190, contact: 130, email: 210, phone: 140, state: 120, receivables: 130, credits: 130,
+};
 
 export default function CustomersPage() {
   const { data: customers, isLoading, error, refetch } = useCustomers();
   const { data: subscriptions } = useSubscriptions();
   const { data: outstanding } = useOutstandingReceivables();
+  const { data: creditsByCustomer = {} } = useOpenCreditsByCustomer();
 
   // Map: customer_id → max days outstanding (worst case across all their subs)
   const outstandingByCustomer = React.useMemo(() => {
@@ -62,12 +67,14 @@ export default function CustomersPage() {
     return map;
   }, [outstanding]);
 
+  const router = useRouter();
+  const goAdd = () => router.push("/customers/new" as never);
   const [search, setSearch] = React.useState("");
-  const [addOpen, setAddOpen] = React.useState(false);
   const [importOpen, setImportOpen] = React.useState(false);
   const [domainsOpen, setDomainsOpen] = React.useState(false);
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
   const [view, setView] = React.useState("all");
+  const { colW, startResize, totalWidth: custTableW } = useResizableColumns("ros_customers_colw", CUST_COL_DEFAULTS);
   const [visible, setVisible] = React.useState(60);  // render cap — paginates large lists (1000+ rows would hang)
 
   // Aggregate MRR/ARR per customer from active subscriptions. (No single
@@ -93,21 +100,22 @@ export default function CustomersPage() {
     const m: Record<string, number> = Object.fromEntries(VIEW_DEFS.map((v) => [v.id, 0]));
     for (const c of customers ?? []) {
       const out = outstandingByCustomer.get(c.id);
-      const ctx: ViewCtx = { eff: effectiveHealth(c.health, out?.days), amount: out?.amount ?? 0, hasSub: subsByCustomer.has(c.id) };
+      const ctx: ViewCtx = { amount: out?.amount ?? 0, credit: creditsByCustomer[c.id] ?? 0, hasSub: subsByCustomer.has(c.id) };
       for (const v of VIEW_DEFS) if (v.test(ctx)) m[v.id]++;
     }
     return m;
-  }, [customers, outstandingByCustomer, subsByCustomer]);
+  }, [customers, outstandingByCustomer, creditsByCustomer, subsByCustomer]);
 
   // Filter — saved-view segment first, then the free-text search.
   const filtered = (customers ?? []).filter((c) => {
     const out = outstandingByCustomer.get(c.id);
-    const ctx: ViewCtx = { eff: effectiveHealth(c.health, out?.days), amount: out?.amount ?? 0, hasSub: subsByCustomer.has(c.id) };
+    const ctx: ViewCtx = { amount: out?.amount ?? 0, credit: creditsByCustomer[c.id] ?? 0, hasSub: subsByCustomer.has(c.id) };
     if (!activeView.test(ctx)) return false;
     if (!search.trim()) return true;
     const s = search.toLowerCase();
     return (
       c.name.toLowerCase().includes(s) ||
+      (c.display_name?.toLowerCase().includes(s) ?? false) ||
       (c.domain?.toLowerCase().includes(s) ?? false) ||
       (c.contact_name?.toLowerCase().includes(s) ?? false) ||
       (c.contact_email?.toLowerCase().includes(s) ?? false)
@@ -119,23 +127,12 @@ export default function CustomersPage() {
   const hasMore = filtered.length > shown.length;
   React.useEffect(() => { setVisible(60); }, [search, view]);
 
-  // KPIs
+  // KPIs — MRR/ARR (the reseller's core recurring metric) live here in the header
+  // so the Zoho-style table below can stay contact + accounting focused.
   const total = customers?.length ?? 0;
   const totalMRR = Array.from(subsByCustomer.values()).reduce((s, x) => s + x.mrr, 0);
   const totalARR = totalMRR * 12;
-  const avgHealth =
-    customers && customers.length > 0
-      ? Math.round(
-          customers.reduce((s, c) => {
-            const out = outstandingByCustomer.get(c.id);
-            return s + effectiveHealth(c.health, out?.days);
-          }, 0) / customers.length,
-        )
-      : 0;
-  const atRisk = (customers ?? []).filter((c) => {
-    const out = outstandingByCustomer.get(c.id);
-    return effectiveHealth(c.health, out?.days) < 75;
-  }).length;
+  const totalReceivables = Array.from(outstandingByCustomer.values()).reduce((s, x) => s + x.amount, 0);
 
   // Export the current customer list to a CSV (round-trips with the importer:
   // same column names, so an export can be re-imported / shared with the team).
@@ -178,8 +175,7 @@ export default function CustomersPage() {
               <b>{total}</b> customer{total === 1 ? "" : "s"}
               {totalMRR > 0 && <> · <b className="text-ink">{rupee(totalMRR, { compact: true })}</b> MRR</>}
               {totalARR > 0 && <> · <b className="text-ink">{rupee(totalARR, { compact: true })}</b> ARR</>}
-              {customers.length > 0 && <> · Avg health <b className="text-ink">{avgHealth}</b></>}
-              {atRisk > 0 && <> · <b className="text-rose">{atRisk}</b> at-risk</>}
+              {totalReceivables > 0 && <> · <b className="text-rose">{rupee(totalReceivables, { compact: true })}</b> receivables</>}
             </p>
           )}
         </div>
@@ -187,7 +183,7 @@ export default function CustomersPage() {
           <Button icon="download" onClick={handleExport}>Export</Button>
           <Button icon="link" onClick={() => setDomainsOpen(true)}>Link domains</Button>
           <Button icon="upload" onClick={() => setImportOpen(true)}>Import</Button>
-          <Button variant="primary" icon="plus" onClick={() => setAddOpen(true)}>
+          <Button variant="primary" icon="plus" onClick={goAdd}>
             Add customer
           </Button>
         </div>
@@ -261,7 +257,7 @@ export default function CustomersPage() {
           icon="users"
           title="No customers yet"
           body="Add your first customer to start tracking subscriptions, invoices, and renewals."
-          action={<Button variant="primary" icon="plus" onClick={() => setAddOpen(true)}>Add your first customer</Button>}
+          action={<Button variant="primary" icon="plus" onClick={goAdd}>Add your first customer</Button>}
           secondary={<Button icon="download" onClick={() => setImportOpen(true)}>Import CSV</Button>}
         />
       )}
@@ -270,45 +266,31 @@ export default function CustomersPage() {
       {!isLoading && !error && filtered.length > 0 && (
         <ul className="md:hidden space-y-2 mb-3">
           {shown.map((c) => {
-            const sub = subsByCustomer.get(c.id);
+            const receivable = outstandingByCustomer.get(c.id)?.amount ?? 0;
+            const credit = creditsByCustomer[c.id] ?? 0;
             return (
               <li key={c.id}>
                 <Link
                   href={`/customers/${c.id}` as never}
                   className="block bg-paper border border-hairline rounded-lg p-3 active:bg-paper-2/50"
                 >
-                  <div className="flex items-start justify-between gap-3 mb-1.5">
-                    <div className="min-w-0 flex-1">
-                      <p className="font-medium text-ink truncate">{c.name}</p>
-                      {c.domain && (
-                        <p className="text-[11px] text-ink-3 font-mono truncate mt-0.5">{c.domain}</p>
-                      )}
-                    </div>
-                    <div className="text-right shrink-0">
-                      {sub ? (
-                        <>
-                          <p className="font-serif text-base tabular-nums text-ink">{rupee(sub.mrr)}</p>
-                          <p className="text-[10px] text-ink-3">/mo</p>
-                        </>
-                      ) : (
-                        <p className="text-xs text-ink-3">No sub</p>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex items-center justify-between gap-2 mt-2 pt-2 border-t border-hairline/60 text-xs">
-                    <span className="text-ink-3 truncate">
-                      Since {formatDate(c.since)}
-                      {c.state && ` · ${c.state}`}
-                    </span>
-                    {c.health !== null && c.health !== undefined && (
-                      <Badge
-                        kind={c.health >= 80 ? "success" : c.health >= 60 ? "warning" : "danger"}
-                        size="sm"
-                        dot
-                      >
-                        {c.health}%
-                      </Badge>
+                  <div className="min-w-0 mb-2">
+                    <p className="font-medium text-amber-ink truncate">{c.display_name || c.name}</p>
+                    <p className="text-[11px] text-ink-3 truncate mt-0.5">
+                      {c.contact_name && <>{c.contact_name} · </>}
+                      {c.contact_email || c.domain || (c.state ? c.state : "—")}
+                    </p>
+                    {c.contact_phone && (
+                      <p className="text-[11px] text-ink-3 font-mono truncate mt-0.5">{c.contact_phone}</p>
                     )}
+                  </div>
+                  <div className="flex items-center justify-between gap-3 pt-2 border-t border-hairline/60 text-xs">
+                    <span className="text-ink-3">
+                      Receivables <b className={receivable > 0 ? "text-rose" : "text-ink-2"}>{rupee(receivable)}</b>
+                    </span>
+                    <span className="text-ink-3">
+                      Credits <b className={credit > 0 ? "text-emerald" : "text-ink-2"}>{rupee(credit)}</b>
+                    </span>
                   </div>
                 </Link>
               </li>
@@ -327,83 +309,59 @@ export default function CustomersPage() {
       {/* Desktop table — full-width mode (no customer selected) */}
       {!isLoading && !error && filtered.length > 0 && !selectedId && (
         <div className="hidden md:block">
-          <Card flush>
-            <table className="w-full">
+          <Card flush className="overflow-x-auto">
+            <div className="relative" style={{ width: custTableW }}>
+            <table className="w-full table-fixed">
+              <colgroup>
+                {CUST_COL_ORDER.map((id) => <col key={id} style={{ width: colW[id] }} />)}
+              </colgroup>
               <thead className="bg-paper-2 border-b border-hairline">
                 <tr>
-                  <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Customer</th>
-                  <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Since</th>
-                  <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">State</th>
-                  <th className="text-right p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">MRR</th>
-                  <th className="text-right p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">ARR</th>
-                  <th className="text-right p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Health</th>
-                  <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Manager</th>
-                  <th className="w-10"></th>
+                  <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Name</th>
+                  <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Contact</th>
+                  <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Email</th>
+                  <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Work phone</th>
+                  <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Place of supply</th>
+                  <th className="text-right p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Receivables</th>
+                  <th className="text-right p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Unused credits</th>
                 </tr>
               </thead>
               <tbody>
                 {shown.map((c) => {
-                  const sub = subsByCustomer.get(c.id);
+                  const receivable = outstandingByCustomer.get(c.id)?.amount ?? 0;
+                  const credit = creditsByCustomer[c.id] ?? 0;
                   return (
                     <tr
                       key={c.id}
                       onClick={() => setSelectedId(c.id)}
-                      className="border-b border-hairline last:border-0 hover:bg-paper-2/40 cursor-pointer transition-colors"
+                      className={cn(
+                        "border-b border-hairline last:border-0 cursor-pointer transition-colors",
+                        receivable > 0 ? "hover:bg-rose-soft/20" : "hover:bg-paper-2/40",
+                      )}
                     >
-                      <td className="p-3">
-                        <div className="font-medium text-sm text-ink">{c.name}</div>
+                      <td className={cn("p-3", receivable > 0 && "border-l-2 border-l-rose")}>
+                        <div className="font-medium text-sm text-amber-ink truncate">{c.display_name || c.name}</div>
                         {c.domain && (
-                          <div className="text-[11px] text-ink-3 font-mono mt-0.5">{c.domain}</div>
+                          <div className="text-[11px] text-ink-3 font-mono truncate mt-0.5">{c.domain}</div>
                         )}
                       </td>
-                      <td className="p-3 text-sm text-ink-2">{formatDate(c.since)}</td>
-                      <td className="p-3 text-xs text-ink-2">{c.state || "—"}</td>
-                      <td className="p-3 text-right tabular-nums text-sm">
-                        {sub ? rupee(sub.mrr) : <span className="text-ink-3">—</span>}
+                      <td className="p-3 text-sm text-ink-2 truncate">{c.contact_name || <span className="text-ink-3">—</span>}</td>
+                      <td className="p-3 text-xs font-mono text-ink-2 truncate" title={c.contact_email ?? undefined}>{c.contact_email || <span className="text-ink-3">—</span>}</td>
+                      <td className="p-3 text-xs font-mono text-ink-2 truncate">{c.contact_phone || <span className="text-ink-3">—</span>}</td>
+                      <td className="p-3 text-sm text-ink-2 truncate">{c.state || <span className="text-ink-3">—</span>}</td>
+                      <td className="p-3 text-right tabular-nums">
+                        <span className={receivable > 0 ? "text-sm font-medium text-rose" : "text-sm text-ink-3"}>{rupee(receivable)}</span>
                       </td>
-                      <td className="p-3 text-right tabular-nums text-sm font-medium">
-                        {sub ? rupee(sub.arr, { compact: true }) : <span className="text-ink-3 font-normal">—</span>}
-                      </td>
-                      <td className="p-3 text-right">
-                        {(() => {
-                          const out = outstandingByCustomer.get(c.id);
-                          const eff = effectiveHealth(c.health, out?.days);
-                          const dropped = eff < c.health;
-                          return (
-                            <div className="flex flex-col items-end gap-0.5">
-                              <div className="flex items-center justify-end gap-1.5">
-                                <span className={cn(
-                                  "tabular-nums text-sm font-medium",
-                                  dropped && "text-rose"
-                                )}>{eff}</span>
-                                <HealthBadge value={eff} />
-                              </div>
-                              {dropped && (
-                                <span className="text-[9px] text-rose-soft-fg text-ink-3 line-through tabular-nums">{c.health}</span>
-                              )}
-                              {out && (
-                                <span className="text-[10px] text-rose tabular-nums" title={`${out.days} days outstanding`}>
-                                  {rupee(out.amount, { compact: true })} due {out.days}d
-                                </span>
-                              )}
-                            </div>
-                          );
-                        })()}
-                      </td>
-                      <td className="p-3">
-                        <div className="flex items-center gap-2">
-                          <Avatar initials="PA" color="amber" size="sm" />
-                          <span className="text-xs">Pardeep</span>
-                        </div>
-                      </td>
-                      <td className="p-3 text-ink-3">
-                        <Icon name="chevron_right" size={14} />
+                      <td className="p-3 text-right tabular-nums">
+                        <span className={credit > 0 ? "text-sm font-medium text-emerald" : "text-sm text-ink-3"}>{rupee(credit)}</span>
                       </td>
                     </tr>
                   );
                 })}
               </tbody>
             </table>
+            <ResizableHandles colW={colW} order={CUST_COL_ORDER} startResize={startResize} />
+            </div>
           </Card>
 
           {/* Help text */}
@@ -463,7 +421,7 @@ export default function CustomersPage() {
                       active ? "bg-amber-soft/50" : "hover:bg-paper-2/50",
                     )}
                   >
-                    <div className="font-medium text-sm text-ink truncate">{c.name}</div>
+                    <div className="font-medium text-sm text-ink truncate">{c.display_name || c.name}</div>
                     <div className="flex items-center justify-between gap-2 text-[11px] text-ink-3 mt-0.5">
                       <span className="truncate">{c.domain || c.contact_email || "—"}</span>
                       {sub ? <span className="tabular-nums flex-shrink-0">{rupee(sub.mrr)}</span> : null}
@@ -488,21 +446,11 @@ export default function CustomersPage() {
         </div>
       )}
 
-      <AddCustomerForm open={addOpen} onOpenChange={setAddOpen} />
       <ImportCustomersDialog open={importOpen} onOpenChange={setImportOpen} onImportComplete={() => refetch()} />
       <ImportDomainsDialog open={domainsOpen} onOpenChange={setDomainsOpen} onComplete={() => refetch()} />
 
       {/* Mobile thumb-zone add — desktop uses the header button. */}
-      <FAB icon="plus" label="Add customer" onClick={() => setAddOpen(true)} />
+      <FAB icon="plus" label="Add customer" onClick={goAdd} />
     </div>
   );
-}
-
-// ============================================================
-// Health badge — matches prototype healthBadge()
-// ============================================================
-function HealthBadge({ value }: { value: number }) {
-  if (value >= 85) return <Badge kind="success" dot>Healthy</Badge>;
-  if (value >= 70) return <Badge kind="warning" dot>Watch</Badge>;
-  return <Badge kind="danger" dot>At risk</Badge>;
 }

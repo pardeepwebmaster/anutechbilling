@@ -171,3 +171,30 @@ export function useDeleteLead() {
     onError: (err) => toast.error((err as Error).message),
   });
 }
+
+// ============================================================
+// Merge duplicates — fold a duplicate lead INTO a primary one.
+// Atomic server-side (merge_leads RPC): repoints all child rows, backfills the
+// primary's empty fields, keeps the bigger deal value, then deletes the
+// duplicate. Only ever called after the operator confirms in the merge dialog.
+// ============================================================
+export function useMergeLeads() {
+  const qc = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ primaryId, duplicateId }: { primaryId: string; duplicateId: string }) => {
+      const supabase = createClient();
+      const { error } = await supabase.rpc("merge_leads", {
+        p_primary_id: primaryId,
+        p_duplicate_id: duplicateId,
+      });
+      if (error) throw error;
+      return { primaryId, duplicateId };
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["leads"] });
+      qc.invalidateQueries({ queryKey: ["nav-badges"] });
+    },
+    onError: (err) => toast.error((err as Error).message),
+  });
+}

@@ -187,37 +187,50 @@ export default function ProjectDetailPage() {
           <h2 className="text-sm font-semibold text-ink">Milestones</h2>
         </div>
         <div className="divide-y divide-hairline">
-          {milestones.map((m) => (
-            <div key={m.id} className="px-5 py-3 flex items-center gap-3 flex-wrap">
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium text-ink">{m.seq}. {m.label}</p>
-                <p className="text-[11px] text-ink-3">
-                  {m.due_date ? `Due ${formatDate(m.due_date)}` : "No due date"}
-                  {m.invoice_id && <> · Invoice <span className="font-mono">{m.invoice_id}</span></>}
-                </p>
+          {milestones.map((m) => {
+            const msPays  = payments.filter((p) => p.milestone_id === m.id);
+            const reconciled = msPays.some((p) => p.bank_txn_id);
+            const impact = milestoneImpact(m, reconciled);
+            return (
+            <div key={m.id} className="px-5 py-3">
+              <div className="flex items-center gap-3 flex-wrap">
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-ink">{m.seq}. {m.label}</p>
+                  <p className="text-[11px] text-ink-3">
+                    {m.due_date ? `Due ${formatDate(m.due_date)}` : "No due date"}
+                    {m.invoice_id && <> · Invoice <span className="font-mono">{m.invoice_id}</span></>}
+                  </p>
+                </div>
+                <div className="font-mono text-sm text-ink whitespace-nowrap">{rupee(m.total_amount)}</div>
+                <MilestoneStatus status={m.status} />
+                <div className="flex gap-2">
+                  {isQuote ? (
+                    <span className="text-[11px] text-ink-3 italic">Accept quotation to bill</span>
+                  ) : (
+                    <>
+                      {!m.invoice_id && (
+                        <Button size="sm" variant="outline" loading={raise.isPending} onClick={() => handleRaise(m)}>
+                          Raise invoice
+                        </Button>
+                      )}
+                      {m.status !== "paid" && (
+                        <Button size="sm" variant="primary" onClick={() => setPayFor(m)}>
+                          Record payment
+                        </Button>
+                      )}
+                    </>
+                  )}
+                </div>
               </div>
-              <div className="font-mono text-sm text-ink whitespace-nowrap">{rupee(m.total_amount)}</div>
-              <MilestoneStatus status={m.status} />
-              <div className="flex gap-2">
-                {isQuote ? (
-                  <span className="text-[11px] text-ink-3 italic">Accept quotation to bill</span>
-                ) : (
-                  <>
-                    {m.status === "pending" && (
-                      <Button size="sm" variant="outline" loading={raise.isPending} onClick={() => handleRaise(m)}>
-                        Raise invoice
-                      </Button>
-                    )}
-                    {m.status !== "paid" && (
-                      <Button size="sm" variant="primary" onClick={() => setPayFor(m)}>
-                        Record payment
-                      </Button>
-                    )}
-                  </>
-                )}
-              </div>
+              {/* Impact / next-step — plain-language effect of the current state */}
+              {!isQuote && impact && (
+                <div className={`mt-2 flex items-start gap-1.5 text-[11px] rounded-md px-2.5 py-1.5 ${impact.tone === "warn" ? "bg-amber-soft/40 text-amber-ink" : impact.tone === "ok" ? "bg-emerald-soft/40 text-emerald" : "bg-paper-2/60 text-ink-3"}`}>
+                  <Icon name={impact.tone === "warn" ? "alert" : impact.tone === "ok" ? "check_circle" : "info"} size={13} className="mt-0.5 shrink-0" />
+                  <span>{impact.text}</span>
+                </div>
+              )}
             </div>
-          ))}
+          );})}
         </div>
       </Card>
 
@@ -266,6 +279,31 @@ function Sum({ label, value, sub, strong, tone = "ink" }: {
       {sub && <p className="text-[10px] text-ink-3">{sub}</p>}
     </div>
   );
+}
+
+/** Plain-language effect of a milestone's current state — what's done + what's next. */
+function milestoneImpact(
+  m: ProjectMilestoneRow,
+  reconciled: boolean,
+): { text: string; tone: "warn" | "ok" | "info" } | null {
+  if (m.status === "paid") {
+    if (!m.invoice_id) {
+      return {
+        tone: "warn",
+        text: "Payment received — outstanding reduced. But no GST invoice yet, so revenue & GST aren't booked in the P&L. Raise the invoice to record them.",
+      };
+    }
+    return {
+      tone: reconciled ? "ok" : "warn",
+      text: reconciled
+        ? "Invoiced + paid — revenue & GST booked, and the bank credit is reconciled. Fully done."
+        : "Invoiced + paid — revenue & GST booked. Tip: link the bank credit so it reconciles with your statement.",
+    };
+  }
+  if (m.status === "invoiced") {
+    return { tone: "info", text: "Invoice raised — revenue & GST booked. Awaiting the customer's payment (shows as outstanding)." };
+  }
+  return null; // pending — no billing yet
 }
 
 function MilestoneStatus({ status }: { status: ProjectMilestoneRow["status"] }) {

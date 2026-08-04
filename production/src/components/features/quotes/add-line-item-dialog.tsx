@@ -30,12 +30,20 @@ import { Icon } from "@/components/ui/icon";
 import { useItems } from "@/lib/queries/items";
 import { rupee } from "@/lib/utils";
 import { cn } from "@/lib/utils";
+import { formatForeign } from "@/lib/currency";
 import type { QuoteLineItem, Item } from "@/lib/supabase/database.types";
 
 interface AddLineItemDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onAdd: (line: QuoteLineItem) => void;
+  /** When billing a foreign currency (e.g. USD), the line uses the item's REAL
+   *  foreign price if set — books stay ₹ via the exchange rate. */
+  currency?: string | null;
+  exchangeRate?: number | null;
+  /** For a USD quote: "international" = use the item's catalog USD price (fall
+   *  back to ₹-converted); "india" = always the ₹ price converted at the rate. */
+  pricingBasis?: "international" | "india";
 }
 
 const customSchema = z.object({
@@ -46,7 +54,13 @@ const customSchema = z.object({
 });
 type CustomData = z.infer<typeof customSchema>;
 
-export function AddLineItemDialog({ open, onOpenChange, onAdd }: AddLineItemDialogProps) {
+export function AddLineItemDialog({ open, onOpenChange, onAdd, currency, exchangeRate, pricingBasis = "international" }: AddLineItemDialogProps) {
+  const isUsd = (currency ?? "INR").toUpperCase() === "USD";
+  // A usable rate (> 1). Below that we can't convert ₹ → foreign meaningfully.
+  const fx = exchangeRate && exchangeRate > 1 ? exchangeRate : null;
+  // Use the item's real foreign price only when billing USD AND the quote is on
+  // the "international" basis. On the "india" basis we always convert the ₹ price.
+  const useIntlUsd = isUsd && pricingBasis === "international";
   const { data: allItems, isLoading } = useItems();
   // Subscription quote line picker — exclude one-time (Items Catalog) products.
   const items = React.useMemo(() => (allItems ?? []).filter((i) => i.item_type !== "one_time"), [allItems]);
@@ -86,16 +100,31 @@ export function AddLineItemDialog({ open, onOpenChange, onAdd }: AddLineItemDial
     // can later switch to monthly which recalculates via updateCommitment().
     const annualTier  = it.prices?.annual;
     const monthlyTier = it.prices?.monthly;
-    const msrpPerMo      = annualTier?.msrp      ?? monthlyTier?.msrp      ?? it.msrp;
-    const wholesalePerMo = annualTier?.wholesale ?? monthlyTier?.wholesale ?? it.wholesale;
+    const usdTier     = it.prices?.usd;
+    let msrpPerYear: number;
+    let wholesalePerYear: number;
+    if (useIntlUsd && usdTier && usdTier.msrp > 0) {
+      // International basis + a REAL USD price set → the canonical ₹ line = the USD
+      // price × 12 × exchange rate. Books stay ₹; the USD shown later (₹ ÷ rate)
+      // round-trips back to the real USD price the customer was quoted.
+      const rate = exchangeRate && exchangeRate > 0 ? exchangeRate : 1;
+      msrpPerYear      = Math.round(usdTier.msrp * 12 * rate);
+      wholesalePerYear = Math.round(usdTier.wholesale * 12 * rate);
+    } else {
+      // Domestic (or no USD price) → the ₹ catalog price, as before.
+      const msrpPerMo      = annualTier?.msrp      ?? monthlyTier?.msrp      ?? it.msrp;
+      const wholesalePerMo = annualTier?.wholesale ?? monthlyTier?.wholesale ?? it.wholesale;
+      msrpPerYear      = msrpPerMo * 12;
+      wholesalePerYear = wholesalePerMo * 12;
+    }
 
     onAdd({
       id: crypto.randomUUID(),
       item_id: it.id,
       name: it.name,
       qty: 10,                              // default
-      rate: msrpPerMo * 12,                 // store as ₹/seat/year
-      cost: wholesalePerMo * 12,
+      rate: msrpPerYear,                    // store as ₹/seat/year (canonical)
+      cost: wholesalePerYear,
       commitment: "annual_yearly",
     });
     onOpenChange(false);
@@ -195,7 +224,22 @@ export function AddLineItemDialog({ open, onOpenChange, onAdd }: AddLineItemDial
                           <div className="text-[11px] text-ink-3 font-mono truncate">{it.id}</div>
                         </div>
                         <div className="text-right shrink-0 tabular-nums">
-                          <div className="font-medium text-sm">{rupee(it.msrp)}/mo</div>
+                          {useIntlUsd && it.prices?.usd && it.prices.usd.msrp > 0 ? (
+                            // International basis + a real foreign price — show it directly.
+                            <div className="font-medium text-sm">{formatForeign(it.prices.usd.msrp, currency ?? "USD")}/mo</div>
+                          ) : isUsd && fx ? (
+                            // No foreign price set — convert the ₹ price at the rate
+                            // so the picker shows the SAME currency the quote bills in.
+                            <div className="font-medium text-sm">
+                              {formatForeign(it.msrp / fx, currency ?? "USD")}/mo
+                              <span className="block text-[9px] text-ink-3 font-normal">≈ {rupee(it.msrp)} @ ₹{fx}</span>
+                            </div>
+                          ) : (
+                            <div className="font-medium text-sm">
+                              {rupee(it.msrp)}/mo
+                              {isUsd && <span className="block text-[9px] text-amber-ink font-normal">set the exchange rate to show {currency}</span>}
+                            </div>
+                          )}
                           <div className={cn(
                             "text-[10px]",
                             it.margin_pct >= 18 ? "text-emerald" : it.margin_pct >= 14 ? "text-amber-ink" : "text-rose"

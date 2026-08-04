@@ -188,9 +188,15 @@ function parseStatement(text: string): { rows: ParsedRow[]; skipped: number; war
     const r = raw[i];
     const date = parseDate(r[mapping.txn_date] ?? "");
     if (!date) { skipped++; continue; }
-    const debit  = mapping.debit  >= 0 ? parseAmount(r[mapping.debit])  : 0;
-    const credit = mapping.credit >= 0 ? parseAmount(r[mapping.credit]) : 0;
+    // Coerce to non-negative integers — a stray minus sign or a decimal would
+    // otherwise break the integer column or the debit-xor-credit rule.
+    const debit  = Math.max(0, mapping.debit  >= 0 ? parseAmount(r[mapping.debit])  : 0);
+    const credit = Math.max(0, mapping.credit >= 0 ? parseAmount(r[mapping.credit]) : 0);
     if (debit === 0 && credit === 0) { skipped++; continue; }
+    // A bank line is debit XOR credit. If a row genuinely has both populated
+    // (a mis-aligned column / reversal line), we can't tell which figure is
+    // right — skip it rather than invent a number or fail the whole batch.
+    if (debit > 0 && credit > 0) { skipped++; continue; }
     out.push({
       txn_date:      date,
       description:   (r[mapping.description] ?? "").trim() || "(no description)",

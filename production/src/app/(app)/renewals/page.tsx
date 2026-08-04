@@ -22,6 +22,8 @@ import { useRouter } from "next/navigation";
 import { useSubscriptions } from "@/lib/queries/subscriptions";
 import { toast } from "sonner";
 import { GeminiCard } from "@/components/shared/gemini-card";
+import { AiDraftButton } from "@/components/shared/ai-draft-button";
+import { VoiceNoteButton } from "@/components/shared/voice-note-button";
 import { EmptyState } from "@/components/shared/empty-state";
 import { StatStrip } from "@/components/shared/stat-strip";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -349,6 +351,12 @@ function RenewalBucket({
                     <Icon name="mail" size={12} />
                     Send now
                   </Button>
+                  {sub.customer_id && (
+                    <AiDraftButton customerId={sub.customer_id} channel="whatsapp" purpose="renewal" label="✨ Nudge" variant="ghost" />
+                  )}
+                  {sub.customer_id && (
+                    <VoiceNoteButton customerId={sub.customer_id} purpose="renewal" customerName={sub.customer_name} label="🔊 Voice" variant="ghost" />
+                  )}
                 </div>
               </li>
             );
@@ -356,16 +364,19 @@ function RenewalBucket({
         </ul>
       )}
 
+      {/* Empty bucket — shown on ALL viewports (was previously inside
+          `hidden md:block`, so an empty bucket rendered fully blank on phones). */}
+      {isOpen && rows.length === 0 && (
+        <div className="py-10 text-center text-sm text-ink-3">
+          No subscriptions in this window.
+        </div>
+      )}
+
       {/* Desktop table */}
-      {isOpen && (
+      {isOpen && rows.length > 0 && (
         <div className="hidden md:block">
-          {rows.length === 0 ? (
-            <div className="py-10 text-center text-sm text-ink-3">
-              No subscriptions in this window.
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-hairline bg-muted/30">
                     <th className="px-5 py-2.5 text-left text-xs font-medium text-ink-3">
@@ -553,6 +564,12 @@ function RenewalBucket({
                                 <Icon name="mail" size={12} />
                                 Send now
                               </Button>
+                              {sub.customer_id && (
+                                <AiDraftButton customerId={sub.customer_id} channel="whatsapp" purpose="renewal" label="✨ Nudge" variant="ghost" />
+                              )}
+                              {sub.customer_id && (
+                                <VoiceNoteButton customerId={sub.customer_id} purpose="renewal" customerName={sub.customer_name} label="🔊 Voice" variant="ghost" />
+                              )}
                             </div>
                             {sub.renewal_quote_id && (
                               <p className="text-[11px] text-ink-3 font-mono">
@@ -567,7 +584,6 @@ function RenewalBucket({
                 </tbody>
               </table>
             </div>
-          )}
         </div>
       )}
     </Card>
@@ -577,9 +593,12 @@ function RenewalBucket({
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function RenewalsPage() {
-  const { data: subs, isLoading, error } = useSubscriptions();
+  const { data: subs, isLoading, error, refetch } = useSubscriptions();
   const { data: me } = useCurrentUser();
+  const qc = useQueryClient();
+  const router = useRouter();
   const [bucketTab, setBucketTab] = React.useState("urgent");
+  const [bulkSending, setBulkSending] = React.useState(false);
   const graceDays = me?.tenantGracePeriodDays ?? 0;
   const today = new Date();
 
@@ -605,7 +624,7 @@ export default function RenewalsPage() {
         title="Could not load renewals"
         body={error.message}
         action={
-          <Button variant="default" onClick={() => window.location.reload()}>
+          <Button variant="default" icon="refresh" onClick={() => void refetch()}>
             Retry
           </Button>
         }
@@ -615,6 +634,30 @@ export default function RenewalsPage() {
 
   const all = subs ?? [];
 
+  // Top-level empty state — a tenant with zero subscriptions saw an all-zeros
+  // StatStrip + three empty buckets (and on mobile, fully blank buckets). Give
+  // them a single clear "nothing to renew yet" state that points at how
+  // subscriptions get created (a paid quote converts a lead into a subscription).
+  if (all.length === 0) {
+    return (
+      <div className="mx-auto max-w-[1800px] px-4 md:px-8 pb-20 pt-7">
+        <div className="mb-6">
+          <h1 className="font-serif text-2xl md:text-3xl text-ink">Renewals</h1>
+          <p className="text-sm text-ink-3 mt-1">Stay ahead of every subscription renewal — before service lapses.</p>
+        </div>
+        <Card>
+          <EmptyState
+            icon="refresh"
+            title="No subscriptions to renew yet"
+            body="Renewals show up here automatically once you have active subscriptions. A subscription is created when a customer pays for a recurring quote — so send a quote and record the payment to get started."
+            action={<Button variant="primary" icon="send" onClick={() => router.push("/quotes/new" as never)}>Create a quote</Button>}
+            secondary={<Button variant="default" icon="users" onClick={() => router.push("/customers" as never)}>View customers</Button>}
+          />
+        </Card>
+      </div>
+    );
+  }
+
   // Enrich with days-until-renewal (skip cancelled / no-date)
   const enriched = all
     .filter((s) => s.renewal_date !== null && s.status !== "cancelled")
@@ -623,8 +666,10 @@ export default function RenewalsPage() {
       daysUntil: daysBetween(today, s.renewal_date!),
     }));
 
-  // Urgency buckets
-  const urgent   = enriched.filter((r) => r.daysUntil >= 0 && r.daysUntil <= 7);
+  // Urgency buckets. Urgent INCLUDES already-lapsed subs (daysUntil < 0, in grace
+  // before auto-suspend) — otherwise the very rows about to suspend vanished from
+  // every bucket. The row UI already renders the "Expired Nd ago" state.
+  const urgent   = enriched.filter((r) => r.daysUntil <= 7);
   const upcoming = enriched.filter((r) => r.daysUntil > 7  && r.daysUntil <= 30);
   const future   = enriched.filter((r) => r.daysUntil > 30 && r.daysUntil <= 90);
 
@@ -645,8 +690,38 @@ export default function RenewalsPage() {
   const topHighRisk   = highRiskSubs[0]?.sub.customer_name ?? "a key customer";
   const firstUpcoming = upcoming[0];
 
+  // Real bulk reminder — actually calls the per-sub send-now endpoint for every
+  // subscription renewing within 30 days, then reports the true count (and
+  // honestly flags stub email-mode). No fake "sent" toast.
+  async function handleBulkReminder() {
+    const targets = enriched.filter((r) => r.daysUntil >= 0 && r.daysUntil <= 30);
+    if (targets.length === 0) { toast.info("No renewals due in the next 30 days"); return; }
+    setBulkSending(true);
+    let sent = 0, failed = 0, stub = false;
+    for (const r of targets) {
+      try {
+        const res = await fetch("/api/renewals/send-now", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ subscription_id: r.sub.id }),
+        });
+        const json = await res.json();
+        if (!res.ok) { failed++; continue; }
+        sent++;
+        if (json.email_mode === "stub") stub = true;
+      } catch { failed++; }
+    }
+    setBulkSending(false);
+    qc.invalidateQueries({ queryKey: ["subscriptions"] });
+    if (sent > 0) {
+      toast.success(`Reminder logged for ${sent} renewal${sent === 1 ? "" : "s"}${failed ? `, ${failed} failed` : ""}${stub ? " · stub mode (no real email yet)" : ""}`);
+    } else {
+      toast.error(`Could not send any reminders${failed ? ` (${failed} failed)` : ""}`);
+    }
+  }
+
   return (
-    <div className="mx-auto max-w-[1800px] px-8 pb-20 pt-7">
+    <div className="mx-auto max-w-[1800px] px-4 md:px-8 pb-20 pt-7">
       {/* ── Page header ── */}
       <div className="mb-6 flex items-start justify-between gap-4">
         <div>
@@ -680,12 +755,11 @@ export default function RenewalsPage() {
           <Button
             variant="primary"
             size="sm"
-            onClick={() =>
-              toast.success("Bulk reminder sent to all customers renewing in 30 days")
-            }
+            disabled={bulkSending}
+            onClick={handleBulkReminder}
           >
             <Icon name="mail" size={14} />
-            Bulk reminder
+            {bulkSending ? "Sending…" : "Bulk reminder"}
           </Button>
         </div>
       </div>
@@ -713,22 +787,13 @@ export default function RenewalsPage() {
                 <Button
                   variant="primary"
                   size="sm"
-                  onClick={() =>
-                    toast.success(`Save call scheduled for ${topHighRisk}`)
-                  }
+                  onClick={() => {
+                    const cid = highRiskSubs[0]?.sub.customer_id;
+                    router.push((cid ? `/customers/${cid}` : "/customers") as never);
+                  }}
                 >
-                  <Icon name="phone" size={12} />
-                  Save {topHighRisk}
-                </Button>
-                <Button
-                  variant="default"
-                  size="sm"
-                  onClick={() =>
-                    toast.success("NPS survey sent to medium-risk customers")
-                  }
-                >
-                  <Icon name="mail" size={12} />
-                  Send NPS to medium-risk
+                  <Icon name="user" size={12} />
+                  Open {topHighRisk}
                 </Button>
               </div>
             }
@@ -787,8 +852,8 @@ export default function RenewalsPage() {
       {/* Mobile FAB — Bulk reminder action (header buttons hidden on phone) */}
       <FAB
         icon="mail"
-        label="Bulk reminder"
-        onClick={() => toast.success("Bulk reminder sent to all customers renewing in 30 days")}
+        label={bulkSending ? "Sending…" : "Bulk reminder"}
+        onClick={handleBulkReminder}
       />
     </div>
   );

@@ -14,7 +14,7 @@ import { createClient, createAdminClient } from "@/lib/supabase/server";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const CATEGORIES = ["company_legal", "gst_tax", "banking", "agreements", "licenses", "hr", "other"];
+const CATEGORIES = ["legal", "finance", "hr", "operations", "sales_marketing", "admin", "branding", "other"];
 
 export async function POST(req: NextRequest) {
   const supabase = createClient();
@@ -38,7 +38,7 @@ export async function POST(req: NextRequest) {
   const notes    = String(form.get("notes") ?? "").trim() || null;
   if (title.length < 2) return NextResponse.json({ error: "Title required" }, { status: 400 });
   const cat = (CATEGORIES.includes(category) ? category : "other") as
-    "company_legal" | "gst_tax" | "banking" | "agreements" | "licenses" | "hr" | "other";
+    "legal" | "finance" | "hr" | "operations" | "sales_marketing" | "admin" | "branding" | "other";
 
   const admin = createAdminClient();
   const clean = f.name.replace(/[^a-zA-Z0-9._-]/g, "_");

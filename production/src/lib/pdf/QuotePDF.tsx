@@ -24,29 +24,19 @@ import {
   StyleSheet,
 } from "@react-pdf/renderer";
 import { rupee, formatDate } from "@/lib/utils";
-import type { QuoteLineItem, LineCommitment } from "@/lib/supabase/database.types";
+import { isForeignCurrency, formatForeign } from "@/lib/currency";
+import type { QuoteLineItem, LineCommitment, BillingCycle } from "@/lib/supabase/database.types";
+import {
+  cycleInvoicesPerYear, cycleUnitLabel, cycleScheduleLabel, cycleFromLegacyCommitment,
+} from "@/lib/quotes/billing";
 
-// ─── Commitment helpers (mirrors QuoteBuilder + dialog) ────────────────────
+// ─── Billing helpers ───────────────────────────────────────────────────────
+// Frequency is a quote-level `billing_cycle` (migration 0161); a line's
+// `commitment` is only its PRICE TIER (monthly-flex vs annual).
 
-function invoicesPerYear(c?: LineCommitment): number {
-  if (c === "annual_yearly")      return 1;
-  if (c === "annual_half_yearly") return 2;
-  if (c === "annual_quarterly")   return 4;
-  return 12;
-}
-function billingUnitLabel(c?: LineCommitment): string {
-  if (c === "annual_yearly")      return "/yr";
-  if (c === "annual_half_yearly") return "/half-yr";
-  if (c === "annual_quarterly")   return "/qtr";
-  return "/mo";
-}
-function billingScheduleLabel(c?: LineCommitment): string {
-  if (c === "monthly")            return "Monthly (flex)";
-  if (c === "annual_monthly")     return "Annual commit, monthly billing";
-  if (c === "annual_quarterly")   return "Annual commit, quarterly billing";
-  if (c === "annual_half_yearly") return "Annual commit, half-yearly billing";
-  if (c === "annual_yearly")      return "Annual commit, single yearly invoice";
-  return "Annual";
+function scheduleLabel(commitment: LineCommitment | undefined, cycle: BillingCycle): string {
+  const tier = commitment === "monthly" ? "Monthly (flex)" : "Annual commit";
+  return `${tier}, ${cycleScheduleLabel(cycle)}`;
 }
 
 // ─── Props ────────────────────────────────────────────────────────────────
@@ -77,7 +67,15 @@ export interface QuotePDFProps {
   tax:           number;
   total:         number;
   interState:    boolean;
+  /** Export supply (recipient outside India) → zero-rated under LUT, no GST. */
+  isExport?:     boolean;
+  /** Billing currency + rate — foreign → the whole quote shows in that currency. */
+  currency?:     string | null;
+  exchangeRate?: number | null;
+  /** Quote-level invoice frequency (migration 0161); falls back to legacy per-line commitment. */
+  billingCycle?: BillingCycle;
   notes?:        string;
+  termsConditions?: string | null;
   /** When true, renders "Renewal Quotation" label + visible "RENEWAL" stamp.
    *  Set by lib/renewals/create-renewal-quote.ts on the source quote. */
   isRenewal?:    boolean;
@@ -340,7 +338,7 @@ export function QuotePDF(props: QuotePDFProps) {
     quoteId, customerName, contactName, contactEmail, contactPhone,
     createdDate, expiresDate, validityDays,
     lineItems, subtotal, discountPct, discount, taxable, taxRate, tax, total,
-    interState, notes, isRenewal,
+    interState, isExport = false, currency, exchangeRate, billingCycle, notes, termsConditions, isRenewal,
   } = props;
 
   const brandInitial = (tenantName?.trim()?.[0] ?? "?").toUpperCase();
@@ -350,14 +348,37 @@ export function QuotePDF(props: QuotePDFProps) {
     : new Date(Date.now() + validityDays * 86400000);
 
   // Detect shared billing cycle to render "per invoice" totals if all lines agree
+  // Billing frequency is a single quote-level value (0161); legacy fallback.
   const firstCommitment = lineItems[0]?.commitment;
-  const sharedBilling = lineItems.length > 0
-    && lineItems.every((l) => invoicesPerYear(l.commitment) === invoicesPerYear(firstCommitment));
-  const billingN    = sharedBilling ? invoicesPerYear(firstCommitment) : 1;
-  const billingUnit = sharedBilling ? billingUnitLabel(firstCommitment) : "";
-  const perInvoice  = sharedBilling && billingN > 1;
-  const fmt = (n: number) =>
-    perInvoice ? `${rupee(Math.round(n / billingN))}${billingUnit}` : rupee(n);
+  const effectiveCycle: BillingCycle = billingCycle ?? cycleFromLegacyCommitment(firstCommitment);
+  const billingN    = cycleInvoicesPerYear(effectiveCycle);
+  const billingUnit = cycleUnitLabel(effectiveCycle);
+  const perInvoice  = billingN > 1;
+  // Foreign customer → render the quote in their currency (USD…); books stay ₹, so
+  // the INR equivalent is printed as a GST reference.
+  const isForeign   = isForeignCurrency(currency);
+  const fxRate      = exchangeRate ?? 1;
+
+  // Consistent display-currency math: for a foreign quote, work per-unit in the
+  // client's currency (₹ ÷ rate, rounded 2dp) so qty × rate == amount and the
+  // lines sum to the total (a plain per-figure ₹ ÷ rate makes a rounded unit rate
+  // disagree with the exact total, e.g. 32 × $32.00 ≠ $1,023.88). Books stay ₹.
+  const dRound = (v: number) => (isForeign ? Math.round(v * 100) / 100 : Math.round(v));
+  const toDisp = (inr: number) => (isForeign ? dRound(inr / fxRate) : inr);
+  const fmtC   = (v: number) => (isForeign ? formatForeign(v, currency ?? "") : rupee(v));
+  const fmtInv = (annual: number) =>
+    perInvoice ? `${fmtC(dRound(annual / billingN))}${billingUnit}` : fmtC(annual);
+
+  // Totals: for a FOREIGN quote, rebuild from the display-currency lines so the
+  // printed lines + totals agree (qty × rate == amount, Σ lines == total). For a
+  // domestic ₹ quote, keep the canonical stored figures untouched (no rounding
+  // drift vs the saved amount). Discounting is quote-level; per-line is legacy/0.
+  const dLineAnnual = lineItems.map((l) => dRound(l.qty * toDisp(l.rate)));
+  const dSubtotal = isForeign ? dRound(dLineAnnual.reduce((s, v) => s + v, 0)) : subtotal;
+  const dDiscount = isForeign ? dRound(dSubtotal * (discountPct / 100))        : discount;
+  const dTaxable  = isForeign ? dRound(dSubtotal - dDiscount)                  : taxable;
+  const dTax      = isForeign ? dRound(dTaxable * (taxRate / 100))             : tax;
+  const dTotal    = isForeign ? dRound(dTaxable + dTax)                        : total;
 
   return (
     <Document
@@ -415,12 +436,14 @@ export function QuotePDF(props: QuotePDFProps) {
           <View style={s.colRight}>
             <Text style={s.sectionLabel}>Place of supply</Text>
             <Text style={s.metaValue}>
-              {interState ? "Inter-state (IGST applies)" : "Intra-state (CGST + SGST)"}
+              {isExport
+                ? "Export · zero-rated under LUT (no GST)"
+                : interState ? "Inter-state (IGST applies)" : "Intra-state (CGST + SGST)"}
             </Text>
-            {sharedBilling && firstCommitment && (
+            {lineItems.length > 0 && firstCommitment && (
               <View style={s.metaGroup}>
                 <Text style={s.sectionLabel}>Billing schedule</Text>
-                <Text style={s.metaValue}>{billingScheduleLabel(firstCommitment)}</Text>
+                <Text style={s.metaValue}>{scheduleLabel(firstCommitment, effectiveCycle)}</Text>
                 {billingN > 1 && (
                   <Text style={[s.metaValue, { fontSize: 9, color: COLORS.ink3 }]}>
                     {billingN} invoices per year
@@ -448,23 +471,18 @@ export function QuotePDF(props: QuotePDFProps) {
             <Text style={s.emptyRow}>No line items.</Text>
           ) : (
             lineItems.map((line) => {
-              const lineN          = invoicesPerYear(line.commitment);
-              const lineUnit       = billingUnitLabel(line.commitment);
-              const showPer        = lineN > 1;
-              const rate           = showPer ? Math.round(line.rate / lineN) : line.rate;
-              const grossAmount    = line.qty * rate;
-              // Per-line reseller discount → reflected in printed amount + meta line
-              const lineDiscountPct = line.discount_pct ?? 0;
-              const netAmount       = Math.round(grossAmount * (1 - lineDiscountPct / 100));
-              const grossAnnual     = line.qty * line.rate;
-              const netAnnual       = Math.round(grossAnnual * (1 - lineDiscountPct / 100));
+              // Per-unit in the DISPLAY currency so qty × rate == amount exactly.
+              const lineDiscountPct = line.discount_pct ?? 0;   // quote-level discounting; per-line is legacy/0
+              const unit        = toDisp(line.rate);            // per seat / year
+              const grossAnnual = dRound(line.qty * unit);
+              const netAnnual   = dRound(grossAnnual * (1 - lineDiscountPct / 100));
               return (
                 <View key={line.id} style={s.tr} wrap={false}>
                   <View style={s.tdDesc}>
                     <Text style={s.lineName}>{line.name}</Text>
                     <Text style={s.lineMeta}>
-                      Per seat{showPer ? "" : " per year"} · HSN 998313
-                      {line.commitment && ` · ${billingScheduleLabel(line.commitment)}`}
+                      Per seat{perInvoice ? "" : " per year"} · HSN 998313
+                      {line.commitment && ` · ${scheduleLabel(line.commitment, effectiveCycle)}`}
                     </Text>
                     {lineDiscountPct > 0 && (
                       <Text style={s.lineMeta}>
@@ -479,17 +497,13 @@ export function QuotePDF(props: QuotePDFProps) {
                     )}
                   </View>
                   <Text style={s.tdQty}>{line.qty}</Text>
-                  <Text style={s.tdRate}>
-                    {rupee(rate)}{showPer ? lineUnit : ""}
-                  </Text>
+                  <Text style={s.tdRate}>{fmtInv(unit)}</Text>
                   <View style={s.tdAmount}>
-                    <Text style={s.lineAmount}>
-                      {rupee(netAmount)}{showPer ? lineUnit : ""}
-                    </Text>
-                    {showPer && (
+                    <Text style={s.lineAmount}>{fmtInv(netAnnual)}</Text>
+                    {perInvoice && (
                       <Text style={s.lineAmountSub}>
-                        = {rupee(netAnnual)}/yr
-                        {lineDiscountPct > 0 ? ` (was ${rupee(grossAnnual)})` : ""}
+                        = {fmtC(netAnnual)}/yr
+                        {lineDiscountPct > 0 ? ` (was ${fmtC(grossAnnual)})` : ""}
                       </Text>
                     )}
                   </View>
@@ -507,32 +521,37 @@ export function QuotePDF(props: QuotePDFProps) {
                 <Text style={s.totalLabel}>
                   {perInvoice ? "Subtotal (per invoice)" : "Subtotal"}
                 </Text>
-                <Text style={s.totalValue}>{fmt(subtotal)}</Text>
+                <Text style={s.totalValue}>{fmtInv(dSubtotal)}</Text>
               </View>
               {discountPct > 0 && (
                 <View style={s.totalRow}>
                   <Text style={s.totalLabel}>Discount ({discountPct}%)</Text>
-                  <Text style={s.totalValueAccent}>-{fmt(discount)}</Text>
+                  <Text style={s.totalValueAccent}>-{fmtInv(dDiscount)}</Text>
                 </View>
               )}
               <View style={s.totalRow}>
                 <Text style={s.totalLabel}>Taxable amount</Text>
-                <Text style={s.totalValue}>{fmt(taxable)}</Text>
+                <Text style={s.totalValue}>{fmtInv(dTaxable)}</Text>
               </View>
-              {interState ? (
+              {isExport ? (
+                <View style={s.totalRow}>
+                  <Text style={s.totalLabel}>Export — zero-rated (LUT), no GST</Text>
+                  <Text style={s.totalValue}>{fmtC(0)}</Text>
+                </View>
+              ) : interState ? (
                 <View style={s.totalRow}>
                   <Text style={s.totalLabel}>IGST ({taxRate}%)</Text>
-                  <Text style={s.totalValue}>{fmt(tax)}</Text>
+                  <Text style={s.totalValue}>{fmtInv(dTax)}</Text>
                 </View>
               ) : (
                 <>
                   <View style={s.totalRow}>
                     <Text style={s.totalLabel}>CGST ({taxRate / 2}%)</Text>
-                    <Text style={s.totalValue}>{fmt(Math.round(tax / 2))}</Text>
+                    <Text style={s.totalValue}>{fmtInv(dRound(dTax / 2))}</Text>
                   </View>
                   <View style={s.totalRow}>
                     <Text style={s.totalLabel}>SGST ({taxRate / 2}%)</Text>
-                    <Text style={s.totalValue}>{fmt(tax - Math.round(tax / 2))}</Text>
+                    <Text style={s.totalValue}>{fmtInv(dRound(dTax - dRound(dTax / 2)))}</Text>
                   </View>
                 </>
               )}
@@ -543,14 +562,20 @@ export function QuotePDF(props: QuotePDFProps) {
                   </Text>
                   <Text style={s.grandValue}>
                     {perInvoice
-                      ? `${rupee(Math.round(total / billingN))}${billingUnit}`
-                      : rupee(total)}
+                      ? `${fmtC(dRound(dTotal / billingN))}${billingUnit}`
+                      : fmtC(dTotal)}
                   </Text>
                 </View>
                 {perInvoice && (
                   <View style={s.perInvoiceRow}>
                     <Text>Annual contract value</Text>
-                    <Text>{rupee(total)}/yr</Text>
+                    <Text>{fmtC(dTotal)}/yr</Text>
+                  </View>
+                )}
+                {isForeign && (
+                  <View style={s.perInvoiceRow}>
+                    <Text>INR equivalent (for GST) @ Rs {exchangeRate}/{currency}</Text>
+                    <Text>{rupee(total)}</Text>
                   </View>
                 )}
               </View>
@@ -563,6 +588,14 @@ export function QuotePDF(props: QuotePDFProps) {
           <View style={s.notesBox}>
             <Text style={s.sectionLabel}>Notes</Text>
             <Text style={[s.notesText, { marginTop: 4 }]}>{notes}</Text>
+          </View>
+        )}
+
+        {/* ── Terms & conditions ──────────────────────────────────── */}
+        {termsConditions && termsConditions.trim().length > 0 && (
+          <View style={s.notesBox}>
+            <Text style={s.sectionLabel}>Terms &amp; conditions</Text>
+            <Text style={[s.notesText, { marginTop: 4 }]}>{termsConditions.trim()}</Text>
           </View>
         )}
 

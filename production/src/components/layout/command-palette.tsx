@@ -20,9 +20,9 @@ import { Command } from "cmdk";
 
 import { Dialog, DialogContent, DialogPortal, DialogOverlay } from "@/components/ui/dialog";
 import { Icon } from "@/components/ui/icon";
-import { APP_NAV } from "@/lib/nav";
+import { APP_NAV, filterNavForRole, type UserRole } from "@/lib/nav";
+import { useCurrentUser } from "@/lib/hooks/useCurrentUser";
 import { rupee, cn } from "@/lib/utils";
-import { toast } from "sonner";
 // Real-data queries — Linear/Notion-style universal search. Each hook is
 // already cached by TanStack Query so opening the palette is instant once
 // the user has visited the corresponding page at least once. First-time
@@ -76,16 +76,28 @@ export function CommandPalette({
   const { data: customers } = useCustomers();
   const { data: quotes }    = useQuotes({ status: "all" });
   const { data: contacts }  = useAllContacts();
+  const { data: me }        = useCurrentUser();
+
+  // Page list must respect the SAME role gating as the sidebar — otherwise a
+  // sales user could ⌘K into owner/accounting destinations that just bounce off
+  // middleware. Also de-dupe by href: the accountant "Filing" section reuses the
+  // Accounting hrefs, so a shared route (P&L, GST, aging…) would otherwise list
+  // twice. First section to claim an href wins.
+  const pageItems = React.useMemo(() => {
+    const nav = filterNavForRole(APP_NAV, me?.role as UserRole | undefined, { canViewDeals: me?.canViewDeals });
+    const seen = new Set<string>();
+    return nav.flatMap((section) =>
+      section.items
+        .filter((item) => !seen.has(item.href) && seen.add(item.href))
+        .map((item) => ({ ...item, section: section.section })),
+    );
+  }, [me?.role, me?.canViewDeals]);
 
   const go = (href: string) => {
     onOpenChange(false);
     router.push(href as Route);
   };
 
-  const runAction = (msg: string) => {
-    onOpenChange(false);
-    toast(msg);
-  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -125,8 +137,8 @@ export function CommandPalette({
                 <PaletteItem
                   icon="plus"
                   label="Create new lead"
-                  meta="Add to Deal Pipeline"
-                  onSelect={() => runAction("New lead form opening…")}
+                  meta="Open the quick-add form"
+                  onSelect={() => go("/leads?action=quick-add")}
                 />
                 <PaletteItem
                   icon="file"
@@ -137,8 +149,8 @@ export function CommandPalette({
                 <PaletteItem
                   icon="users"
                   label="Add new customer"
-                  meta="Create customer record"
-                  onSelect={() => runAction("New customer form opening…")}
+                  meta="Open new customer form"
+                  onSelect={() => go("/customers/new")}
                 />
                 <PaletteItem
                   icon="send"
@@ -147,32 +159,24 @@ export function CommandPalette({
                   onSelect={() => go("/campaigns")}
                 />
                 <PaletteItem
-                  icon="refresh"
-                  label="Sync vendor portals"
-                  meta="Google CSP + M365 + Zoho"
-                  onSelect={() => runAction("Syncing all vendor portals…")}
-                />
-                <PaletteItem
                   icon="mail"
                   label="Send renewal reminders"
-                  meta="To customers expiring in 30d"
-                  onSelect={() => runAction("Sent renewal reminders to 12 customers")}
+                  meta="Go to Renewals"
+                  onSelect={() => go("/renewals")}
                 />
               </Command.Group>
 
-              {/* Pages */}
+              {/* Pages — role-filtered + href-deduped (see pageItems) */}
               <Command.Group heading="Pages">
-                {APP_NAV.flatMap((section) =>
-                  section.items.map((item) => (
-                    <PaletteItem
-                      key={item.id}
-                      icon={item.icon}
-                      label={item.label}
-                      meta={section.section}
-                      onSelect={() => go(item.href)}
-                    />
-                  ))
-                )}
+                {pageItems.map((item) => (
+                  <PaletteItem
+                    key={item.id}
+                    icon={item.icon}
+                    label={item.label}
+                    meta={item.section}
+                    onSelect={() => go(item.href)}
+                  />
+                ))}
               </Command.Group>
 
               {/* Customers — real, tenant-scoped */}

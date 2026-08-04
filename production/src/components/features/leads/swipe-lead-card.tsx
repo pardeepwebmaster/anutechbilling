@@ -180,10 +180,15 @@ export function SwipeLeadCard({ lead, onTap, onChangeStage, onSendQuote, stale, 
         className="relative bg-paper border border-hairline rounded-lg"
         data-lead-id={lead.id}
       >
-        <button
-          type="button"
+        {/* A div (not a <button>) so the action buttons inside it are valid HTML
+            — a <button> can't contain <button>s (hydration error). Kept
+            keyboard-accessible with role/tabIndex + Enter/Space. */}
+        <div
+          role="button"
+          tabIndex={0}
           onClick={handleCardTap}
-          className="block w-full text-left p-3 active:bg-paper-2/50 rounded-lg"
+          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handleCardTap(); } }}
+          className="block w-full text-left p-3 active:bg-paper-2/50 rounded-lg cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-amber/50"
         >
           {/* Row 1 — priority dot + company + ₹ value + seats. */}
           <div className="flex items-start justify-between gap-3">
@@ -341,7 +346,7 @@ export function SwipeLeadCard({ lead, onTap, onChangeStage, onSendQuote, stale, 
               )}
             </div>
           </div>
-        </button>
+        </div>
       </motion.div>
     </li>
   );

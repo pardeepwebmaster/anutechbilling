@@ -22,7 +22,9 @@ export function useQuotes(filter?: { status?: QuoteStatus | "all" }) {
       let query = supabase
         .from("quotes")
         .select("*")
-        .order("created_date", { ascending: false });
+        // created_at (timestamp) not created_date (day) so same-day quotes
+        // still sort newest-first; nullsFirst:false keeps any legacy null at bottom.
+        .order("created_at", { ascending: false, nullsFirst: false });
 
       if (filter?.status && filter.status !== "all") {
         query = query.eq("status", filter.status);
@@ -89,7 +91,7 @@ export function useQuotesByLead(leadId: string | null | undefined) {
         .from("quotes")
         .select("*")
         .eq("lead_id", leadId!)
-        .order("created_date", { ascending: false });
+        .order("created_at", { ascending: false, nullsFirst: false });
       if (error) throw error;
       return data ?? [];
     },

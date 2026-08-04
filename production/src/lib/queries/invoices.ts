@@ -164,6 +164,54 @@ export function useGenerateInvoice() {
   });
 }
 
+// ============================================================
+// Direct (one-off) invoice — raise a GST invoice straight against a customer
+// (setup fee, ad-hoc service). Creates a one-off quote (no subscription) then
+// generate_invoice, atomically (migration 0158 create_direct_invoice).
+// ============================================================
+export interface DirectInvoiceLine {
+  name: string;
+  qty:  number;
+  rate: number;   // ex-GST ₹ per unit
+}
+
+export function useCreateDirectInvoice() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { customerId: string; lines: DirectInvoiceLine[]; notes?: string | null; recurring?: boolean }) => {
+      const supabase = createClient();
+      // The RPC stamps the correct commitment; we just pass the raw line shape.
+      const lineItems = input.lines.map((l, i) => ({
+        id:   `line-${i + 1}`,
+        name: l.name,
+        qty:  l.qty,
+        rate: l.rate,
+        cost: 0,
+      }));
+      const { data, error } = await supabase.rpc("create_direct_invoice", {
+        p_customer_id: input.customerId,
+        p_line_items:  lineItems,
+        p_notes:       input.notes ?? null,
+        p_recurring:   input.recurring ?? false,
+      });
+      if (error) throw error;
+      const row = Array.isArray(data) ? data[0] : data;
+      return row as { invoice_id: string; quote_id: string; net_payable: number; tax_rate: number };
+    },
+    onSuccess: (res) => {
+      qc.invalidateQueries({ queryKey: ["invoices"] });
+      qc.invalidateQueries({ queryKey: ["quotes"] });
+      qc.invalidateQueries({ queryKey: ["customers"] });
+      qc.invalidateQueries({ queryKey: ["aging"] });
+      qc.invalidateQueries({ queryKey: ["nav-badges"] });
+      toast.success(
+        `Invoice ${res.invoice_id} raised · ₹${res.net_payable.toLocaleString("en-IN")} due${res.tax_rate === 0 ? " · export (zero-rated)" : ""}`,
+      );
+    },
+    onError: (err) => toast.error((err as Error).message),
+  });
+}
+
 /**
  * Delete a PROJECT invoice + everything tied to it (payments, bank reconcile,
  * milestone reset, number roll-back) atomically via delete_project_invoice.

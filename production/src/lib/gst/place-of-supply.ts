@@ -32,3 +32,37 @@ export function isInterStateSupply(
     customerStateCode !== sellerStateCode,
   );
 }
+
+/**
+ * GST treatment of a supply, incl. exports (international customers).
+ *
+ * A supply to a recipient OUTSIDE India is an EXPORT — zero-rated (no
+ * CGST/SGST/IGST) when the supplier has filed an LUT. A domestic supply is
+ * intra-state (CGST + SGST) or inter-state (IGST) per the state comparison.
+ */
+export type GstTreatment = "export" | "inter_state" | "intra_state";
+
+// Values that mean "India" (domestic). Anything else is treated as export.
+const DOMESTIC_COUNTRIES = new Set(["india", "in", "ind", "bharat"]);
+
+/**
+ * True when the recipient is outside India → the supply is an export
+ * (zero-rated under LUT). Conservative: an UNKNOWN/empty country is treated as
+ * domestic (returns false), so we never accidentally zero-rate — and thus
+ * under-charge GST on — a customer whose country simply wasn't captured.
+ */
+export function isExportSupply(customerCountry: string | null | undefined): boolean {
+  const c = (customerCountry ?? "").trim().toLowerCase();
+  if (c === "") return false;
+  return !DOMESTIC_COUNTRIES.has(c);
+}
+
+/** Resolve the GST treatment. Export (outside India) wins over the state comparison. */
+export function gstTreatment(
+  customerCountry: string | null | undefined,
+  customerStateCode: string | null | undefined,
+  sellerStateCode: string | null | undefined,
+): GstTreatment {
+  if (isExportSupply(customerCountry)) return "export";
+  return isInterStateSupply(customerStateCode, sellerStateCode) ? "inter_state" : "intra_state";
+}

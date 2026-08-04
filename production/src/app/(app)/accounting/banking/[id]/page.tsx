@@ -20,6 +20,7 @@ import { useParams } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { useResizableColumns, ResizableHandles } from "@/components/ui/resizable-columns";
 import { Badge } from "@/components/ui/badge";
 import { Icon } from "@/components/ui/icon";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -39,6 +40,12 @@ import { useBankAaConnection, useFetchAaNow } from "@/lib/queries/bank-aa";
 
 type FilterTab = "all" | "unmatched" | "matched";
 
+// Column order (left→right) + default widths (px) for the resizable table.
+const BANK_COL_ORDER = ["date", "description", "amount", "status", "action"];
+const BANK_COL_DEFAULTS: Record<string, number> = {
+  date: 130, description: 380, amount: 150, status: 140, action: 150,
+};
+
 export default function BankAccountDetailPage() {
   const params = useParams<{ id: string }>();
   const accountId = params?.id ?? null;
@@ -50,6 +57,9 @@ export default function BankAccountDetailPage() {
   const [importOpen,    setImportOpen]    = React.useState(false);
   const [aaConnectOpen, setAaConnectOpen] = React.useState(false);
   const [reconcileTxn,  setReconcileTxn]  = React.useState<BankTransactionRow | null>(null);
+
+  // Resizable columns — drag the full-height divider between any two columns.
+  const { colW, startResize, totalWidth: bankTableW } = useResizableColumns("ros_bank_colw", BANK_COL_DEFAULTS);
 
   // AA connection state (returns null if not connected yet)
   const { data: aaConn } = useBankAaConnection(accountId);
@@ -94,7 +104,16 @@ export default function BankAccountDetailPage() {
     );
   }
 
-  const balance = account.current_balance ?? account.opening_balance;
+  // Two balances for reconciliation:
+  //  • Bank    = opening + every imported statement line (what the bank shows)
+  //  • App     = opening + only the RECONCILED lines (what your books account for)
+  //  • The gap = the still-unreconciled lines. When all are matched, they're equal.
+  const openingBal = account.opening_balance ?? 0;
+  const allTxns    = transactions ?? [];
+  const sumDelta   = (list: typeof allTxns) => list.reduce((s, t) => s + (t.credit ?? 0) - (t.debit ?? 0), 0);
+  const bankBalance = openingBal + sumDelta(allTxns);
+  const appBalance  = openingBal + sumDelta(allTxns.filter((t) => t.matched_to_type !== null));
+  const toReconcile = bankBalance - appBalance;
 
   return (
     <div className="p-4 md:p-6 lg:p-8 max-w-[1800px] mx-auto">
@@ -114,7 +133,8 @@ export default function BankAccountDetailPage() {
           <p className="text-xs text-ink-3 font-mono mt-1">
             {account.account_type === "cash"
               ? "Cash in hand · petty cash"
-              : `••• ${account.account_number_last4} · ${account.ifsc} · ${account.account_type}`}
+              : [account.account_number_last4 && `••• ${account.account_number_last4}`, account.ifsc, account.account_type]
+                  .filter(Boolean).join(" · ")}
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
@@ -163,10 +183,18 @@ export default function BankAccountDetailPage() {
       <Card className="mb-6">
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div>
-            <p className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold">Current balance</p>
-            <p className={`font-serif text-2xl mt-1 ${balance >= 0 ? "text-ink" : "text-rose"}`}>
-              {rupee(balance)}
+            <p className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold">Balance in bank</p>
+            <p className={`font-serif text-2xl mt-1 ${bankBalance >= 0 ? "text-ink" : "text-rose"}`}>
+              {rupee(bankBalance)}
             </p>
+            <p className="text-[10px] text-ink-3 mt-0.5">Per imported statement</p>
+          </div>
+          <div>
+            <p className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold">Balance in app</p>
+            <p className={`font-serif text-2xl mt-1 ${appBalance >= 0 ? "text-ink" : "text-rose"}`}>
+              {rupee(appBalance)}
+            </p>
+            <p className="text-[10px] text-ink-3 mt-0.5">Reconciled in your books</p>
           </div>
           <div>
             <p className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold">Opening balance</p>
@@ -174,17 +202,12 @@ export default function BankAccountDetailPage() {
             <p className="text-[10px] text-ink-3 mt-0.5">as of {formatDate(account.opening_balance_date)}</p>
           </div>
           <div>
-            <p className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold">Transactions</p>
-            <p className="font-serif text-2xl text-ink mt-1">{counts.all}</p>
-            <p className="text-[10px] text-ink-3 mt-0.5">All time</p>
-          </div>
-          <div>
-            <p className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold">Unmatched</p>
+            <p className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold">To reconcile</p>
             <p className={`font-serif text-2xl mt-1 ${counts.unmatched > 0 ? "text-rose" : "text-emerald"}`}>
-              {counts.unmatched}
+              {counts.unmatched === 0 ? "✓" : rupee(toReconcile)}
             </p>
             <p className="text-[10px] text-ink-3 mt-0.5">
-              {counts.unmatched === 0 ? "All reconciled ✓" : "Need attention"}
+              {counts.unmatched === 0 ? "Bank = app, all reconciled" : `${counts.unmatched} txns not yet in books`}
             </p>
           </div>
         </div>
@@ -225,32 +248,42 @@ export default function BankAccountDetailPage() {
         </Card>
       ) : (
         <>
-          {/* Desktop / tablet table — scrolls rather than clipping the date */}
-          <Card flush className="hidden md:block overflow-x-auto">
-            <table className="w-full min-w-[680px] text-sm">
-              <thead>
-                <tr className="border-b border-hairline text-left text-[11px] uppercase tracking-wider text-ink-3">
-                  <th className="px-4 py-2 font-semibold whitespace-nowrap">Date</th>
-                  <th className="px-4 py-2 font-semibold">Description</th>
-                  <th className="px-4 py-2 font-semibold text-right">Amount</th>
-                  <th className="px-4 py-2 font-semibold">Status</th>
-                  <th className="px-4 py-2 font-semibold text-right">Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {visibleTxns.map((txn) => (
-                  <TransactionRow
-                    key={txn.id}
-                    txn={txn}
-                    onReconcile={() => setReconcileTxn(txn)}
-                  />
-                ))}
-              </tbody>
-            </table>
+          {/* Desktop / tablet table — every column is drag-resizable. Grab the
+              full-height divider between any two columns and drag; widen
+              Description to read a full transaction line. Container scrolls if the
+              table grows past it; widths are remembered per device. */}
+          <Card flush className="hidden lg:block overflow-x-auto">
+            <div className="relative" style={{ width: bankTableW }}>
+              <table className="text-sm table-fixed w-full">
+                <colgroup>
+                  {BANK_COL_ORDER.map((id) => <col key={id} style={{ width: colW[id] }} />)}
+                </colgroup>
+                <thead>
+                  <tr className="border-b border-hairline text-left text-[11px] uppercase tracking-wider text-ink-3">
+                    <th className="px-4 py-2 font-semibold whitespace-nowrap">Date</th>
+                    <th className="px-4 py-2 font-semibold whitespace-nowrap">Description</th>
+                    <th className="px-4 py-2 font-semibold text-right whitespace-nowrap">Amount</th>
+                    <th className="px-4 py-2 font-semibold whitespace-nowrap">Status</th>
+                    <th className="px-4 py-2 font-semibold text-right whitespace-nowrap">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {visibleTxns.map((txn) => (
+                    <TransactionRow
+                      key={txn.id}
+                      txn={txn}
+                      onReconcile={() => setReconcileTxn(txn)}
+                    />
+                  ))}
+                </tbody>
+              </table>
+              <ResizableHandles colW={colW} order={BANK_COL_ORDER} startResize={startResize} />
+            </div>
           </Card>
 
-          {/* Mobile cards */}
-          <ul className="md:hidden space-y-2.5">
+          {/* Card list on phone + narrow/tablet widths (table needs ≥1024px to
+              show every column + the Reconcile button without clipping). */}
+          <ul className="lg:hidden space-y-2.5">
             {visibleTxns.map((txn) => (
               <TransactionCard key={txn.id} txn={txn} onReconcile={() => setReconcileTxn(txn)} />
             ))}
@@ -288,6 +321,7 @@ function txnStatusLabel(t: BankTransactionRow["matched_to_type"]): string {
          t === "expense"     ? "Matched expense" :
          t === "vendor_bill" ? "Matched bill"    :
          t === "transfer"    ? "Inter-account"   :
+         t === "split"       ? "Split · salaries" :
          t                   ? "Reconciled"      : "Unmatched";
 }
 
@@ -311,13 +345,13 @@ function TransactionRow({
 
   return (
     <tr className="border-b border-hairline last:border-b-0 hover:bg-paper-2/30">
-      <td className="px-4 py-3 text-ink-2 whitespace-nowrap">
+      <td className="px-4 py-3 text-ink-2 whitespace-nowrap truncate">
         {formatDate(txn.txn_date)}
       </td>
-      <td className="px-4 py-3 min-w-0">
-        <div className="font-medium text-ink truncate max-w-[320px]">{txn.description}</div>
+      <td className="px-4 py-3 overflow-hidden">
+        <div className="font-medium text-ink truncate" title={txn.description ?? undefined}>{txn.description}</div>
         {txn.reference && (
-          <div className="text-[10px] text-ink-3 font-mono mt-0.5">{txn.reference}</div>
+          <div className="text-[10px] text-ink-3 font-mono mt-0.5 truncate">{txn.reference}</div>
         )}
       </td>
       <td className="px-4 py-3 text-right tabular-nums whitespace-nowrap font-medium">

@@ -92,6 +92,22 @@ export function useAllProjectPayments() {
   });
 }
 
+// ── The milestone behind a given project invoice (for recording payment) ─────
+export function useMilestoneByInvoice(invoiceId: string | null | undefined) {
+  return useQuery({
+    queryKey: ["project_milestones", "by_invoice", invoiceId],
+    enabled:  Boolean(invoiceId),
+    queryFn: async (): Promise<ProjectMilestoneRow | null> => {
+      if (!invoiceId) return null;
+      const supabase = createClient();
+      const { data, error } = await supabase
+        .from("project_milestones").select("*").eq("invoice_id", invoiceId).maybeSingle();
+      if (error) throw error;
+      return (data ?? null) as ProjectMilestoneRow | null;
+    },
+  });
+}
+
 // ── Which invoice ids came from a project milestone (vs a subscription quote) ─
 export function useProjectInvoiceIds() {
   return useQuery({
@@ -259,6 +275,44 @@ export function useCreateProjectQuote() {
   });
 }
 
+// ── Direct project invoice — create + accept + raise, in one atomic RPC ───────
+export function useCreateProjectDirectInvoice() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: {
+      customerId:   string | null;
+      customerName: string;
+      title:        string;
+      description:  string | null;
+      lineItems:    ProjectQuoteLine[];
+      gstRate:      number;
+      interState:   boolean;
+    }) => {
+      const supabase = createClient();
+      const { data, error } = await supabase.rpc("create_project_direct_invoice", {
+        p_customer_id:   input.customerId,
+        p_customer_name: input.customerName,
+        p_title:         input.title,
+        p_description:   input.description,
+        p_line_items:    input.lineItems,
+        p_gst_rate:      input.gstRate,
+        p_inter_state:   input.interState,
+      });
+      if (error) throw error;
+      const row = Array.isArray(data) ? data[0] : data;
+      return row as { invoice_id: string; project_id: string };
+    },
+    onSuccess: (res) => {
+      qc.invalidateQueries({ queryKey: ["project_sales"] });
+      qc.invalidateQueries({ queryKey: ["invoices"] });
+      qc.invalidateQueries({ queryKey: ["aging"] });
+      qc.invalidateQueries({ queryKey: ["nav-badges"] });
+      toast.success(`Invoice ${res.invoice_id} raised`);
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : "Could not create invoice"),
+  });
+}
+
 // ── Edit a project quotation (only before it's invoiced/paid) ────────────────
 export function useUpdateProjectQuote() {
   const qc = useQueryClient();
@@ -284,12 +338,35 @@ export function useUpdateProjectQuote() {
         p_inter_state:   input.interState,
         p_milestones:    input.milestones,
       });
-      if (error) throw error;
+      if (error) throw new Error(error.message);
     },
     onSuccess: (_r, v) => {
       qc.invalidateQueries({ queryKey: ["project_sales"] });
       qc.invalidateQueries({ queryKey: ["project_sales", v.projectId] });
       toast.success("Quotation updated");
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : "Could not update"),
+  });
+}
+
+// Edit ONLY the future (un-invoiced, un-paid) milestones — the invoiced/paid
+// ones stay locked. The remaining milestones must still add up to the fixed
+// contract total (the RPC enforces this).
+export function useUpdateProjectFutureMilestones() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { projectId: string; milestones: MilestoneInput[] }) => {
+      const supabase = createClient();
+      const { error } = await supabase.rpc("update_project_future_milestones", {
+        p_project_id: input.projectId,
+        p_milestones: input.milestones,
+      });
+      if (error) throw new Error(error.message);
+    },
+    onSuccess: (_r, v) => {
+      qc.invalidateQueries({ queryKey: ["project_sales"] });
+      qc.invalidateQueries({ queryKey: ["project_sales", v.projectId] });
+      toast.success("Remaining schedule updated");
     },
     onError: (err) => toast.error(err instanceof Error ? err.message : "Could not update"),
   });
@@ -301,7 +378,7 @@ export function useDeleteProjectSale() {
     mutationFn: async (projectId: string) => {
       const supabase = createClient();
       const { error } = await supabase.rpc("delete_project_sale", { p_project_id: projectId });
-      if (error) throw error;
+      if (error) throw new Error(error.message);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["project_sales"] });
@@ -381,6 +458,8 @@ export function useRecordProjectPayment() {
     onSuccess: (_id, vars) => {
       qc.invalidateQueries({ queryKey: ["project_sales", vars.projectId] });
       qc.invalidateQueries({ queryKey: ["project_sales"] });
+      qc.invalidateQueries({ queryKey: ["project_milestones"] });
+      qc.invalidateQueries({ queryKey: ["invoices"] });
       qc.invalidateQueries({ queryKey: ["bank_transactions"] });
       toast.success("Payment recorded");
     },

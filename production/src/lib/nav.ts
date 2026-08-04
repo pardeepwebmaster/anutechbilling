@@ -7,7 +7,7 @@
  * 3. Create the page at src/app/(app)/[id]/page.tsx
  */
 
-export type UserRole = "owner" | "manager" | "sales" | "sales_senior";
+export type UserRole = "owner" | "manager" | "sales" | "sales_senior" | "accountant";
 
 export interface NavItem {
   id: string;
@@ -25,10 +25,14 @@ export interface NavItem {
   roles?: UserRole[];
   /** Sub-links rendered as an accordion under this item (e.g. Reports → sub-reports). */
   children?: NavItem[];
+  /** External URL — opens in a new tab (e.g. Google Drive) instead of in-app routing. */
+  external?: boolean;
 }
 
 export interface NavSection {
   section: string;
+  /** Icon for the group header (Zoho-style expandable group). */
+  icon?: string;
   items: NavItem[];
   /** Roles that can see this section. Omit = visible to everyone. */
   roles?: UserRole[];
@@ -80,6 +84,8 @@ export const ROLE_HOME: Record<UserRole, string> = {
   manager:      "/dashboard",
   sales:        "/leads",
   sales_senior: "/deals",
+  // The CA / accountant lands on the P&L — the headline figure for ITR.
+  accountant:   "/accounting/pnl",
 };
 
 // ============================================================
@@ -90,103 +96,160 @@ export const ROLE_HOME: Record<UserRole, string> = {
 //   • Sales-only users see ONLY the items explicitly tagged with "sales".
 //   • Lead Pipeline + Tasks include "sales" because that's the day-to-day
 //     surface for lead-only sellers (per Darshan's role at Excel Tech).
+// Zoho-Books-style navigation: a few top-level EXPANDABLE groups (icon + label
+// + chevron) instead of one long always-open wall. "Home" is a standalone row;
+// every other group starts collapsed and auto-opens when you're inside it.
+// Item hrefs are unchanged — only the grouping/labels changed — so routing +
+// allowed-routes stay identical.
 export const APP_NAV: NavSection[] = [
   {
-    section: "Workspace",
+    // Accountant / CA view — read-only compliance reports only. The whole
+    // section (and every route in it) is gated to the "accountant" role, so a
+    // CA login sees nothing but these filing figures. These pages are computed
+    // reports with no edit actions, so access is read-only by nature.
+    section: "Filing",
+    icon: "file",
+    roles: ["accountant"],
     items: [
-      { id: "dashboard",  href: "/dashboard",  label: "Dashboard",     icon: "home",    roles: ["owner", "manager"] },
-      // Lead inbox — raw inquiries. Sales always sees this; deals page is a
-      // separate entry below (gated by can_view_deals for sales).
-      { id: "leads",      href: "/leads",      label: "Leads",         icon: "inbox",   roles: ["owner", "manager", "sales"] },
-      // Inbound-email triage inbox. Feeds Leads (genuine enquiries auto-convert;
-      // the rest are triaged by hand here), so it sits right after Leads.
-      { id: "enquiries",  href: "/enquiries",  label: "Enquiries",     icon: "mail",    roles: ["owner", "manager", "sales"] },
-      { id: "deals",      href: "/deals",      label: "Deal Pipeline", icon: "target",  roles: ["owner", "manager", "sales"] },
-      { id: "tasks",      href: "/tasks",      label: "Tasks",         icon: "clock",   roles: ["owner", "manager", "sales"] },
-      { id: "customers",  href: "/customers",  label: "Customers",     icon: "users",   roles: ["owner", "manager"] },
-      { id: "contacts",   href: "/contacts",   label: "Contacts",      icon: "user",    roles: ["owner", "manager"] },
-      { id: "items",      href: "/items",      label: "Items Catalog", icon: "package", roles: ["owner", "manager"] },
-      { id: "documents",  href: "/documents",  label: "Documents",     icon: "file",    roles: ["owner", "manager"] },
+      { id: "acc-pnl",     href: "/accounting/pnl",            label: "P&L Report",     icon: "trending_up" },
+      { id: "acc-bs",      href: "/accounting/balance-sheet",  label: "Balance Sheet",  icon: "layout" },
+      { id: "acc-gst",     href: "/accounting/gst",            label: "GST Reports",    icon: "file" },
+      { id: "acc-tds",     href: "/accounting/tds-receivable", label: "TDS Receivable", icon: "rupee" },
+      { id: "acc-esi",     href: "/accounting/esi-register",   label: "ESI Register",   icon: "file" },
+      { id: "acc-aging",   href: "/accounting/aging",          label: "Customer Aging", icon: "clock" },
     ],
   },
   {
-    // Section visible to sales too, but only the Quotes item is exposed to them
-    // (sending quotes is a sales rep's core job). The money/admin items below
-    // stay owner/manager-only via per-item roles.
-    section: "Revenue",
+    // Single-item group → rendered as a standalone top row (no chevron).
+    section: "Home",
+    icon: "home",
+    items: [
+      { id: "dashboard", href: "/dashboard", label: "Dashboard", icon: "home", roles: ["owner", "manager"] },
+    ],
+  },
+  {
+    // The CRM daily core. Visible to sales too (customers/contacts stay owner/manager).
+    section: "Sales",
+    icon: "target",
     roles: ["owner", "manager", "sales"],
     items: [
-      { id: "online-orders", href: "/online-orders", label: "Online Orders", icon: "cart",    roles: ["owner", "manager"] },
+      { id: "leads",     href: "/leads",     label: "Leads",         icon: "inbox",  roles: ["owner", "manager", "sales"] },
+      { id: "enquiries", href: "/enquiries", label: "Enquiries",     icon: "mail",   roles: ["owner", "manager", "sales"] },
+      { id: "deals",     href: "/deals",     label: "Deal Pipeline", icon: "target", roles: ["owner", "manager", "sales"] },
+      { id: "tasks",     href: "/tasks",     label: "Tasks",         icon: "clock",  roles: ["owner", "manager", "sales"] },
+      { id: "customers", href: "/customers", label: "Customers",     icon: "users",  roles: ["owner", "manager"] },
+      { id: "customer-groups", href: "/customers/groups", label: "Parent Accounts", icon: "layout", roles: ["owner", "manager"] },
+      { id: "contacts",  href: "/contacts",  label: "Contacts",      icon: "user",   roles: ["owner", "manager"] },
+      { id: "referrals", href: "/referrals", label: "Referrals",     icon: "award",  roles: ["owner", "manager"] },
+    ],
+  },
+  {
+    section: "Revenue",
+    icon: "rupee",
+    roles: ["owner", "manager", "sales"],
+    items: [
+      // Online Orders stays hidden until a real order/provisioning system exists.
       { id: "quotes",        href: "/quotes",        label: "Quotes",        icon: "file",    roles: ["owner", "manager", "sales"] },
       { id: "projects",      href: "/projects",      label: "Project Sales", icon: "package", roles: ["owner", "manager", "sales"] },
-      { id: "payments",      href: "/payments",      label: "Payments",      icon: "rupee",   roles: ["owner", "manager"] },
       { id: "invoices",      href: "/invoices",      label: "Invoices",      icon: "receipt", roles: ["owner", "manager"] },
+      { id: "payments",      href: "/payments",      label: "Payments Received", icon: "rupee", roles: ["owner", "manager"] },
       { id: "subscriptions", href: "/subscriptions", label: "Subscriptions", icon: "refresh", roles: ["owner", "manager"] },
       { id: "renewals",      href: "/renewals",      label: "Renewals",      icon: "clock",   roles: ["owner", "manager"] },
     ],
   },
   {
-    section: "Procurement",
+    // Zoho groups vendor-side money under "Purchases" — familiar to any Books user.
+    section: "Purchases",
+    icon: "cart",
     roles: ["owner", "manager"],
     items: [
-      { id: "purchase-orders", href: "/purchase-orders", label: "Purchase Orders", icon: "cart" },
+      { id: "vendors",         href: "/accounting/vendors",        label: "Vendors",         icon: "users" },
+      { id: "bills",           href: "/accounting/bills",          label: "Vendor Bills",    icon: "receipt" },
+      { id: "bill-payments",   href: "/accounting/bill-payments",  label: "Payments Made",   icon: "rupee" },
+      { id: "expenses",        href: "/accounting/expenses",       label: "Expenses",        icon: "rupee" },
+      { id: "reimbursements",  href: "/accounting/reimbursements", label: "Reimbursements",  icon: "refresh" },
+      { id: "purchase-orders", href: "/purchase-orders",           label: "Purchase Orders", icon: "cart" },
     ],
   },
   {
     section: "Accounting",
+    icon: "layout",
     roles: ["owner", "manager"],
     items: [
-      { id: "saas-metrics",  href: "/accounting/saas-metrics",  label: "SaaS Metrics",       icon: "sparkles" },
-      { id: "banking",       href: "/accounting/banking",       label: "Banking",            icon: "rupee" },
-      { id: "bills",         href: "/accounting/bills",         label: "Vendor Bills",       icon: "receipt" },
-      { id: "expenses",      href: "/accounting/expenses",      label: "Expenses",           icon: "rupee" },
-      { id: "pnl",           href: "/accounting/pnl",           label: "P&L Report",         icon: "trending_up" },
-      { id: "balance-sheet", href: "/accounting/balance-sheet", label: "Balance Sheet",      icon: "layout" },
-      { id: "profitability", href: "/accounting/profitability", label: "Customer Margin",    icon: "users" },
-      { id: "aging",         href: "/accounting/aging",         label: "Customer Aging",     icon: "clock" },
-      { id: "tds-receivable", href: "/accounting/tds-receivable", label: "TDS Receivable",   icon: "rupee" },
-      { id: "employee-loans", href: "/accounting/loans",        label: "Employee Loans",     icon: "users" },
-      { id: "assets-emi",     href: "/accounting/assets",       label: "Assets & EMIs",      icon: "cart" },
-      { id: "payroll",        href: "/accounting/payroll",      label: "Payroll & Leave",    icon: "users" },
-      { id: "attendance-kiosk", href: "/attendance/kiosk",      label: "Attendance Kiosk",   icon: "clock" },
-      { id: "gst-summary",   href: "/accounting/gst",           label: "GST Reports",        icon: "file" },
+      { id: "banking",        href: "/accounting/banking",        label: "Banking",         icon: "rupee" },
+      { id: "business-loans", href: "/accounting/business-loans", label: "Business Loans",  icon: "rupee" },
+      { id: "pnl",            href: "/accounting/pnl",            label: "P&L Report",      icon: "trending_up" },
+      { id: "balance-sheet",  href: "/accounting/balance-sheet",  label: "Balance Sheet",   icon: "layout" },
+      { id: "profitability",  href: "/accounting/profitability",  label: "Customer Margin", icon: "users" },
+      { id: "aging",          href: "/accounting/aging",          label: "Customer Aging",  icon: "clock" },
+      { id: "tds-receivable", href: "/accounting/tds-receivable", label: "TDS Receivable",  icon: "rupee" },
+      { id: "assets-emi",     href: "/accounting/assets",         label: "Assets & EMIs",   icon: "cart" },
+      { id: "gst-summary",    href: "/accounting/gst",            label: "GST Reports",     icon: "file" },
+      { id: "saas-metrics",   href: "/accounting/saas-metrics",   label: "SaaS Metrics",    icon: "sparkles" },
+    ],
+  },
+  {
+    section: "Payroll",
+    icon: "users",
+    roles: ["owner", "manager"],
+    items: [
+      { id: "employees",        href: "/accounting/employees",  label: "Employees",        icon: "users" },
+      { id: "performance",      href: "/performance",           label: "Team Performance", icon: "award" },
+      { id: "payroll",          href: "/accounting/payroll",    label: "Payroll",          icon: "rupee" },
+      { id: "esi-register",     href: "/accounting/esi-register", label: "ESI Register",   icon: "file" },
+      { id: "leave",            href: "/accounting/leave",      label: "Leave",            icon: "clock" },
+      { id: "attendance",       href: "/accounting/attendance", label: "Attendance",       icon: "calendar" },
+      { id: "attendance-kiosk", href: "/attendance/kiosk",      label: "Attendance Kiosk", icon: "mobile" },
+      { id: "employee-loans",   href: "/accounting/loans",      label: "Employee Loans",   icon: "rupee" },
     ],
   },
   {
     section: "Engage",
+    icon: "send",
     roles: ["owner", "manager"],
     items: [
-      { id: "whatsapp",    href: "/whatsapp",    label: "WhatsApp Inbox", icon: "whatsapp" },
-      { id: "automations", href: "/automations", label: "Automations",    icon: "zap" },
-      { id: "campaigns",     href: "/campaigns",     label: "Campaigns",     icon: "send" },
-      { id: "online-promos", href: "/online-promos", label: "Online Promos", icon: "zap" },
-      { id: "coupons",       href: "/coupons",       label: "Coupons",       icon: "rupee" },
-      { id: "reports",       href: "/reports",       label: "Reports",       icon: "chart",
+      { id: "whatsapp",      href: "/whatsapp",      label: "WhatsApp Inbox", icon: "whatsapp" },
+      { id: "campaigns",     href: "/campaigns",     label: "Campaigns",      icon: "send" },
+      { id: "online-promos", href: "/online-promos", label: "Online Promos",  icon: "zap" },
+      { id: "coupons",       href: "/coupons",       label: "Coupons",        icon: "rupee" },
+      { id: "reports",       href: "/reports",       label: "Reports",        icon: "chart",
         children: [
-          { id: "reports-profit",   href: "/reports/profit",          label: "Profit by product/service", icon: "package" },
+          { id: "reports-profit",   href: "/reports/profit",           label: "Profit by product/service", icon: "package" },
           { id: "reports-customer", href: "/accounting/profitability", label: "Profit by customer",        icon: "users" },
         ],
       },
-      { id: "support",     href: "/support",     label: "Support",        icon: "ticket" },
+      { id: "support",       href: "/support",       label: "Support",        icon: "ticket" },
     ],
   },
   {
-    section: "System",
+    section: "Catalog & Docs",
+    icon: "package",
     roles: ["owner", "manager"],
     items: [
-      { id: "setup",    href: "/setup",    label: "Setup Wizard",    icon: "rocket" },
-      { id: "settings", href: "/settings", label: "Settings",        icon: "settings" },
-      { id: "team",     href: "/team",     label: "Team",            icon: "users" },
-      // Partners page is for distributor-tier tenants only. Sidebar
-      // shows the entry for everyone (low cost) — page itself gates
-      // behind tier check and shows an explainer for non-distributors.
-      { id: "partners", href: "/partners", label: "Partners",        icon: "link" },
-      // Lead Sources lives here (System) — not Workspace — because it's
-      // configuration-shaped: webhook URLs, form embed code, channel KPIs.
-      // Set once / glanced at occasionally, not daily-use. When acquisition
-      // matures (3+ live channels), consider promoting back to Workspace.
-      { id: "lead-gen", href: "/lead-gen", label: "Lead Sources",    icon: "inbox" },
-      { id: "mobile",   href: "/mobile",   label: "Mobile (PWA)",    icon: "mobile" },
+      { id: "items",     href: "/items",     label: "Items Catalog", icon: "package", roles: ["owner", "manager"] },
+      { id: "documents", href: "/documents", label: "Documents",     icon: "file",    roles: ["owner", "manager"] },
+      { id: "gdrive",    href: "https://drive.google.com", label: "Google Drive", icon: "globe", roles: ["owner", "manager"], external: true },
+    ],
+  },
+  {
+    section: "Settings",
+    icon: "settings",
+    roles: ["owner", "manager"],
+    items: [
+      { id: "settings", href: "/settings", label: "Settings",     icon: "settings" },
+      { id: "team",     href: "/team",     label: "Team",         icon: "users" },
+      { id: "partners", href: "/partners", label: "Partners",     icon: "link" },
+      { id: "lead-gen", href: "/lead-gen", label: "Lead Sources", icon: "inbox" },
+      { id: "mobile",   href: "/mobile",   label: "Mobile (PWA)", icon: "mobile" },
+      { id: "setup",    href: "/setup",    label: "Setup Wizard", icon: "rocket" },
+    ],
+  },
+  {
+    // Help — visible to every role (no roles filter). Single item → standalone row.
+    section: "Help",
+    icon: "question",
+    items: [
+      { id: "help", href: "/help", label: "Help & Tutorial", icon: "question" },
     ],
   },
 ];
@@ -215,62 +278,73 @@ export const CUSTOMER_NAV: NavSection[] = [
 // NB: /leads + /deals share the same component (the /deals route file
 //     re-exports from /leads). The titles still need separate entries here.
 export const SCREEN_TITLES: Record<string, string[]> = {
-  "/dashboard":       ["Workspace", "Dashboard"],
-  "/lead-gen":        ["Workspace", "Lead Sources"],
-  "/leads":           ["Workspace", "Leads"],
-  "/enquiries":       ["Workspace", "Enquiries"],
-  "/deals":           ["Workspace", "Deal Pipeline"],
-  "/tasks":           ["Workspace", "Tasks"],
-  "/customers":       ["Workspace", "Customers"],
-  "/customers/[id]":  ["Workspace", "Customers", "Profile"],
-  "/contacts":        ["Workspace", "Contacts"],
-  "/items":           ["Workspace", "Items Catalog"],
-  "/documents":       ["Workspace", "Documents"],
+  "/dashboard":       ["Home", "Dashboard"],
+  "/leads":           ["Sales", "Leads"],
+  "/enquiries":       ["Sales", "Enquiries"],
+  "/deals":           ["Sales", "Deal Pipeline"],
+  "/tasks":           ["Sales", "Tasks"],
+  "/customers":       ["Sales", "Customers"],
+  "/customers/groups":      ["Sales", "Parent Accounts"],
+  "/customers/groups/[id]": ["Sales", "Parent Accounts", "Detail"],
+  "/customers/new":   ["Sales", "Customers", "New"],
+  "/customers/[id]":  ["Sales", "Customers", "Profile"],
+  "/customers/[id]/edit": ["Sales", "Customers", "Edit"],
+  "/contacts":        ["Sales", "Contacts"],
+  "/contacts/[id]":   ["Sales", "Contacts", "Profile"],
+  "/referrals":       ["Sales", "Referrals"],
   "/online-orders":   ["Revenue", "Online Orders"],
   "/quotes":          ["Revenue", "Quotes"],
   "/quotes/new":      ["Revenue", "Quotes", "New"],
   "/quotes/[id]":     ["Revenue", "Quotes", "Detail"],
   "/projects":        ["Revenue", "Project Sales"],
   "/projects/[id]":   ["Revenue", "Project Sales", "Detail"],
-  "/payments":        ["Revenue", "Payments"],
+  "/payments":        ["Revenue", "Payments Received"],
   "/invoices":        ["Revenue", "Invoices"],
   "/invoices/[id]":   ["Revenue", "Invoices", "Detail"],
   "/subscriptions":   ["Revenue", "Subscriptions"],
   "/renewals":        ["Revenue", "Renewals"],
-  "/purchase-orders": ["Procurement", "Purchase Orders"],
+  "/purchase-orders": ["Purchases", "Purchase Orders"],
+  "/accounting/vendors":       ["Purchases", "Vendors"],
+  "/accounting/bills":         ["Purchases", "Vendor Bills"],
+  "/accounting/bill-payments": ["Purchases", "Payments Made"],
+  "/accounting/expenses":      ["Purchases", "Expenses"],
+  "/accounting/reimbursements": ["Purchases", "Reimbursements"],
   "/accounting/saas-metrics":  ["Accounting", "SaaS Metrics"],
   "/accounting/banking":       ["Accounting", "Banking"],
   "/accounting/banking/[id]":  ["Accounting", "Banking", "Account"],
-  "/accounting/bills":         ["Accounting", "Vendor Bills"],
-  "/accounting/expenses":      ["Accounting", "Expenses"],
+  "/accounting/business-loans": ["Accounting", "Business Loans"],
   "/accounting/pnl":           ["Accounting", "P&L Report"],
   "/accounting/balance-sheet": ["Accounting", "Balance Sheet"],
-  "/accounting/loans":         ["Accounting", "Employee Loans"],
   "/accounting/assets":        ["Accounting", "Assets & EMIs"],
-  "/accounting/payroll":       ["Accounting", "Payroll & Leave"],
-  "/attendance/kiosk":         ["Attendance", "Kiosk"],
   "/accounting/profitability": ["Accounting", "Customer Margin"],
   "/accounting/aging":         ["Accounting", "Customer Aging"],
+  "/accounting/esi-register":  ["Payroll", "ESI Register"],
+  "/performance":              ["Payroll", "Team Performance"],
   "/accounting/tds-receivable":          ["Accounting", "TDS Receivable"],
   "/accounting/tds-receivable/year-end": ["Accounting", "TDS Receivable", "Year-End"],
   "/accounting/gst":      ["Accounting", "GST Reports"],
-  "/accounting/gst/output":  ["Accounting", "GST", "Output (Sales)"],
-  "/accounting/gst/input":   ["Accounting", "GST", "Input (Bills)"],
-  "/accounting/gst/summary": ["Accounting", "GST", "Summary"],
+  "/accounting/loans":         ["Payroll", "Employee Loans"],
+  "/accounting/employees":     ["Payroll", "Employees"],
+  "/accounting/payroll":       ["Payroll", "Payroll"],
+  "/accounting/leave":         ["Payroll", "Leave"],
+  "/accounting/attendance":    ["Payroll", "Attendance"],
+  "/attendance/kiosk":         ["Payroll", "Attendance Kiosk"],
   "/whatsapp":        ["Engage", "WhatsApp Inbox"],
-  "/automations":     ["Engage", "Automations"],
   "/campaigns":       ["Engage", "Campaigns"],
   "/online-promos":   ["Engage", "Online Promos"],
   "/coupons":         ["Engage", "Coupons"],
-
   "/reports":         ["Engage", "Reports"],
   "/reports/profit":  ["Engage", "Reports", "Profit by product/service"],
   "/support":         ["Engage", "Support"],
-  "/setup":           ["System", "Setup Wizard"],
-  "/settings":        ["System", "Settings"],
-  "/team":            ["System", "Team"],
-  "/partners":        ["System", "Partners"],
-  "/mobile":          ["System", "Mobile (PWA)"],
+  "/items":           ["Catalog & Docs", "Items Catalog"],
+  "/documents":       ["Catalog & Docs", "Documents"],
+  "/settings":        ["Settings", "Settings"],
+  "/team":            ["Settings", "Team"],
+  "/partners":        ["Settings", "Partners"],
+  "/lead-gen":        ["Settings", "Lead Sources"],
+  "/mobile":          ["Settings", "Mobile (PWA)"],
+  "/setup":           ["Settings", "Setup Wizard"],
+  "/help":            ["Help", "Help & Tutorial"],
 };
 
 /**
@@ -279,11 +353,19 @@ export const SCREEN_TITLES: Record<string, string[]> = {
  */
 export function getCrumb(pathname: string): string[] {
   if (SCREEN_TITLES[pathname]) return SCREEN_TITLES[pathname];
-  // Dynamic detail route (e.g. /customers/<uuid>, /quotes/Q-ET-…, /accounting/banking/<id>):
-  // exact match fails, so walk up to the longest known parent — try the `[id]`
-  // placeholder first (nicer 3-level crumb), then the bare section path. This
-  // keeps the section correct instead of wrongly falling back to "Dashboard".
   const segs = pathname.split("/").filter(Boolean);
+  // Dynamic route (e.g. /customers/<uuid>, /customers/<uuid>/edit, /quotes/Q-ET-…,
+  // /accounting/banking/<id>): the exact match fails because one segment is a live
+  // id. Try substituting each single segment with the `[id]` placeholder to hit a
+  // templated key — this catches mid-path ids (…/[id]/edit) the plain walk-up below
+  // can't, so an edit/sub-page gets its own crumb instead of the parent's.
+  for (let r = segs.length - 1; r >= 1; r--) {
+    const cand = "/" + segs.map((s, idx) => (idx === r ? "[id]" : s)).join("/");
+    if (SCREEN_TITLES[cand]) return SCREEN_TITLES[cand];
+  }
+  // Fallback: walk up to the longest known parent — try the `[id]` placeholder
+  // first (nicer 3-level crumb), then the bare section path. Keeps the section
+  // correct instead of wrongly falling back to "Dashboard".
   for (let i = segs.length - 1; i >= 1; i--) {
     const prefix = "/" + segs.slice(0, i).join("/");
     if (SCREEN_TITLES[`${prefix}/[id]`]) return SCREEN_TITLES[`${prefix}/[id]`];

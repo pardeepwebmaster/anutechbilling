@@ -16,13 +16,14 @@ import type { DocumentRow, DocumentCategory } from "@/lib/supabase/database.type
 export type { DocumentRow, DocumentCategory };
 
 export const DOCUMENT_CATEGORIES: { key: DocumentCategory; label: string }[] = [
-  { key: "company_legal", label: "Company & Legal" },
-  { key: "gst_tax",       label: "GST & Tax" },
-  { key: "banking",       label: "Banking" },
-  { key: "agreements",    label: "Agreements & Contracts" },
-  { key: "licenses",      label: "Licenses & Registrations" },
-  { key: "hr",            label: "HR / Employees" },
-  { key: "other",         label: "Other" },
+  { key: "legal",           label: "Legal" },
+  { key: "finance",         label: "Finance" },
+  { key: "hr",              label: "HR / Employees" },
+  { key: "operations",      label: "Operations" },
+  { key: "sales_marketing", label: "Sales & Marketing" },
+  { key: "admin",           label: "Admin" },
+  { key: "branding",        label: "Branding / Logo" },
+  { key: "other",           label: "Other" },
 ];
 
 export const categoryLabel = (k: string) =>

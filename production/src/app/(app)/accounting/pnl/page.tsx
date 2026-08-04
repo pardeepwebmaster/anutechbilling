@@ -22,7 +22,9 @@ import { useQuery } from "@tanstack/react-query";
 
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
 import { rupee } from "@/lib/utils";
+import { downloadCSV } from "@/lib/csv";
 import { createClient } from "@/lib/supabase/client";
 import { PnLDrilldownDialog, type PnLDrillKind } from "@/components/features/accounting/pnl-drilldown-dialog";
 
@@ -87,6 +89,8 @@ interface PnLNumbers {
   grossMargin:    number;
   expenses:       number;
   expensesCount:  number;
+  commissions:      number;   // referral / channel-partner commissions (gross)
+  commissionsCount: number;
   netProfit:      number;
 
   // GST snapshot
@@ -110,17 +114,34 @@ function usePnL(range: DateRange) {
       // revenue recognition point is invoice issue, not payment receipt.
       const { data: invoices, error: invErr } = await supabase
         .from("invoices")
-        .select("amount, status, invoice_date, net_payable")
+        .select("amount, status, invoice_date, net_payable, taxable_value, tax_amount, tax_rate")
         .gte("invoice_date", range.from)
         .lte("invoice_date", range.to)
         .in("status", ["pending", "paid", "overdue"]);
       if (invErr) throw invErr;
 
-      const revenue       = (invoices ?? []).reduce((s, i) => s + (i.amount ?? 0), 0);
+      // Revenue = the TAXABLE value, never the GST-inclusive amount — output GST
+      // is money owed to the government, not income (migration 0116 persists it).
+      // Fall back to reverse-deriving for any legacy row missing the breakdown.
+      const invTaxable = (i: { amount: number | null; taxable_value: number | null; tax_rate: number | null }) =>
+        i.taxable_value ?? Math.round((i.amount ?? 0) * 100 / (100 + (i.tax_rate ?? 18)));
+      const invTax = (i: { amount: number | null; tax_amount: number | null; taxable_value: number | null; tax_rate: number | null }) =>
+        i.tax_amount ?? ((i.amount ?? 0) - invTaxable(i));
+
+      // Credit / debit notes net revenue + output GST for the period (a credit
+      // note reduces recognised revenue, a debit note increases it).
+      const [{ data: cnP }, { data: dnP }] = await Promise.all([
+        supabase.from("credit_notes").select("taxable_value, tax_amount, credit_date").gte("credit_date", range.from).lte("credit_date", range.to),
+        supabase.from("debit_notes").select("taxable_value, tax_amount, debit_date").gte("debit_date", range.from).lte("debit_date", range.to),
+      ]);
+      const cnTaxable = (cnP ?? []).reduce((s, n) => s + (n.taxable_value ?? 0), 0);
+      const cnTax     = (cnP ?? []).reduce((s, n) => s + (n.tax_amount ?? 0), 0);
+      const dnTaxable = (dnP ?? []).reduce((s, n) => s + (n.taxable_value ?? 0), 0);
+      const dnTax     = (dnP ?? []).reduce((s, n) => s + (n.tax_amount ?? 0), 0);
+
+      const revenue       = (invoices ?? []).reduce((s, i) => s + invTaxable(i), 0) - cnTaxable + dnTaxable;
       const revenueCount  = (invoices ?? []).length;
-      // GST output: invoice.amount is GST-inclusive (1.18× subtotal).
-      // Output GST ≈ amount − amount/1.18 = amount × 18/118.
-      const outputGST     = Math.round((invoices ?? []).reduce((s, i) => s + (i.amount ?? 0) * 18 / 118, 0));
+      const outputGST     = (invoices ?? []).reduce((s, i) => s + invTax(i), 0) - cnTax + dnTax;
 
       // ── COGS: vendor bills with category like 'COGS-%' ────────────
       const { data: bills, error: bErr } = await supabase
@@ -147,9 +168,21 @@ function usePnL(range: DateRange) {
       const expensesCount = (expenses ?? []).length;
       const expensesGst   = (expenses ?? []).reduce((s, e) => s + (e.gst_paid ?? 0), 0);
 
+      // ── Referral commissions earned in the period (operating expense) ──
+      // The GROSS commission is the expense; TDS is only a withholding, not a
+      // reduction. Cancelled accruals are excluded.
+      const { data: comms } = await supabase
+        .from("referral_commissions")
+        .select("gross_commission, earned_date, status")
+        .gte("earned_date", range.from)
+        .lte("earned_date", range.to)
+        .neq("status", "cancelled");
+      const commissions      = (comms ?? []).reduce((s, c) => s + (c.gross_commission ?? 0), 0);
+      const commissionsCount = (comms ?? []).length;
+
       // ── Compute derived numbers ─────────────────────────────────────
       const grossMargin = revenue - cogs;
-      const netProfit   = grossMargin - expensesTotal;
+      const netProfit   = grossMargin - expensesTotal - commissions;
       const inputGST    = billsGst + expensesGst;
       const netGST      = outputGST - inputGST;
 
@@ -161,6 +194,7 @@ function usePnL(range: DateRange) {
         cogs, cogsCount,
         grossMargin,
         expenses: expensesTotal, expensesCount,
+        commissions, commissionsCount,
         netProfit,
         outputGST, inputGST, netGST,
         marginPct, profitPct,
@@ -178,6 +212,28 @@ export default function PnLPage() {
   const { data, isLoading } = usePnL(range);
   const [drill, setDrill] = React.useState<PnLDrillKind | null>(null);
 
+  // Export the statement as a CSV the owner can hand to their CA (mirrors GST export).
+  function exportCSV() {
+    if (!data) return;
+    downloadCSV(
+      `pnl-${range.from}-to-${range.to}.csv`,
+      ["Line", "Amount (INR)"],
+      [
+        ["Period", `${range.from} to ${range.to}`],
+        ["Revenue", data.revenue],
+        ["Cost of goods sold", -data.cogs],
+        ["Gross margin", data.grossMargin],
+        ["Operating expenses", -data.expenses],
+        ["Commissions", -data.commissions],
+        ["Net profit", data.netProfit],
+        ["", ""],
+        ["Output GST (on sales)", data.outputGST],
+        ["Input GST (ITC)", data.inputGST],
+        ["Net GST payable", data.netGST],
+      ],
+    );
+  }
+
   return (
     <div className="p-4 md:p-6 lg:p-8 max-w-[1240px] mx-auto">
       {/* Header */}
@@ -189,6 +245,9 @@ export default function PnLPage() {
             Accrual basis (invoice date, not payment date).
           </p>
         </div>
+        <Button icon="download" onClick={exportCSV} disabled={isLoading || !data}>
+          Export CSV
+        </Button>
       </div>
 
       {/* Range picker */}
@@ -263,6 +322,13 @@ export default function PnLPage() {
                    onHint={() => setDrill("expenses")}
                    tone="rose" />
 
+              {data.commissions > 0 && (
+                <Row label="− Referral commissions"
+                     amount={-data.commissions}
+                     hint={`${data.commissionsCount} ${data.commissionsCount === 1 ? "payout" : "payouts"}`}
+                     tone="rose" />
+              )}
+
               <Divider thick />
               <Row label="Net Profit"
                    amount={data.netProfit}
@@ -286,7 +352,7 @@ export default function PnLPage() {
           ) : data ? (
             <div className="space-y-3 text-sm">
               <div className="flex justify-between items-baseline">
-                <span className="text-ink-3">Output GST collected</span>
+                <span className="text-ink-3">Output GST (on sales)</span>
                 <span className="font-mono text-ink font-semibold">{rupee(data.outputGST)}</span>
               </div>
               <div className="flex justify-between items-baseline">

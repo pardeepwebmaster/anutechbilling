@@ -10,21 +10,21 @@ import { toast } from "sonner";
 
 import { useAllContacts } from "@/lib/queries/contacts";
 import ImportContactsDialog from "@/components/features/contacts/import-contacts-dialog";
+import { ContactForm } from "@/components/features/contacts/contact-form";
 import CampaignComposerDialog from "@/components/features/campaigns/campaign-composer-dialog";
 import { FAB } from "@/components/ui/fab";
 import { useQueryClient } from "@tanstack/react-query";
-import { GeminiCard } from "@/components/shared/gemini-card";
 import { EmptyState } from "@/components/shared/empty-state";
-import { KPI } from "@/components/shared/kpi";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button, IconButton } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { TabBar, type TabBarItem } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
+import { useResizableColumns, ResizableHandles } from "@/components/ui/resizable-columns";
 import { Icon } from "@/components/ui/icon";
 import { Avatar } from "@/components/ui/avatar";
-import { formatDate, initials } from "@/lib/utils";
+import { initials } from "@/lib/utils";
 
 const SOURCE_TABS: TabBarItem[] = [
   { id: "all",      label: "All" },
@@ -32,6 +32,15 @@ const SOURCE_TABS: TabBarItem[] = [
   { id: "customer", label: "From Customers", dot: "emerald" },
   { id: "imported", label: "Imported",       dot: "indigo"  },
 ];
+
+const CONTACT_COL_ORDER = ["select", "name", "company", "email", "phone", "source", "action"];
+// Defaults tuned to fit even a 1280px laptop without horizontal scroll — the old
+// totals (1174px) overflowed a 1440px screen, forcing a sideways scroll to see
+// Phone / Source. Dropped the low-value "Created" column (still on the detail
+// page) to give Email / Company readable room. Any column is still drag-resizable.
+const CONTACT_COL_DEFAULTS: Record<string, number> = {
+  select: 38, name: 188, company: 160, email: 220, phone: 138, source: 92, action: 108,
+};
 
 export default function ContactsPage() {
   const router = useRouter();
@@ -42,6 +51,8 @@ export default function ContactsPage() {
   const [search, setSearch] = React.useState("");
   const [selected, setSelected] = React.useState<Set<string>>(new Set());
   const [importOpen, setImportOpen] = React.useState(false);
+  const [addOpen, setAddOpen] = React.useState(false);
+  const { colW, startResize, totalWidth: ctTableW } = useResizableColumns("ros_contacts_colw", CONTACT_COL_DEFAULTS);
   const [emailComposerOpen, setEmailComposerOpen] = React.useState(false);
   const [composerRecipients, setComposerRecipients] = React.useState<{ email: string; name?: string; company?: string }[]>([]);
   const [composerTotalSelected, setComposerTotalSelected] = React.useState(0);
@@ -67,6 +78,16 @@ export default function ContactsPage() {
       toast.error(err instanceof Error ? err.message : "Network error");
     }
   }
+
+  // Open a contact — standalone contacts get the rich detail page; lead/customer
+  // people open their own record (which already has a full page).
+  const openContact = (c: { source: string; refId: string }) => {
+    const path =
+      c.source === "imported" ? `/contacts/${c.refId}`
+      : c.source === "lead"   ? `/leads?lead=${c.refId}`
+      :                         `/customers/${c.refId}`;
+    router.push(path as never);
+  };
 
   // Filter
   const filtered = (contacts ?? []).filter((c) => {
@@ -156,29 +177,30 @@ export default function ContactsPage() {
     : 0;
 
   return (
-    <div className="p-4 md:p-6 lg:p-8 max-w-[1800px] mx-auto space-y-6">
+    <div className="p-4 md:p-6 lg:p-8 max-w-[1800px] mx-auto min-h-[calc(100vh-3.5rem)] md:h-[calc(100vh-3.5rem)] flex flex-col gap-4">
       {/* Header */}
       <div className="flex items-end justify-between gap-3 flex-wrap">
         <div>
           <p className="text-xs uppercase tracking-wider text-ink-3 font-semibold mb-1">
             Workspace
           </p>
-          <h1 className="font-serif text-3xl md:text-4xl leading-tight">Contacts</h1>
-          <p className="text-sm text-ink-3 mt-1">
+          <h1 className="font-serif text-2xl md:text-3xl leading-tight">Contacts</h1>
+          <p className="text-sm text-ink-3 mt-0.5">
             All people across leads & customers · run targeted campaigns
           </p>
         </div>
         <div className="flex gap-2 flex-wrap">
-          <Button icon="download" onClick={() => toast.info("Export coming soon")}>
-            Export CSV
-          </Button>
-          <Button variant="primary" icon="upload" onClick={() => setImportOpen(true)}>
+          <Button icon="upload" onClick={() => setImportOpen(true)}>
             Import from Google
+          </Button>
+          <Button variant="primary" icon="plus" onClick={() => setAddOpen(true)}>
+            Add contact
           </Button>
         </div>
       </div>
 
       <ImportContactsDialog open={importOpen} onOpenChange={setImportOpen} />
+      <ContactForm open={addOpen} onOpenChange={setAddOpen} />
 
       {emailComposerOpen && (
         <CampaignComposerDialog
@@ -190,45 +212,21 @@ export default function ContactsPage() {
       )}
 
       {/* Mobile thumb-zone action — contacts are added via import (no single-add form). */}
-      <FAB icon="upload" label="Import contacts" onClick={() => setImportOpen(true)} />
+      <FAB icon="plus" label="Add contact" onClick={() => setAddOpen(true)} />
 
-      {/* KPIs */}
+      {/* Stats — one slim strip, not tall cards. On a Contacts page the LIST is
+          the hero; giant KPI cards were pushing the table down so only ~2 rows
+          showed. This strip frees that vertical space for the contacts. */}
       {!isLoading && contacts && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <KPI label="Total contacts" value={contacts.length} trend="all sources" />
-          <KPI label="With email"     value={totalEmails}     trend={`${reachablePct}% reachable`} trendKind="up" icon="mail" />
-          <KPI label="With phone"     value={totalPhones}     trend="WhatsApp reachable" icon="whatsapp" />
-          <KPI label="Customers"      value={counts.customer ?? 0} trend={`${counts.lead ?? 0} prospects too`} />
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 rounded-lg border border-hairline bg-paper px-4 py-2.5">
+          <StatItem value={contacts.length} label="contacts" />
+          <StatDivider />
+          <StatItem value={totalEmails} label="with email" hint={`${reachablePct}% reachable`} icon="mail" />
+          <StatDivider />
+          <StatItem value={totalPhones} label="with phone" hint="WhatsApp reachable" icon="whatsapp" />
+          <StatDivider />
+          <StatItem value={counts.customer ?? 0} label="customers" hint={`${counts.lead ?? 0} prospects too`} />
         </div>
-      )}
-
-      {/* AI hint */}
-      {!isLoading && (contacts?.length ?? 0) > 0 && selected.size > 0 && (
-        <GeminiCard
-          title={`${selected.size} contact${selected.size > 1 ? "s" : ""} selected`}
-          actions={
-            <div className="flex gap-2">
-              <Button size="sm" icon="mail" onClick={() => startCampaign("email")}>
-                Email campaign
-              </Button>
-              <Button
-                size="sm"
-                variant="primary"
-                icon="whatsapp"
-                onClick={() => startCampaign("whatsapp")}
-              >
-                WhatsApp blast
-              </Button>
-              <Button size="sm" variant="ghost" icon="x" onClick={() => setSelected(new Set())}>
-                Clear
-              </Button>
-            </div>
-          }
-          compact
-        >
-          Ready to engage. Personalised messages perform <b>3× better</b> than blasts —
-          consider segmenting by source (lead vs customer) for tailored copy.
-        </GeminiCard>
       )}
 
       {/* Filter + search */}
@@ -284,7 +282,9 @@ export default function ContactsPage() {
         <EmptyState
           icon="users"
           title="No contacts yet"
-          body="Contacts will appear as you add leads and customers."
+          body="Contacts also appear automatically as you add leads and customers — or add one directly."
+          action={<Button variant="primary" icon="plus" onClick={() => setAddOpen(true)}>Add contact</Button>}
+          secondary={<Button icon="upload" onClick={() => setImportOpen(true)}>Import CSV</Button>}
         />
       )}
 
@@ -303,7 +303,7 @@ export default function ContactsPage() {
       {!isLoading && !error && filtered.length > 0 && (
         <ul className="md:hidden space-y-2 mb-3">
           {filtered.map((c) => (
-            <li key={c.id} className="bg-paper border border-hairline rounded-lg p-3">
+            <li key={c.id} onClick={() => openContact(c)} className="bg-paper border border-hairline rounded-lg p-3 cursor-pointer hover:border-hairline-strong transition-colors">
               <div className="flex items-start gap-3">
                 <Avatar
                   initials={c.name ? initials(c.name) : "?"}
@@ -349,13 +349,22 @@ export default function ContactsPage() {
         </ul>
       )}
 
-      {/* Desktop table */}
+      {/* Desktop table — mirrors the Leads list: a viewport-capped scroll
+          container (flex-1 min-h-0) so the table scrolls INTERNALLY on both axes.
+          The horizontal scrollbar therefore always sits at the bottom of the
+          visible frame (reachable without scrolling the whole page down), and the
+          sticky header stays put while rows scroll. table-fixed + min-w keeps the
+          columns readable on narrow widths instead of crushing. */}
       {!isLoading && !error && filtered.length > 0 && (
-        <Card flush className="hidden md:block">
-          <table className="w-full">
-            <thead className="bg-paper-2 border-b border-hairline">
+        <div className="hidden md:block w-full max-w-full border border-hairline rounded-md overflow-auto bg-paper flex-1 min-h-0">
+          <div className="relative" style={{ width: ctTableW }}>
+          <table className="w-full table-fixed">
+            <colgroup>
+              {CONTACT_COL_ORDER.map((id) => <col key={id} style={{ width: colW[id] }} />)}
+            </colgroup>
+            <thead>
               <tr>
-                <th className="p-3 w-10">
+                <th className="sticky top-0 z-10 bg-paper-2 border-b border-hairline p-3">
                   <input
                     type="checkbox"
                     checked={allFilteredSelected}
@@ -364,13 +373,12 @@ export default function ContactsPage() {
                     aria-label="Select all"
                   />
                 </th>
-                <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Name</th>
-                <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Company</th>
-                <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Email</th>
-                <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Phone</th>
-                <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Source</th>
-                <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Created</th>
-                <th className="w-20"></th>
+                <th className="sticky top-0 z-10 bg-paper-2 border-b border-hairline text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Name</th>
+                <th className="sticky top-0 z-10 bg-paper-2 border-b border-hairline text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Company</th>
+                <th className="sticky top-0 z-10 bg-paper-2 border-b border-hairline text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Email</th>
+                <th className="sticky top-0 z-10 bg-paper-2 border-b border-hairline text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Phone</th>
+                <th className="sticky top-0 z-10 bg-paper-2 border-b border-hairline text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Source</th>
+                <th className="sticky top-0 z-10 bg-paper-2 border-b border-hairline w-20"></th>
               </tr>
             </thead>
             <tbody>
@@ -379,8 +387,8 @@ export default function ContactsPage() {
                 return (
                   <tr
                     key={c.id}
-                    onClick={() => toggleOne(c.id)}
-                    className={`border-b border-hairline last:border-0 hover:bg-paper-2/40 cursor-pointer transition-colors ${
+                    onClick={() => openContact(c)}
+                    className={`group/row border-b border-hairline last:border-0 hover:bg-paper-2/40 cursor-pointer transition-colors ${
                       isSelected ? "bg-amber-soft/40" : ""
                     }`}
                   >
@@ -410,11 +418,11 @@ export default function ContactsPage() {
                         </div>
                       </div>
                     </td>
-                    <td className="p-3 text-sm text-ink-2">{c.company}</td>
-                    <td className="p-3 text-xs font-mono text-ink-2 truncate max-w-[200px]">
+                    <td className="p-3 text-sm text-ink-2 truncate" title={c.company}>{c.company}</td>
+                    <td className="p-3 text-xs font-mono text-ink-2 truncate" title={c.email ?? undefined}>
                       {c.email ?? "—"}
                     </td>
-                    <td className="p-3 text-xs font-mono text-ink-2">{c.phone ?? "—"}</td>
+                    <td className="p-3 text-xs font-mono text-ink-2 truncate">{c.phone ?? "—"}</td>
                     <td className="p-3">
                       <Badge
                         kind={c.source === "customer" ? "success" : c.source === "imported" ? "info" : "warning"}
@@ -423,40 +431,64 @@ export default function ContactsPage() {
                         {c.source === "customer" ? "Customer" : c.source === "imported" ? "Imported" : "Lead"}
                       </Badge>
                     </td>
-                    <td className="p-3 text-xs text-ink-3">{formatDate(c.createdAt)}</td>
                     <td className="p-3 text-right" onClick={(e) => e.stopPropagation()}>
-                      {c.source === "imported" ? (
-                        <Button
-                          size="sm"
-                          variant="primary"
-                          icon="arrow_right"
-                          onClick={(e) => { e.stopPropagation(); promoteOne(c.refId); }}
-                          title="Convert this contact into a lead at stage='new'"
-                        >
-                          Promote
-                        </Button>
-                      ) : (
+                      {/* Quick-reach actions — a contacts directory's core job is
+                          reaching a person fast. Email + WhatsApp are one click,
+                          no need to open the record. Shown on row hover to keep
+                          the table calm at rest. */}
+                      <div className="inline-flex items-center gap-0.5 justify-end opacity-0 group-hover/row:opacity-100 focus-within:opacity-100 transition-opacity">
+                        {c.email && (
+                          <IconButton
+                            icon="mail"
+                            size="sm"
+                            variant="ghost"
+                            aria-label={`Email ${c.name ?? c.company}`}
+                            title={`Email ${c.email}`}
+                            onClick={() => { window.location.href = `mailto:${c.email}`; }}
+                          />
+                        )}
+                        {c.phone && (
+                          <IconButton
+                            icon="whatsapp"
+                            size="sm"
+                            variant="ghost"
+                            aria-label={`WhatsApp ${c.name ?? c.company}`}
+                            title={`WhatsApp ${c.phone}`}
+                            onClick={() => {
+                              const digits = (c.phone ?? "").replace(/\D/g, "");
+                              const num = digits.length === 10 ? `91${digits}` : digits;
+                              window.open(`https://wa.me/${num}`, "_blank", "noopener,noreferrer");
+                            }}
+                          />
+                        )}
+                        {c.source === "imported" && (
+                          <IconButton
+                            icon="arrow_right"
+                            size="sm"
+                            variant="ghost"
+                            aria-label="Convert to lead"
+                            title="Convert this contact into a lead"
+                            onClick={() => promoteOne(c.refId)}
+                          />
+                        )}
                         <IconButton
-                          icon="arrow_right"
+                          icon="external"
                           size="sm"
                           variant="ghost"
-                          aria-label="Open record"
-                          onClick={() => {
-                            const path =
-                              c.source === "lead"
-                                ? `/leads?lead=${c.refId}`
-                                : `/customers/${c.refId}`;
-                            router.push(path as never);
-                          }}
+                          aria-label="Open contact"
+                          title="Open contact"
+                          onClick={() => openContact(c)}
                         />
-                      )}
+                      </div>
                     </td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
-        </Card>
+          <ResizableHandles colW={colW} order={CONTACT_COL_ORDER} startResize={startResize} />
+          </div>
+        </div>
       )}
 
       {/* Floating campaign bar — alternative when GeminiCard not visible */}
@@ -488,4 +520,28 @@ export default function ContactsPage() {
       )}
     </div>
   );
+}
+
+/** One stat in the slim Contacts header strip — big serif number + small label. */
+function StatItem({
+  value, label, hint, icon,
+}: {
+  value: number;
+  label: string;
+  hint?: string;
+  icon?: React.ComponentProps<typeof Icon>["name"];
+}) {
+  return (
+    <div className="flex items-baseline gap-1.5">
+      {icon && <Icon name={icon} size={13} className="text-ink-3 self-center" />}
+      <span className="font-serif text-xl text-ink leading-none tabular-nums">{value}</span>
+      <span className="text-xs text-ink-3">{label}</span>
+      {hint && <span className="text-[11px] text-ink-3">· {hint}</span>}
+    </div>
+  );
+}
+
+/** Thin vertical rule between stats — hidden once the strip wraps on mobile. */
+function StatDivider() {
+  return <span aria-hidden className="hidden sm:inline h-6 w-px bg-hairline self-center" />;
 }

@@ -25,6 +25,7 @@ import { EmptyState } from "@/components/shared/empty-state";
 import { Icon } from "@/components/ui/icon";
 import { rupee } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
+import { useCurrentUser } from "@/lib/hooks/useCurrentUser";
 
 // ────────────────────────────────────────────────────────────────
 // Aggregation hook
@@ -151,8 +152,6 @@ function useAging() {
 // Page
 // ────────────────────────────────────────────────────────────────
 
-const PARDEEP_PHONE_E164 = "919999930300"; // dev fallback; real customer phones used in mailto/wa.me
-
 function whatsappLink(phone: string, message: string): string {
   // Strip +, spaces, dashes
   const clean = phone.replace(/[^0-9]/g, "");
@@ -161,6 +160,11 @@ function whatsappLink(phone: string, message: string): string {
 
 export default function AgingPage() {
   const { data, isLoading } = useAging();
+  const { data: me } = useCurrentUser();
+  // Reminder messages are sent FROM this reseller — use their own business name,
+  // never a hardcoded one (this is multi-tenant; another reseller must not send
+  // messages branded with someone else's company).
+  const bizName = me?.tenantName ?? "us";
   const rows   = data?.rows   ?? [];
   const totals = data?.totals ?? { current: 0, b30: 0, b60: 0, b90: 0, over90: 0, total: 0 };
 
@@ -255,7 +259,7 @@ export default function AgingPage() {
                       {r.contactPhone && (
                         <a
                           href={whatsappLink(r.contactPhone,
-                            `Hi from Excel Technologies — just a reminder that ${rupee(r.total)} is pending on your account. Could you let me know when payment will reach us?`)}
+                            `Hi from ${bizName} — just a reminder that ${rupee(r.total)} is pending on your account. Could you let me know when payment will reach us?`)}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="inline-flex items-center gap-1 text-xs text-emerald hover:underline mr-2"
@@ -312,7 +316,7 @@ export default function AgingPage() {
                       {r.contactPhone && (
                         <a
                           href={whatsappLink(r.contactPhone,
-                            `Hi from Excel Technologies — ${rupee(r.total)} pending on your account. Payment kab tak ho jayega?`)}
+                            `Hi from ${bizName} — ${rupee(r.total)} pending on your account. Payment kab tak ho jayega?`)}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs text-paper"
@@ -389,6 +393,3 @@ function KPI({
     </Card>
   );
 }
-
-// Required-but-unused to satisfy noUnusedLocals
-void PARDEEP_PHONE_E164;

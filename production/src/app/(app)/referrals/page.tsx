@@ -1,0 +1,220 @@
+/**
+ * Referrals — manage referral partners + commissions.
+ *
+ * Two views:
+ *   • Commissions — earned entries (auto-accrued when a customer with an active
+ *     agreement pays). Pay a partner out, or cancel a wrong accrual.
+ *   • Partners — the people/companies who refer, with their default terms.
+ *
+ * Tag a partner to a deal from the customer's detail page → "Add referral".
+ */
+"use client";
+
+import * as React from "react";
+import Link from "next/link";
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Icon } from "@/components/ui/icon";
+import { Skeleton } from "@/components/ui/skeleton";
+import { EmptyState } from "@/components/shared/empty-state";
+import { rupee, formatDate } from "@/lib/utils";
+import { useReferralPartners } from "@/lib/queries/referral-partners";
+import {
+  useReferralCommissions, useCancelCommission, type CommissionWithPartner,
+} from "@/lib/queries/referral-commissions";
+import { PayCommissionDialog } from "@/components/features/referrals/pay-commission-dialog";
+
+type View = "commissions" | "partners";
+
+const STATUS_PILL: Record<string, string> = {
+  earned:    "bg-amber-soft text-amber-ink",
+  paid:      "bg-emerald/10 text-emerald",
+  cancelled: "bg-paper-2 text-ink-3 line-through",
+};
+
+export default function ReferralsPage() {
+  const [view, setView] = React.useState<View>("commissions");
+  const { data: commissions, isLoading: cLoading, error: cErr } = useReferralCommissions();
+  const { data: partners, isLoading: pLoading } = useReferralPartners();
+  const cancel = useCancelCommission();
+
+  const [payTarget, setPayTarget] = React.useState<CommissionWithPartner | null>(null);
+
+  const rows = commissions ?? [];
+  const owed = rows.filter((c) => c.status === "earned").reduce((s, c) => s + c.net_payable, 0);
+  const paid = rows.filter((c) => c.status === "paid").reduce((s, c) => s + c.net_payable, 0);
+  const tdsHeld = rows.filter((c) => c.status !== "cancelled").reduce((s, c) => s + c.tds_amount, 0);
+
+  return (
+    <div className="p-4 md:p-6 lg:p-8 max-w-[1800px] mx-auto">
+      {/* Header */}
+      <div className="mb-6">
+        <p className="text-xs uppercase tracking-wider text-ink-3 font-semibold mb-1">Sales</p>
+        <h1 className="font-serif text-3xl md:text-4xl leading-tight">Referrals & Commission</h1>
+        <p className="text-sm text-ink-3 mt-1">
+          Jo log deal refer/close karate hain unki commission. Kisi deal par partner tag karne ke liye{" "}
+          <Link href="/customers" className="text-amber hover:underline">customer</Link> kholo → “Add referral”.
+        </p>
+      </div>
+
+      {/* KPI strip */}
+      <Card className="mb-6">
+        <div className="grid grid-cols-3 gap-4">
+          <div>
+            <p className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold">Owed / udhari (to pay)</p>
+            <p className="font-serif text-2xl text-amber-ink mt-1">{rupee(owed, { compact: true })}</p>
+          </div>
+          <div>
+            <p className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold">Paid · all time</p>
+            <p className="font-serif text-2xl text-ink mt-1">{rupee(paid, { compact: true })}</p>
+          </div>
+          <div>
+            <p className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold">TDS held (194H)</p>
+            <p className="font-serif text-2xl text-ink mt-1">{rupee(tdsHeld, { compact: true })}</p>
+          </div>
+        </div>
+      </Card>
+
+      {/* View toggle */}
+      <div className="mb-4 inline-flex rounded-lg border border-hairline bg-paper-2/40 p-1 text-sm">
+        {(["commissions", "partners"] as View[]).map((v) => (
+          <button
+            key={v}
+            onClick={() => setView(v)}
+            className={`px-4 py-1.5 rounded-md capitalize transition-colors ${
+              view === v ? "bg-paper text-ink shadow-sm font-medium" : "text-ink-3 hover:text-ink"
+            }`}
+          >
+            {v === "commissions" ? "Commissions" : "Partners"}
+          </button>
+        ))}
+      </div>
+
+      {/* ── Commissions ─────────────────────────────────────────── */}
+      {view === "commissions" && (
+        cLoading ? (
+          <div className="space-y-3">{[1, 2, 3].map((i) => <Skeleton key={i} className="h-14 rounded-lg" />)}</div>
+        ) : cErr ? (
+          <Card><p className="text-sm text-rose">Couldn&apos;t load commissions. Please refresh.</p></Card>
+        ) : rows.length === 0 ? (
+          <Card>
+            <EmptyState
+              icon="award"
+              title="Abhi koi commission nahi."
+              body="Kisi customer ke deal par referral partner tag karo (customer → Add referral). Jab woh payment karega, commission apne aap yahan aa jayegi."
+            />
+          </Card>
+        ) : (
+          <>
+            {/* Mobile cards */}
+            <ul className="md:hidden space-y-2">
+              {rows.map((c) => (
+                <li key={c.id} className="rounded-lg border border-hairline bg-paper p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-medium text-ink truncate">{c.partner_name ?? "—"}</span>
+                    <span className="font-serif tabular-nums text-ink">{rupee(c.net_payable)}</span>
+                  </div>
+                  <div className="mt-1 flex items-center gap-2 text-[11px] text-ink-3 flex-wrap">
+                    <span className={`px-1.5 py-0.5 rounded ${STATUS_PILL[c.status]}`}>{c.status}</span>
+                    <span>· {formatDate(c.earned_date)}</span>
+                    <span>· base {rupee(c.base_amount)}</span>
+                    {c.tds_amount > 0 && <span>· TDS {rupee(c.tds_amount)}</span>}
+                  </div>
+                  {c.status === "earned" && (
+                    <div className="mt-2 flex gap-2">
+                      <Button size="sm" variant="primary" onClick={() => setPayTarget(c)}>Pay</Button>
+                      <Button size="sm" variant="ghost" onClick={() => cancel.mutate(c.id)}>Cancel</Button>
+                    </div>
+                  )}
+                </li>
+              ))}
+            </ul>
+
+            {/* Desktop table */}
+            <Card className="hidden md:block p-0 overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-paper-2 border-b border-hairline">
+                    <tr className="text-left text-[10px] uppercase tracking-wider text-ink-3 font-semibold">
+                      <th className="p-3">Earned</th>
+                      <th className="p-3">Partner</th>
+                      <th className="p-3 text-right">Base (ex-GST)</th>
+                      <th className="p-3 text-right">Gross</th>
+                      <th className="p-3 text-right">TDS</th>
+                      <th className="p-3 text-right">Net</th>
+                      <th className="p-3">Status</th>
+                      <th className="p-3 text-right">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((c) => (
+                      <tr key={c.id} className="border-b border-hairline last:border-0 hover:bg-paper-2/40">
+                        <td className="p-3 whitespace-nowrap text-ink-2">{formatDate(c.earned_date)}</td>
+                        <td className="p-3 font-medium text-ink">
+                          {c.partner_name ?? "—"}
+                          <span className="ml-2 text-[10px] text-ink-3">
+                            {c.basis === "percent" ? `${c.rate ?? 0}%` : "fixed"}
+                          </span>
+                        </td>
+                        <td className="p-3 text-right tabular-nums text-ink-2">{rupee(c.base_amount)}</td>
+                        <td className="p-3 text-right tabular-nums text-ink-2">{rupee(c.gross_commission)}</td>
+                        <td className="p-3 text-right tabular-nums text-ink-3">{c.tds_amount > 0 ? rupee(c.tds_amount) : "—"}</td>
+                        <td className="p-3 text-right font-serif tabular-nums text-ink">{rupee(c.net_payable)}</td>
+                        <td className="p-3"><span className={`px-1.5 py-0.5 rounded text-[11px] ${STATUS_PILL[c.status]}`}>{c.status}</span></td>
+                        <td className="p-3 text-right">
+                          {c.status === "earned" ? (
+                            <div className="flex justify-end gap-1">
+                              <Button size="sm" variant="primary" onClick={() => setPayTarget(c)}>Pay</Button>
+                              <Button size="sm" variant="ghost" onClick={() => cancel.mutate(c.id)}>Cancel</Button>
+                            </div>
+                          ) : c.status === "paid" ? (
+                            <span className="text-[11px] text-emerald inline-flex items-center gap-1"><Icon name="check" className="w-3 h-3" /> {c.paid_date ? formatDate(c.paid_date) : "Paid"}</span>
+                          ) : <span className="text-[11px] text-ink-3">—</span>}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+          </>
+        )
+      )}
+
+      {/* ── Partners ────────────────────────────────────────────── */}
+      {view === "partners" && (
+        pLoading ? (
+          <div className="space-y-3">{[1, 2, 3].map((i) => <Skeleton key={i} className="h-14 rounded-lg" />)}</div>
+        ) : (partners ?? []).length === 0 ? (
+          <Card>
+            <EmptyState
+              icon="users"
+              title="Abhi koi partner nahi."
+              body="Partner tab banta hai jab tum kisi customer ke deal par referral add karte ho (customer → Add referral). Naya partner wahin inline bhi bana sakte ho."
+            />
+          </Card>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            {(partners ?? []).map((p) => (
+              <Card key={p.id} className="p-4">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <p className="font-medium text-ink">{p.name}</p>
+                    {p.phone && <p className="text-[12px] text-ink-3">{p.phone}</p>}
+                  </div>
+                  {p.deduct_tds && <span className="text-[10px] px-1.5 py-0.5 rounded bg-paper-2 text-ink-3">TDS 5%</span>}
+                </div>
+                <div className="mt-2 text-[12px] text-ink-2">
+                  Default: {p.default_basis === "percent" ? `${p.default_percent ?? 0}% of deal` : rupee(p.default_fixed_amount ?? 0)}
+                </div>
+                {p.pan && <p className="mt-1 text-[11px] font-mono text-ink-3">PAN {p.pan}</p>}
+              </Card>
+            ))}
+          </div>
+        )
+      )}
+
+      <PayCommissionDialog open={!!payTarget} onOpenChange={(o) => !o && setPayTarget(null)} commission={payTarget} />
+    </div>
+  );
+}

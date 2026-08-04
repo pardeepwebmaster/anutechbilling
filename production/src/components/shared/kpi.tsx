@@ -28,6 +28,8 @@ interface KPIProps {
   /** Loading state */
   loading?: boolean;
   className?: string;
+  /** Colour the big value to signal meaning (money = emerald, risk = rose). */
+  accent?: "emerald" | "amber" | "rose" | "ink";
   /** Click handler — makes the tile interactive */
   onClick?: () => void;
 }
@@ -44,8 +46,15 @@ export function KPI({
   compact,
   loading,
   className,
+  accent = "ink",
   onClick,
 }: KPIProps) {
+  const valueColor = {
+    emerald: "text-emerald",
+    amber:   "text-amber-ink",
+    rose:    "text-rose",
+    ink:     "text-ink",
+  }[accent];
   const Component = onClick ? "button" : "div";
 
   // Format value
@@ -84,7 +93,7 @@ export function KPI({
       {loading ? (
         <div className="h-8 w-24 skeleton-shimmer rounded" />
       ) : (
-        <div className="font-serif text-3xl text-ink tabular-nums leading-none mb-2">
+        <div className={cn("font-serif text-3xl tabular-nums leading-none mb-2", valueColor)}>
           {displayValue}
           {unit && <span className="text-base text-ink-3 ml-1 font-sans">{unit}</span>}
         </div>

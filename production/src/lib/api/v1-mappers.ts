@@ -14,6 +14,7 @@ import type {
   Quote as QuoteRow,
   Payment as PaymentRow,
 } from "@/lib/supabase/database.types";
+import { quoteAcceptUrl } from "@/lib/quotes/accept-link";
 
 const CURRENCY = "INR";
 
@@ -116,7 +117,7 @@ export function mapQuote(q: QuoteRow, appUrl: string, pdfUrl: string | null = nu
     currency:    CURRENCY,
     status:      quoteStatus(q),
     pdf_url:     pdfUrl ?? q.pdf_url,
-    payment_url: `${appUrl.replace(/\/$/, "")}/quote/${q.id}/accept`,
+    payment_url: quoteAcceptUrl(appUrl, q.id, q.public_token),
   };
 }
 

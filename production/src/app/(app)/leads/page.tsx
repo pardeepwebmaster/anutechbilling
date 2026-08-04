@@ -26,6 +26,7 @@ import { useLeads, useUpdateLeadStage, useDeleteLead } from "@/lib/queries/leads
 import { useLeadActivities, useLogLeadActivity } from "@/lib/queries/lead-activities";
 import { LeadsBulkBar } from "@/components/features/leads/leads-bulk-bar";
 import { useQuotesByLead } from "@/lib/queries/quotes";
+import { QuoteActionBar } from "@/components/features/quotes/quote-action-bar";
 import { useTasks, useTasksForLead, useCompleteTask, useSnoozeTask, useDeleteTask } from "@/lib/queries/tasks";
 import { useCurrentUser } from "@/lib/hooks/useCurrentUser";
 import { AddTaskDialog } from "@/components/features/tasks/add-task-dialog";
@@ -33,6 +34,10 @@ import { LeadCard } from "@/components/features/leads/lead-card";
 import { AddLeadForm } from "@/components/features/leads/add-lead-form";
 import { QuickAddLeadForm } from "@/components/features/leads/quick-add-lead-form";
 import { LeadsSmartViews, type SmartView } from "@/components/features/leads/leads-smart-views";
+import { MergeLeadsDialog } from "@/components/features/leads/merge-leads-dialog";
+import { computeDuplicates } from "@/lib/leads/duplicates";
+import { isHotLead, isHighValueLead, hotReason } from "@/lib/leads/heat";
+import { useResizableColumns, ResizableHandles } from "@/components/ui/resizable-columns";
 import { SwipeLeadCard } from "@/components/features/leads/swipe-lead-card";
 import { ImportCsvDialog } from "@/components/features/leads/import-csv-dialog";
 import { ShareFormSheet, ENQUIRY_SHARE } from "@/components/features/leads/share-form-sheet";
@@ -42,6 +47,7 @@ import GoogleContactsImportDialog from "@/components/features/contacts/google-co
 import SendWhatsAppDialog from "@/components/features/whatsapp/send-whatsapp-dialog";
 import { GeminiCard } from "@/components/shared/gemini-card";
 import { EmptyState } from "@/components/shared/empty-state";
+import { AiDraftButton } from "@/components/shared/ai-draft-button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button, IconButton } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -81,6 +87,14 @@ const LEAD_STAGES: { id: Lead["stage"]; label: string; dot: string }[] = [
   { id: "quote",   label: "Quote Sent",   dot: "bg-indigo" },
   { id: "won",     label: "Won",          dot: "bg-emerald" },
 ];
+
+// Deal Pipeline Kanban columns — a deal only ENTERS the pipeline when a quote is
+// sent, so raw stages (New / Contacted) never hold deals here and would render as
+// permanently-empty columns (the confusing stray "+" at the board edge). Show
+// only the real deal stages, in funnel order: Quote Sent → Demo → Trial → Won.
+const DEAL_STAGES = (["quote", "demo", "trial", "won"] as const).map(
+  (id) => LEAD_STAGES.find((s) => s.id === id)!,
+);
 
 // All stage meta including Lost (LEAD_STAGES omits Lost as it's an outcome,
 // not a Kanban column). Used to build the page-aware Filter list.
@@ -137,6 +151,17 @@ function LeadsPageInner() {
   // chip in <LeadsSmartViews/> sets this. The `searched` memo below
   // applies the view as an additional filter cut.
   const [smartView, setSmartView] = React.useState<SmartView>("all");
+  // Collapsible "Lead intelligence" banner — remembers the choice so it doesn't
+  // eat board space every visit.
+  const [tipsOpen, setTipsOpen] = React.useState(true);
+  React.useEffect(() => {
+    try { if (localStorage.getItem("ros_leads_tips") === "0") setTipsOpen(false); } catch {}
+  }, []);
+  const toggleTips = () => setTipsOpen((v) => {
+    const next = !v;
+    try { localStorage.setItem("ros_leads_tips", next ? "1" : "0"); } catch {}
+    return next;
+  });
 
   // Auto-open Google import dialog when redirected back from OAuth with the contacts scope.
   // The dialog will then auto-call /api/contacts/google-fetch with the new provider_token.
@@ -174,6 +199,8 @@ function LeadsPageInner() {
   const [editingLead, setEditingLead] = React.useState<Lead | null>(null);
   // Row "Follow-up" quick action → opens AddTaskDialog scoped to this lead.
   const [followUpLead, setFollowUpLead] = React.useState<Lead | null>(null);
+  // Merge-duplicates dialog — holds the cluster (a lead + its matches) to fold.
+  const [mergeCluster, setMergeCluster] = React.useState<Lead[] | null>(null);
   // "Follow-ups due today" banner — click to expand the list of due leads.
   const [dueListOpen, setDueListOpen] = React.useState(false);
   // Kanban is great for stage flow; list view is needed once you have 50+ leads
@@ -249,6 +276,12 @@ function LeadsPageInner() {
   // tab-bar UI is removed; navigation between the two is via sidebar.
   const tab: "leads" | "deals" = isDealsPage ? "deals" : "leads";
 
+  // Duplicate index — computed over ALL leads (dups can span the whole tenant),
+  // surfaced as a per-row "Duplicate?" flag + a "Duplicates" smart view. Declared
+  // here (before `searched`) because the Duplicates view filters on dup.flagged.
+  // Non-destructive: it only flags; merging is an explicit action in the dialog.
+  const dup = React.useMemo(() => computeDuplicates(leads ?? []), [leads]);
+
   // Search + filter both apply BEFORE the tab cut so each view respects them.
   const searched = React.useMemo(() => {
     if (!leads) return [];
@@ -289,15 +322,17 @@ function LeadsPageInner() {
         // Follow-up overdue + still open — the rep's most actionable bucket.
         list = list.filter((l) => l.follow_up_date && l.follow_up_date < todayStr && l.stage !== "won" && l.stage !== "lost");
       } else if (smartView === "hot") {
-        list = list.filter((l) => l.stage === "demo" || l.stage === "trial" || l.stage === "quote");
+        list = list.filter(isHotLead);
       } else if (smartView === "new") {
         list = list.filter((l) => l.stage === "new");
       } else if (smartView === "won-mtd") {
         list = list.filter((l) => l.stage === "won" && l.created_at && new Date(l.created_at) >= monthStart);
+      } else if (smartView === "duplicates") {
+        list = list.filter((l) => dup.flagged.has(l.id));
       }
     }
     return list;
-  }, [leads, search, stageFilter, priorityFilter, smartView, currentUser]);
+  }, [leads, search, stageFilter, priorityFilter, smartView, currentUser, dup]);
   const activeFilterCount = stageFilter.length + priorityFilter.length;
 
   // A lead is "raw" (Leads inbox) only while it's early — New or Contacted with
@@ -324,6 +359,19 @@ function LeadsPageInner() {
     () => (tab === "leads" ? (leads ?? []).filter(isRaw) : (leads ?? []).filter((l) => !isRaw(l))),
     [leads, tab],
   );
+
+  // Per-tab duplicate count + merge opener (the `dup` index itself is computed
+  // higher up, before `searched`, since the Duplicates smart view filters on it).
+  const duplicateCountForTab = React.useMemo(
+    () => leadsForTab.filter((l) => dup.flagged.has(l.id)).length,
+    [leadsForTab, dup],
+  );
+  /** Open the merge dialog for a lead: cluster = the lead + everything it dups. */
+  const openMergeFor = React.useCallback((lead: Lead) => {
+    const matches = dup.matchesOf.get(lead.id) ?? [];
+    if (matches.length === 0) return;
+    setMergeCluster([lead, ...matches.map((m) => m.lead)]);
+  }, [dup]);
 
   // Force list view on mobile (Kanban with 6 vertical stage columns is
   // unusable on phones — each empty stage takes a screen-full).
@@ -359,7 +407,7 @@ function LeadsPageInner() {
   };
 
   return (
-    <div className="p-4 md:p-6 lg:p-8 max-w-[1800px] mx-auto min-h-[calc(100vh-3.5rem)] flex flex-col">
+    <div className="p-4 md:p-6 lg:p-8 max-w-[1800px] mx-auto min-h-[calc(100vh-3.5rem)] md:h-[calc(100vh-3.5rem)] flex flex-col">
       {/* Header */}
       <div className="flex items-end justify-between gap-3 flex-wrap mb-6">
         <div>
@@ -498,21 +546,34 @@ function LeadsPageInner() {
               header doesn't wrap into a wall of buttons. "Start trial" shows
               ONLY on /deals: per the quote-first funnel a trial follows a quote,
               so offering it on the raw Leads inbox contradicts the model. */}
+          {/* Secondary actions rolled into one "More" menu so the header stays
+              clean — only Search / Filter / + Add Lead compete for attention. */}
           {!isSales && (
-            <div className="hidden md:flex gap-2 flex-wrap items-center">
-              <Button icon="download" onClick={() => setCsvImportOpen(true)}>Import CSV</Button>
-              <Button icon="send" onClick={() => setCampaignOpen(true)}>
-                Send campaign
-              </Button>
-              <Button icon="globe" onClick={() => setGoogleImportOpen(true)}>
-                Import from Google
-              </Button>
-              {isDealsPage && (
-                <Button icon="clock" onClick={() => setTrialOpen(true)}>
-                  Start trial
-                </Button>
-              )}
-            </div>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="default" icon="more_h" className="hidden md:inline-flex">More</Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56">
+                <DropdownMenuItem className="gap-2 cursor-pointer" onSelect={() => setCsvImportOpen(true)}>
+                  <Icon name="download" size={14} className="text-ink-3" /> Import CSV
+                </DropdownMenuItem>
+                <DropdownMenuItem className="gap-2 cursor-pointer" onSelect={() => setCampaignOpen(true)}>
+                  <Icon name="send" size={14} className="text-ink-3" /> Send campaign
+                </DropdownMenuItem>
+                <DropdownMenuItem className="gap-2 cursor-pointer" onSelect={() => setGoogleImportOpen(true)}>
+                  <Icon name="globe" size={14} className="text-ink-3" /> Import from Google
+                </DropdownMenuItem>
+                {isDealsPage && (
+                  <DropdownMenuItem className="gap-2 cursor-pointer" onSelect={() => setTrialOpen(true)}>
+                    <Icon name="clock" size={14} className="text-ink-3" /> Start trial
+                  </DropdownMenuItem>
+                )}
+                <DropdownMenuSeparator />
+                <DropdownMenuItem className="gap-2 cursor-pointer" onSelect={() => setShareOpen(true)}>
+                  <Icon name="link" size={14} className="text-ink-3" /> Share enquiry form
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           )}
           {/* Add Lead / Deal split-button — hidden on mobile because the
               floating FAB at the bottom-right already provides the same
@@ -524,14 +585,6 @@ function LeadsPageInner() {
               undiscoverable, not keyboard-accessible, and impossible to
               trigger on touch devices (no hover) — users reported clicking
               "Quick add" did nothing because the popup vanished on mouse-move. */}
-          <Button
-            variant="default"
-            icon="link"
-            onClick={() => setShareOpen(true)}
-            className="hidden md:inline-flex"
-          >
-            Share enquiry form
-          </Button>
           <div className="hidden md:inline-flex">
             <Button
               variant="primary"
@@ -573,6 +626,7 @@ function LeadsPageInner() {
         <LeadsSmartViews
           leads={leadsForTab}
           currentUserId={currentUser?.userId}
+          duplicateCount={duplicateCountForTab}
           active={smartView}
           onChange={setSmartView}
         />
@@ -589,7 +643,7 @@ function LeadsPageInner() {
           Drawer / FAB / modals live OUTSIDE this flex (position:fixed),
           so they aren't constrained by the split. */}
       <div className="flex gap-6 flex-1 min-h-0">
-        <div className="flex-1 min-w-0 flex flex-col">
+        <div className="flex-1 min-w-0 flex flex-col min-h-0">
       {/* AI lead intelligence
           "Hot leads" = highest-value rows in quote/trial stages — these
           convert at the highest rate per the prototype-era data, and they're
@@ -641,35 +695,37 @@ function LeadsPageInner() {
           // for the actual lead list. Desktop keeps it visible since there's
           // plenty of width.
           <div className="mb-4 hidden md:block">
-            <GeminiCard
-              title="Lead intelligence · Today"
-              actions={
-                <>
-                  <Button
-                    size="sm"
-                    variant="primary"
-                    icon="phone"
-                    disabled={!topHot}
-                    onClick={handleCallTop}
-                  >
-                    {topHot ? `Call ${topHot.company.split(/\s+/)[0]}` : "Call top lead"}
-                  </Button>
-                  <Button
-                    size="sm"
-                    icon="mail"
-                    disabled={!topHot}
-                    onClick={handleSendNudge}
-                  >
-                    Send nudge
-                  </Button>
-                </>
-              }
-            >
-              <b className="text-ink">{hotLeads.length} hot lead{hotLeads.length === 1 ? "" : "s"} worth focusing today.</b>{" "}
-              {topHot
-                ? <>Top: <b>{topHot.company}</b> ({topHot.plan ?? "—"}, {topHot.value ? rupee(topHot.value, { compact: true }) : "value pending"}). Quote/Trial stages convert highest — prioritize today.</>
-                : <>No leads in Quote Sent or Trial Active right now. Move some forward to surface hot opportunities.</>}
-            </GeminiCard>
+            {tipsOpen ? (
+              <GeminiCard
+                title="Lead intelligence · Today"
+                actions={
+                  <>
+                    <Button size="sm" variant="primary" icon="phone" disabled={!topHot} onClick={handleCallTop}>
+                      {topHot ? `Call ${topHot.company.split(/\s+/)[0]}` : "Call top lead"}
+                    </Button>
+                    <Button size="sm" icon="mail" disabled={!topHot} onClick={handleSendNudge}>Send nudge</Button>
+                    <Button size="sm" variant="ghost" icon="chevron_up" aria-label="Hide tips" onClick={toggleTips} />
+                  </>
+                }
+              >
+                <b className="text-ink">{hotLeads.length} hot lead{hotLeads.length === 1 ? "" : "s"} worth focusing today.</b>{" "}
+                {topHot
+                  ? <>Top: <b>{topHot.company}</b> ({topHot.plan ?? "—"}, {topHot.value ? rupee(topHot.value, { compact: true }) : "value pending"}). Quote/Trial stages convert highest — prioritize today.</>
+                  : <>No leads in Quote Sent or Trial Active right now. Move some forward to surface hot opportunities.</>}
+              </GeminiCard>
+            ) : (
+              <button
+                type="button"
+                onClick={toggleTips}
+                className="w-full flex items-center justify-between gap-2 rounded-lg border border-hairline bg-paper-2/40 px-3 py-1.5 text-xs text-ink-2 hover:bg-paper-2"
+              >
+                <span className="inline-flex items-center gap-1.5">
+                  <Icon name="sparkles" size={13} className="text-amber-ink" />
+                  Lead intelligence · <b className="text-ink">{hotLeads.length}</b> hot lead{hotLeads.length === 1 ? "" : "s"} today
+                </span>
+                <span className="inline-flex items-center gap-1 text-ink-3"><Icon name="chevron_down" size={13} /> Show</span>
+              </button>
+            )}
           </div>
         );
       })()}
@@ -829,7 +885,7 @@ function LeadsPageInner() {
             smartView === "mine"    ? "user" : "target"
           }
           title={
-            smartView === "today"   ? "Koi lead aaj nahi aayi" :
+            smartView === "today"   ? "No new leads today" :
             smartView === "hot"     ? "No hot leads right now" :
             smartView === "new"     ? "No new leads" :
             smartView === "won-mtd" ? "No wins this month yet" :
@@ -837,7 +893,7 @@ function LeadsPageInner() {
             "No leads match this view"
           }
           body={
-            smartView === "today"   ? "Aaj koi nayi lead nahi aayi. Add Lead button se manually add karo ya kal wait karo — nayi inbound leads yahaan dikhengi." :
+            smartView === "today"   ? "No new leads came in today. Use the Add Lead button to add one manually — new inbound leads will show up here." :
             smartView === "hot"     ? "No leads in Demo / Trial / Quote stage. Move qualified leads forward to surface hot opportunities." :
             smartView === "new"     ? "Inbox is clear. Switch to Hot or Won MTD to see what's moving." :
             smartView === "won-mtd" ? "Close your first deal this month — it'll show up here." :
@@ -859,8 +915,10 @@ function LeadsPageInner() {
           columns visually fill instead of bottom cream area showing. */}
       {!isLoading && !error && leads && leads.length > 0 && effectiveView === "kanban" && (
         <>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 auto-rows-fr gap-3 overflow-x-auto pb-4 flex-1 min-h-0">
-            {LEAD_STAGES.map((stage) => {
+          {/* Auto-fit: columns keep a usable min width (200px) and grow to fill;
+              when 6 don't fit, the board scrolls horizontally instead of crushing. */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-flow-col lg:auto-cols-[minmax(200px,1fr)] lg:grid-rows-1 auto-rows-fr gap-3 overflow-x-auto pb-4 flex-1 min-h-0">
+            {DEAL_STAGES.map((stage) => {
               const stageLeads = filtered.filter((l) => l.stage === stage.id);
               const stageValue = stageLeads.reduce((s, l) => s + (l.value ?? 0), 0);
               const isOver = overStage === stage.id;
@@ -959,6 +1017,8 @@ function LeadsPageInner() {
           onRowClick={(l) => setSelected(l)}
           onSendQuote={goSendQuote}
           onFollowUp={setFollowUpLead}
+          onMerge={openMergeFor}
+          dupIds={dup.flagged}
           isDealsPage={isDealsPage}
         />
       )}
@@ -1059,6 +1119,11 @@ function LeadsPageInner() {
         />
       )}
 
+      {/* Merge duplicates — opened from a row's "Duplicate?" flag */}
+      {mergeCluster && mergeCluster.length > 1 && (
+        <MergeLeadsDialog cluster={mergeCluster} onClose={() => setMergeCluster(null)} />
+      )}
+
       {/* Add / Edit lead modal */}
       <AddLeadForm
         open={addOpen}
@@ -1067,6 +1132,9 @@ function LeadsPageInner() {
           if (!o) setEditingLead(null);
         }}
         editingLead={editingLead}
+        // On the Deal Pipeline, "Add Deal" creates a NEW record straight in the
+        // pipeline (stage "quote") so it actually shows up here.
+        defaultStage={isDealsPage ? "quote" : undefined}
       />
 
       {/* Quick add — 4-field minimal lead capture (company + contact only). */}
@@ -1298,33 +1366,21 @@ function LeadDetailSheet({
         hint: "Not sent yet",
       };
     }
-    // 3. Quote sent → chase based on age
+    // 3. Quote SENT but not yet paid → the goal now is getting PAID, so the
+    //    primary action is "Record payment" (→ the quote hub, where you can also
+    //    preview / resend). Chasing is the header WhatsApp/Call buttons; revising
+    //    is the footer "Revise & resend" — so the big CTA drives the money moment,
+    //    NOT the edit builder (which is what it wrongly used to open).
     if (latestQuoteForAction && quoteAgeDays !== null) {
-      if (quoteAgeDays > 7) {
-        return {
-          label: "Chase quote (overdue)",
-          icon: "whatsapp",
-          tone: "rose",
-          onClick: handleSendQuote,
-          hint: `${quoteAgeDays} days since sent`,
-        };
-      }
-      if (quoteAgeDays > 3) {
-        return {
-          label: "Follow up on quote",
-          icon: "whatsapp",
-          tone: "amber",
-          onClick: handleSendQuote,
-          hint: `${quoteAgeDays} days since sent`,
-        };
-      }
+      const overdue = quoteAgeDays > 7;
+      const ageText = quoteAgeDays === 0 ? "Sent today" : `Sent ${quoteAgeDays}d ago`;
       return {
-        label: "Revise & resend quote",
-        icon: "copy",
-        tone: "indigo",
-        onClick: handleReviseQuote,
-        hint: `Sent ${quoteAgeDays === 0 ? "today" : `${quoteAgeDays}d ago`}`,
-        help: "Opens an editable copy of the last quote as a new version — change the price/seats and send again. The original stays untouched.",
+        label: "Record payment",
+        icon: "rupee",
+        tone: overdue ? "rose" : "amber",
+        onClick: () => { onClose(); router.push(`/quotes/${latestQuoteForAction.id}` as any); },
+        hint: overdue ? `${ageText} · overdue — chase them` : ageText,
+        help: "Quote is sent. Record the payment here the moment it lands. To chase, use the WhatsApp/Call buttons above; to change the quote, use Revise & resend below.",
       };
     }
     // 4. No quote yet → by stage
@@ -1450,19 +1506,71 @@ function LeadDetailSheet({
                 )}
               </div>
 
+              {/* AI draft — the "what do I say?" moat. One tap = a Gemini-drafted
+                  WhatsApp/email follow-up tailored to THIS lead (plan, seats,
+                  stage, notes). Human-in-the-loop: the draft is editable and never
+                  sends itself — the rep copies it or opens WhatsApp. Falls back to
+                  a solid template if no Gemini key is set. */}
+              {(lead.contact_phone || lead.contact_email) && (
+                <AiDraftButton
+                  leadId={lead.id}
+                  channel={lead.contact_phone ? "whatsapp" : "email"}
+                  purpose="followup"
+                  phone={lead.contact_phone}
+                  label="✨ Draft follow-up with AI"
+                  variant="outline"
+                  className="mt-2 w-full justify-center"
+                />
+              )}
+
               {/* Smart Next-Action CTA — surfaces THE one thing to do based on
                   lead state + quote age + payment status. Replaces decision
                   fatigue ("which of these 10 buttons?") with a single ranked
                   suggestion. Logic in `nextAction` above; color-coded by
                   urgency (rose = overdue, amber = pending, emerald = success,
                   indigo = informational). */}
-              {nextAction && (
+              {/* When a quote already exists, surface the FULL status-aware quote
+                  action bar right here (Record payment · Mark accepted · Mark
+                  rejected · Open full quote) — the rep never has to leave the
+                  drawer to move the quote forward. Falls back to the single smart
+                  next-action CTA only when there's no quote yet. */}
+              {latestQuoteForAction ? (
+                <div className="mt-3 space-y-1.5">
+                  <QuoteActionBar
+                    quote={latestQuoteForAction}
+                    onOpenFullQuote={() => { onClose(); router.push(`/quotes/${latestQuoteForAction.id}` as any); }}
+                  />
+                  {(() => {
+                    const q = latestQuoteForAction;
+                    const nothingReceivedYet =
+                      !q.payment_status || q.payment_status === "none" || q.payment_status === "awaiting";
+                    const unpaidSent =
+                      (q.status === "sent" || q.status === "viewed") && nothingReceivedYet;
+                    if (!unpaidSent) return null;
+                    const overdue = quoteAgeDays !== null && quoteAgeDays > 7;
+                    const ageText =
+                      quoteAgeDays === null ? "" : quoteAgeDays === 0 ? "Sent today" : `Sent ${quoteAgeDays}d ago`;
+                    return (
+                      <p className="flex items-start gap-1 text-[11px] leading-snug text-ink-3">
+                        <Icon name="info" size={11} className="mt-0.5 shrink-0" />
+                        <span>
+                          {ageText}
+                          {overdue && <span className="text-rose font-medium"> · overdue — chase them</span>}
+                          {ageText && ". "}
+                          Record payment when it lands, or mark accepted to convert the lead into a customer now
+                          (payment can follow). Chase via Call/WhatsApp above.
+                        </span>
+                      </p>
+                    );
+                  })()}
+                </div>
+              ) : nextAction ? (
                 <>
                 <button
                   type="button"
                   onClick={nextAction.onClick}
                   className={cn(
-                    "w-full inline-flex items-center justify-center gap-2 py-2.5 rounded-md text-sm font-semibold transition-colors",
+                    "mt-3 w-full inline-flex items-center justify-center gap-2 py-2.5 rounded-md text-sm font-semibold transition-colors",
                     nextAction.tone === "amber"   && "bg-amber text-white hover:bg-amber/90",
                     nextAction.tone === "rose"    && "bg-rose text-white hover:bg-rose/90",
                     nextAction.tone === "emerald" && "bg-emerald text-white hover:bg-emerald/90",
@@ -1484,7 +1592,7 @@ function LeadDetailSheet({
                   </p>
                 )}
                 </>
-              )}
+              ) : null}
             </div>
           )}
 
@@ -1977,31 +2085,66 @@ function RowActions({
   const logActivity = useLogLeadActivity();
 
   const itemCls = "gap-2.5 py-2 cursor-pointer";
+  // Primary quick actions inline (Call · WhatsApp · Quote) — ALWAYS fully visible
+  // (not faint / hover-only) so they read as tappable buttons at a glance and stay
+  // reachable on touch tablets (no hover). Each has a subtle bordered chip so the
+  // hit-area is obvious; colour brightens on hover.
+  const iconBtn = "flex h-7 w-7 items-center justify-center rounded-md border border-hairline bg-paper text-ink-2 transition-colors hover:bg-paper-2 hover:border-hairline-strong";
 
   return (
     <td
-      className={cn(
-        "sticky right-0 p-3",
-        isSelected ? "bg-amber-soft" : "bg-paper",
-      )}
+      className={cn("p-2", isSelected ? "bg-amber-soft" : "")}
       onClick={(e) => e.stopPropagation()}
     >
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
+      <div className="flex items-center justify-end gap-0.5">
+        {hasPhone && (
+          <a
+            href={`tel:${lead.contact_phone}`}
+            title={`Call ${lead.contact_phone}`}
+            aria-label={`Call ${lead.company}`}
+            className={cn(iconBtn, "hover:text-emerald")}
+            onClick={() => logActivity.mutate({ leadId: lead.id, kind: "call", detail: `Called ${lead.contact_phone}` })}
+          >
+            <Icon name="call" size={16} />
+          </a>
+        )}
+        {hasPhone && (
           <button
             type="button"
-            aria-label="Lead actions"
-            className="ml-auto flex h-8 w-8 items-center justify-center rounded-lg text-ink-3 transition-colors hover:bg-paper-2 hover:text-ink data-[state=open]:bg-paper-2 data-[state=open]:text-ink"
+            title="WhatsApp"
+            aria-label={`WhatsApp ${lead.company}`}
+            className={cn(iconBtn, "hover:text-emerald")}
+            onClick={() => {
+              openWhatsApp(waNumber);
+              logActivity.mutate({ leadId: lead.id, kind: "whatsapp", detail: `WhatsApp to ${lead.contact_phone}` });
+            }}
           >
-            <Icon name="more_h" size={20} />
+            <Icon name="whatsapp" size={16} />
           </button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="min-w-[13rem]">
-          <DropdownMenuLabel>Actions</DropdownMenuLabel>
-          <DropdownMenuItem className={itemCls} onClick={() => onSendQuote(lead)}>
-            <Icon name="quote" size={20} /> Send quote
-          </DropdownMenuItem>
-          <DropdownMenuItem className={itemCls} onClick={() => onFollowUp(lead)}>
+        )}
+        <button
+          type="button"
+          title="Send quote"
+          aria-label={`Send quote to ${lead.company}`}
+          className={cn(iconBtn, "hover:text-amber")}
+          onClick={() => onSendQuote(lead)}
+        >
+          <Icon name="quote" size={16} />
+        </button>
+
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              aria-label="More actions"
+              className="flex h-7 w-7 items-center justify-center rounded-md text-ink-3 transition-colors hover:bg-paper-2 hover:text-ink data-[state=open]:bg-paper-2 data-[state=open]:text-ink"
+            >
+              <Icon name="more_h" size={18} />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="min-w-[13rem]">
+            <DropdownMenuLabel>More actions</DropdownMenuLabel>
+            <DropdownMenuItem className={itemCls} onClick={() => onFollowUp(lead)}>
             <Icon name="reminder" size={20} /> Schedule follow-up
           </DropdownMenuItem>
           <DropdownMenuItem
@@ -2027,29 +2170,7 @@ function RowActions({
             <Icon name="link" size={20} /> Send enquiry form
           </DropdownMenuItem>
 
-          {(hasPhone || hasEmail) && <DropdownMenuSeparator />}
-
-          {hasPhone && (
-            <DropdownMenuItem asChild className={itemCls}>
-              <a href={`tel:${lead.contact_phone}`}
-                 onClick={() => logActivity.mutate({ leadId: lead.id, kind: "call", detail: `Called ${lead.contact_phone}` })}>
-                <Icon name="call" size={20} /> Call
-                <span className="ml-auto font-mono text-[11px] text-ink-3">{lead.contact_phone}</span>
-              </a>
-            </DropdownMenuItem>
-          )}
-          {hasPhone && (
-            <DropdownMenuItem asChild className={itemCls}>
-              <a href={`https://wa.me/${waNumber}`} target="_blank" rel="noopener noreferrer"
-                 onClick={(e) => {
-                   e.preventDefault();
-                   openWhatsApp(waNumber);
-                   logActivity.mutate({ leadId: lead.id, kind: "whatsapp", detail: `WhatsApp to ${lead.contact_phone}` });
-                 }}>
-                <Icon name="whatsapp" size={20} /> WhatsApp
-              </a>
-            </DropdownMenuItem>
-          )}
+          {hasEmail && <DropdownMenuSeparator />}
           {hasEmail && (
             <DropdownMenuItem asChild className={itemCls}>
               <a
@@ -2063,8 +2184,9 @@ function RowActions({
               </a>
             </DropdownMenuItem>
           )}
-        </DropdownMenuContent>
-      </DropdownMenu>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
     </td>
   );
 }
@@ -2095,6 +2217,11 @@ function daysSince(iso: string): number {
   return Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
 }
 
+const LEADLIST_COL_ORDER = ["select", "company", "stage", "contact", "plan", "value", "lastupdate", "actions"];
+const LEADLIST_COL_DEFAULTS: Record<string, number> = {
+  select: 44, company: 240, stage: 130, contact: 220, plan: 170, value: 120, lastupdate: 100, actions: 150,
+};
+
 function LeadListView({
   leads,
   sortBy,
@@ -2103,6 +2230,8 @@ function LeadListView({
   onRowClick,
   onSendQuote,
   onFollowUp,
+  onMerge,
+  dupIds,
   isDealsPage,
 }: {
   leads: Lead[];
@@ -2112,6 +2241,8 @@ function LeadListView({
   onRowClick: (l: Lead) => void;
   onSendQuote: (l: Lead) => void;
   onFollowUp: (l: Lead) => void;
+  onMerge: (l: Lead) => void;
+  dupIds: Set<string>;
   isDealsPage: boolean;
 }) {
   // Stage options in the inline dropdown, gated by the quote-first funnel:
@@ -2151,6 +2282,7 @@ function LeadListView({
   // Bulk-select state — desktop power-table only. A Set of lead IDs makes
   // toggle / has() / size O(1). Resets on the leads array changing
   // identity (e.g. after a refetch) to avoid keeping stale IDs.
+  const { colW, startResize, totalWidth: leadTableW } = useResizableColumns("ros_leadlist_colw", LEADLIST_COL_DEFAULTS);
   const [selectedIds, setSelectedIds] = React.useState<Set<string>>(new Set());
   const toggleId = (id: string) => {
     setSelectedIds((prev) => {
@@ -2231,7 +2363,7 @@ function LeadListView({
     <th
       onClick={() => onSort(col)}
       className={cn(
-        "p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider cursor-pointer select-none hover:text-ink",
+        "sticky top-0 z-10 bg-paper-2 p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider cursor-pointer select-none hover:text-ink",
         align === "right" ? "text-right" : "text-left",
       )}
     >
@@ -2286,13 +2418,26 @@ function LeadListView({
         competition bug — table had been crushing to 1.6px on /deals when
         only 1-3 deals existed and rail-below's quick-actions grid was
         taking all the flex space). */}
-    <div className="hidden md:block w-full max-w-full relative border border-hairline rounded-md overflow-auto bg-paper flex-1 min-h-[400px]">
-      <table className="w-full">
+    {/* flex-1 + min-h-0 caps this to the space the flex chain leaves, so the table
+        scrolls INTERNALLY (both axes) instead of growing as tall as all its rows.
+        Before, the container grew unbounded and the horizontal scrollbar sat at the
+        very bottom of that tall element — you had to scroll the whole page down just
+        to reach it (Pardeep's dogfood complaint). Capped + sticky header = header
+        stays put and the h-scrollbar is always on screen. The md+ fixed-height page
+        wrapper is what makes flex-1 resolve to a real cap. */}
+    <div className="hidden md:block w-full max-w-full border border-hairline rounded-md overflow-auto bg-paper flex-1 min-h-0">
+      {/* Every column is drag-resizable — grab the full-height divider between
+          two columns and drag. Container scrolls if the table grows past it. */}
+      <div className="relative" style={{ width: leadTableW }}>
+      <table className="w-full table-fixed">
+        <colgroup>
+          {LEADLIST_COL_ORDER.map((id) => <col key={id} style={{ width: colW[id] }} />)}
+        </colgroup>
         <thead className="bg-paper-2 border-b border-hairline">
           <tr>
             {/* Select-all checkbox — checked when every row is selected,
                 indeterminate when only some are. */}
-            <th className="px-3 py-2 w-10">
+            <th className="sticky top-0 z-10 bg-paper-2 px-3 py-2">
               <input
                 type="checkbox"
                 aria-label="Select all leads"
@@ -2309,17 +2454,13 @@ function LeadListView({
               />
             </th>
             <SortHeader col="company" label="Company" />
-            <th className="px-3 py-2 text-xs font-semibold text-ink-3 uppercase tracking-wider text-left">Contact</th>
-            <th className="px-3 py-2 text-xs font-semibold text-ink-3 uppercase tracking-wider text-left">Plan</th>
-            <th className="px-3 py-2 text-xs font-semibold text-ink-3 uppercase tracking-wider text-right">Seats</th>
-            <SortHeader col="value" label="Value" align="right" />
             <SortHeader col="stage" label="Stage" />
-            <SortHeader col="created" label="Created" />
+            <th className="sticky top-0 z-10 bg-paper-2 px-3 py-2 text-xs font-semibold text-ink-3 uppercase tracking-wider text-left">Contact</th>
+            <th className="sticky top-0 z-10 bg-paper-2 px-3 py-2 text-xs font-semibold text-ink-3 uppercase tracking-wider text-left">Plan</th>
+            <SortHeader col="value" label="Value" align="right" />
             <SortHeader col="age" label="Last update" />
-            {/* Actions column — sticky to the right edge so the row's quick
-                actions stay visible even if the table scrolls horizontally on a
-                narrow screen. Header is blank; body shows row-hover icons. */}
-            <th className="sticky right-0 z-10 bg-paper-2 px-3 py-2 w-32 text-xs font-semibold text-ink-3 uppercase tracking-wider text-right">
+            {/* Actions column — quick action icons on row hover. */}
+            <th className="sticky top-0 z-10 bg-paper-2 px-3 py-2 text-xs font-semibold text-ink-3 uppercase tracking-wider text-right">
               <span className="sr-only">Quick actions</span>
             </th>
           </tr>
@@ -2329,6 +2470,16 @@ function LeadListView({
             const stale       = daysSince(lead.updated_at) > 14 && lead.stage !== "won" && lead.stage !== "lost";
             const age         = daysSince(lead.updated_at);
             const isSelected  = selectedIds.has(lead.id);
+            // Heat → visual hierarchy. High-value (big money) wins the emerald
+            // treatment; else a hot lead (priority high OR late-funnel stage)
+            // gets a rose accent. Same isHotLead/isHighValueLead helpers drive
+            // the Hot chip + filter, so counts and tags never disagree.
+            const isHighValue = isHighValueLead(lead);
+            const isHot       = isHotLead(lead);
+            const railCls     = isHighValue ? "border-l-2 border-emerald"
+                              : isHot       ? "border-l-2 border-rose"
+                              :               "border-l-2 border-transparent";
+            const isDup       = dupIds.has(lead.id);
             // Phone/email affordances now live inside <RowActions/>.
             return (
               <tr
@@ -2356,7 +2507,7 @@ function LeadListView({
                     : "hover:bg-paper-2/40",
                 )}
               >
-                <td className="p-3" onClick={(e) => e.stopPropagation()}>
+                <td className={cn("p-3", railCls)} onClick={(e) => e.stopPropagation()}>
                   <input
                     type="checkbox"
                     aria-label={`Select ${lead.company}`}
@@ -2367,14 +2518,38 @@ function LeadListView({
                 </td>
                 <td className="p-3">
                   <div className="flex items-center gap-2">
-                    {stale && (
+                    {isHighValue ? (
+                      <span className="shrink-0 inline-flex" title="High-value lead (≥ ₹1L)">
+                        <Icon name="star" size={13} className="text-emerald" />
+                      </span>
+                    ) : stale ? (
                       <span
                         className="w-2 h-2 rounded-full bg-rose shrink-0"
                         title={`Stale — no activity for ${age} days`}
                       />
-                    )}
+                    ) : null}
                     <div className="min-w-0">
-                      <div className="font-medium text-ink truncate">{lead.company}</div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-medium text-ink truncate">{lead.company}</span>
+                        {isHot && (
+                          <span
+                            title={`Hot — ${hotReason(lead)}`}
+                            className="shrink-0 inline-flex items-center rounded-full bg-rose-soft text-rose text-[10px] font-semibold px-1.5 py-0.5 leading-none cursor-help"
+                          >
+                            Hot
+                          </span>
+                        )}
+                        {isDup && (
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); onMerge(lead); }}
+                            title="Possible duplicate — click to review & merge"
+                            className="shrink-0 inline-flex items-center gap-0.5 rounded-full bg-amber-soft text-amber-ink text-[10px] font-semibold px-1.5 py-0.5 leading-none border border-amber/30 hover:bg-amber-soft/70 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-amber"
+                          >
+                            <Icon name="copy" size={9} /> Duplicate?
+                          </button>
+                        )}
+                      </div>
                       <div className="text-[10px] text-ink-3 font-mono">{lead.id}</div>
                       {(() => {
                         const tk = openTaskByLead.get(lead.id);
@@ -2393,36 +2568,16 @@ function LeadListView({
                     </div>
                   </div>
                 </td>
-                <td className="px-3 py-2 text-sm">
-                  <div className="text-ink">{lead.contact_name ?? "—"}</div>
-                  {lead.contact_email && (
-                    <div className="text-[11px] text-ink-3 font-mono truncate max-w-[180px]">
-                      {lead.contact_email}
-                    </div>
-                  )}
-                  {lead.contact_phone && (
-                    <div className="text-[11px] text-ink-3 font-mono truncate max-w-[180px]">
-                      {lead.contact_phone}
-                    </div>
-                  )}
-                </td>
-                <td className="px-3 py-2 text-sm text-ink-2">{lead.plan ?? "—"}</td>
-                <td className="px-3 py-2 text-right tabular-nums text-sm">{lead.seats ?? "—"}</td>
-                <td className="px-3 py-2 text-right tabular-nums text-sm font-medium">
-                  {lead.value ? rupee(lead.value) : <span className="text-ink-3">—</span>}
-                </td>
-                {/* Stage is editable inline — change it without opening the lead.
-                    stopPropagation so the select doesn't trigger the row click. */}
-                <td className="p-3" onClick={(e) => e.stopPropagation()}>
-                  <div className="inline-flex items-center gap-1.5">
+                {/* Stage — 2nd column so pipeline status reads at a glance. Editable
+                    inline; stopPropagation so the select doesn't trigger the row click. */}
+                <td className="p-3 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                  <div className="flex items-center gap-1.5 flex-nowrap">
                     <span className={cn("w-1.5 h-1.5 rounded-full flex-shrink-0", STAGE_DOT[lead.stage])} />
                     <select
                       value={lead.stage}
                       onChange={(e) => {
                         const stage = e.target.value as Lead["stage"];
                         updateStage.mutate({ id: lead.id, stage });
-                        // On the Leads inbox, marking Lost closes the lead — it
-                        // leaves the inbox. (To advance forward, Send a quote.)
                         if (!isDealsPage && stage === "lost") {
                           toast.success(`${lead.company} marked Lost`);
                         }
@@ -2437,7 +2592,34 @@ function LeadListView({
                     </select>
                   </div>
                 </td>
-                <td className="px-3 py-2 text-sm text-ink-2">{formatDate(lead.created_at)}</td>
+                {/* Email is kept off the row to keep it tight — it shows on hover
+                    (title) with a small mail glyph as the cue. Phone stays visible
+                    as it's the primary call-to-action in the pipeline. */}
+                <td className="px-3 py-2 text-sm" title={lead.contact_email ? `Email: ${lead.contact_email}` : undefined}>
+                  <div className="flex items-center gap-1 text-ink">
+                    <span className="truncate max-w-[170px]">{lead.contact_name ?? "—"}</span>
+                    {lead.contact_email && <Icon name="mail" size={11} className="shrink-0 text-ink-3" />}
+                  </div>
+                  {lead.contact_phone && (
+                    <div className="text-[11px] text-ink-3 font-mono truncate max-w-[180px]">
+                      {lead.contact_phone}
+                    </div>
+                  )}
+                </td>
+                {/* Plan + seats folded together — saves a column, keeps both
+                    facts. Seats bold so quantity reads at a glance. */}
+                <td className="px-3 py-2 text-sm text-ink-2">
+                  <span className="block truncate" title={lead.plan ?? undefined}>{lead.plan ?? "—"}</span>
+                  {lead.seats != null && (
+                    <span className="text-[11px] text-ink-3"><span className="font-semibold text-ink-2 tabular-nums">{lead.seats}</span> seats</span>
+                  )}
+                </td>
+                {/* Value — the money, given visual precedence (serif, bold). */}
+                <td className="px-3 py-2 text-right tabular-nums whitespace-nowrap">
+                  {lead.value
+                    ? <span className={cn("font-serif text-[15px] font-semibold", isHighValue ? "text-emerald" : "text-ink")}>{rupee(lead.value)}</span>
+                    : <span className="text-ink-3">—</span>}
+                </td>
                 <td className="px-3 py-2 text-sm">
                   <span className={cn(
                     "tabular-nums",
@@ -2454,12 +2636,14 @@ function LeadListView({
           })}
         </tbody>
       </table>
+      <ResizableHandles colW={colW} order={LEADLIST_COL_ORDER} startResize={startResize} />
+      </div>
       {sorted.length === 0 && (
         <div className="p-8 text-center text-sm text-ink-3 italic">No leads match.</div>
       )}
       <div className="px-3 py-2 border-t border-hairline bg-paper-2/40 text-[11px] text-ink-3 flex items-center gap-2">
         <Icon name="info" size={11} />
-        Click any row to open the drawer · Tick a checkbox to enable bulk actions · Hover a row for quick actions: Send quote / Follow-up / Call / WhatsApp / Email
+        Click any row to open the drawer · Tick a checkbox to enable bulk actions · Quick actions (Call / WhatsApp / Send quote / ⋯) sit at the end of each row · ★ = high-value, Hot = priority lead
       </div>
     </div>
 

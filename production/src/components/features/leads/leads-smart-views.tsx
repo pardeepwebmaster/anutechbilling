@@ -30,24 +30,25 @@
 
 import * as React from "react";
 import { Icon } from "@/components/ui/icon";
-import { rupee, cn } from "@/lib/utils";
+import { cn } from "@/lib/utils";
+import { isHotLead } from "@/lib/leads/heat";
 import type { Lead } from "@/lib/supabase/database.types";
 
-export type SmartView = "all" | "mine" | "today" | "overdue" | "hot" | "new" | "won-mtd";
+export type SmartView = "all" | "mine" | "today" | "overdue" | "hot" | "new" | "won-mtd" | "duplicates";
 
 interface LeadsSmartViewsProps {
   leads: Lead[];
   /** Current user's UUID — used to compute "Mine" count. */
   currentUserId?: string;
+  /** Count of leads flagged as likely duplicates (computed on the page). The
+   *  Duplicates chip only appears when this is > 0 — no noise when clean. */
+  duplicateCount?: number;
   active: SmartView;
   onChange: (view: SmartView) => void;
 }
 
-export function LeadsSmartViews({ leads, currentUserId, active, onChange }: LeadsSmartViewsProps) {
+export function LeadsSmartViews({ leads, currentUserId, duplicateCount = 0, active, onChange }: LeadsSmartViewsProps) {
   const today = new Date().toISOString().slice(0, 10);
-  const monthStart = new Date();
-  monthStart.setDate(1);
-  monthStart.setHours(0, 0, 0, 0);
 
   // ── Compute counts for each view ──────────────────────────
   const all      = leads.length;
@@ -59,11 +60,10 @@ export function LeadsSmartViews({ leads, currentUserId, active, onChange }: Lead
   // Overdue = follow-up date in the past, still open (not won/lost). The most
   // actionable bucket for a rep — surfaced as its own chip (was a separate KPI row).
   const overdue  = leads.filter((l) => l.follow_up_date && l.follow_up_date < today && l.stage !== "won" && l.stage !== "lost").length;
-  const hot      = leads.filter((l) => l.stage === "demo" || l.stage === "trial" || l.stage === "quote").length;
+  // "Hot" = priority high OR late-funnel stage — same isHotLead the row tags use,
+  // so the chip count always matches the number of Hot-tagged rows.
+  const hot      = leads.filter(isHotLead).length;
   const newCt    = leads.filter((l) => l.stage === "new").length;
-  const wonMtdValue = leads
-    .filter((l) => l.stage === "won" && l.created_at && new Date(l.created_at) >= monthStart)
-    .reduce((s, l) => s + (l.value ?? 0), 0);
 
   return (
     <div className="mb-4 flex items-center gap-2 overflow-x-auto pb-1">
@@ -81,13 +81,9 @@ export function LeadsSmartViews({ leads, currentUserId, active, onChange }: Lead
       <ViewChip label="Overdue"    count={overdue}  active={active === "overdue"}  onClick={() => onChange("overdue")} tone="rose" />
       <ViewChip label="Hot"        count={hot}      active={active === "hot"}      onClick={() => onChange("hot")} />
       <ViewChip label="New"        count={newCt}    active={active === "new"}      onClick={() => onChange("new")} />
-      <ViewChip
-        label="Won MTD"
-        valueChip={wonMtdValue > 0 ? rupee(wonMtdValue, { compact: true }) : "₹0"}
-        active={active === "won-mtd"}
-        onClick={() => onChange("won-mtd")}
-        tone="emerald"
-      />
+      {duplicateCount > 0 && (
+        <ViewChip label="Duplicates" count={duplicateCount} active={active === "duplicates"} onClick={() => onChange("duplicates")} tone="rose" />
+      )}
     </div>
   );
 }

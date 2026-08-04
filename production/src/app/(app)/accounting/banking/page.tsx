@@ -39,10 +39,15 @@ export default function BankingPage() {
   const [deleteAccount, setDeleteAccount] = React.useState<BankAccountRow | null>(null);
   const [transferOpen, setTransferOpen] = React.useState(false);
 
-  const totalBalance = (accounts ?? []).reduce(
-    (sum, a) => sum + (a.current_balance ?? a.opening_balance),
-    0,
-  );
+  // "Total balance" = cash/bank ASSETS only. A credit card is a liability, so
+  // its (negative) balance is excluded here and surfaced separately as "owed" —
+  // otherwise a big card bill would silently shrink the headline cash figure.
+  const totalBalance = (accounts ?? [])
+    .filter((a) => a.account_type !== "credit_card")
+    .reduce((sum, a) => sum + (a.current_balance ?? a.opening_balance), 0);
+  const cardOwed = (accounts ?? [])
+    .filter((a) => a.account_type === "credit_card")
+    .reduce((sum, a) => sum + Math.max(0, -(a.current_balance ?? a.opening_balance)), 0);
 
   return (
     <div className="p-4 md:p-6 lg:p-8 max-w-[1800px] mx-auto">
@@ -75,7 +80,9 @@ export default function BankingPage() {
             <div>
               <p className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold">Total balance</p>
               <p className="font-serif text-2xl text-ink mt-1">{rupee(totalBalance, { compact: true })}</p>
-              <p className="text-[11px] text-ink-3 mt-0.5">Across all accounts</p>
+              <p className="text-[11px] text-ink-3 mt-0.5">
+                {cardOwed > 0 ? <>Cash &amp; bank · <span className="text-rose">{rupee(cardOwed, { compact: true })} cards ka owe / udhari</span></> : "Across all accounts"}
+              </p>
             </div>
             <div>
               <p className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold">Accounts</p>
@@ -155,6 +162,9 @@ function BankAccountCard({
 }) {
   const balance = account.current_balance ?? account.opening_balance;
   const isPositive = balance >= 0;
+  // A credit card is a liability: its balance is ≤ 0 while money is owed. Show
+  // that as "owed" (the magnitude), not a negative number.
+  const isCard = account.account_type === "credit_card";
   return (
     <div className="relative rounded-lg border border-hairline bg-paper hover:border-hairline-strong hover:shadow-md transition-all">
       {/* Actions menu — absolutely positioned so it doesn't nest in the open button */}
@@ -193,27 +203,44 @@ function BankAccountCard({
             <h3 className="font-semibold text-ink truncate mt-0.5">{account.name}</h3>
             {account.account_type === "cash" ? (
               <p className="text-xs text-ink-3 mt-0.5">Cash in hand</p>
+            ) : isCard ? (
+              <p className="text-xs text-ink-3 mt-0.5">Company credit card · owe / udhari</p>
             ) : (
               <p className="text-xs text-ink-3 font-mono mt-0.5">
-                ••• {account.account_number_last4} · {account.ifsc}
+                {[account.account_number_last4 && `••• ${account.account_number_last4}`, account.ifsc]
+                  .filter(Boolean).join(" · ") || "No account number"}
               </p>
             )}
           </div>
           {/* leave room for the menu button */}
-          <Badge kind={account.account_type === "cash" ? "success" : "muted"} size="sm" className="mr-9">
+          <Badge kind={account.account_type === "cash" ? "success" : isCard ? "danger" : "muted"} size="sm" className="mr-9">
             {account.account_type === "current" ? "Current" :
              account.account_type === "savings" ? "Savings" :
              account.account_type === "overdraft" ? "OD" :
              account.account_type === "fixed_deposit" ? "FD" :
-             account.account_type === "cash" ? "Cash" : account.account_type}
+             account.account_type === "cash" ? "Cash" :
+             isCard ? "Card" : account.account_type}
           </Badge>
         </div>
 
         <div className="border-t border-hairline pt-3">
-          <p className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold">Balance</p>
-          <p className={`font-serif text-2xl mt-1 ${isPositive ? "text-ink" : "text-rose"}`}>
-            {rupee(balance)}
+          <p className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold">
+            {isCard ? "Owe / Udhari" : "Balance"}
           </p>
+          {isCard ? (
+            <>
+              <p className={`font-serif text-2xl mt-1 ${balance < 0 ? "text-rose" : "text-emerald"}`}>
+                {rupee(Math.abs(balance))}
+              </p>
+              <p className="text-[10px] text-ink-3 mt-0.5">
+                {balance < 0 ? "card par owe / udhari" : balance > 0 ? "extra jama (credit)" : "koi owe / udhari nahi"}
+              </p>
+            </>
+          ) : (
+            <p className={`font-serif text-2xl mt-1 ${isPositive ? "text-ink" : "text-rose"}`}>
+              {rupee(balance)}
+            </p>
+          )}
           <p className="text-[11px] text-ink-3 mt-1 inline-flex items-center gap-1">
             <Icon name="arrow_right" size={11} /> View transactions
           </p>

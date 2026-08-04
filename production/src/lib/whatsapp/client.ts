@@ -77,6 +77,14 @@ export type WhatsAppSendInput =
       mime:     string;                // e.g. "application/pdf"
       filename: string;                // shown to recipient
       caption?: string;
+    }
+  | {
+      /** Send an audio clip (e.g. a TTS reminder voice note). Uploaded to Meta's
+       *  /media endpoint like a document; sent as a type:"audio" message. */
+      kind:     "audio";
+      buffer:   Buffer;
+      mime:     string;                // e.g. "audio/wav" | "audio/ogg"
+      filename: string;                // e.g. "reminder.wav" (media upload needs one)
     };
 
 export interface WhatsAppSendResult {
@@ -112,7 +120,7 @@ export async function sendWhatsApp(opts: {
   // For documents we have to upload the file to Meta's /media endpoint
   // first; that returns a media_id we then reference in the message body.
   let uploadedMediaId: string | null = null;
-  if (opts.message.kind === "document") {
+  if (opts.message.kind === "document" || opts.message.kind === "audio") {
     uploadedMediaId = await uploadWhatsAppMedia(
       { phoneNumberId: creds.phoneNumberId, accessToken: creds.accessToken },
       opts.message.buffer,
@@ -146,6 +154,15 @@ export async function sendWhatsApp(opts: {
         ...(opts.message.caption ? { caption: opts.message.caption } : {}),
       },
     };
+  } else if (opts.message.kind === "audio") {
+    rowType = "audio";
+    payload = {
+      messaging_product: "whatsapp",
+      recipient_type:    "individual",
+      to,
+      type:              "audio",
+      audio: { id: uploadedMediaId },
+    };
   } else {
     rowType = "template";
     payload = {
@@ -177,10 +194,10 @@ export async function sendWhatsApp(opts: {
       template_name:       opts.message.kind === "template" ? opts.message.name : null,
       template_lang:       opts.message.kind === "template" ? opts.message.language : null,
       template_params:     opts.message.kind === "template" ? opts.message.components ?? null : null,
-      // Media references — only set for document/media sends
-      media_id:            opts.message.kind === "document" ? uploadedMediaId : null,
-      media_mime:          opts.message.kind === "document" ? opts.message.mime     : null,
-      media_filename:      opts.message.kind === "document" ? opts.message.filename : null,
+      // Media references — set for document + audio sends
+      media_id:            (opts.message.kind === "document" || opts.message.kind === "audio") ? uploadedMediaId : null,
+      media_mime:          (opts.message.kind === "document" || opts.message.kind === "audio") ? opts.message.mime     : null,
+      media_filename:      (opts.message.kind === "document" || opts.message.kind === "audio") ? opts.message.filename : null,
       status:              "pending",
       related_lead_id:     opts.related?.leadId     ?? null,
       related_quote_id:    opts.related?.quoteId    ?? null,

@@ -150,7 +150,7 @@ function PortalLoginInner() {
           <div className="mb-4 p-3 bg-rose-soft border border-rose/30 rounded-md text-xs text-rose">
             We couldn&apos;t find a customer account with that email. Please use the
             same email address you provided when ordering. If you&apos;re sure it&apos;s
-            right, WhatsApp Pardeep on +91 99999 30300.
+            right, contact the business you purchased from.
           </div>
         )}
         {error === "auth_failed" && step === "email" && (
@@ -238,7 +238,7 @@ function PortalLoginInner() {
         )}
 
         <div className="mt-6 pt-5 border-t border-hairline text-center text-xs text-ink-3">
-          Need help? WhatsApp Pardeep on <b className="text-ink">+91 99999 30300</b>
+          Need help? Contact the business you purchased from.
         </div>
       </Card>
     </div>

@@ -28,6 +28,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { rupee, formatDate } from "@/lib/utils";
+import { downloadCSV } from "@/lib/csv";
 import {
   useBalanceSheetAuto,
   useBalanceSheetItems,
@@ -59,7 +60,7 @@ export default function BalanceSheetPage() {
   const autoAssets =
     (auto?.cashAndBank ?? 0) + (auto?.receivables ?? 0) + (auto?.projectReceivable ?? 0) + (auto?.tdsReceivable ?? 0)
     + (auto?.employeeLoans ?? 0) + (auto?.fixedAssets ?? 0) + gstCredit;
-  const autoLiab = (auto?.payables ?? 0) + (auto?.salaryPayable ?? 0) + (auto?.salaryDuesPayable ?? 0) + (auto?.emiLoansPayable ?? 0) + gstPayable;
+  const autoLiab = (auto?.payables ?? 0) + (auto?.salaryPayable ?? 0) + (auto?.salaryDuesPayable ?? 0) + (auto?.reimbursementsPayable ?? 0) + (auto?.creditCardPayable ?? 0) + (auto?.emiLoansPayable ?? 0) + (auto?.businessLoansPayable ?? 0) + gstPayable;
 
   const manualAssetRows = manual("asset");
   const manualLiabRows  = manual("liability");
@@ -69,6 +70,46 @@ export default function BalanceSheetPage() {
   const totalLiab   = autoLiab + sum(manualLiabRows);
   const netWorth    = totalAssets - totalLiab;                 // = total equity
   const retained    = netWorth - sum(manualEqRows);            // balancing plug
+
+  // Export the full sheet as a CSV the owner can hand to their CA (mirrors GST/P&L).
+  function exportCSV() {
+    if (!auto) return;
+    downloadCSV(
+      `balance-sheet-${today}.csv`,
+      ["Line", "Amount (INR)"],
+      [
+        ["As of date", today],
+        ["", ""],
+        ["ASSETS", ""],
+        ["Cash & bank", auto.cashAndBank ?? 0],
+        ["Accounts receivable", auto.receivables ?? 0],
+        ["Project receivable", auto.projectReceivable ?? 0],
+        ["TDS receivable", auto.tdsReceivable ?? 0],
+        ["Employee loans (advances)", auto.employeeLoans ?? 0],
+        ["Fixed assets", auto.fixedAssets ?? 0],
+        ["GST input credit (ITC)", gstCredit],
+        ...manualAssetRows.map((r): [string, number] => [r.label, r.amount]),
+        ["Total assets", totalAssets],
+        ["", ""],
+        ["LIABILITIES", ""],
+        ["Accounts payable", auto.payables ?? 0],
+        ["Salary payable", auto.salaryPayable ?? 0],
+        ["Statutory dues payable", auto.salaryDuesPayable ?? 0],
+        ["Reimbursements payable", auto.reimbursementsPayable ?? 0],
+        ["Credit card payable", auto.creditCardPayable ?? 0],
+        ["EMI loans payable", auto.emiLoansPayable ?? 0],
+        ["Business loans payable", auto.businessLoansPayable ?? 0],
+        ["GST payable", gstPayable],
+        ...manualLiabRows.map((r): [string, number] => [r.label, r.amount]),
+        ["Total liabilities", totalLiab],
+        ["", ""],
+        ["EQUITY", ""],
+        ...manualEqRows.map((r): [string, number] => [r.label, r.amount]),
+        ["Retained earnings (derived)", retained],
+        ["Net worth (total equity)", netWorth],
+      ],
+    );
+  }
 
   return (
     <div className="p-4 md:p-6 lg:p-8 max-w-[1240px] mx-auto">
@@ -81,9 +122,14 @@ export default function BalanceSheetPage() {
             What you own vs what you owe · as of {formatDate(today)}
           </p>
         </div>
-        <Button variant="primary" icon="plus" onClick={() => setAddOpen(true)}>
-          Add line
-        </Button>
+        <div className="flex gap-2">
+          <Button icon="download" onClick={exportCSV} disabled={loading || !auto}>
+            Export CSV
+          </Button>
+          <Button variant="primary" icon="plus" onClick={() => setAddOpen(true)}>
+            Add line
+          </Button>
+        </div>
       </div>
 
       {/* Honesty note */}
@@ -141,8 +187,17 @@ export default function BalanceSheetPage() {
                 {(auto?.salaryDuesPayable ?? 0) > 0 && (
                   <BSLine label="Salary dues payable" hint="withheld TDS/PF/ESI, not yet remitted" amount={auto?.salaryDuesPayable ?? 0} auto />
                 )}
+                {(auto?.reimbursementsPayable ?? 0) > 0 && (
+                  <BSLine label="Reimbursements payable" hint="expenses paid from someone's own card, not yet repaid" amount={auto?.reimbursementsPayable ?? 0} auto />
+                )}
+                {(auto?.creditCardPayable ?? 0) > 0 && (
+                  <BSLine label="Credit card payable" hint="company credit cards ka owe / udhari" amount={auto?.creditCardPayable ?? 0} auto />
+                )}
                 {(auto?.emiLoansPayable ?? 0) > 0 && (
                   <BSLine label="EMI / asset loans" hint="outstanding financing on purchases" amount={auto?.emiLoansPayable ?? 0} auto />
+                )}
+                {(auto?.businessLoansPayable ?? 0) > 0 && (
+                  <BSLine label="Bank / business loans" hint="outstanding principal on borrowings" amount={auto?.businessLoansPayable ?? 0} auto />
                 )}
                 {gstPayable > 0 && (
                   <BSLine label="GST payable" hint={`net, ${auto?.fyLabel ?? "this FY"} — before filing`} amount={gstPayable} auto />

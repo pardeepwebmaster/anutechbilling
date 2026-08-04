@@ -105,10 +105,11 @@ describe("mapInvoice", () => {
 });
 
 describe("mapQuote", () => {
-  const base = { id: "Q-2026-0042", amount: 300000, status: "sent", pdf_url: null } as QuoteRow;
-  it("builds payment_url and maps status buckets", () => {
+  const base = { id: "Q-2026-0042", amount: 300000, status: "sent", pdf_url: null,
+    public_token: "tok-abc-123" } as QuoteRow;
+  it("builds payment_url (with token) and maps status buckets", () => {
     const m = mapQuote(base, "https://app.example.com/");
-    expect(m.payment_url).toBe("https://app.example.com/quote/Q-2026-0042/accept");
+    expect(m.payment_url).toBe("https://app.example.com/quote/Q-2026-0042/accept?t=tok-abc-123");
     expect(m.status).toBe("pending"); // sent → pending
     expect(mapQuote({ ...base, status: "accepted" }, "x").status).toBe("accepted");
     expect(mapQuote({ ...base, status: "rejected" }, "x").status).toBe("expired");

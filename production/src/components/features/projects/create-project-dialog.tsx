@@ -63,7 +63,11 @@ export function CreateProjectDialog({ open, onOpenChange }: Props) {
 
   const setRow = (i: number, patch: Partial<Row>) =>
     setRows((rs) => rs.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
-  const addRow = () => setRows((rs) => [...rs, { label: `Milestone ${rs.length + 1}`, amount: "", due: "" }]);
+  const addRow = () => setRows((rs) => {
+    const sum = rs.reduce((s, r) => s + Math.max(0, Math.round(Number(r.amount) || 0)), 0);
+    const remaining = Math.max(0, totalNum - sum);
+    return [...rs, { label: `Milestone ${rs.length + 1}`, amount: remaining > 0 ? String(remaining) : "", due: "" }];
+  });
   const removeRow = (i: number) => setRows((rs) => rs.filter((_, idx) => idx !== i));
 
   const canSubmit =

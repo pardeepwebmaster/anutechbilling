@@ -13,6 +13,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { Reorder, useDragControls } from "framer-motion";
 
 import { useLeads } from "@/lib/queries/leads";
 import { useCustomers } from "@/lib/queries/customers";
@@ -26,12 +27,14 @@ import type { PartnerMetricsRow, TenantWithParent } from "@/lib/supabase/databas
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { KPI } from "@/components/shared/kpi";
+import { StatStrip } from "@/components/shared/stat-strip";
 import { Icon } from "@/components/ui/icon";
 import { Skeleton } from "@/components/ui/skeleton";
 import { rupee, daysBetween, formatDate } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 import { renewalStateLabel, renewalStateTone } from "@/lib/renewals/cadence";
 import { TrialsExpiringCard } from "@/components/features/trials/trials-expiring-card";
+import { GettingStartedCard } from "@/components/features/dashboard/getting-started-card";
 import { Badge } from "@/components/ui/badge";
 
 // ============================================================
@@ -66,6 +69,16 @@ const LEAD_STAGES = [
   { id: "won",     label: "Won",          dot: "bg-emerald", color: "bg-emerald" },
 ] as const;
 
+// Default card order per column — the seller can drag to re-order and the
+// choice is remembered in localStorage (keys below).
+const DASH_LEFT  = ["focus", "activity", "pipeline"];
+// Money-at-risk (renewals / trials) outranks the leaderboard — for a solo/small
+// reseller the leaderboard is a rank-of-one vanity row, so revenue reads first.
+// (Order is only the DEFAULT; the seller can still drag-reorder, saved to localStorage.)
+const DASH_RIGHT = ["chase", "renewals", "trials", "leaderboard", "comingup", "health"];
+const LS_LEFT  = "ros_dash_left";
+const LS_RIGHT = "ros_dash_right";
+
 export default function DashboardPage() {
   const router = useRouter();
 
@@ -77,6 +90,20 @@ export default function DashboardPage() {
   const { data: tasksToday }    = useTasks("today");
   const { data: tasksOverdue }  = useTasks("overdue");
   const { data: currentUser }   = useCurrentUser();
+
+  // Draggable-card order per column (persisted). Starts at the default order;
+  // snaps to the saved order after mount (avoids hydration mismatch).
+  const [leftOrder, setLeftOrder]   = React.useState<string[]>(DASH_LEFT);
+  const [rightOrder, setRightOrder] = React.useState<string[]>(DASH_RIGHT);
+  React.useEffect(() => {
+    try {
+      const l = localStorage.getItem(LS_LEFT);  if (l) setLeftOrder(JSON.parse(l));
+      const r = localStorage.getItem(LS_RIGHT); if (r) setRightOrder(JSON.parse(r));
+    } catch {}
+  }, []);
+  const persistOrder = (key: string, order: string[]) => {
+    try { localStorage.setItem(key, JSON.stringify(order)); } catch {}
+  };
 
   // Time-aware greeting + date
   const now = new Date();
@@ -101,6 +128,28 @@ export default function DashboardPage() {
   const acceptedQuotes  = (quotes ?? []).filter((q) => q.status === "accepted");
   const acceptedValue   = acceptedQuotes.reduce((s, q) => s + (q.amount ?? 0), 0);
   const draftQuotes     = (quotes ?? []).filter((q) => q.status === "draft").length;
+
+  // "Closed THIS MONTH" — must actually be this month, not all-time (that was a
+  // mislabeled money number). Quotes have no accepted_at, so use updated_at as
+  // the best proxy for when an accepted quote was closed. Header, KPI tile and
+  // the leaderboard all read these SAME figures so they can never disagree.
+  const monthStart = new Date(); monthStart.setDate(1); monthStart.setHours(0, 0, 0, 0);
+  const closedThisMonth = acceptedQuotes.filter(
+    (q) => q.updated_at && new Date(q.updated_at) >= monthStart,
+  );
+  const closedThisMonthValue = closedThisMonth.reduce((s, q) => s + (q.amount ?? 0), 0);
+
+  // "Chase the cash" — the seller's daily worklist: money owed to us + urgent
+  // to-dos. Accepted quotes not yet fully paid = money to collect.
+  const collectQuotes = (quotes ?? []).filter(
+    (q) => q.status === "accepted" && q.payment_status !== "received" && q.payment_status !== "invoiced",
+  );
+  const toCollect = collectQuotes.reduce((s, q) => s + Math.max(0, (q.amount ?? 0) - (q.payment_amount ?? 0)), 0);
+  const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+  const overdueFollowups = (leads ?? []).filter(
+    (l) => l.follow_up_date && l.stage !== "won" && l.stage !== "lost"
+      && new Date(l.follow_up_date).getTime() < todayStart.getTime(),
+  ).length;
 
   // Subscription aggregates — sum MRR across active subs only
   const activeSubs    = (subscriptions ?? []).filter((s) => s.status === "active");
@@ -224,7 +273,7 @@ export default function DashboardPage() {
   }, [leads, quotes]);
 
   const leaderboard = [
-    { rank: 1, name: `${currentUser?.fullName ?? "You"} (you)`, amount: acceptedValue, deals: acceptedQuotes.length, color: "amber" },
+    { rank: 1, name: `${currentUser?.fullName ?? "You"} (you)`, amount: closedThisMonthValue, deals: closedThisMonth.length, color: "amber" },
   ];
 
   // Real upcoming follow-ups — pulls from leads.follow_up_date in next 7 days
@@ -267,6 +316,206 @@ export default function DashboardPage() {
     { name: "WhatsApp Business (Gupshup)", status: "Not setup", tone: "warn" as const },
   ];
 
+  // ── Draggable dashboard widgets ───────────────────────────────────────────
+  // Each card is addressable by id so the two columns can render in the user's
+  // saved order. Chase-the-cash only exists when there's something to chase.
+  const hasChase = toCollect > 0 || overdueFollowups > 0 || overdueTaskCount > 0;
+  const widgets: Record<string, React.ReactNode> = {
+    focus: (
+      <Card title="Today's Focus" sub="What needs your attention now"
+        actions={<Button size="sm" variant="ghost" icon="filter">All</Button>} flush>
+        <div className="px-4 pb-3">
+          {focus.map((f, i) => (
+            <FocusRow key={i} icon={f.icon} tone={f.tone} title={f.title} note={f.note}
+              action={f.action} onClick={() => router.push(f.cta as any)} isLast={i === focus.length - 1} />
+          ))}
+        </div>
+      </Card>
+    ),
+    activity: (
+      <Card title="Recent Activity" sub="Last 24 hours"
+        actions={<Button size="sm" variant="ghost" iconRight="external">Full feed</Button>}>
+        {activity.length === 0 ? (
+          <div className="py-6 text-center text-sm text-ink-3">
+            Nothing happened in the last 24 hours.<br/>
+            <span className="text-[11px]">Add a lead or send a quote to see activity here.</span>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {activity.map((a, i) => <ActivityRow key={i} icon={a.icon} tone={a.tone} title={a.title} time={a.time} />)}
+          </div>
+        )}
+      </Card>
+    ),
+    pipeline: (
+      <Card title="Pipeline by Stage"
+        sub={activeLeads.length > 0
+          ? `${rupee(totalPipeline, { compact: true })} across ${activeLeads.length} deal${activeLeads.length === 1 ? "" : "s"}`
+          : "No active deals yet"}>
+        {!leads ? (
+          <div className="space-y-2">{[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-6" />)}</div>
+        ) : activeLeads.length === 0 ? (
+          <div className="py-6 text-center text-sm text-ink-3">
+            Add your first lead at <Link href={"/leads" as any} className="text-amber-ink underline">/leads</Link>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {LEAD_STAGES.map((s) => {
+              const stageLeads = (leads ?? []).filter((l) => l.stage === s.id);
+              const value = stageLeads.reduce((sum, l) => sum + (l.value ?? 0), 0);
+              const maxValue = Math.max(1, ...LEAD_STAGES.map((stg) =>
+                (leads ?? []).filter((l) => l.stage === stg.id).reduce((s, l) => s + (l.value ?? 0), 0)));
+              const pct = (value / maxValue) * 100;
+              return (
+                <div key={s.id} className="grid grid-cols-[120px_1fr_90px_36px] items-center gap-3">
+                  <div className="flex items-center gap-1.5 text-xs">
+                    <span className={cn("w-1.5 h-1.5 rounded-full", s.dot)} />{s.label}
+                  </div>
+                  <div className="h-2 rounded-full bg-paper-2 overflow-hidden">
+                    <div className={cn("h-full rounded-full transition-all", s.color)} style={{ width: `${pct}%` }} />
+                  </div>
+                  <div className="text-right tabular-nums text-sm text-ink-2">{value > 0 ? rupee(value, { compact: true }) : "—"}</div>
+                  <div className="text-right tabular-nums text-xs text-ink-3">{stageLeads.length}</div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </Card>
+    ),
+    chase: (
+      <Card title="Chase the cash" sub="Money owed + what's overdue" className="border-amber/40 bg-amber-soft/20">
+        <div className="space-y-1">
+          {toCollect > 0 && (
+            <ChaseRow icon="rupee" tone="emerald" title={`${rupee(toCollect, { compact: true })} to collect`}
+              note={`${collectQuotes.length} accepted quote${collectQuotes.length === 1 ? "" : "s"} unpaid`}
+              onClick={() => router.push("/quotes" as any)} />
+          )}
+          {overdueFollowups > 0 && (
+            <ChaseRow icon="phone" tone="rose" title={`${overdueFollowups} follow-up${overdueFollowups === 1 ? "" : "s"} overdue`}
+              note="Call / message before the deal cools" onClick={() => router.push("/leads" as any)} />
+          )}
+          {overdueTaskCount > 0 && (
+            <ChaseRow icon="alert" tone="rose" title={`${overdueTaskCount} task${overdueTaskCount === 1 ? "" : "s"} overdue`}
+              note="Clear these first" onClick={() => router.push("/tasks" as any)} />
+          )}
+        </div>
+      </Card>
+    ),
+    leaderboard: (
+      <Card title="Sales Leaderboard" sub="This month">
+        <div className="space-y-3">
+          {leaderboard.map((p) => (
+            <div key={p.rank} className="grid grid-cols-[auto_1fr_auto] items-center gap-3">
+              <div className={cn("w-7 h-7 rounded-full grid place-items-center font-serif text-sm",
+                p.rank === 1 ? "bg-amber text-white" : "bg-paper-2 text-ink-2")}>{p.rank}</div>
+              <div className="min-w-0">
+                <div className="text-sm font-medium truncate">{p.name}</div>
+                <div className="text-[11px] text-ink-3">{p.deals} deal{p.deals === 1 ? "" : "s"} closed</div>
+              </div>
+              <div className="font-serif tabular-nums text-lg">{rupee(p.amount, { compact: true })}</div>
+            </div>
+          ))}
+          {leaderboard.length === 0 && <div className="text-center text-sm text-ink-3 py-2">No closed deals yet</div>}
+        </div>
+      </Card>
+    ),
+    renewals: (
+      <Card title="Renewals coming up"
+        sub={enrichedRenewals.length === 0
+          ? "No subscriptions renewing in 30 days"
+          : `${enrichedRenewals.length} sub${enrichedRenewals.length === 1 ? "" : "s"} · ${rupee(renewalsRevAtRisk, { compact: true })} ARR`}
+        actions={enrichedRenewals.length > 0 ? (
+          <Button asChild size="sm" variant="ghost" iconRight="arrow_right"><Link href={"/renewals" as any}>View all</Link></Button>
+        ) : undefined}>
+        {enrichedRenewals.length === 0 ? (
+          <div className="py-3 text-center text-xs text-ink-3">Once you have active subscriptions, those nearing renewal will surface here.</div>
+        ) : (
+          <div className="space-y-2.5">
+            {enrichedRenewals.slice(0, 5).map(({ sub, daysUntil }) => (
+              <div key={sub.id} className="grid grid-cols-[auto_1fr_auto] items-center gap-3">
+                <div className={cn("w-8 h-8 rounded-md border border-hairline grid place-items-center",
+                  daysUntil <= 7 ? "text-rose" : daysUntil <= 14 ? "text-amber-ink" : "text-ink-3")}>
+                  <Icon name="refresh" size={14} />
+                </div>
+                <div className="min-w-0">
+                  <div className="text-sm font-medium truncate">{sub.customer_name}</div>
+                  <div className="flex items-center gap-2 text-[11px] text-ink-3 mt-0.5">
+                    <span>{sub.renewal_date ? formatDate(sub.renewal_date) : "—"}</span><span>·</span>
+                    <span className="font-mono">{sub.seats} seats · {rupee(sub.mrr)}/mo</span>
+                  </div>
+                  {sub.renewal_state !== "pending" && (
+                    <div className="mt-1"><Badge kind={renewalStateTone(sub.renewal_state)} dot>{renewalStateLabel(sub.renewal_state)}</Badge></div>
+                  )}
+                </div>
+                <div className={cn("text-right text-xs font-medium tabular-nums",
+                  daysUntil <= 0 ? "text-rose" : daysUntil <= 7 ? "text-rose" : daysUntil <= 14 ? "text-amber-ink" : "text-ink-3")}>
+                  {daysUntil < 0 ? `${Math.abs(daysUntil)}d grace` : daysUntil === 0 ? "today" : `${daysUntil}d`}
+                </div>
+              </div>
+            ))}
+            {enrichedRenewals.length > 5 && (
+              <p className="text-[11px] text-ink-3 pt-2 border-t border-hairline">+ {enrichedRenewals.length - 5} more renewing soon</p>
+            )}
+          </div>
+        )}
+      </Card>
+    ),
+    trials: <TrialsExpiringCard />,
+    comingup: (
+      <Card title="Coming Up"
+        sub={upcoming.some((u) => u.time.includes("overdue")) ? "⚠ Overdue first, then next 7 days" : "Next 7 days · scheduled follow-ups"}>
+        {upcoming.length === 0 ? (
+          <div className="py-6 text-center">
+            <p className="text-sm text-ink-3 mb-2">No follow-ups scheduled.</p>
+            <Link href={"/leads" as any} className="inline-flex items-center gap-1 text-xs text-amber-ink hover:underline">Schedule one from a lead →</Link>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {upcoming.map((u, i) => (
+              <button key={i} onClick={() => router.push(u.href as any)}
+                className="w-full grid grid-cols-[auto_1fr_auto] items-center gap-3 text-left hover:bg-paper-2 -mx-2 px-2 py-1.5 rounded-md transition-colors">
+                <div className={cn("w-8 h-8 rounded-md border border-hairline grid place-items-center",
+                  u.tone === "indigo" && "text-indigo", u.tone === "amber" && "text-amber-ink", u.tone === "rose" && "text-rose")}>
+                  <Icon name={u.icon} size={14} />
+                </div>
+                <div className="min-w-0">
+                  <div className="text-sm font-medium truncate">{u.type}: <span className="font-normal">{u.who}</span></div>
+                  <div className={cn("text-[11px]", u.tone === "rose" ? "text-rose font-medium" : "text-ink-3")}>{u.time}</div>
+                </div>
+                <Icon name="arrow_right" size={14} className="text-ink-3" />
+              </button>
+            ))}
+          </div>
+        )}
+      </Card>
+    ),
+    health: (
+      <Card title="Health" sub="System & integrations">
+        <div className="space-y-2">
+          {integrations.map((s) => (
+            <div key={s.name} className="flex justify-between items-center text-xs">
+              <div className="flex items-center gap-2">
+                <span className={cn("w-1.5 h-1.5 rounded-full", s.tone === "ok" ? "bg-emerald" : "bg-amber")} />
+                <span>{s.name}</span>
+              </div>
+              <span className={cn(s.tone === "ok" ? "text-emerald" : "text-amber-ink")}>{s.status}</span>
+            </div>
+          ))}
+        </div>
+      </Card>
+    ),
+  };
+
+  // Effective visible order = saved order (minus unavailable) + any new widgets.
+  const availIds = (all: string[]) => all.filter((id) => (id !== "chase" || hasChase) && widgets[id]);
+  const mergeOrder = (saved: string[], all: string[]) => {
+    const a = availIds(all);
+    return [...saved.filter((id) => a.includes(id)), ...a.filter((id) => !saved.includes(id))];
+  };
+  const leftIds  = mergeOrder(leftOrder, DASH_LEFT);
+  const rightIds = mergeOrder(rightOrder, DASH_RIGHT);
+
   return (
     <div className="p-4 md:p-6 lg:p-8 max-w-[1800px] mx-auto">
       {/* Header */}
@@ -278,8 +527,13 @@ export default function DashboardPage() {
           <h1 className="font-serif text-3xl md:text-4xl leading-tight">
             {greeting}{firstName ? `, ${firstName}` : ""}.
           </h1>
+          {/* Money one-liner — the greeting row also carries business signal so
+              the seller sees "how am I doing" before scanning anything. */}
           <p className="text-sm text-ink-3 mt-1">
-            Here's what's happening at <b className="text-ink">{workspaceName}</b> today.
+            <b className="text-emerald tabular-nums">{rupee(closedThisMonthValue, { compact: true })}</b> closed this month
+            <span className="mx-1.5">·</span>
+            <b className="text-ink tabular-nums">{rupee(totalPipeline, { compact: true })}</b> in pipeline
+            <span className="hidden sm:inline"> · {workspaceName}</span>
           </p>
         </div>
         <div className="flex gap-2">
@@ -297,19 +551,28 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* KPI grid */}
-      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 mb-6">
+      {/* First-run onboarding — guides a new reseller to their first quote, then
+          retires itself once they're set up (all steps derived from real data). */}
+      <GettingStartedCard
+        setupDone={Boolean(currentUser?.tenantSetupCompletedAt)}
+        hasCustomer={(customers?.length ?? 0) > 0}
+        hasQuote={(quotes?.length ?? 0) > 0}
+        hasSale={(subscriptions?.length ?? 0) > 0}
+        workspaceName={currentUser?.tenantName ?? ""}
+      />
+
+      {/* KPI — money-first, 2-tier. The three ₹ metrics get big coloured tiles
+          (a seller's eye should hit money first, F-pattern top-left); the plain
+          counts drop to a compact secondary strip so zeros don't shout. */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
         <KPI
-          label="MRR"
-          value={subscriptions ? rupee(activeMRR, { compact: true }) : "—"}
-          trend={
-            activeSubs.length === 0
-              ? "No subs yet"
-              : `${activeSubs.length} active sub${activeSubs.length === 1 ? "" : "s"}`
-          }
-          trendKind={activeMRR > 0 ? "up" : "neutral"}
-          trendIcon={activeMRR > 0 ? "trending_up" : undefined}
-          icon="rupee"
+          label="Closed this month"
+          value={rupee(closedThisMonthValue, { compact: true })}
+          accent="emerald"
+          trend={`${closedThisMonth.length} quote${closedThisMonth.length === 1 ? "" : "s"} accepted`}
+          trendKind="up"
+          trendIcon="check"
+          icon="check_circle"
         />
         <KPI
           label="Pipeline"
@@ -320,316 +583,48 @@ export default function DashboardPage() {
           icon="target"
         />
         <KPI
-          label="Accepted (MTD)"
-          value={rupee(acceptedValue, { compact: true })}
-          trend={`${acceptedQuotes.length} quote${acceptedQuotes.length === 1 ? "" : "s"}`}
-          trendKind="up"
-          trendIcon="check"
-        />
-        <KPI
-          label="Customers"
-          value={totalCustomers}
-          trend="In your tenant"
-          icon="users"
-        />
-        <KPI
-          label="Drafts"
-          value={draftQuotes}
-          trend="Pending send"
-          trendKind="neutral"
-          icon="file"
-        />
-        <KPI
-          label="Renewals · 30d"
-          value={enrichedRenewals.length}
+          label="MRR"
+          value={subscriptions ? rupee(activeMRR, { compact: true }) : "—"}
+          accent={activeMRR > 0 ? "emerald" : "ink"}
           trend={
-            enrichedRenewals.length === 0
-              ? "Quiet ahead"
-              : `${rupee(renewalsRevAtRisk, { compact: true })} ARR at risk`
+            activeSubs.length === 0
+              ? "No subs yet"
+              : `${activeSubs.length} active sub${activeSubs.length === 1 ? "" : "s"}`
           }
-          trendKind={urgentRenewals.length > 0 ? "down" : "neutral"}
-          trendIcon={urgentRenewals.length > 0 ? "alert" : "calendar"}
-          icon="refresh"
+          trendKind={activeMRR > 0 ? "up" : "neutral"}
+          trendIcon={activeMRR > 0 ? "trending_up" : undefined}
+          icon="rupee"
         />
       </div>
+      <StatStrip
+        className="mb-6"
+        items={[
+          { label: "Customers", value: totalCustomers },
+          { label: "Drafts to send", value: draftQuotes },
+          {
+            label: "Renewals · 30d",
+            value: enrichedRenewals.length,
+            tone: urgentRenewals.length > 0 ? "rose" : undefined,
+          },
+        ]}
+      />
 
       {/* Partner renewals alert — distributor tenants only, Slice 4.
           Aggregates across all sub-resellers via get_partner_metrics RPC. */}
       <PartnerRenewalAlertCard />
 
-      {/* Main 2-col grid */}
+      {/* Drag hint */}
+      <p className="text-[11px] text-ink-3 mb-2 hidden md:flex items-center gap-1">
+        <Icon name="more_h" size={11} className="rotate-90" />
+        Drag any card by its handle to rearrange — your layout is saved on this device.
+      </p>
+
+      {/* Main 2-col grid — each column's cards are drag-to-reorder (framer-motion). */}
       <div className="grid grid-cols-1 lg:grid-cols-[1.55fr_1fr] gap-4 items-start">
-        {/* LEFT */}
-        <div className="space-y-4">
-          {/* Today's Focus */}
-          <Card
-            title="Today's Focus"
-            sub="What needs your attention now"
-            actions={<Button size="sm" variant="ghost" icon="filter">All</Button>}
-            flush
-          >
-            <div className="px-4 pb-3">
-              {focus.map((f, i) => (
-                <FocusRow
-                  key={i}
-                  icon={f.icon}
-                  tone={f.tone}
-                  title={f.title}
-                  note={f.note}
-                  action={f.action}
-                  onClick={() => router.push(f.cta as any)}
-                  isLast={i === focus.length - 1}
-                />
-              ))}
-            </div>
-          </Card>
-
-          {/* Recent Activity — real events from leads + quotes tables in last 24h.
-              Previously stubbed with "Welcome to your workspace" placeholders
-              that didn't actually represent any work the user did. */}
-          <Card
-            title="Recent Activity"
-            sub="Last 24 hours"
-            actions={<Button size="sm" variant="ghost" iconRight="external">Full feed</Button>}
-          >
-            {activity.length === 0 ? (
-              <div className="py-6 text-center text-sm text-ink-3">
-                Nothing happened in the last 24 hours.
-                <br/>
-                <span className="text-[11px]">Add a lead or send a quote to see activity here.</span>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {activity.map((a, i) => (
-                  <ActivityRow key={i} icon={a.icon} tone={a.tone} title={a.title} time={a.time} />
-                ))}
-              </div>
-            )}
-          </Card>
-
-          {/* Pipeline by Stage */}
-          <Card
-            title="Pipeline by Stage"
-            sub={
-              activeLeads.length > 0
-                ? `${rupee(totalPipeline, { compact: true })} across ${activeLeads.length} deal${activeLeads.length === 1 ? "" : "s"}`
-                : "No active deals yet"
-            }
-          >
-            {!leads ? (
-              <div className="space-y-2">
-                {[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-6" />)}
-              </div>
-            ) : activeLeads.length === 0 ? (
-              <div className="py-6 text-center text-sm text-ink-3">
-                Add your first lead at{" "}
-                <Link href={"/leads" as any} className="text-amber-ink underline">/leads</Link>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {LEAD_STAGES.map((s) => {
-                  const stageLeads = (leads ?? []).filter((l) => l.stage === s.id);
-                  const value = stageLeads.reduce((sum, l) => sum + (l.value ?? 0), 0);
-                  const maxValue = Math.max(1, ...LEAD_STAGES.map((stg) =>
-                    (leads ?? []).filter((l) => l.stage === stg.id).reduce((s, l) => s + (l.value ?? 0), 0)
-                  ));
-                  const pct = (value / maxValue) * 100;
-                  return (
-                    <div key={s.id} className="grid grid-cols-[120px_1fr_90px_36px] items-center gap-3">
-                      <div className="flex items-center gap-1.5 text-xs">
-                        <span className={cn("w-1.5 h-1.5 rounded-full", s.dot)} />
-                        {s.label}
-                      </div>
-                      <div className="h-2 rounded-full bg-paper-2 overflow-hidden">
-                        <div
-                          className={cn("h-full rounded-full transition-all", s.color)}
-                          style={{ width: `${pct}%` }}
-                        />
-                      </div>
-                      <div className="text-right tabular-nums text-sm text-ink-2">
-                        {value > 0 ? rupee(value, { compact: true }) : "—"}
-                      </div>
-                      <div className="text-right tabular-nums text-xs text-ink-3">
-                        {stageLeads.length}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </Card>
-        </div>
-
-        {/* RIGHT */}
-        <div className="space-y-4">
-          {/* Sales Leaderboard */}
-          <Card title="Sales Leaderboard" sub="This month">
-            <div className="space-y-3">
-              {leaderboard.map((p) => (
-                <div key={p.rank} className="grid grid-cols-[auto_1fr_auto] items-center gap-3">
-                  <div className={cn(
-                    "w-7 h-7 rounded-full grid place-items-center font-serif text-sm",
-                    p.rank === 1 ? "bg-amber text-white" : "bg-paper-2 text-ink-2"
-                  )}>
-                    {p.rank}
-                  </div>
-                  <div className="min-w-0">
-                    <div className="text-sm font-medium truncate">{p.name}</div>
-                    <div className="text-[11px] text-ink-3">{p.deals} deal{p.deals === 1 ? "" : "s"} closed</div>
-                  </div>
-                  <div className="font-serif tabular-nums text-lg">{rupee(p.amount, { compact: true })}</div>
-                </div>
-              ))}
-              {leaderboard.length === 0 && (
-                <div className="text-center text-sm text-ink-3 py-2">No closed deals yet</div>
-              )}
-            </div>
-          </Card>
-
-          {/* Renewals coming up — top 5 in next 30 days */}
-          <Card
-            title="Renewals coming up"
-            sub={
-              enrichedRenewals.length === 0
-                ? "No subscriptions renewing in 30 days"
-                : `${enrichedRenewals.length} sub${enrichedRenewals.length === 1 ? "" : "s"} · ${rupee(renewalsRevAtRisk, { compact: true })} ARR`
-            }
-            actions={
-              enrichedRenewals.length > 0 ? (
-                <Button asChild size="sm" variant="ghost" iconRight="arrow_right">
-                  <Link href={"/renewals" as any}>View all</Link>
-                </Button>
-              ) : undefined
-            }
-          >
-            {enrichedRenewals.length === 0 ? (
-              <div className="py-3 text-center text-xs text-ink-3">
-                Once you have active subscriptions, those nearing renewal will surface here.
-              </div>
-            ) : (
-              <div className="space-y-2.5">
-                {enrichedRenewals.slice(0, 5).map(({ sub, daysUntil }) => (
-                  <div
-                    key={sub.id}
-                    className="grid grid-cols-[auto_1fr_auto] items-center gap-3"
-                  >
-                    <div
-                      className={cn(
-                        "w-8 h-8 rounded-md border border-hairline grid place-items-center",
-                        daysUntil <= 7 ? "text-rose" : daysUntil <= 14 ? "text-amber-ink" : "text-ink-3",
-                      )}
-                    >
-                      <Icon name="refresh" size={14} />
-                    </div>
-                    <div className="min-w-0">
-                      <div className="text-sm font-medium truncate">{sub.customer_name}</div>
-                      <div className="flex items-center gap-2 text-[11px] text-ink-3 mt-0.5">
-                        <span>{sub.renewal_date ? formatDate(sub.renewal_date) : "—"}</span>
-                        <span>·</span>
-                        <span className="font-mono">{sub.seats} seats · {rupee(sub.mrr)}/mo</span>
-                      </div>
-                      {sub.renewal_state !== "pending" && (
-                        <div className="mt-1">
-                          <Badge kind={renewalStateTone(sub.renewal_state)} dot>
-                            {renewalStateLabel(sub.renewal_state)}
-                          </Badge>
-                        </div>
-                      )}
-                    </div>
-                    <div className={cn(
-                      "text-right text-xs font-medium tabular-nums",
-                      daysUntil <= 0 ? "text-rose" :
-                      daysUntil <= 7 ? "text-rose" :
-                      daysUntil <= 14 ? "text-amber-ink" :
-                      "text-ink-3",
-                    )}>
-                      {daysUntil < 0
-                        ? `${Math.abs(daysUntil)}d grace`
-                        : daysUntil === 0
-                          ? "today"
-                          : `${daysUntil}d`}
-                    </div>
-                  </div>
-                ))}
-                {enrichedRenewals.length > 5 && (
-                  <p className="text-[11px] text-ink-3 pt-2 border-t border-hairline">
-                    + {enrichedRenewals.length - 5} more renewing soon
-                  </p>
-                )}
-              </div>
-            )}
-          </Card>
-
-          {/* Trials expiring soon — auto-updates as cron fires */}
-          <TrialsExpiringCard />
-
-          {/* Coming Up — real follow-ups from leads.follow_up_date.
-              Previously hardcoded fake meetings (TechBrand / Cosmo Tech /
-              Beta Industries) confused operators who couldn't find those
-              companies anywhere. Now shows only actual scheduled work. */}
-          <Card title="Coming Up" sub="Next 7 days · scheduled follow-ups">
-            {upcoming.length === 0 ? (
-              <div className="py-6 text-center">
-                <p className="text-sm text-ink-3 mb-2">No follow-ups scheduled.</p>
-                <Link
-                  href={"/leads" as any}
-                  className="inline-flex items-center gap-1 text-xs text-amber-ink hover:underline"
-                >
-                  Schedule one from a lead →
-                </Link>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {upcoming.map((u, i) => (
-                  <button
-                    key={i}
-                    onClick={() => router.push(u.href as any)}
-                    className="w-full grid grid-cols-[auto_1fr_auto] items-center gap-3 text-left hover:bg-paper-2 -mx-2 px-2 py-1.5 rounded-md transition-colors"
-                  >
-                    <div className={cn(
-                      "w-8 h-8 rounded-md border border-hairline grid place-items-center",
-                      u.tone === "indigo" && "text-indigo",
-                      u.tone === "amber"  && "text-amber-ink",
-                      u.tone === "rose"   && "text-rose",
-                    )}>
-                      <Icon name={u.icon} size={14} />
-                    </div>
-                    <div className="min-w-0">
-                      <div className="text-sm font-medium truncate">{u.type}: <span className="font-normal">{u.who}</span></div>
-                      <div className={cn(
-                        "text-[11px]",
-                        u.tone === "rose" ? "text-rose font-medium" : "text-ink-3",
-                      )}>{u.time}</div>
-                    </div>
-                    <Icon name="arrow_right" size={14} className="text-ink-3" />
-                  </button>
-                ))}
-              </div>
-            )}
-          </Card>
-
-          {/* Integration Health */}
-          <Card title="Health" sub="System & integrations">
-            <div className="space-y-2">
-              {integrations.map((s) => (
-                <div key={s.name} className="flex justify-between items-center text-xs">
-                  <div className="flex items-center gap-2">
-                    <span className={cn(
-                      "w-1.5 h-1.5 rounded-full",
-                      s.tone === "ok" ? "bg-emerald" : "bg-amber"
-                    )} />
-                    <span>{s.name}</span>
-                  </div>
-                  <span className={cn(
-                    s.tone === "ok" ? "text-emerald" : "text-amber-ink"
-                  )}>
-                    {s.status}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </Card>
-        </div>
+        <DashColumn ids={leftIds} widgets={widgets}
+          onReorder={(o) => { setLeftOrder(o); persistOrder(LS_LEFT, o); }} />
+        <DashColumn ids={rightIds} widgets={widgets}
+          onReorder={(o) => { setRightOrder(o); persistOrder(LS_RIGHT, o); }} />
       </div>
     </div>
   );
@@ -665,10 +660,41 @@ function FocusRow({
         <div className="text-sm font-medium leading-tight">{title}</div>
         <div className="text-[11px] text-ink-3 mt-0.5">{note}</div>
       </div>
-      <Button size="sm" variant="ghost" iconRight="arrow_right" onClick={onClick}>
+      <Button size="sm" variant="outline" iconRight="arrow_right" onClick={onClick}>
         {action}
       </Button>
     </div>
+  );
+}
+
+// ============================================================
+// ChaseRow — a single "chase the cash" action line.
+// ============================================================
+function ChaseRow({
+  icon, tone, title, note, onClick,
+}: {
+  icon: string; tone: "emerald" | "rose" | "amber"; title: string; note: string; onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="w-full grid grid-cols-[32px_1fr_auto] items-center gap-3 py-2 text-left hover:bg-paper-2/60 -mx-2 px-2 rounded-md transition-colors"
+    >
+      <div className={cn(
+        "w-7 h-7 rounded-md grid place-items-center",
+        tone === "emerald" && "bg-emerald-soft text-emerald",
+        tone === "amber"   && "bg-amber-soft text-amber-ink",
+        tone === "rose"    && "bg-rose-soft text-rose",
+      )}>
+        <Icon name={icon} size={14} />
+      </div>
+      <div className="min-w-0">
+        <div className={cn("text-sm font-semibold leading-tight", tone === "emerald" ? "text-emerald" : tone === "rose" ? "text-rose" : "text-ink")}>{title}</div>
+        <div className="text-[11px] text-ink-3 mt-0.5">{note}</div>
+      </div>
+      <Icon name="arrow_right" size={14} className="text-ink-3" />
+    </button>
   );
 }
 
@@ -691,6 +717,48 @@ function ActivityRow({ icon, tone, title, time }: { icon: string; tone: string; 
       <div className="text-sm">{title}</div>
       <div className="text-[11px] text-ink-3">{time}</div>
     </div>
+  );
+}
+
+// ============================================================
+// DashColumn / DashWidget — drag-to-reorder cards (framer-motion Reorder).
+// A per-card grip handle triggers the drag (dragListener={false}) so buttons
+// and links inside the card still work normally.
+// ============================================================
+function DashColumn({
+  ids, widgets, onReorder,
+}: {
+  ids: string[]; widgets: Record<string, React.ReactNode>; onReorder: (order: string[]) => void;
+}) {
+  return (
+    <Reorder.Group axis="y" values={ids} onReorder={onReorder} className="space-y-4">
+      {ids.map((id) => (
+        <DashWidget key={id} id={id}>{widgets[id]}</DashWidget>
+      ))}
+    </Reorder.Group>
+  );
+}
+
+function DashWidget({ id, children }: { id: string; children: React.ReactNode }) {
+  const controls = useDragControls();
+  return (
+    <Reorder.Item
+      value={id}
+      dragListener={false}
+      dragControls={controls}
+      className="relative group/drag"
+    >
+      {/* Grip handle — appears on hover; only this starts the drag. */}
+      <button
+        type="button"
+        aria-label="Drag to rearrange"
+        onPointerDown={(e) => controls.start(e)}
+        className="absolute left-1 top-3.5 z-10 hidden md:flex h-6 w-5 touch-none cursor-grab items-center justify-center rounded text-ink-3/40 opacity-0 transition-opacity hover:text-ink-2 group-hover/drag:opacity-100 active:cursor-grabbing"
+      >
+        <Icon name="more_h" size={14} className="rotate-90" />
+      </button>
+      {children}
+    </Reorder.Item>
   );
 }
 

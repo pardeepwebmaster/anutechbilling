@@ -1,22 +1,17 @@
 /**
- * AddCustomerForm — modal dialog to create a new customer.
+ * AddCustomerForm — the side-SHEET customer form.
  *
- * Flow we want Pardeep to use:
- *   1. Type / paste the customer's GSTIN
- *   2. Click "Verify with GSTN" — Sandbox API returns the live business info
- *   3. Click "Fill form from GST" — legal name, address, state, PIN auto-fill
- *   4. Add contact details, save
+ * Used where a full page navigation would lose context — most importantly the
+ * quote builder's inline "＋ New customer" (you're mid-invoice, we can't throw
+ * away the draft). The primary add/edit entry points (customers list + detail)
+ * use the full-page form instead (`/customers/new`, `/customers/[id]/edit`).
  *
- * Why this matters: a wrong customer GSTIN means the invoice is invalid
- * — customer can't claim ITC, then a chargeback / complaint comes back to
- * Pardeep. Verifying up front prevents that.
+ * All logic lives in {@link useCustomerForm}; this file is just the sheet chrome
+ * + the stacked field layout that suits a narrow 520px panel.
  */
 "use client";
 
 import * as React from "react";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
 
 import {
   Sheet,
@@ -30,134 +25,35 @@ import { Input } from "@/components/ui/input";
 import { FormField } from "@/components/ui/label";
 import { Icon } from "@/components/ui/icon";
 import { Button } from "@/components/ui/button";
-import { useCreateCustomer, useUpdateCustomer } from "@/lib/queries/customers";
-import {
-  isValidGstin,
-  validateGstin,
-  gstStateFromGstin,
-  GST_STATE_BY_CODE,
-} from "@/lib/utils";
+import { isValidGstin, validateGstin, GST_STATE_BY_CODE } from "@/lib/utils";
 import GstinVerifyCard from "@/components/features/gstin/gstin-verify-card";
-import type { GstinVerification, Customer } from "@/lib/supabase/database.types";
-
-// Schema — GSTIN optional but checksum-validated when present. State code
-// stays in the schema (it's needed for GST math) but the visible input
-// field is dropped; we auto-derive from GSTIN, same pattern as Settings.
-const schema = z.object({
-  name:          z.string().min(2, "Company name is required"),
-  domain:        z.string().optional(),
-  gstin:         z.string().trim().optional().superRefine((v, ctx) => {
-    if (!v) return;
-    const r = validateGstin(v);
-    if (!r.ok) ctx.addIssue({ code: z.ZodIssueCode.custom, message: r.message });
-  }),
-  state:         z.string().optional(),
-  state_code:    z.string().regex(/^\d{0,2}$/).optional(),
-  address:       z.string().optional(),
-  pin_code:      z.string().regex(/^\d{0,6}$/, "6-digit PIN (or blank)").optional(),
-  contact_name:  z.string().optional(),
-  contact_title: z.string().optional(),
-  contact_email: z.string().email("Invalid email").optional().or(z.literal("")),
-  contact_phone: z.string().optional(),
-});
-
-type FormData = z.infer<typeof schema>;
+import { COUNTRIES } from "@/lib/gst/countries";
+import { useCustomerForm } from "./use-customer-form";
+import type { Customer } from "@/lib/supabase/database.types";
 
 interface AddCustomerFormProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   /** When provided, the form opens in EDIT mode (prefilled + updates this customer). */
   customer?: Customer | null;
+  /** Called with the new customer's id after a successful CREATE (lets a caller auto-select it). */
+  onCreated?: (id: string) => void;
 }
 
-export function AddCustomerForm({ open, onOpenChange, customer }: AddCustomerFormProps) {
-  const isEdit = !!customer;
-  const createCustomer = useCreateCustomer();
-  const updateCustomer = useUpdateCustomer();
-  // Hold the live verification result so we can persist it with the
-  // create call (no extra round-trip).
-  const [verification, setVerification] = React.useState<GstinVerification | null>(null);
-
+export function AddCustomerForm({ open, onOpenChange, customer, onCreated }: AddCustomerFormProps) {
   const {
-    register,
-    handleSubmit,
-    reset,
-    watch,
-    setValue,
-    formState: { errors, isSubmitting },
-  } = useForm<FormData>({
-    resolver: zodResolver(schema),
-    defaultValues: {},
-  });
-
-  // On open: prefill from the customer (edit) or start blank (create).
-  // On close: wipe so reopening starts clean.
-  React.useEffect(() => {
-    if (!open) {
-      reset();
-      setVerification(null);
-      return;
-    }
-    if (customer) {
-      reset({
-        name:          customer.name ?? "",
-        domain:        customer.domain ?? "",
-        gstin:         customer.gstin ?? "",
-        state:         customer.state ?? "",
-        state_code:    customer.state_code ?? "",
-        address:       customer.address ?? "",
-        pin_code:      customer.pin_code ?? "",
-        contact_name:  customer.contact_name ?? "",
-        contact_title: customer.contact_title ?? "",
-        contact_email: customer.contact_email ?? "",
-        contact_phone: customer.contact_phone ?? "",
-      });
-      setVerification(customer.gstin_verification ?? null);
-    } else {
-      reset({});
-      setVerification(null);
-    }
-  }, [open, customer, reset]);
-
-  // Auto-derive state + state_code from GSTIN on every keystroke. Same
-  // logic as Settings — first 2 digits of GSTIN = state code.
-  const watchedGstin = watch("gstin");
-  React.useEffect(() => {
-    const { code, name } = gstStateFromGstin(watchedGstin ?? "");
-    if (code) setValue("state_code", code, { shouldDirty: true });
-    if (name) setValue("state",      name, { shouldDirty: true });
-  }, [watchedGstin, setValue]);
-
-  const onSubmit = async (data: FormData) => {
-    const base = {
-      name:          data.name.trim(),
-      domain:        data.domain?.trim()        || null,
-      gstin:         data.gstin?.trim()         || null,
-      state:         data.state?.trim()         || null,
-      state_code:    data.state_code?.trim()    || null,
-      address:       data.address?.trim()       || null,
-      pin_code:      data.pin_code?.trim()      || null,
-      contact_name:  data.contact_name?.trim()  || null,
-      contact_title: data.contact_title?.trim() || null,
-      contact_email: data.contact_email?.trim() || null,
-      contact_phone: data.contact_phone?.trim() || null,
-    };
-    // Only stamp verification when newly verified this session — so editing an
-    // already-verified customer without re-verifying doesn't wipe its status.
-    const payload = verification
-      ? { ...base, gstin_verification: verification, gstin_verified_at: new Date().toISOString() }
-      : base;
-    try {
-      if (isEdit && customer) {
-        await updateCustomer.mutateAsync({ id: customer.id, patch: payload });
-      } else {
-        await createCustomer.mutateAsync(payload);
-      }
+    register, setValue, watch, errors, isSubmitting, isPending, isEdit,
+    contactPersonFields, appendContactPerson, removeContactPerson,
+    verification, setVerification, watchedGstin,
+    isForeign, foreignStates, countryReg, onCountryChange, submit,
+  } = useCustomerForm({
+    customer,
+    open,
+    onSaved: (id) => {
+      if (!isEdit) onCreated?.(id);
       onOpenChange(false);
-    } catch {
-      // toast handled in hook
-    }
-  };
+    },
+  });
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -170,16 +66,38 @@ export function AddCustomerForm({ open, onOpenChange, customer }: AddCustomerFor
           <SheetDescription>
             {isEdit
               ? "Update this customer's details. Company name = the customer; contact = the person."
-              : "Type the GSTIN first — we'll verify with GSTN and auto-fill the rest."}
+              : isForeign
+                ? "International customer — GST/GSTIN doesn't apply. Add their business details below."
+                : "Pick the country. For India, type the GSTIN first — we'll verify with GSTN and auto-fill the rest."}
           </SheetDescription>
         </SheetHeader>
 
-        <form
-          onSubmit={handleSubmit(onSubmit)}
-          className="flex flex-col flex-1 min-h-0 min-w-0 w-full"
-        >
+        <form onSubmit={submit} className="flex flex-col flex-1 min-h-0 min-w-0 w-full">
           <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4 space-y-4">
-          {/* GSTIN — leads the form. Verify card lives directly under it. */}
+          {/* Country FIRST — it decides the whole form: India = GST flow (GSTIN,
+              state code, 6-digit PIN); anything else = export flow (no GST). */}
+          <FormField label="Country" htmlFor="country">
+            <select
+              id="country"
+              className="w-full rounded-md border border-hairline bg-paper px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-amber/40"
+              {...countryReg}
+              onChange={onCountryChange}
+            >
+              {COUNTRIES.map((ctry) => <option key={ctry} value={ctry}>{ctry}</option>)}
+            </select>
+            {isForeign && (
+              <p className="mt-1 flex items-start gap-1 text-[11px] leading-snug text-indigo-ink">
+                <span>🌍</span>
+                <span>
+                  <b>Export customer.</b> Supplies to this customer are <b>zero-rated</b> (no CGST/SGST/IGST)
+                  under LUT. The GST invoice will carry the export declaration instead of a tax split.
+                </span>
+              </p>
+            )}
+          </FormField>
+
+          {/* GSTIN — India only. An export customer has no GSTIN. */}
+          {!isForeign && (
           <FormField label="GSTIN (recommended)" htmlFor="gstin">
             <Input
               id="gstin"
@@ -225,36 +143,43 @@ export function AddCustomerForm({ open, onOpenChange, customer }: AddCustomerFor
               }}
             />
           </FormField>
+          )}
 
-          {/* Hidden — derived from GSTIN. Kept in form data so GST math
-              and invoice PDFs have the canonical 2-digit code on save. */}
+          {/* Hidden — derived from GSTIN (India only). Kept in form data so GST
+              math and invoice PDFs have the canonical 2-digit code on save. */}
           <input type="hidden" {...register("state_code")} />
 
-          {/* Company name — auto-filled by Fill from GST, manually
-              editable too. */}
+          {/* Company name — auto-filled by Fill from GST, manually editable too. */}
           <FormField label="Company name" required htmlFor="name">
-            <Input
-              id="name"
-              placeholder="Acme Corp Pvt Ltd"
-              error={errors.name?.message}
-              {...register("name")}
-            />
+            <Input id="name" placeholder="Acme Corp Pvt Ltd" error={errors.name?.message} {...register("name")} />
           </FormField>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <FormField label="Registered state" htmlFor="state">
-              <Input
-                id="state"
-                placeholder="Auto-filled from GSTIN"
-                {...register("state")}
-              />
+            <FormField label={isForeign ? "State / Province" : "Registered state"} htmlFor="state">
+              {foreignStates ? (
+                <select
+                  id="state"
+                  className="w-full rounded-md border border-hairline bg-paper px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-amber/40"
+                  {...register("state")}
+                >
+                  <option value="">Select state / province…</option>
+                  {/* Preserve a legacy / differently-cased existing value so editing
+                      an older customer never silently drops their saved state. */}
+                  {watch("state") && !foreignStates.some((st) => st.toLowerCase() === watch("state")!.toLowerCase()) && (
+                    <option value={watch("state")!}>{watch("state")}</option>
+                  )}
+                  {foreignStates.map((st) => <option key={st} value={st}>{st}</option>)}
+                </select>
+              ) : (
+                <Input id="state" placeholder={isForeign ? "e.g. California" : "Auto-filled from GSTIN"} {...register("state")} />
+              )}
             </FormField>
-            <FormField label="PIN code" htmlFor="pin_code">
+            <FormField label={isForeign ? "Postal / ZIP code" : "PIN code"} htmlFor="pin_code">
               <Input
                 id="pin_code"
                 className="font-mono"
-                placeholder="400051"
-                maxLength={6}
+                placeholder={isForeign ? "e.g. 10001" : "400051"}
+                maxLength={isForeign ? 12 : 6}
                 error={errors.pin_code?.message}
                 {...register("pin_code")}
               />
@@ -265,55 +190,150 @@ export function AddCustomerForm({ open, onOpenChange, customer }: AddCustomerFor
             <textarea
               id="address"
               rows={2}
-              placeholder="Auto-filled from GSTIN — appears on every GST invoice"
+              placeholder={isForeign ? "Street / building — appears on the invoice" : "Auto-filled from GSTIN — appears on every GST invoice"}
               className="w-full rounded-md border border-hairline bg-paper px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-amber resize-none"
               {...register("address")}
             />
           </FormField>
 
+          <FormField label="City" htmlFor="city">
+            <Input id="city" placeholder="e.g. Mumbai" {...register("city")} />
+          </FormField>
+
           <FormField label="Company website (optional)" htmlFor="domain">
-            <Input
-              id="domain"
-              placeholder="acmecorp.com"
-              {...register("domain")}
-            />
+            <Input id="domain" placeholder="acmecorp.com" {...register("domain")} />
           </FormField>
 
           <div className="h-px bg-hairline" />
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <FormField label="Contact name" htmlFor="contact_name">
-              <Input
-                id="contact_name"
-                placeholder="Rajesh K"
-                {...register("contact_name")}
-              />
+          {/* ── Primary contact person (salutation + first + last, Zoho-style) ── */}
+          <p className="text-xs font-semibold uppercase tracking-wider text-ink-3">Primary contact</p>
+          <div className="grid grid-cols-[80px_1fr_1fr] gap-3">
+            <FormField label="Title" htmlFor="contact_salutation">
+              <select
+                id="contact_salutation"
+                className="w-full rounded-md border border-hairline bg-paper px-2 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-amber/40"
+                {...register("contact_salutation")}
+              >
+                <option value="">—</option>
+                <option value="Mr.">Mr.</option>
+                <option value="Ms.">Ms.</option>
+                <option value="Mrs.">Mrs.</option>
+                <option value="Dr.">Dr.</option>
+              </select>
             </FormField>
-            <FormField label="Title" htmlFor="contact_title">
-              <Input
-                id="contact_title"
-                placeholder="CTO"
-                {...register("contact_title")}
-              />
+            <FormField label="First name" htmlFor="contact_first_name">
+              <Input id="contact_first_name" placeholder="Rajesh" {...register("contact_first_name")} />
+            </FormField>
+            <FormField label="Last name" htmlFor="contact_last_name">
+              <Input id="contact_last_name" placeholder="Kumar" {...register("contact_last_name")} />
             </FormField>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <FormField label="Email" htmlFor="contact_email">
-              <Input
-                id="contact_email"
-                type="email"
-                placeholder="rajesh@acme.com"
-                error={errors.contact_email?.message}
-                {...register("contact_email")}
-              />
+            <FormField label="Designation" htmlFor="contact_title">
+              <Input id="contact_title" placeholder="CTO" {...register("contact_title")} />
             </FormField>
-            <FormField label="Phone" htmlFor="contact_phone">
-              <Input
-                id="contact_phone"
-                placeholder="+91 98765 43210"
-                {...register("contact_phone")}
-              />
+            <FormField label="Email" htmlFor="contact_email">
+              <Input id="contact_email" type="email" placeholder="rajesh@acme.com" error={errors.contact_email?.message} {...register("contact_email")} />
+            </FormField>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <FormField label="Work phone" htmlFor="contact_phone">
+              <Input id="contact_phone" placeholder="+91 98765 43210" {...register("contact_phone")} />
+            </FormField>
+            <FormField label="Mobile" htmlFor="contact_mobile">
+              <Input id="contact_mobile" placeholder="+91 98765 43210" {...register("contact_mobile")} />
+            </FormField>
+          </div>
+
+          {/* ── Additional contact persons ── */}
+          <div className="h-px bg-hairline" />
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-semibold uppercase tracking-wider text-ink-3">Other contacts</p>
+            <Button
+              type="button" variant="ghost" size="sm" icon="plus"
+              onClick={() => appendContactPerson({ salutation: "", first_name: "", last_name: "", email: "", phone: "", mobile: "", designation: "" })}
+            >
+              Add person
+            </Button>
+          </div>
+          {contactPersonFields.length === 0 ? (
+            <p className="text-[11px] text-ink-3">Add accounts / procurement / other people at this customer.</p>
+          ) : (
+            <div className="space-y-3">
+              {contactPersonFields.map((f, i) => (
+                <div key={f.id} className="rounded-lg border border-hairline p-3 space-y-2 relative">
+                  <button
+                    type="button"
+                    onClick={() => removeContactPerson(i)}
+                    className="absolute top-2 right-2 text-ink-3 hover:text-rose"
+                    aria-label="Remove contact"
+                  >
+                    <Icon name="x" size={14} />
+                  </button>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Input placeholder="First name" {...register(`contact_persons.${i}.first_name`)} />
+                    <Input placeholder="Last name" {...register(`contact_persons.${i}.last_name`)} />
+                  </div>
+                  <Input placeholder="Email" type="email" {...register(`contact_persons.${i}.email`)} />
+                  <div className="grid grid-cols-2 gap-2">
+                    <Input placeholder="Work phone" {...register(`contact_persons.${i}.phone`)} />
+                    <Input placeholder="Mobile" {...register(`contact_persons.${i}.mobile`)} />
+                  </div>
+                  <Input placeholder="Designation (e.g. Accounts)" {...register(`contact_persons.${i}.designation`)} />
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* ── Preferences: default invoice payment terms ── */}
+          <div className="h-px bg-hairline" />
+          <FormField label="Default payment terms" htmlFor="payment_terms_days">
+            <select
+              id="payment_terms_days"
+              className="w-full rounded-md border border-hairline bg-paper px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-amber/40"
+              {...register("payment_terms_days")}
+            >
+              <option value="">Default (Net 30)</option>
+              <option value="0">Due on receipt</option>
+              <option value="15">Net 15</option>
+              <option value="30">Net 30</option>
+              <option value="45">Net 45</option>
+            </select>
+            <p className="text-[11px] text-ink-3 mt-1">Pre-fills the due date when you invoice this customer.</p>
+          </FormField>
+
+          {/* ── Shipping address (separate from billing) ── */}
+          <div className="h-px bg-hairline" />
+          <p className="text-xs font-semibold uppercase tracking-wider text-ink-3">Shipping address (optional)</p>
+          <FormField label="Attention" htmlFor="ship_attention">
+            <Input id="ship_attention" placeholder="Person / department" {...register("shipping.attention")} />
+          </FormField>
+          <FormField label="Address" htmlFor="ship_address">
+            <textarea
+              id="ship_address"
+              rows={2}
+              placeholder="Shipping address (if different from billing)"
+              className="w-full rounded-md border border-hairline bg-paper px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-amber resize-none"
+              {...register("shipping.address")}
+            />
+          </FormField>
+          <div className="grid grid-cols-2 gap-3">
+            <FormField label="City" htmlFor="ship_city">
+              <Input id="ship_city" placeholder="City" {...register("shipping.city")} />
+            </FormField>
+            <FormField label="State / Province" htmlFor="ship_state">
+              <Input id="ship_state" placeholder="State" {...register("shipping.state")} />
+            </FormField>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <FormField label="Postal / ZIP" htmlFor="ship_zip">
+              <Input id="ship_zip" placeholder="ZIP" {...register("shipping.zip")} />
+            </FormField>
+            <FormField label="Country" htmlFor="ship_country">
+              <Input id="ship_country" placeholder="Country" {...register("shipping.country")} />
             </FormField>
           </div>
 
@@ -323,11 +343,7 @@ export function AddCustomerForm({ open, onOpenChange, customer }: AddCustomerFor
             <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
-            <Button
-              type="submit"
-              variant="primary"
-              loading={isSubmitting || createCustomer.isPending || updateCustomer.isPending}
-            >
+            <Button type="submit" variant="primary" loading={isSubmitting || isPending}>
               {isEdit ? "Save changes" : "Add customer"}
             </Button>
           </SheetFooter>

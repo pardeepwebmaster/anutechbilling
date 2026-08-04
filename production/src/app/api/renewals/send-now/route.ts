@@ -31,6 +31,7 @@ import { createOrGetRenewalQuote } from "@/lib/renewals/create-renewal-quote";
 import { sendEmail, isEmailConfigured } from "@/lib/email/send";
 import { renderQuotePDF } from "@/lib/pdf";
 import { isInterStateSupply } from "@/lib/gst/place-of-supply";
+import { quoteAcceptUrl } from "@/lib/quotes/accept-link";
 import type { QuoteLineItem } from "@/lib/supabase/database.types";
 
 export const dynamic = "force-dynamic";
@@ -162,6 +163,14 @@ export async function POST(req: Request) {
     : null;
   const lineItems: QuoteLineItem[] = quoteResult?.lineItems ?? [];
 
+  // Public accept-link token (SEC-1) — the link needs the quote's opaque token.
+  let renewalToken: string | null = null;
+  if (renewalQuoteId) {
+    const { data: tok } = await userClient
+      .from("quotes").select("public_token").eq("id", renewalQuoteId).maybeSingle();
+    renewalToken = tok?.public_token ?? null;
+  }
+
   // ── Recipient ───────────────────────────────────────────────────
   const recipient = customer?.contact_email;
   if (!recipient) {
@@ -195,7 +204,9 @@ export async function POST(req: Request) {
     }),
     daysUntil:       Math.abs(decision.daysUntilRenewal),
     graceDays:       tenant.grace_period_days ?? 0,
-    acceptLink:      renewalQuoteId ? `${process.env.NEXT_PUBLIC_APP_URL ?? ""}/quote/${renewalQuoteId}/accept` : undefined,
+    acceptLink:      renewalQuoteId && renewalToken
+      ? quoteAcceptUrl(process.env.NEXT_PUBLIC_APP_URL ?? "", renewalQuoteId, renewalToken)
+      : undefined,
   });
 
   // ── PDF attachment ──────────────────────────────────────────────

@@ -132,6 +132,35 @@ export function useRefundPayment() {
 }
 
 // ============================================================
+// Delete a payment (correct a wrong entry) — atomic reverse via RPC
+// ============================================================
+// Reverses record_payment's money effects: recomputes the quote's paid amount +
+// status and the subscription's outstanding; on a full reversal (nothing left)
+// it also removes the subscription + auto-created PO this sale spun up and
+// reverts the won lead. Blocks when a GST invoice was issued, the payment is
+// bank-reconciled, or a linked PO has progressed — those must be handled first.
+export function useDeletePayment() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const supabase = createClient();
+      const { error } = await supabase.rpc("delete_payment", { p_payment_id: id });
+      if (error) throw new Error(error.message);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["payments"] });
+      qc.invalidateQueries({ queryKey: ["quotes"] });
+      qc.invalidateQueries({ queryKey: ["subscriptions"] });
+      qc.invalidateQueries({ queryKey: ["outstanding-receivables"] });
+      qc.invalidateQueries({ queryKey: ["purchase-orders"] });
+      qc.invalidateQueries({ queryKey: ["nav-badges"] });
+      toast.success("Payment deleted & reversed");
+    },
+    onError: (err) => toast.error((err as Error).message),
+  });
+}
+
+// ============================================================
 // Outstanding receivables — subscriptions with unpaid balance
 // ============================================================
 export interface OutstandingRow {

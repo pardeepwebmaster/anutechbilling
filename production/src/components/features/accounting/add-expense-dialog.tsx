@@ -6,6 +6,7 @@
 "use client";
 
 import * as React from "react";
+import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -46,6 +47,7 @@ const schema = z.object({
 type FormData = z.infer<typeof schema>;
 
 export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; expense?: Expense | null }) {
+  const router = useRouter();
   const create = useCreateExpense();
   const update = useUpdateExpense();
   const isEdit = Boolean(expense);
@@ -127,9 +129,13 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
               <Select value={watch("category")} onValueChange={(v) => setValue("category", v)}>
                 <SelectTrigger id="category"><SelectValue placeholder="Select" /></SelectTrigger>
                 <SelectContent>
-                  {EXPENSE_CATEGORIES.map((c) => (
-                    <SelectItem key={c} value={c}>{c}</SelectItem>
-                  ))}
+                  {/* Salaries aren't a plain expense — they're booked in Payroll
+                      (payslip + statutory). Only show it if editing a legacy one. */}
+                  {EXPENSE_CATEGORIES
+                    .filter((c) => c !== "Salaries" || expense?.category === "Salaries")
+                    .map((c) => (
+                      <SelectItem key={c} value={c}>{c}</SelectItem>
+                    ))}
                 </SelectContent>
               </Select>
             </FormField>
@@ -137,6 +143,19 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
               <Input id="expense_date" type="date" error={errors.expense_date?.message} {...register("expense_date")} />
             </FormField>
           </div>
+          {!isEdit && (
+            <p className="-mt-1 text-[11px] text-ink-3 leading-relaxed">
+              Paying a salary?{" "}
+              <button
+                type="button"
+                onClick={() => { onClose(); router.push("/accounting/payroll" as never); }}
+                className="text-amber-ink font-medium underline hover:no-underline"
+              >
+                Book it in Payroll &amp; Leave →
+              </button>{" "}
+              so it gets a payslip + statutory handling (and posts the Salaries expense for you).
+            </p>
+          )}
 
           <FormField label="Vendor / payee (optional)" htmlFor="vendor_name">
             <Input id="vendor_name" placeholder="Cloud Run / Resend / Office Landlord" {...register("vendor_name")} />

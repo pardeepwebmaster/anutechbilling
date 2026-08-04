@@ -303,13 +303,14 @@ type WhatsAppMessageUpdate = Partial<Omit<WhatsAppMessageInsert, "id" | "tenant_
 // Banking — bank_accounts + bank_transactions (migration 0048)
 // ============================================================
 export type BankAccountType =
-  | "current" | "savings" | "overdraft" | "fixed_deposit" | "cash" | "other";
+  | "current" | "savings" | "overdraft" | "fixed_deposit" | "cash" | "other"
+  | "credit_card";   // liability account — balance goes negative as you spend (0151)
 
 export type BankTransactionSource =
   | "manual" | "csv_upload" | "api_fetch";
 
 export type BankMatchToType =
-  | "payment" | "expense" | "vendor_bill" | "transfer" | "salary" | "manual";
+  | "payment" | "project" | "expense" | "vendor_bill" | "transfer" | "salary" | "split" | "manual" | "statutory";
 
 export type BankMatchConfidence =
   | "exact" | "high" | "low" | "manual";
@@ -402,7 +403,7 @@ type BankAaConnectionUpdate = Partial<Omit<BankAaConnectionInsert, "id" | "tenan
 
 // Suggestion row returned by suggest_bank_transaction_matches RPC
 export type BankMatchSuggestionRow = {
-  match_type:       "payment" | "expense";
+  match_type:       "payment" | "project" | "expense" | "salary";
   match_id:         string;
   match_label:      string;
   match_amount:     number;
@@ -439,20 +440,57 @@ type UserInsert = {
 }
 type UserUpdate = Partial<UserInsert>;
 
+/** An additional person at a customer (migration 0164 — Zoho-style contact persons). */
+export type ContactPerson = {
+  salutation?: string;
+  first_name?: string;
+  last_name?: string;
+  email?: string;
+  phone?: string;
+  mobile?: string;
+  designation?: string;
+};
+
+/** Separate shipping address (migration 0164). Billing stays the flat customer columns. */
+export type ShippingAddress = {
+  attention?: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  zip?: string;
+  country?: string;
+};
+
+/** Customer classification (migration 0165). Individuals have no company. */
+export type CustomerType = "business" | "individual";
+
 type CustomerRow = {
   id: string;
   tenant_id: string;
   name: string;
+  // Migration 0165 — Zoho-style type + display label. `name` stays the legal /
+  // invoice name; `display_name` is the optional friendly UI label.
+  customer_type: CustomerType;
+  display_name: string | null;
   customer_number: string | null;
   domain: string | null;
   gstin: string | null;
   state: string | null;
   state_code: string | null;
+  country: string;                             // migration 0152 — 'India' default; anything else = export (zero-rated)
   health: number;
   contact_name: string | null;
   contact_title: string | null;
   contact_email: string | null;
   contact_phone: string | null;
+  // Migration 0164 — Zoho-style split primary contact + extras.
+  contact_salutation: string | null;
+  contact_first_name: string | null;
+  contact_last_name: string | null;
+  contact_mobile: string | null;
+  contact_persons: ContactPerson[];
+  payment_terms_days: number | null;
+  shipping_address: ShippingAddress | null;
   account_manager_id: string | null;
   since: string;
   notes: string | null;
@@ -462,6 +500,7 @@ type CustomerRow = {
   tds_default_rate_pct: number | null;         // 10.00 / 2.00 / 0.10
   // Added in migration 0036 — billing address + cached GSTIN verification
   address: string | null;
+  city: string | null;                         // migration 0166 — billing city
   pin_code: string | null;
   gstin_verified_at: string | null;
   gstin_verification: GstinVerification | null;
@@ -469,6 +508,9 @@ type CustomerRow = {
   // a tenant in ResellerOS (a sub-reseller child). When set, invoices
   // issued to this customer auto-mirror into the linked tenant's vendor_bills.
   linked_tenant_id: string | null;
+  // Migration 0168 — optional parent account (customer_groups). Links companies
+  // routed by one common reseller/coordinator; does NOT affect this customer's own invoicing.
+  group_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -476,16 +518,26 @@ type CustomerInsert = {
   id?: string;
   tenant_id: string;
   name: string;
+  customer_type?: CustomerType;
+  display_name?: string | null;
   customer_number?: string | null;
   domain?: string | null;
   gstin?: string | null;
   state?: string | null;
   state_code?: string | null;
+  country?: string;                            // migration 0152 — defaults to 'India' if omitted
   health?: number;
   contact_name?: string | null;
   contact_title?: string | null;
   contact_email?: string | null;
   contact_phone?: string | null;
+  contact_salutation?: string | null;
+  contact_first_name?: string | null;
+  contact_last_name?: string | null;
+  contact_mobile?: string | null;
+  contact_persons?: ContactPerson[];
+  payment_terms_days?: number | null;
+  shipping_address?: ShippingAddress | null;
   account_manager_id?: string | null;
   since?: string;
   notes?: string | null;
@@ -493,12 +545,45 @@ type CustomerInsert = {
   tds_default_section?: string | null;
   tds_default_rate_pct?: number | null;
   address?: string | null;
+  city?: string | null;
   pin_code?: string | null;
   gstin_verified_at?: string | null;
   gstin_verification?: GstinVerification | null;
   linked_tenant_id?: string | null;
+  group_id?: string | null;
 }
 type CustomerUpdate = Partial<CustomerInsert>;
+
+// Migration 0168 — Customer Groups / Parent Accounts. Umbrella linking multiple
+// customer companies routed by one common reseller/coordinator. Reporting layer
+// only — each member company keeps its own GSTIN + invoices.
+type CustomerGroupRow = {
+  id: string;
+  tenant_id: string;
+  name: string;
+  contact_name: string | null;
+  contact_email: string | null;
+  contact_phone: string | null;
+  is_partner: boolean;
+  notes: string | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+  created_by: string | null;
+};
+type CustomerGroupInsert = {
+  id?: string;
+  tenant_id: string;
+  name: string;
+  contact_name?: string | null;
+  contact_email?: string | null;
+  contact_phone?: string | null;
+  is_partner?: boolean;
+  notes?: string | null;
+  is_active?: boolean;
+  created_by?: string | null;
+};
+type CustomerGroupUpdate = Partial<CustomerGroupInsert>;
 
 /**
  * Per-commitment pricing for an item. Only 2 underlying prices — annual commit
@@ -510,7 +595,15 @@ type CustomerUpdate = Partial<CustomerInsert>;
  *  - annual  — 1-yr commit, ₹/seat/month (billed monthly OR yearly = same total)
  */
 export type ItemPriceTier = "monthly" | "annual";
-export type ItemPrices = Partial<Record<ItemPriceTier, { msrp: number; wholesale: number }>>;
+export type ItemPrices = Partial<Record<ItemPriceTier, { msrp: number; wholesale: number }>> & {
+  /**
+   * Real USD list price (USD per seat per MONTH) for international/export deals.
+   * A SaaS product's USD price is its own number, NOT an INR→USD conversion
+   * (e.g. Google Workspace ₹136/mo vs $7/mo). Optional — when set, USD quotes/
+   * invoices use it; otherwise they fall back to converting the ₹ price.
+   */
+  usd?: { msrp: number; wholesale: number };
+};
 
 type ItemRow = {
   id: string;
@@ -620,6 +713,7 @@ type LeadRow = {
   /** GST place-of-supply, copied to the customer on conversion (drives IGST vs CGST+SGST). */
   state_code: string | null;
   state: string | null;
+  country: string;                             // migration 0153 — non-India = export prospect
   /** Migration 0108 — 'fresh' = net-new subscription · 'switch' = already
    *  subscribed elsewhere, moving vendor/reseller to us (migration/transfer). */
   subscription_type: "fresh" | "switch" | null;
@@ -650,19 +744,22 @@ type LeadInsert = {
   gstin?:              string | null;
   state_code?:         string | null;
   state?:              string | null;
+  country?:            string;
   subscription_type?:  "fresh" | "switch" | null;
 }
 type LeadUpdate = Partial<LeadInsert>;
 
 /**
- * A commitment + billing-cycle choice on a quote line item. Default = "annual_yearly"
- * (1-yr commit, single yearly invoice). Storage is always annual ₹/seat — billing
- * cycle just controls how invoices get sliced through the year.
- *  - monthly             — flex, no commit, monthly bill
- *  - annual_monthly      — 1-yr commit, monthly bill   (12 invoices/yr)
- *  - annual_quarterly    — 1-yr commit, quarterly bill ( 4 invoices/yr)
- *  - annual_half_yearly  — 1-yr commit, half-yearly    ( 2 invoices/yr)
- *  - annual_yearly       — 1-yr commit, yearly bill    ( 1 invoice/yr)
+ * A line's PRICE TIER. Since migration 0161, invoice frequency lives in the
+ * quote-level `billing_cycle` — a line's `commitment` now only distinguishes
+ * flex-monthly pricing from annual-commit pricing. New quotes write just two
+ * values: "monthly" (flex) or "annual_yearly" (annual price tier). The
+ * annual_monthly/quarterly/half_yearly variants are legacy (pre-0161) and are
+ * still read/tolerated — record_payment's "make a subscription?" gate keys off
+ * `commitment is distinct from 'monthly'`, which holds for all annual_* values.
+ *  - monthly            — flex, no commitment (its own price tier)
+ *  - annual_yearly      — annual commitment price tier (default)
+ *  - annual_* (legacy)  — annual price tier; frequency now in quote.billing_cycle
  */
 export type LineCommitment =
   | "monthly"
@@ -670,6 +767,20 @@ export type LineCommitment =
   | "annual_quarterly"
   | "annual_half_yearly"
   | "annual_yearly";
+
+/**
+ * Quote-level BILLING CYCLE = how often invoices are raised through the year.
+ * Migration 0161 made this independent of a line's `commitment` (which is now
+ * the PRICE TIER: monthly-flex vs annual). A flex-monthly line forces the whole
+ * quote to 'monthly'. Frequency is a stated schedule/label today — it does not
+ * yet auto-generate N invoices/yr (that's a separate future feature).
+ */
+export type BillingCycle = "monthly" | "quarterly" | "half_yearly" | "yearly";
+
+/** Invoices raised per year for each billing cycle. */
+export const BILLING_CYCLE_INVOICES_PER_YEAR: Record<BillingCycle, number> = {
+  yearly: 1, half_yearly: 2, quarterly: 4, monthly: 12,
+};
 
 export type QuoteLineItem = {
   id: string;        // local UUID for React keys
@@ -726,6 +837,8 @@ type QuoteRow = {
   invoice_id: string | null;
   /** True when issued for the renewal of an existing subscription. Migration 0011. */
   is_renewal: boolean;
+  currency: string;                            // migration 0153 — billing currency ('INR' default); books stay INR
+  exchange_rate: number;                       // INR per 1 unit of currency (1 for INR)
   /** Migration 0018 — structured domain copied from lead at quote create, propagates to subscription. */
   domain: string | null;
   /** Migration 0020 — how many months to advance subscription.renewal_date when this (renewal) quote is paid. Default 12. Used by record_payment. */
@@ -734,6 +847,20 @@ type QuoteRow = {
   is_extension: boolean;
   /** Migration 0052 — true for add-seats quotes; record_payment skips subscription handling so it does not create a duplicate sub. */
   is_add_seats: boolean;
+  /** Migration 0157 — true for direct one-off invoices; record_payment skips subscription creation. */
+  is_one_off: boolean;
+  /** Migration 0161 — invoice frequency, independent of line price-tier commitment. Default 'yearly'. */
+  billing_cycle: BillingCycle;
+  /** Migration 0162 — net days for the invoice due date (0/15/30/45); null → 30. */
+  payment_terms_days: number | null;
+  /** Migration 0162 — document-level terms & conditions shown on the quote/invoice PDF. */
+  terms_conditions: string | null;
+  /** Migration 0115 — unguessable token for the public /quote/[id]/accept link (SEC-1). */
+  public_token: string;
+  /** Migration 0167 — typed-prospect place-of-supply, copied to the customer by record_payment (drives IGST vs CGST+SGST). Null for lead/customer quotes. */
+  prospect_state_code: string | null;
+  prospect_state: string | null;
+  prospect_country: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -765,10 +892,19 @@ type QuoteInsert = {
   payment_notes?: string | null;
   invoice_id?: string | null;
   is_renewal?: boolean;
+  currency?: string;
+  exchange_rate?: number;
   domain?: string | null;
   extension_months?: number;
   is_extension?: boolean;
   is_add_seats?: boolean;
+  is_one_off?: boolean;
+  billing_cycle?: BillingCycle;
+  payment_terms_days?: number | null;
+  terms_conditions?: string | null;
+  prospect_state_code?: string | null;
+  prospect_state?: string | null;
+  prospect_country?: string | null;
 }
 type QuoteUpdate = Partial<QuoteInsert>;
 
@@ -806,6 +942,11 @@ type InvoiceRow = {
   net_payable:       number | null;        // amount - sum(adjusted_advances.amount), floor 0
   first_advance_at:  string | null;        // Drives 30-day GST clock (Sec 13(2))
   quote_id:          string | null;        // FK to source quote
+  // GST breakdown persisted at issue time (migration 0116). taxable_value + tax_amount = amount.
+  taxable_value:     number | null;
+  tax_amount:        number | null;
+  tax_rate:          number | null;
+  inter_state:       boolean | null;       // true → IGST, false → CGST + SGST
 }
 type InvoiceInsert = {
   id: string;
@@ -825,6 +966,10 @@ type InvoiceInsert = {
   net_payable?:      number | null;
   first_advance_at?: string | null;
   quote_id?:         string | null;
+  taxable_value?:    number | null;
+  tax_amount?:       number | null;
+  tax_rate?:         number | null;
+  inter_state?:      boolean | null;
 }
 type InvoiceUpdate = Partial<InvoiceInsert>;
 
@@ -1068,6 +1213,7 @@ export type VendorBillLine = {
 export type VendorBillRow = {
   id:               string;
   tenant_id:        string;
+  vendor_id:        string | null;          // migration 0134 — link to vendors master
   vendor_name:      string;
   vendor_gstin:     string | null;
   bill_no:          string | null;
@@ -1089,9 +1235,27 @@ export type VendorBillRow = {
   created_at:       string;
   updated_at:       string;
 };
+// Vendors master (migration 0134)
+export type VendorRow = {
+  id:               string;
+  tenant_id:        string;
+  name:             string;
+  gstin:            string | null;
+  contact_name:     string | null;
+  contact_email:    string | null;
+  contact_phone:    string | null;
+  default_category: string | null;
+  notes:            string | null;
+  created_at:       string;
+  updated_at:       string;
+};
+type VendorInsert = Partial<VendorRow> & { tenant_id: string; name: string };
+type VendorUpdate = Partial<Omit<VendorInsert, "tenant_id">>;
+
 type VendorBillInsert = {
   id:               string;
   tenant_id:        string;
+  vendor_id?:       string | null;
   vendor_name:      string;
   vendor_gstin?:    string | null;
   bill_no?:         string | null;
@@ -1123,6 +1287,7 @@ export type ExpenseRow = {
   payment_method:   string | null;           // 'bank_transfer' | 'upi' | 'cash' | 'card' | 'cheque'
   description:      string | null;
   attachment_url:   string | null;
+  reconciled_txn_id: string | null;          // bank line this expense is reconciled to (migration 0123)
   created_at:       string;
   updated_at:       string;
 };
@@ -1137,6 +1302,7 @@ type ExpenseInsert = {
   payment_method?:  string | null;
   description?:     string | null;
   attachment_url?:  string | null;
+  reconciled_txn_id?: string | null;
 };
 type ExpenseUpdate = Partial<ExpenseInsert>;
 
@@ -1153,6 +1319,7 @@ type BalanceSheetItemRow = {
   amount:     number;      // ₹, may be negative (depreciation / drawings)
   sort_order: number;
   notes:      string | null;
+  bank_txn_id: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -1233,9 +1400,18 @@ type EmployeeRow = {
   pan:             string | null;
   pf_no:           string | null;
   esi_no:          string | null;
+  esi_applicable:  boolean;
+  pf_applicable:   boolean;
   is_active:       boolean;
   pin_hash:        string | null;
   notes:           string | null;
+  email:                    string | null;
+  phone:                    string | null;
+  designation:              string | null;
+  date_of_birth:            string | null;
+  address:                  string | null;
+  emergency_contact_name:   string | null;
+  emergency_contact_phone:  string | null;
   created_at:      string;
   updated_at:      string;
 };
@@ -1249,10 +1425,66 @@ type EmployeeInsert = {
   pan?:             string | null;
   pf_no?:           string | null;
   esi_no?:          string | null;
+  esi_applicable?:  boolean;
+  pf_applicable?:   boolean;
   is_active?:       boolean;
   notes?:           string | null;
+  email?:                    string | null;
+  phone?:                    string | null;
+  designation?:              string | null;
+  date_of_birth?:            string | null;
+  address?:                  string | null;
+  emergency_contact_name?:   string | null;
+  emergency_contact_phone?:  string | null;
 };
 type EmployeeUpdate = Partial<Omit<EmployeeInsert, "tenant_id">>;
+
+type EmployeeDocumentRow = {
+  id:          string;
+  tenant_id:   string;
+  employee_id: string;
+  doc_type:    string;
+  file_name:   string;
+  file_path:   string;
+  mime_type:   string | null;
+  size_bytes:  number | null;
+  uploaded_by: string | null;
+  uploaded_at: string;
+};
+type EmployeeDocumentInsert = {
+  id?:          string;
+  tenant_id:    string;
+  employee_id:  string;
+  doc_type:     string;
+  file_name:    string;
+  file_path:    string;
+  mime_type?:   string | null;
+  size_bytes?:  number | null;
+  uploaded_by?: string | null;
+};
+type EmployeeDocumentUpdate = Partial<Omit<EmployeeDocumentInsert, "tenant_id" | "employee_id">>;
+
+export type ReimbursementRow = {
+  id:            string;
+  tenant_id:     string;
+  person_name:   string;
+  purpose:       string;
+  category:      string;
+  amount:        number;
+  gst_paid:      number;
+  incurred_on:   string;
+  paid_via:      string | null;
+  status:        "pending" | "settled";
+  settled_on:    string | null;
+  settled_notes: string | null;
+  employee_id:   string | null;
+  receipt_path:  string | null;
+  expense_id:    string | null;
+  created_by:    string | null;
+  created_at:    string;
+};
+type ReimbursementInsert = Partial<ReimbursementRow> & { tenant_id: string; person_name: string; purpose: string; amount: number; incurred_on: string };
+type ReimbursementUpdate = Partial<Omit<ReimbursementInsert, "tenant_id">>;
 
 type LeaveKind = "casual" | "sick" | "earned" | "unpaid";
 type LeaveEntryRow = {
@@ -1287,17 +1519,21 @@ type SalaryPaymentRow = {
   gross:             number;
   lop_days:          number;
   lop_amount:        number;
+  incentive:         number;
   advance_recovered: number;
   tds:               number;
   pf:                number;
-  esi:               number;
+  esi:               number;              // employee share (0.75%), withheld from net
+  esi_employer:      number;              // employer share (3.25%), a company cost
+  pf_employer:       number;              // employer PF share (12%), a company cost
   other_deduction:   number;
   net:               number;
   bank_account_id:   string | null;
   expense_id:        string | null;
   advance_loan_id:   string | null;
   notes:             string | null;
-  paid_status:       "unpaid" | "paid";
+  paid_status:       "unpaid" | "partial" | "paid";
+  paid_amount:       number;
   reconciled_txn_id: string | null;
   created_at:        string;
 };
@@ -1327,7 +1563,7 @@ export type ProjectSaleRow = {
 export type ProjectQuoteLine = { name: string; qty: number; rate: number; amount: number };
 
 // ── Company Document Vault — migration 0107 ──────────────────────────────────
-export type DocumentCategory = "company_legal" | "gst_tax" | "banking" | "agreements" | "licenses" | "hr" | "other";
+export type DocumentCategory = "legal" | "finance" | "hr" | "operations" | "sales_marketing" | "admin" | "branding" | "other";
 export type DocumentRow = {
   id:          string;
   tenant_id:   string;
@@ -1388,6 +1624,7 @@ type StatutoryDuesPaymentRow = {
   paid_on:         string;
   bank_account_id: string | null;
   notes:           string | null;
+  bank_txn_id:     string | null;   // imported challan line this settled (migration 0140)
   created_at:      string;
 };
 type StatutoryDuesPaymentInsert = {
@@ -1400,6 +1637,146 @@ type StatutoryDuesPaymentInsert = {
   notes?:           string | null;
 };
 type StatutoryDuesPaymentUpdate = Partial<Omit<StatutoryDuesPaymentInsert, "tenant_id">>;
+
+// Customer advance credit — money received over the expected amount (migration 0141).
+export type CustomerCreditRow = {
+  id:                string;
+  tenant_id:         string;
+  customer_id:       string;
+  amount:            number;
+  source:            string;
+  source_payment_id: string | null;
+  source_quote_id:   string | null;
+  note:              string | null;
+  status:            "open" | "used" | "refunded";
+  created_at:        string;
+};
+
+// Credit Note (CGST §34) — reduces a previously-issued invoice. Migration 0154.
+export type CreditNoteReasonCode = "overbilling" | "seats_reduced" | "discount" | "cancellation" | "return" | "other";
+export type CreditNoteRow = {
+  id:            string;               // CN-YYYY-YY-NNNN
+  tenant_id:     string;
+  invoice_id:    string;
+  customer_id:   string | null;
+  customer_name: string | null;
+  credit_date:   string;
+  reason_code:   CreditNoteReasonCode;
+  reason:        string | null;
+  amount:        number;               // gross ₹ credited
+  taxable_value: number;
+  tax_amount:    number;
+  tax_rate:      number;
+  inter_state:   boolean;
+  notes:         string | null;
+  created_at:    string;
+  created_by:    string | null;
+};
+type CreditNoteInsert = Partial<CreditNoteRow> & { tenant_id: string; invoice_id: string; amount: number };
+type CreditNoteUpdate = Partial<CreditNoteInsert>;
+
+// Debit Note (CGST §34) — the mirror of a credit note; increases an invoice. Migration 0155.
+export type DebitNoteReasonCode = "undercharge" | "additional_charge" | "price_escalation" | "other";
+export type DebitNoteRow = Omit<CreditNoteRow, "credit_date" | "reason_code"> & {
+  debit_date:  string;
+  reason_code: DebitNoteReasonCode;
+};
+type DebitNoteInsert = Partial<DebitNoteRow> & { tenant_id: string; invoice_id: string; amount: number };
+type DebitNoteUpdate = Partial<DebitNoteInsert>;
+
+// ── Referral / channel-partner commissions (migration 0156) ──────────────────
+export type CommissionBasis = "percent" | "fixed";
+export type CommissionScope = "one_time" | "recurring";
+
+export type ReferralPartnerRow = {
+  id:                   string;
+  tenant_id:            string;
+  name:                 string;
+  phone:                string | null;
+  email:                string | null;
+  pan:                  string | null;                 // for TDS 194H
+  gstin:                string | null;
+  default_basis:        CommissionBasis;
+  default_percent:      number | null;
+  default_fixed_amount: number | null;
+  deduct_tds:           boolean;
+  tds_rate:             number;
+  notes:                string | null;
+  is_active:            boolean;
+  created_at:           string;
+  created_by:           string | null;
+};
+type ReferralPartnerInsert = Partial<ReferralPartnerRow> & { tenant_id: string; name: string };
+type ReferralPartnerUpdate = Partial<ReferralPartnerInsert>;
+
+export type ReferralAgreementRow = {
+  id:              string;
+  tenant_id:       string;
+  partner_id:      string;
+  customer_id:     string | null;
+  quote_id:        string | null;
+  subscription_id: string | null;
+  label:           string | null;
+  basis:           CommissionBasis;
+  percent:         number | null;
+  fixed_amount:    number | null;
+  scope:           CommissionScope;
+  deduct_tds:      boolean;
+  tds_rate:        number;
+  status:          "active" | "closed" | "cancelled";
+  notes:           string | null;
+  created_at:      string;
+  created_by:      string | null;
+};
+type ReferralAgreementInsert = Partial<ReferralAgreementRow> & { tenant_id: string; partner_id: string };
+type ReferralAgreementUpdate = Partial<ReferralAgreementInsert>;
+
+export type ReferralCommissionRow = {
+  id:               string;
+  tenant_id:        string;
+  agreement_id:     string;
+  partner_id:       string;
+  customer_id:      string | null;
+  payment_id:       string | null;
+  base_amount:      number;                             // ex-GST deal value
+  basis:            CommissionBasis;
+  rate:             number | null;                      // percent used (null for fixed)
+  gross_commission: number;
+  tds_amount:       number;
+  net_payable:      number;
+  status:           "earned" | "paid" | "cancelled";
+  earned_date:      string;
+  paid_date:        string | null;
+  pay_txn_id:       string | null;
+  notes:            string | null;
+  created_at:       string;
+};
+type ReferralCommissionInsert = Partial<ReferralCommissionRow> & { tenant_id: string; agreement_id: string; partner_id: string };
+type ReferralCommissionUpdate = Partial<ReferralCommissionInsert>;
+
+type CustomerCreditInsert = {
+  id?:                string;
+  tenant_id:          string;
+  customer_id:        string;
+  amount:             number;
+  source?:            string;
+  source_payment_id?: string | null;
+  source_quote_id?:   string | null;
+  note?:              string | null;
+  status?:            "open" | "used" | "refunded";
+};
+type CustomerCreditUpdate = Partial<Omit<CustomerCreditInsert, "tenant_id">>;
+
+// Company holiday calendar (migration 0143) — excluded from payroll working days.
+export type HolidayRow = {
+  id:           string;
+  tenant_id:    string;
+  holiday_date: string;
+  name:         string;
+  created_at:   string;
+};
+type HolidayInsert = { id?: string; tenant_id: string; holiday_date: string; name: string };
+type HolidayUpdate = Partial<Omit<HolidayInsert, "tenant_id">>;
 
 // Attendance (migration 0088).
 type AttendanceRow = {
@@ -1512,6 +1889,43 @@ type EmiPaymentRow = {
 };
 type EmiPaymentInsert = Partial<EmiPaymentRow> & { tenant_id: string; purchase_id: string; amount: number; principal_part: number; paid_on: string };
 type EmiPaymentUpdate = Partial<Omit<EmiPaymentInsert, "tenant_id">>;
+
+// Business loans TAKEN by the company (migration 0131)
+export type BusinessLoanRow = {
+  id:                 string;
+  tenant_id:          string;
+  lender:             string;
+  purpose:            string | null;
+  principal:          number;
+  interest_rate:      number | null;
+  tenure_months:      number | null;
+  emi_amount:         number | null;
+  disbursed_on:       string;
+  deposit_account_id: string | null;
+  status:             "active" | "closed";
+  notes:              string | null;
+  created_at:         string;
+  updated_at:         string;
+  created_by:         string | null;
+};
+type BusinessLoanInsert = Partial<BusinessLoanRow> & { tenant_id: string; lender: string; principal: number; disbursed_on: string };
+type BusinessLoanUpdate = Partial<Omit<BusinessLoanInsert, "tenant_id">>;
+
+export type BusinessLoanPaymentRow = {
+  id:              string;
+  tenant_id:       string;
+  loan_id:         string;
+  amount:          number;
+  principal_part:  number;
+  interest_part:   number;
+  paid_on:         string;
+  bank_account_id: string | null;
+  expense_id:      string | null;
+  notes:           string | null;
+  created_at:      string;
+};
+type BusinessLoanPaymentInsert = Partial<BusinessLoanPaymentRow> & { tenant_id: string; loan_id: string; amount: number; principal_part: number; paid_on: string };
+type BusinessLoanPaymentUpdate = Partial<Omit<BusinessLoanPaymentInsert, "tenant_id">>;
 
 // ============================================================
 // TDS Receivable (migration 0014)
@@ -1842,6 +2256,15 @@ export type ContactRow = {
   notes:               string | null;
   tags:                string[];
   imported_by:         string | null;
+  // Rich person-profile fields (migration 0137) — marketing + personal outreach.
+  whatsapp:            string | null;
+  linkedin:            string | null;
+  instagram:           string | null;
+  facebook:            string | null;
+  twitter:             string | null;
+  website:             string | null;
+  address:             string | null;
+  city:                string | null;
   created_at:          string;
   updated_at:          string;
 };
@@ -1861,6 +2284,14 @@ type ContactInsert = {
   notes?:              string | null;
   tags?:               string[];
   imported_by?:        string | null;
+  whatsapp?:           string | null;
+  linkedin?:           string | null;
+  instagram?:          string | null;
+  facebook?:           string | null;
+  twitter?:            string | null;
+  website?:            string | null;
+  address?:            string | null;
+  city?:               string | null;
 };
 type ContactUpdate = Partial<Omit<ContactInsert, "id" | "tenant_id">>;
 
@@ -1969,6 +2400,7 @@ export type Database = {
       tenants:       { Row: TenantRow;       Insert: TenantInsert;       Update: TenantUpdate;       Relationships: [] };
       users:         { Row: UserRow;         Insert: UserInsert;         Update: UserUpdate;         Relationships: [] };
       customers:     { Row: CustomerRow;     Insert: CustomerInsert;     Update: CustomerUpdate;     Relationships: [] };
+      customer_groups: { Row: CustomerGroupRow; Insert: CustomerGroupInsert; Update: CustomerGroupUpdate; Relationships: [] };
       items:         { Row: ItemRow;         Insert: ItemInsert;         Update: ItemUpdate;         Relationships: [] };
       leads:         { Row: LeadRow;         Insert: LeadInsert;         Update: LeadUpdate;         Relationships: [] };
       quotes:        { Row: QuoteRow;        Insert: QuoteInsert;        Update: QuoteUpdate;        Relationships: [] };
@@ -1980,12 +2412,15 @@ export type Database = {
       tasks:              { Row: TaskRow;              Insert: TaskInsert;              Update: TaskUpdate;              Relationships: [] };
       renewal_email_log:  { Row: RenewalEmailLogRow;   Insert: RenewalEmailLogInsert;   Update: RenewalEmailLogUpdate;   Relationships: [] };
       quote_send_log:     { Row: QuoteSendLogRow;      Insert: QuoteSendLogInsert;      Update: QuoteSendLogUpdate;      Relationships: [] };
+      vendors:            { Row: VendorRow;             Insert: VendorInsert;            Update: VendorUpdate;            Relationships: [] };
       vendor_bills:       { Row: VendorBillRow;        Insert: VendorBillInsert;        Update: VendorBillUpdate;        Relationships: [] };
       expenses:           { Row: ExpenseRow;           Insert: ExpenseInsert;           Update: ExpenseUpdate;           Relationships: [] };
       balance_sheet_items:{ Row: BalanceSheetItemRow;  Insert: BalanceSheetItemInsert;  Update: BalanceSheetItemUpdate;  Relationships: [] };
       employee_loans:{ Row: EmployeeLoanRow; Insert: EmployeeLoanInsert; Update: EmployeeLoanUpdate; Relationships: [] };
       employee_loan_repayments:{ Row: EmployeeLoanRepaymentRow; Insert: EmployeeLoanRepaymentInsert; Update: EmployeeLoanRepaymentUpdate; Relationships: [] };
       employees:{ Row: EmployeeRow; Insert: EmployeeInsert; Update: EmployeeUpdate; Relationships: [] };
+      employee_documents:{ Row: EmployeeDocumentRow; Insert: EmployeeDocumentInsert; Update: EmployeeDocumentUpdate; Relationships: [] };
+      reimbursements:{ Row: ReimbursementRow; Insert: ReimbursementInsert; Update: ReimbursementUpdate; Relationships: [] };
       leave_entries:{ Row: LeaveEntryRow; Insert: LeaveEntryInsert; Update: LeaveEntryUpdate; Relationships: [] };
       salary_payments:{ Row: SalaryPaymentRow; Insert: SalaryPaymentInsert; Update: SalaryPaymentUpdate; Relationships: [] };
       project_sales:     { Row: ProjectSaleRow;      Insert: ProjectSaleInsert;      Update: ProjectSaleUpdate;      Relationships: [] };
@@ -1993,10 +2428,16 @@ export type Database = {
       project_payments:  { Row: ProjectPaymentRow;   Insert: ProjectPaymentInsert;   Update: ProjectPaymentUpdate;   Relationships: [] };
       documents:         { Row: DocumentRow;         Insert: DocumentInsert;         Update: DocumentUpdate;         Relationships: [] };
       statutory_dues_payments:{ Row: StatutoryDuesPaymentRow; Insert: StatutoryDuesPaymentInsert; Update: StatutoryDuesPaymentUpdate; Relationships: [] };
+      customer_credits:{ Row: CustomerCreditRow; Insert: CustomerCreditInsert; Update: CustomerCreditUpdate; Relationships: [] };
+      credit_notes:    { Row: CreditNoteRow;      Insert: CreditNoteInsert;      Update: CreditNoteUpdate;      Relationships: [] };
+      debit_notes:     { Row: DebitNoteRow;       Insert: DebitNoteInsert;       Update: DebitNoteUpdate;       Relationships: [] };
+      holidays:{ Row: HolidayRow; Insert: HolidayInsert; Update: HolidayUpdate; Relationships: [] };
       attendance:{ Row: AttendanceRow; Insert: AttendanceInsert; Update: AttendanceUpdate; Relationships: [] };
       attendance_settings:{ Row: AttendanceSettingsRow; Insert: AttendanceSettingsInsert; Update: AttendanceSettingsUpdate; Relationships: [] };
       emi_purchases:{ Row: EmiPurchaseRow; Insert: EmiPurchaseInsert; Update: EmiPurchaseUpdate; Relationships: [] };
       emi_payments:{ Row: EmiPaymentRow; Insert: EmiPaymentInsert; Update: EmiPaymentUpdate; Relationships: [] };
+      business_loans:{ Row: BusinessLoanRow; Insert: BusinessLoanInsert; Update: BusinessLoanUpdate; Relationships: [] };
+      business_loan_payments:{ Row: BusinessLoanPaymentRow; Insert: BusinessLoanPaymentInsert; Update: BusinessLoanPaymentUpdate; Relationships: [] };
       expense_claims:{ Row: ExpenseClaimRow; Insert: ExpenseClaimInsert; Update: ExpenseClaimUpdate; Relationships: [] };
       lead_activities:{ Row: LeadActivityRow; Insert: LeadActivityInsert; Update: LeadActivityUpdate; Relationships: [] };
       tds_receivable:     { Row: TdsReceivableRow;     Insert: TdsReceivableInsert;     Update: TdsReceivableUpdate;     Relationships: [] };
@@ -2018,6 +2459,9 @@ export type Database = {
       bank_accounts:        { Row: BankAccountRow;       Insert: BankAccountInsert;       Update: BankAccountUpdate;       Relationships: [] };
       bank_transactions:    { Row: BankTransactionRow;   Insert: BankTransactionInsert;   Update: BankTransactionUpdate;   Relationships: [] };
       bank_aa_connections:  { Row: BankAaConnectionRow;  Insert: BankAaConnectionInsert;  Update: BankAaConnectionUpdate;  Relationships: [] };
+      referral_partners:    { Row: ReferralPartnerRow;    Insert: ReferralPartnerInsert;    Update: ReferralPartnerUpdate;    Relationships: [] };
+      referral_agreements:  { Row: ReferralAgreementRow;  Insert: ReferralAgreementInsert;  Update: ReferralAgreementUpdate;  Relationships: [] };
+      referral_commissions: { Row: ReferralCommissionRow; Insert: ReferralCommissionInsert; Update: ReferralCommissionUpdate; Relationships: [] };
     };
     Views: {
       // Added in migration 0040 — tenant joined with its parent's display fields.
@@ -2098,6 +2542,48 @@ export type Database = {
           p_tenant_id?: string;
         };
         Returns: string;
+      };
+      /**
+       * Raise a one-off GST invoice directly against a customer (migration 0158).
+       * Creates a one-off quote (is_one_off — no subscription) then generate_invoice.
+       */
+      create_direct_invoice: {
+        Args: {
+          p_customer_id: string;
+          p_line_items:  QuoteLineItem[];
+          p_notes?:      string | null;
+          p_recurring?:  boolean;
+        };
+        Returns: { invoice_id: string; quote_id: string; net_payable: number; tax_rate: number }[];
+      };
+      /**
+       * Raise a one-shot PROJECT tax invoice (migration 0160). Composes
+       * create_project_quote → accept → raise_project_milestone_invoice atomically.
+       */
+      create_project_direct_invoice: {
+        Args: {
+          p_customer_id:   string | null;
+          p_customer_name: string;
+          p_title:         string;
+          p_description:   string | null;
+          p_line_items:    { name: string; qty: number; rate: number; amount: number }[];
+          p_gst_rate:      number;
+          p_inter_state:   boolean;
+        };
+        Returns: { invoice_id: string; project_id: string }[];
+      };
+      /**
+       * Pay a referral commission out of a bank account (migration 0156, atomic).
+       * Debits the bank (net of TDS) linked to the commission + marks it paid.
+       */
+      pay_referral_commission: {
+        Args: {
+          p_commission_id:   string;
+          p_bank_account_id: string;
+          p_paid_on?:        string | null;
+          p_method?:         string | null;
+        };
+        Returns: void;
       };
       /**
        * Guarded customer delete (0077). Refuses to delete a customer that still
@@ -2349,6 +2835,54 @@ export type Database = {
           is_renewal_quote:        boolean;
           /** Added in migration 0010. True when this payment fully covered a renewal quote and the linked subscription was advanced 1 year. */
           renewal_rolled_forward:  boolean;
+          /** True when the same (quote, reference) was already recorded — idempotent replay; no new row inserted. */
+          idempotent_replay?:      boolean;
+          already_recorded?:       boolean;
+        };
+      };
+      /**
+       * Migration 0150 (audit #22) — record_payment + the TDS receivable row in
+       * ONE transaction. Delegates to record_payment, then inserts the
+       * tds_receivable atomically (rolls the payment back if the TDS insert
+       * fails, so a fully-paid quote can never lose its government TDS
+       * receivable). Skips the TDS insert on an idempotent replay. Returns
+       * record_payment's result plus `tds_saved`.
+       */
+      record_payment_with_tds: {
+        Args: {
+          p_quote_id:      string;
+          p_amount:        number;
+          p_method:        "upi" | "razorpay" | "bank_transfer" | "cheque" | "cash" | "other";
+          p_reference:     string;
+          p_notes?:        string | null;
+          p_tds_amount?:   number;
+          p_tds_gross?:    number;
+          p_tds_net_paid?: number;
+          p_tds_section?:  string | null;
+          p_tds_rate_pct?: number | null;
+          p_customer_tan?: string | null;
+          p_invoice_id?:   string | null;
+          p_fiscal_year?:  string | null;
+        };
+        Returns: {
+          payment_id:           string;
+          receipt_voucher_no:   string | null;
+          customer_id:          string | null;
+          total_received:       number;
+          expected:             number;
+          outstanding:          number;
+          is_first_payment:     boolean;
+          is_fully_paid:        boolean;
+          converted_now:        boolean;
+          subscription_created: boolean;
+          invoice_paid:         boolean;
+          has_existing_invoice: boolean;
+          is_renewal_quote:        boolean;
+          renewal_rolled_forward:  boolean;
+          idempotent_replay?:      boolean;
+          already_recorded?:       boolean;
+          /** True when the TDS receivable committed in the same txn as the payment. */
+          tds_saved?:              boolean;
         };
       };
       /**
@@ -2447,6 +2981,13 @@ export type Database = {
         };
         Returns: undefined;
       };
+      update_project_future_milestones: {
+        Args: {
+          p_project_id: string;
+          p_milestones: unknown;
+        };
+        Returns: undefined;
+      };
       delete_project_sale: {
         Args: { p_project_id: string };
         Returns: undefined;
@@ -2534,6 +3075,14 @@ export type Database = {
         Args: { p_txn_id: string; p_category: string; p_vendor: string | null; p_gst: number; p_notes?: string | null };
         Returns: string;
       };
+      book_bank_credit: {
+        Args: { p_txn_id: string; p_kind: string; p_label: string; p_notes?: string | null };
+        Returns: undefined;
+      };
+      book_bank_advance: {
+        Args: { p_txn_id: string; p_counterparty: string; p_kind?: string; p_notes?: string | null };
+        Returns: undefined;
+      };
       edit_employee_loan: {
         Args: {
           p_loan_id:         string;
@@ -2576,6 +3125,42 @@ export type Database = {
         };
         Returns: undefined;
       };
+      record_business_loan: {
+        Args: {
+          p_lender:          string;
+          p_purpose:         string | null;
+          p_principal:       number;
+          p_interest_rate:   number | null;
+          p_tenure_months:   number | null;
+          p_emi_amount:      number | null;
+          p_disbursed_on:    string;
+          p_deposit_account: string;
+        };
+        Returns: string;
+      };
+      record_loan_emi: {
+        Args: {
+          p_loan_id:         string;
+          p_amount:          number;
+          p_interest:        number;
+          p_paid_on:         string;
+          p_bank_account_id: string;
+          p_notes?:          string | null;
+        };
+        Returns: undefined;
+      };
+      delete_business_loan: {
+        Args: { p_loan_id: string };
+        Returns: undefined;
+      };
+      pay_vendor_bill: {
+        Args: { p_bill_id: string; p_amount: number; p_paid_on: string; p_bank_account_id: string; p_method?: string | null };
+        Returns: undefined;
+      };
+      merge_leads: {
+        Args: { p_primary_id: string; p_duplicate_id: string };
+        Returns: undefined;
+      };
       record_employee_loan_repayment: {
         Args: {
           p_loan_id:         string;
@@ -2603,8 +3188,59 @@ export type Database = {
           p_other:             number;
           p_bank_account_id:   string;
           p_notes?:            string | null;
+          p_incentive?:        number;
+          p_esi_employer?:     number;
+          p_pf_employer?:      number;
         };
         Returns: string;
+      };
+      book_bank_txn_as_statutory: {
+        Args: { p_txn_id: string; p_kind: string; p_notes?: string | null };
+        Returns: undefined;
+      };
+      redeem_customer_credits: {
+        Args: { p_customer_id: string; p_amount: number; p_note?: string | null };
+        Returns: number;
+      };
+      issue_credit_note: {
+        Args: { p_invoice_id: string; p_gross_amount: number; p_reason_code?: string; p_reason?: string | null; p_notes?: string | null };
+        Returns: Json;
+      };
+      issue_debit_note: {
+        Args: { p_invoice_id: string; p_gross_amount: number; p_reason_code?: string; p_reason?: string | null; p_notes?: string | null };
+        Returns: Json;
+      };
+      delete_salary_payment: {
+        Args: { p_salary_id: string };
+        Returns: undefined;
+      };
+      delete_payment: {
+        Args: { p_payment_id: string };
+        Returns: Json;
+      };
+      add_reimbursement: {
+        Args: { p_person: string; p_purpose: string; p_category: string; p_amount: number; p_gst: number; p_incurred_on: string; p_paid_via: string | null; p_employee_id?: string | null; p_receipt_path?: string | null };
+        Returns: string;
+      };
+      settle_reimbursement: {
+        Args: { p_id: string; p_settled_on: string; p_notes: string | null };
+        Returns: undefined;
+      };
+      delete_reimbursement: {
+        Args: { p_id: string };
+        Returns: undefined;
+      };
+      delete_subscription: {
+        Args: { p_subscription_id: string };
+        Returns: Json;
+      };
+      reconcile_salaries_to_bank_txn: {
+        Args: { p_bank_txn_id: string; p_salary_ids: string[] };
+        Returns: undefined;
+      };
+      reconcile_expenses_to_bank_txn: {
+        Args: { p_bank_txn_id: string; p_expense_ids: string[] };
+        Returns: undefined;
       };
       pay_statutory_dues: {
         Args: {
@@ -2646,6 +3282,7 @@ export type Database = {
 export type Tenant       = TenantRow;
 export type DBUser       = UserRow;
 export type Customer     = CustomerRow;
+export type CustomerGroup = CustomerGroupRow;
 export type Item         = ItemRow;
 export type Lead         = LeadRow;
 export type Quote        = QuoteRow;

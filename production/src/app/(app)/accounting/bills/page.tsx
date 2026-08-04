@@ -17,27 +17,42 @@
 import * as React from "react";
 
 import { Card } from "@/components/ui/card";
-import { Button, IconButton } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Icon } from "@/components/ui/icon";
+import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/shared/empty-state";
 import { FAB } from "@/components/ui/fab";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
+} from "@/components/ui/dialog";
+import { FormField } from "@/components/ui/label";
+import {
+  DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
 import { rupee, formatDate } from "@/lib/utils";
 import {
   useVendorBills,
   useVendorBillsTotals,
   useDeleteVendorBill,
+  usePayVendorBill,
+  getBillAttachmentUrl,
+  type VendorBill,
 } from "@/lib/queries/vendor-bills";
+import { useBankAccounts } from "@/lib/queries/bank";
 import { AddVendorBillDialog } from "@/components/features/accounting/add-vendor-bill-dialog";
+import { DocViewerDialog } from "@/components/features/documents/doc-viewer-dialog";
 
-/** First day of current month → today, in YYYY-MM-DD (IST-safe). */
-function thisMonthRange(): { from: string; to: string } {
-  const now    = new Date();
-  const ist    = new Date(now.getTime() + 5.5 * 60 * 60 * 1000);
-  const yyyy   = ist.getUTCFullYear();
-  const mm     = String(ist.getUTCMonth() + 1).padStart(2, "0");
-  const today  = String(ist.getUTCDate()).padStart(2, "0");
-  return { from: `${yyyy}-${mm}-01`, to: `${yyyy}-${mm}-${today}` };
+/** Current financial year (Apr 1 → today), IST-safe, in YYYY-MM-DD. Defaulting
+ *  to the FY (not just this month) so a freshly-added bill dated in an earlier
+ *  month still shows — "this month" silently hid past-dated bills. */
+function thisFYRange(): { from: string; to: string } {
+  const now = new Date();
+  const ist = new Date(now.getTime() + 5.5 * 60 * 60 * 1000);
+  const y   = ist.getUTCFullYear();
+  const fyStartYear = ist.getUTCMonth() < 3 ? y - 1 : y;   // Apr = month index 3
+  return { from: `${fyStartYear}-04-01`, to: ist.toISOString().slice(0, 10) };
 }
 
 const STATUS_COLOR: Record<string, "rose" | "emerald" | "amber" | "slate"> = {
@@ -47,9 +62,10 @@ const STATUS_COLOR: Record<string, "rose" | "emerald" | "amber" | "slate"> = {
 };
 
 export default function VendorBillsPage() {
-  const [range, setRange]   = React.useState(thisMonthRange());
+  const [range, setRange]   = React.useState(thisFYRange());
   const [statusFilter, setStatusFilter] = React.useState<"" | "unpaid" | "paid" | "partial">("");
   const [addOpen, setAddOpen] = React.useState(false);
+  const [payBill, setPayBill] = React.useState<VendorBill | null>(null);
 
   const billsQ  = useVendorBills({
     from:   range.from,
@@ -85,7 +101,7 @@ export default function VendorBillsPage() {
 
       {/* ── KPI strip ───────────────────────────────────────────── */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 md:gap-4 mb-6">
-        <KPI label="Bills (this month)" value={totals ? String(totals.count) : "—"} />
+        <KPI label="Bills (this FY)" value={totals ? String(totals.count) : "—"} />
         <KPI label="Total amount"       value={totals ? rupee(totals.total) : "—"} />
         <KPI label="Outstanding"        value={totals ? rupee(totals.outstanding) : "—"}
              tone={totals && totals.outstanding > 0 ? "rose" : undefined} />
@@ -183,15 +199,18 @@ export default function VendorBillsPage() {
                       <td className="px-4 py-3 text-right font-semibold text-ink font-mono">{rupee(b.total)}</td>
                       <td className="px-4 py-3">
                         <Badge color={STATUS_COLOR[b.status] ?? "slate"}>{b.status}</Badge>
+                        {b.status !== "paid" && (b.total - (b.paid_amount ?? 0)) > 0 && (b.paid_amount ?? 0) > 0 && (
+                          <div className="text-[10px] text-rose tabular-nums mt-0.5">{rupee(b.total - (b.paid_amount ?? 0))} due</div>
+                        )}
                       </td>
                       <td className="px-4 py-3 text-right">
-                        <IconButton
-                          icon="trash"
-                          aria-label="Delete bill"
-                          onClick={() => {
-                            if (confirm(`Delete bill ${b.bill_no || b.id}?`)) del.mutate(b.id);
-                          }}
-                        />
+                        <div className="flex justify-end">
+                          <BillActions
+                            bill={b}
+                            onPay={() => setPayBill(b)}
+                            onDelete={() => { if (confirm(`Delete bill ${b.bill_no || b.id}?`)) del.mutate(b.id); }}
+                          />
+                        </div>
                       </td>
                     </tr>
                   );
@@ -222,12 +241,10 @@ export default function VendorBillsPage() {
                           <div className="text-[11px] text-emerald mt-1">+{rupee(gst)} input GST</div>
                         )}
                       </div>
-                      <IconButton
-                        icon="trash"
-                        aria-label="Delete bill"
-                        onClick={() => {
-                          if (confirm(`Delete bill ${b.bill_no || b.id}?`)) del.mutate(b.id);
-                        }}
+                      <BillActions
+                        bill={b}
+                        onPay={() => setPayBill(b)}
+                        onDelete={() => { if (confirm(`Delete bill ${b.bill_no || b.id}?`)) del.mutate(b.id); }}
                       />
                     </div>
                   </Card>
@@ -243,7 +260,132 @@ export default function VendorBillsPage() {
 
       {/* Add dialog */}
       {addOpen && <AddVendorBillDialog onClose={() => setAddOpen(false)} />}
+      {payBill && <PayBillDialog bill={payBill} onClose={() => setPayBill(null)} />}
     </div>
+  );
+}
+
+// ─── Row actions — View bill (attachment) · Record payment · Delete ─────────
+function BillActions({ bill, onPay, onDelete }: { bill: VendorBill; onPay: () => void; onDelete: () => void }) {
+  // Preview the attached file IN THE APP (DocViewerDialog renders PDFs via
+  // pdf.js + images inline) instead of a new browser tab.
+  const [viewer, setViewer] = React.useState(false);
+  const fileName = bill.attachment_url ? (bill.attachment_url.split("/").pop() ?? "bill") : null;
+  const outstanding = bill.total - (bill.paid_amount ?? 0);
+  return (
+    <div className="flex items-center gap-1.5">
+      {bill.status !== "paid" && outstanding > 0 && (
+        <Button size="sm" variant="primary" icon="rupee" onClick={onPay}>Pay</Button>
+      )}
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button type="button" aria-label="Actions" className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-3 hover:bg-paper-2 hover:text-ink data-[state=open]:bg-paper-2">
+            <Icon name="more_h" size={18} />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="min-w-[12rem]">
+          {bill.attachment_url ? (
+            <DropdownMenuItem className="gap-2.5 py-2 cursor-pointer" onClick={() => setViewer(true)}>
+              <Icon name="file" size={15} /> View bill file
+            </DropdownMenuItem>
+          ) : (
+            <DropdownMenuItem className="gap-2.5 py-2 text-ink-3" disabled>
+              <Icon name="file" size={15} /> No file attached
+            </DropdownMenuItem>
+          )}
+          {bill.status !== "paid" && outstanding > 0 && (
+            <DropdownMenuItem className="gap-2.5 py-2 cursor-pointer" onClick={onPay}>
+              <Icon name="rupee" size={15} /> Record payment
+            </DropdownMenuItem>
+          )}
+          <DropdownMenuSeparator />
+          <DropdownMenuItem destructive className="gap-2.5 py-2 cursor-pointer" onClick={onDelete}>
+            <Icon name="trash" size={15} /> Delete bill
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      {bill.attachment_url && (
+        <DocViewerDialog
+          open={viewer}
+          onOpenChange={setViewer}
+          title={`${bill.vendor_name} · ${bill.bill_no || bill.id}`}
+          fileName={fileName}
+          filePath={bill.attachment_url}
+          signer={getBillAttachmentUrl}
+        />
+      )}
+    </div>
+  );
+}
+
+function todayISO() {
+  return new Date(Date.now() + 5.5 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
+
+// ─── Record a payment against a vendor bill ─────────────────────────────────
+function PayBillDialog({ bill, onClose }: { bill: VendorBill; onClose: () => void }) {
+  const pay = usePayVendorBill();
+  const accountsQ = useBankAccounts();
+  const accounts = (accountsQ.data ?? []).filter((a) => a.is_active);
+  const outstanding = bill.total - (bill.paid_amount ?? 0);
+
+  const [amount, setAmount] = React.useState(String(outstanding));
+  const [date, setDate] = React.useState(todayISO());
+  const [accountId, setAccountId] = React.useState("");
+  const [method, setMethod] = React.useState("bank transfer");
+
+  React.useEffect(() => { if (!accountId && accounts.length > 0) setAccountId(accounts[0].id); }, [accounts, accountId]);
+
+  const amt = Math.round(Number(amount) || 0);
+  const tooMuch = amt > outstanding;
+  const valid = amt > 0 && !tooMuch && Boolean(accountId);
+
+  const save = async () => {
+    if (!valid) return;
+    try {
+      await pay.mutateAsync({ billId: bill.id, amount: amt, paidOn: date, bankAccountId: accountId, method });
+      onClose();
+    } catch { /* hook toasts */ }
+  };
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="md:!max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Pay · {bill.vendor_name}</DialogTitle>
+          <DialogDescription>
+            Outstanding: <b className="text-ink">{rupee(outstanding)}</b> of {rupee(bill.total)}. Ye paisa chune bank account se niklega (Banking me reconcile bhi ho jayega).
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <FormField label="Amount (₹)" required>
+              <Input type="number" min={1} value={amount} onChange={(e) => setAmount(e.target.value)} autoFocus />
+            </FormField>
+            <FormField label="Date">
+              <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+            </FormField>
+          </div>
+          {tooMuch && <p className="text-[11px] text-rose">Outstanding {rupee(outstanding)} se zyada nahi.</p>}
+          <FormField label="Pay from">
+            <select value={accountId} onChange={(e) => setAccountId(e.target.value)} className="w-full rounded-md border border-hairline bg-paper px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-amber">
+              {accounts.length === 0 && <option value="">No accounts — add one in Banking</option>}
+              {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+            </select>
+          </FormField>
+          <FormField label="Method">
+            <Input value={method} onChange={(e) => setMethod(e.target.value)} placeholder="bank transfer / UPI / cash" />
+          </FormField>
+        </div>
+        <DialogFooter>
+          <Button type="button" variant="default" onClick={onClose}>Cancel</Button>
+          <Button type="button" variant="primary" loading={pay.isPending} disabled={!valid} onClick={save}>
+            Pay {amt > 0 && !tooMuch ? rupee(amt) : ""}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

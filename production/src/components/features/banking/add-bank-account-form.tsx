@@ -62,14 +62,15 @@ const schema = z.object({
   bank_name:            z.string().optional(),
   account_number_last4: z.string().optional(),
   ifsc:                 z.string().optional(),
-  account_type:         z.enum(["current", "savings", "overdraft", "fixed_deposit", "cash", "other"]),
+  account_type:         z.enum(["current", "savings", "overdraft", "fixed_deposit", "cash", "other", "credit_card"]),
   opening_balance:      z.coerce.number().int(),
   opening_balance_date: z.string().min(1, "Date required"),
   notes:                z.string().optional(),
 }).superRefine((val, ctx) => {
   // Bank identifiers are required for real bank accounts, but not for a
-  // cash / petty-cash account (which has no IFSC or account number).
-  if (val.account_type !== "cash") {
+  // cash account (no IFSC) or a credit card (no IFSC — it's a card, not a
+  // bank account).
+  if (val.account_type !== "cash" && val.account_type !== "credit_card") {
     if (!val.bank_name || val.bank_name.length < 2)
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["bank_name"], message: "Bank required" });
     if (!/^\d{4}$/.test(val.account_number_last4 ?? ""))
@@ -120,7 +121,8 @@ export function AddBankAccountForm({ open, onOpenChange, account }: Props) {
         account_number_last4: account.account_number_last4 ?? "",
         ifsc:                 account.ifsc ?? "",
         account_type:         account.account_type,
-        opening_balance:      account.opening_balance,
+        // Card balances are stored negative (owed); show them as a positive "owed".
+        opening_balance:      account.account_type === "credit_card" ? -account.opening_balance : account.opening_balance,
         opening_balance_date: account.opening_balance_date,
         notes:                account.notes ?? "",
       });
@@ -141,16 +143,20 @@ export function AddBankAccountForm({ open, onOpenChange, account }: Props) {
   React.useEffect(() => { setValue("account_type", accountType); }, [accountType, setValue]);
 
   const isCash = accountType === "cash";
+  const isCard = accountType === "credit_card";
 
   const onSubmit = async (data: FormData) => {
     const payload = {
       name:                 data.name.trim(),
-      // A cash account has no bank / IFSC / account number.
-      bank_name:            isCash ? "Cash in hand" : (data.bank_name ?? ""),
-      account_number_last4: isCash ? null : (data.account_number_last4 ?? null),
-      ifsc:                 isCash ? null : (data.ifsc ?? null),
+      // Neither a cash account nor a credit card has a bank IFSC / account number.
+      bank_name:            isCash ? "Cash in hand" : isCard ? "Credit Card" : (data.bank_name ?? ""),
+      account_number_last4: (isCash || isCard) ? null : (data.account_number_last4 ?? null),
+      ifsc:                 (isCash || isCard) ? null : (data.ifsc ?? null),
       account_type:         data.account_type,
-      opening_balance:      data.opening_balance,
+      // A credit card is a liability: the operator enters what they OWE (a
+      // positive number); we store it as a NEGATIVE balance so the running
+      // balance (opening + Σ(credit−debit)) reads as "amount owed" everywhere.
+      opening_balance:      isCard ? -Math.abs(data.opening_balance) : data.opening_balance,
       opening_balance_date: data.opening_balance_date,
       notes:                data.notes?.trim() || null,
     };
@@ -199,7 +205,7 @@ export function AddBankAccountForm({ open, onOpenChange, account }: Props) {
               </p>
             </FormField>
 
-            {!isCash && (
+            {!isCash && !isCard && (
               <>
                 <FormField label="Bank" required htmlFor="bank_name">
                   <Select value={bankName} onValueChange={setBankName}>
@@ -255,6 +261,15 @@ export function AddBankAccountForm({ open, onOpenChange, account }: Props) {
               </div>
             )}
 
+            {isCard && (
+              <div className="rounded-md bg-indigo-soft/50 border border-indigo/30 px-3 py-2 text-[11px] text-indigo-ink leading-relaxed">
+                <b>Company credit card.</b> Ye ek <b>owe / udhari</b> hai — jo paisa aapko chukana hai.
+                Card ke kharche is card par transaction ke roop me add karke expense categorise
+                karo; jab card ka bill pay karo to <b>Transfer</b> (bank → ye card) use karo —
+                bill ko dobara fresh expense mat banao, warna kharcha do baar count hoga.
+              </div>
+            )}
+
             <FormField label="Account type" htmlFor="account_type">
               <Select value={accountType} onValueChange={(v) => setAccountType(v as FormData["account_type"])}>
                 <SelectTrigger id="account_type">
@@ -264,6 +279,7 @@ export function AddBankAccountForm({ open, onOpenChange, account }: Props) {
                   <SelectItem value="current">Current</SelectItem>
                   <SelectItem value="savings">Savings</SelectItem>
                   <SelectItem value="overdraft">Overdraft (OD/CC)</SelectItem>
+                  <SelectItem value="credit_card">Credit Card</SelectItem>
                   <SelectItem value="fixed_deposit">Fixed Deposit</SelectItem>
                   <SelectItem value="cash">Cash / Petty cash</SelectItem>
                   <SelectItem value="other">Other</SelectItem>
@@ -273,7 +289,7 @@ export function AddBankAccountForm({ open, onOpenChange, account }: Props) {
             </FormField>
 
             <div className="grid grid-cols-2 gap-3">
-              <FormField label="Opening balance (₹)" htmlFor="opening_balance">
+              <FormField label={isCard ? "Abhi kitna owe / udhari (₹)" : "Opening balance (₹)"} htmlFor="opening_balance">
                 <Input
                   id="opening_balance"
                   type="text"
@@ -295,9 +311,9 @@ export function AddBankAccountForm({ open, onOpenChange, account }: Props) {
               </FormField>
             </div>
             <p className="text-[11px] text-ink-3 -mt-2 leading-relaxed">
-              Opening balance = money in this account on the &ldquo;as of&rdquo; date, BEFORE any
-              transaction you import. Set it to the closing balance on your bank statement
-              just before your first imported line — the running balance builds on top of it.
+              {isCard
+                ? "Upar wali date tak is card par jo owe / udhari hai wo daalo (positive number). Naye card kharche isme jud jaate hain; bill pay karne se ghat jaati hai."
+                : "Opening balance = money in this account on the “as of” date, BEFORE any transaction you import. Set it to the closing balance on your bank statement just before your first imported line — the running balance builds on top of it."}
             </p>
 
             <FormField label="Notes" htmlFor="notes">

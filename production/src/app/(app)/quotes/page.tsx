@@ -23,7 +23,6 @@ import { QuotePreviewDialog } from "@/components/features/quotes/quote-preview-d
 import type { QuoteLineItem } from "@/lib/supabase/database.types";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
-import { Avatar } from "@/components/ui/avatar";
 import { TabBar, type TabBarItem } from "@/components/ui/tabs";
 import {
   Select,
@@ -42,9 +41,19 @@ import {
 import { Input } from "@/components/ui/input";
 import { Icon } from "@/components/ui/icon";
 import { FAB } from "@/components/ui/fab";
-import { rupee, formatDate, daysBetween } from "@/lib/utils";
+import { rupee, daysBetween } from "@/lib/utils";
 import { cn } from "@/lib/utils";
+import { isForeignCurrency, foreignEquivalent, formatForeign } from "@/lib/currency";
 import type { Quote } from "@/lib/supabase/database.types";
+
+/** A quote's total in ITS billing currency (foreign quotes show $/€…; books stay ₹). */
+function quoteMoney(q: { amount: number | null; currency?: string | null; exchange_rate?: number | null }): string {
+  if (!q.amount) return "—";
+  if (isForeignCurrency(q.currency)) {
+    return formatForeign(foreignEquivalent(q.amount, q.exchange_rate && q.exchange_rate > 0 ? q.exchange_rate : 1), q.currency ?? "");
+  }
+  return rupee(q.amount);
+}
 
 // Heuristic margin estimate per quote (until we have line items always populated)
 function estimateMarginForQuote(q: Quote) {
@@ -123,7 +132,10 @@ function PaymentBadge({
         : "Partial",
     },
     received: { kind: "success", label: paid ? `Paid · ${rupee(paid)}` : "Paid in full" },
-    invoiced: { kind: "info",    label: "Invoiced" },
+    // Invoiced but a balance is still due → surface it (warning), don't read as "done".
+    invoiced: remaining > 0
+      ? { kind: "warning", label: `Invoiced · ₹${remaining.toLocaleString("en-IN")} due` }
+      : { kind: "info", label: "Invoiced" },
   };
   const m = map[ps];
   if (!m) return null;
@@ -140,6 +152,8 @@ export default function QuotesPage() {
   const deleteQuote = useDeleteQuote();
   const [tab, setTab] = React.useState("all");
   const [search, setSearch] = React.useState("");
+  // Clean split — Subscription is the default (most quotes live here); Project
+  // is one tab away. No mixed "All" view, no empty default.
   const [view, setView] = React.useState<"subscription" | "project">("subscription");
   const [projectQuoteOpen, setProjectQuoteOpen] = React.useState(false);
   const [editProject, setEditProject] = React.useState<ProjectSaleWithTotals | null>(null);
@@ -189,11 +203,14 @@ export default function QuotesPage() {
   // Accepted-but-not-yet-invoiced count for the tab badge
   const acceptedActive = (counts.accepted ?? 0) - (counts.invoiced ?? 0);
 
-  // Awaiting payment = money expected but not yet fully received (awaiting or
-  // partial). The reseller's "chase the cash" worklist.
-  const awaitingPayment = (quotes ?? []).filter(
-    (q) => q.payment_status === "awaiting" || q.payment_status === "partial",
-  ).length;
+  // Awaiting payment = money expected but not yet fully received. Includes an
+  // INVOICED quote that still has a balance due — else real outstanding cash
+  // (invoiced-but-part-paid) would hide from the "chase the cash" worklist.
+  const isAwaitingCash = (q: Quote) =>
+    q.payment_status === "awaiting" ||
+    q.payment_status === "partial" ||
+    (q.payment_status === "invoiced" && (q.amount ?? 0) - (q.payment_amount ?? 0) > 0);
+  const awaitingPayment = (quotes ?? []).filter(isAwaitingCash).length;
 
   const tabs: TabBarItem[] = [
     { id: "all",      label: "All",      count: counts.all ?? 0 },
@@ -212,7 +229,7 @@ export default function QuotesPage() {
       if (q.status !== "expired" && q.status !== "rejected") return false;
     } else if (tab === "awaiting") {
       // Awaiting-payment bucket: money expected but not fully received.
-      if (q.payment_status !== "awaiting" && q.payment_status !== "partial") return false;
+      if (!isAwaitingCash(q)) return false;
     } else if (tab === "invoiced") {
       // Invoiced bucket is defined by payment_status, not quote.status
       if (q.payment_status !== "invoiced") return false;
@@ -285,7 +302,60 @@ export default function QuotesPage() {
       {view === "project" && (
         (projectQuotes?.length ?? 0) > 0 ? (
           <Card flush>
-            <div className="overflow-x-auto">
+            {/* Mobile card list — phones only */}
+            <ul className="md:hidden divide-y divide-hairline">
+              {(projectQuotes ?? []).map((p) => (
+                <li key={p.id} className="px-4 py-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      {p.customer_id ? (
+                        <Link href={`/customers/${p.customer_id}` as never} className="font-medium text-ink hover:text-amber-ink hover:underline block truncate">{p.customer_name}</Link>
+                      ) : (
+                        <span className="font-medium text-ink block truncate">{p.customer_name}</span>
+                      )}
+                      <Link href={`/projects/${p.id}` as never} className="text-[11px] text-ink-2 hover:text-amber-ink hover:underline block truncate">{p.title}</Link>
+                    </div>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <button type="button" aria-label="Actions" className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-3 hover:bg-paper-2 hover:text-ink shrink-0">
+                          <Icon name="more_h" size={18} />
+                        </button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="min-w-[12rem]">
+                        <DropdownMenuItem className="gap-2.5 py-2 cursor-pointer" onClick={() => router.push(`/projects/${p.id}` as any)}>
+                          <Icon name="eye" size={15} /> Open project
+                        </DropdownMenuItem>
+                        <DropdownMenuItem className="gap-2.5 py-2 cursor-pointer" onClick={() => window.open(`/project-quote/${p.id}`, "_blank", "noopener")}>
+                          <Icon name="file" size={15} /> Preview quote (customer view)
+                        </DropdownMenuItem>
+                        <DropdownMenuItem className="gap-2.5 py-2 cursor-pointer" onClick={() => setEditProject(p)}>
+                          <Icon name="edit" size={15} /> Edit
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem destructive className="gap-2.5 py-2 cursor-pointer" onClick={() => {
+                          if (confirm(`Delete project "${p.title}"?\n\nThis removes the project + its milestone schedule. (Blocked if any milestone is already invoiced — delete that invoice first.)\n\nThis cannot be undone.`)) {
+                            deleteProject.mutate(p.id);
+                          }
+                        }}>
+                          <Icon name="trash" size={15} /> Delete
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
+                  <div className="flex items-center justify-between gap-2 mt-2">
+                    <Badge kind={p.status === "completed" ? "success" : p.status === "cancelled" ? "muted" : p.status === "quoted" ? "info" : "warning"} size="sm" dot>
+                      {p.status === "quoted" ? "Quotation" : p.status}
+                    </Badge>
+                    <div className="text-right">
+                      <span className="font-serif text-base tabular-nums text-ink">{rupee(p.total_amount)}</span>
+                      {p.receivable > 0 && <span className="block text-[10px] text-rose">{rupee(p.receivable)} due</span>}
+                    </div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+
+            <div className="hidden md:block overflow-x-auto">
               <table className="w-full text-sm min-w-[620px]">
                 <thead className="bg-paper-2 border-b border-hairline text-[10px] uppercase tracking-wider text-ink-3">
                   <tr>
@@ -396,10 +466,10 @@ export default function QuotesPage() {
       {/* Tabs + filter */}
       {!isLoading && quotes && quotes.length > 0 && (
         <>
-          <div className="mb-3">
-            <label className="text-[11px] uppercase tracking-wider text-ink-3 font-semibold block mb-1">Status</label>
+          {/* One compact toolbar — status filter + search + count on a single row. */}
+          <div className="flex items-center gap-3 flex-wrap mb-3">
             <Select value={tab} onValueChange={setTab}>
-              <SelectTrigger className="w-full sm:w-72">
+              <SelectTrigger className="w-full sm:w-52">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -410,18 +480,16 @@ export default function QuotesPage() {
                 ))}
               </SelectContent>
             </Select>
-          </div>
-          <div className="flex justify-between items-center gap-3 flex-wrap mb-3">
-            <div className="text-xs text-ink-3">
-              Showing {filtered.length} of {counts.all ?? 0} quotes
-            </div>
-            <div className="w-64">
+            <div className="w-full sm:w-64">
               <Input
                 prefix={<Icon name="search" size={14} />}
                 placeholder="Quote ID, customer…"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
               />
+            </div>
+            <div className="text-xs text-ink-3 sm:ml-auto">
+              Showing {filtered.length} of {counts.all ?? 0} quotes
             </div>
           </div>
         </>
@@ -502,9 +570,13 @@ export default function QuotesPage() {
                           <Badge kind="warning" className="font-sans text-[10px]">
                             Extension · {Math.round((q.extension_months ?? 12) / 12)}yr
                           </Badge>
-                        ) : q.is_renewal && (
+                        ) : q.is_renewal ? (
                           <Badge kind="info" className="font-sans text-[10px]">Renewal</Badge>
-                        )}
+                        ) : q.is_add_seats ? (
+                          <Badge kind="info" className="font-sans text-[10px]">Prorata</Badge>
+                        ) : q.is_one_off ? (
+                          <Badge kind="muted" className="font-sans text-[10px]">Direct invoice</Badge>
+                        ) : null}
                       </div>
                       <p className="text-sm font-medium text-ink mt-0.5 truncate">
                         {q.customer_name}
@@ -512,7 +584,7 @@ export default function QuotesPage() {
                     </div>
                     <div className="text-right shrink-0">
                       <p className="font-serif text-base tabular-nums text-ink">
-                        {q.amount ? rupee(q.amount) : "—"}
+                        {quoteMoney(q)}
                       </p>
                       <p className="text-[10px] text-ink-3 tabular-nums">
                         {q.seats ?? "—"} seats
@@ -551,17 +623,14 @@ export default function QuotesPage() {
             <table className="w-full">
               <thead className="bg-paper-2 border-b border-hairline">
                 <tr>
-                  <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Quote ID</th>
+                  <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Quote</th>
                   <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Customer</th>
                   <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Plan</th>
-                  <th className="text-right p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Seats</th>
                   <th className="text-right p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Amount</th>
                   <th className="text-right p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider" title="Annual margin">Margin</th>
                   <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Status</th>
-                  <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Created</th>
                   <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Validity</th>
-                  <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Owner</th>
-                  <th className="w-24"></th>
+                  <th className="w-px"></th>
                 </tr>
               </thead>
               <tbody>
@@ -576,48 +645,58 @@ export default function QuotesPage() {
                       onClick={() => router.push(`/quotes/${q.id}` as any)}
                       className="border-b border-hairline last:border-0 hover:bg-paper-2/40 cursor-pointer transition-colors"
                     >
-                      <td className="p-3 font-mono text-xs font-semibold text-ink">
+                      {/* Compact ID — the tail number as a chip; full ID on hover. */}
+                      <td className="p-3" title={q.id}>
                         <div className="flex items-center gap-1.5">
-                          <span>{q.id}</span>
+                          <span className="inline-flex items-center rounded-md bg-paper-2 px-1.5 py-0.5 font-mono text-[11px] font-semibold text-ink">
+                            #{q.id.split("-").pop()}
+                          </span>
                           {q.is_extension ? (
                             <Badge kind="warning" className="font-sans text-[10px]">
-                              Extension · {Math.round((q.extension_months ?? 12) / 12)}yr
+                              Ext · {Math.round((q.extension_months ?? 12) / 12)}yr
                             </Badge>
-                          ) : q.is_renewal && (
-                            <Badge kind="info" className="font-sans text-[10px]">
-                              Renewal
-                            </Badge>
-                          )}
+                          ) : q.is_renewal ? (
+                            <Badge kind="info" className="font-sans text-[10px]">Renewal</Badge>
+                          ) : q.is_add_seats ? (
+                            <Badge kind="info" className="font-sans text-[10px]">Prorata</Badge>
+                          ) : q.is_one_off ? (
+                            <Badge kind="muted" className="font-sans text-[10px]">Direct invoice</Badge>
+                          ) : null}
                         </div>
                       </td>
                       <td className="p-3">
-                        <div className="font-medium text-ink">{q.customer_name}</div>
+                        <div className="font-medium text-ink truncate max-w-[200px]" title={q.customer_name}>{q.customer_name}</div>
                         {q.lead_id && (
                           <div className="text-[10px] text-ink-3 font-mono">from {q.lead_id}</div>
                         )}
                       </td>
-                      <td className="p-3 text-sm text-ink-2">{q.plan ?? "—"}</td>
-                      <td className="p-3 text-right tabular-nums text-sm">{q.seats ?? "—"}</td>
+                      {/* Plan — single-line truncate + tooltip; seats folded below. */}
+                      <td className="p-3 text-sm text-ink-2">
+                        <div className="truncate max-w-[190px]" title={q.plan ?? undefined}>{q.plan ?? "—"}</div>
+                        {q.seats != null && (
+                          <div className="text-[10px] text-ink-3"><span className="font-semibold text-ink-2 tabular-nums">{q.seats}</span> seats</div>
+                        )}
+                      </td>
                       <td className="p-3 text-right">
                         <div className="flex flex-col items-end gap-0.5">
                           <span className="tabular-nums text-sm font-medium">
-                            {q.amount ? rupee(q.amount) : "—"}
+                            {quoteMoney(q)}
                           </span>
                           <PaymentLabel ps={q.payment_status} paid={q.payment_amount} />
                         </div>
                       </td>
+                      {/* Margin — colour-coded badge: green = healthy, amber =
+                          thin, rose = risky. ₹ amount below for reference. */}
                       <td className="p-3 text-right">
                         {q.amount ? (
-                          <div className="flex flex-col items-end">
-                            <span className={cn(
-                              "tabular-nums text-sm font-medium",
-                              margin.marginPct >= 18 ? "text-emerald" :
-                              margin.marginPct >= 14 ? "text-amber-ink" :
-                              "text-rose"
-                            )}>
-                              {rupee(margin.margin)}
-                            </span>
-                            <span className="text-[10px] text-ink-3 tabular-nums">{margin.marginPct}%</span>
+                          <div className="flex flex-col items-end gap-0.5">
+                            <Badge
+                              kind={margin.marginPct >= 18 ? "success" : margin.marginPct >= 14 ? "warning" : "danger"}
+                              size="sm"
+                            >
+                              {margin.marginPct}%
+                            </Badge>
+                            <span className="text-[10px] text-ink-3 tabular-nums">{rupee(margin.margin)}</span>
                           </div>
                         ) : (
                           <span className="text-ink-3">—</span>
@@ -629,7 +708,6 @@ export default function QuotesPage() {
                           <PaymentBadge ps={q.payment_status} paid={q.payment_amount} total={q.amount} />
                         </div>
                       </td>
-                      <td className="p-3 text-sm text-ink-2">{formatDate(q.created_date)}</td>
                       <td className="p-3 text-sm">
                         {q.status === "accepted" || q.status === "rejected" ? (
                           <span className="text-ink-3">—</span>
@@ -642,12 +720,6 @@ export default function QuotesPage() {
                         ) : (
                           <span className="text-xs text-ink-3 tabular-nums">{dl}d left</span>
                         )}
-                      </td>
-                      <td className="p-3">
-                        <div className="flex items-center gap-2">
-                          <Avatar initials="PA" color="amber" size="sm" />
-                          <span className="text-xs">Pardeep</span>
-                        </div>
                       </td>
                       <td className="p-3 text-right" onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center justify-end gap-1.5">

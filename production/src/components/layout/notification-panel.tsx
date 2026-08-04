@@ -1,8 +1,13 @@
 /**
- * NotificationPanel — slide-out (Sheet) showing recent events.
+ * NotificationPanel — slide-out (Sheet) showing REAL recent events for this
+ * tenant. No sample/placeholder data — a brand-new empty workspace correctly
+ * shows an empty state, never fabricated money.
  *
- * Real implementation will use Supabase Realtime to push new events.
- * For now uses local state with sample stream.
+ * Sources (all tenant-scoped via RLS):
+ *   • Tasks due today or overdue  → actionable "follow-up" alerts (drive unread)
+ *   • Leads created in the last 7 days → informational "new lead" events
+ * Read-state is remembered in localStorage so "Mark all read" sticks.
+ * Realtime push can later prepend to this same list.
  */
 "use client";
 
@@ -13,42 +18,33 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "
 import { Icon } from "@/components/ui/icon";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/shared/empty-state";
-import { cn } from "@/lib/utils";
-import { toast } from "sonner";
+import { cn, rupee, formatDate } from "@/lib/utils";
+import { useTasks } from "@/lib/queries/tasks";
+import { useLeads } from "@/lib/queries/leads";
 
-// ============================================================
-// Sample stream — replace with Supabase Realtime later
-// ============================================================
-type NotifKind = "payment" | "order" | "trial" | "issue" | "renewal" | "risk" | "quote" | "lead" | "whatsapp" | "support";
 type NotifTone = "emerald" | "indigo" | "amber" | "rose" | "slate";
 
 interface Notification {
   id: string;
-  type: NotifKind;
   title: string;
   meta: string;
   icon: string;
   tone: NotifTone;
   unread: boolean;
   link: string;
+  when: number; // ms, for sorting
 }
 
-const SAMPLE_NOTIFICATIONS: Notification[] = [
-  { id: "n1",  type: "payment", icon: "rupee",    tone: "emerald", unread: true,  link: "/invoices",      title: "Payment received · ₹3.05L from Acme Corp",         meta: "2 min ago · Invoice INV-2026-0156 · Razorpay" },
-  { id: "n2",  type: "order",   icon: "cart",     tone: "indigo",  unread: true,  link: "/online-orders", title: "New paid order · Echo Pharma · 60 seats Plus",     meta: "18 min ago · ORD-2026-0088 · ₹11.7L total" },
-  { id: "n3",  type: "trial",   icon: "rocket",   tone: "amber",   unread: true,  link: "/online-orders", title: "Trial started · Beta Industries · 15 seats",       meta: "1 hour ago · TRL-2026-0042 · Day 1 of 14" },
-  { id: "n4",  type: "issue",   icon: "alert",    tone: "rose",    unread: true,  link: "/online-orders", title: "Provisioning failed · Hotel Asia Mumbai",          meta: "2 hours ago · Domain conflict · Needs manual fix" },
-  { id: "n5",  type: "renewal", icon: "clock",    tone: "amber",   unread: false, link: "/renewals",      title: "Renewal in 2 days · Cosmo Tech · ₹16.5K MRR",      meta: "Sent reminder email · No response yet" },
-  { id: "n6",  type: "risk",    icon: "alert",    tone: "rose",    unread: false, link: "/renewals",      title: "High-risk renewal flagged · Hotel Royal Group",    meta: "Low usage 65% · NPS 4/10 · 5 support tickets" },
-  { id: "n7",  type: "quote",   icon: "file",     tone: "indigo",  unread: false, link: "/quotes",        title: "Quote viewed · Acme Corp opened Q-2026-0042",      meta: "3rd time in 24h · Strong buying signal" },
-  { id: "n8",  type: "lead",    icon: "target",   tone: "amber",   unread: false, link: "/leads",         title: "New lead · Maple Studios · 12 seats Workspace",    meta: "Came via marketing landing · Auto-assigned to Priya" },
-  { id: "n9",  type: "whatsapp",icon: "whatsapp", tone: "emerald", unread: false, link: "/whatsapp",      title: "WhatsApp · Karthik N replied",                     meta: "\"Can we schedule migration for Saturday?\"" },
-  { id: "n10", type: "support", icon: "ticket",   tone: "emerald", unread: false, link: "/support",       title: "Support ticket #SUP-1247 resolved",                meta: "Rajesh marked as helpful · 5★ rating" },
-];
+const READ_KEY = "ros_notif_read";
 
-// ============================================================
-// NotificationPanel
-// ============================================================
+/** End-of-today and start-of-today as UTC ms, computed in IST (matches the
+ *  tasks query's day boundary so "due today / overdue" agrees with the badge). */
+function todayBoundsIST() {
+  const istNow = new Date(Date.now() + 5.5 * 3600 * 1000);
+  const endMs = Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth(), istNow.getUTCDate() + 1) - 5.5 * 3600 * 1000;
+  return { start: endMs - 24 * 3600 * 1000, end: endMs };
+}
+
 export function NotificationPanel({
   open,
   onOpenChange,
@@ -57,18 +53,79 @@ export function NotificationPanel({
   onOpenChange: (open: boolean) => void;
 }) {
   const router = useRouter();
-  const [items, setItems] = React.useState(SAMPLE_NOTIFICATIONS);
+  const { data: tasks } = useTasks("all");
+  const { data: leads } = useLeads();
+
+  // Persisted read-state so "Mark all read" survives refresh.
+  const [readIds, setReadIds] = React.useState<Set<string>>(new Set());
+  React.useEffect(() => {
+    try {
+      const s = localStorage.getItem(READ_KEY);
+      if (s) setReadIds(new Set(JSON.parse(s) as string[]));
+    } catch { /* ignore */ }
+  }, []);
+  const persistRead = (next: Set<string>) => {
+    setReadIds(next);
+    try { localStorage.setItem(READ_KEY, JSON.stringify([...next])); } catch { /* ignore */ }
+  };
+
+  const items = React.useMemo<Notification[]>(() => {
+    const out: Notification[] = [];
+    const { start, end } = todayBoundsIST();
+
+    // 1. Actionable: tasks due today or overdue (pending / snoozed only).
+    for (const t of tasks ?? []) {
+      if (t.status !== "pending" && t.status !== "snoozed") continue;
+      const due = new Date(t.due_at).getTime();
+      if (due >= end) continue; // future tasks aren't "notifications" yet
+      const overdue = due < start;
+      const who = t.leads?.company ?? t.customers?.name ?? t.quotes?.customer_name ?? null;
+      out.push({
+        id: `task-${t.id}`,
+        title: t.title,
+        meta: `${overdue ? "Overdue" : "Due today"}${who ? ` · ${who}` : ""} · ${formatDate(t.due_at)}`,
+        icon: overdue ? "alert" : "clock",
+        tone: overdue ? "rose" : "amber",
+        unread: !readIds.has(`task-${t.id}`),
+        link: t.lead_id ? `/leads?lead=${t.lead_id}` : "/tasks",
+        when: due,
+      });
+    }
+
+    // 2. Informational: leads that arrived in the last 7 days.
+    const weekAgo = Date.now() - 7 * 24 * 3600 * 1000;
+    for (const l of leads ?? []) {
+      const created = new Date(l.created_at).getTime();
+      if (created < weekAgo) continue;
+      out.push({
+        id: `lead-${l.id}`,
+        title: `New lead · ${l.company}`,
+        meta: `${formatDate(l.created_at)}${l.value ? ` · ${rupee(l.value, { compact: true })}` : ""}${l.contact_name ? ` · ${l.contact_name}` : ""}`,
+        icon: "target",
+        tone: "amber",
+        unread: false, // info, doesn't drive the unread dot
+        link: `/leads?lead=${l.id}`,
+        when: created,
+      });
+    }
+
+    return out.sort((a, b) => b.when - a.when).slice(0, 30);
+  }, [tasks, leads, readIds]);
+
   const unreadCount = items.filter((n) => n.unread).length;
 
   const markAllRead = () => {
-    setItems(items.map((n) => ({ ...n, unread: false })));
-    toast.success("All notifications marked as read");
+    const next = new Set(readIds);
+    items.forEach((n) => next.add(n.id));
+    persistRead(next);
   };
 
   const openItem = (n: Notification) => {
-    setItems(items.map((x) => (x.id === n.id ? { ...x, unread: false } : x)));
+    const next = new Set(readIds);
+    next.add(n.id);
+    persistRead(next);
     onOpenChange(false);
-    router.push(n.link as any);
+    router.push(n.link as never);
   };
 
   return (
@@ -79,9 +136,11 @@ export function NotificationPanel({
           <div>
             <SheetTitle className="text-base">Notifications</SheetTitle>
             <SheetDescription className="text-[11px] mt-0.5">
-              {unreadCount > 0
-                ? `${unreadCount} unread · ${items.length} total`
-                : `All caught up · ${items.length} total`}
+              {items.length === 0
+                ? "You're all caught up"
+                : unreadCount > 0
+                ? `${unreadCount} need${unreadCount === 1 ? "s" : ""} attention · ${items.length} recent`
+                : `All caught up · ${items.length} recent`}
             </SheetDescription>
           </div>
           <div className="flex items-center gap-1">
@@ -92,7 +151,7 @@ export function NotificationPanel({
                 "text-xs font-medium px-2 py-1 rounded",
                 unreadCount === 0
                   ? "text-ink-3 cursor-default"
-                  : "text-indigo hover:bg-indigo-soft cursor-pointer"
+                  : "text-indigo hover:bg-indigo-soft cursor-pointer",
               )}
             >
               Mark all read
@@ -112,8 +171,8 @@ export function NotificationPanel({
           {items.length === 0 ? (
             <EmptyState
               icon="bell"
-              title="No notifications yet"
-              body="Events from your reseller business will appear here."
+              title="You're all caught up"
+              body="Follow-ups due today and new leads will show up here."
             />
           ) : (
             items.map((n) => (
@@ -123,7 +182,7 @@ export function NotificationPanel({
                 className={cn(
                   "w-full px-4 py-3 border-b border-hairline last:border-0 flex gap-3 items-start text-left",
                   "hover:bg-paper-2 transition-colors",
-                  n.unread && "bg-paper-2/60"
+                  n.unread && "bg-paper-2/60",
                 )}
               >
                 <div
@@ -133,7 +192,7 @@ export function NotificationPanel({
                     n.tone === "indigo" && "bg-indigo-soft text-indigo",
                     n.tone === "amber" && "bg-amber-soft text-amber",
                     n.tone === "rose" && "bg-rose-soft text-rose",
-                    n.tone === "slate" && "bg-slate-soft text-slate"
+                    n.tone === "slate" && "bg-slate-soft text-slate",
                   )}
                 >
                   <Icon name={n.icon} size={14} />
@@ -142,7 +201,7 @@ export function NotificationPanel({
                   <div
                     className={cn(
                       "text-sm leading-snug text-ink",
-                      n.unread ? "font-semibold" : "font-normal"
+                      n.unread ? "font-semibold" : "font-normal",
                     )}
                   >
                     {n.title}
@@ -162,15 +221,14 @@ export function NotificationPanel({
           <Button
             variant="ghost"
             size="sm"
-            icon="settings"
+            icon="clock"
             onClick={() => {
               onOpenChange(false);
-              router.push("/automations" as any);
+              router.push("/tasks" as never);
             }}
           >
-            Settings
+            All tasks
           </Button>
-          <button className="text-xs text-indigo hover:underline font-medium">View all →</button>
         </div>
       </SheetContent>
     </Sheet>

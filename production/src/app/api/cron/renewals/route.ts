@@ -38,6 +38,8 @@ import { createOrGetRenewalQuote } from "@/lib/renewals/create-renewal-quote";
 import { sendEmail, isEmailConfigured } from "@/lib/email/send";
 import { renderQuotePDF } from "@/lib/pdf";
 import { isInterStateSupply } from "@/lib/gst/place-of-supply";
+import { quoteAcceptUrl } from "@/lib/quotes/accept-link";
+import { timingSafeEqualStr } from "@/lib/crypto/timing-safe";
 import type { QuoteLineItem } from "@/lib/supabase/database.types";
 
 export const dynamic = "force-dynamic";
@@ -66,14 +68,18 @@ export async function POST(req: Request) {
 }
 
 async function handle(req: Request): Promise<NextResponse<CronResult | { error: string }>> {
-  // ── Auth check ───────────────────────────────────────────────────
+  // ── Auth check — FAIL CLOSED (SEC-3) ─────────────────────────────
+  // This job lapses/suspends subscriptions and sends emails under the
+  // service-role client, so it must never run unauthenticated. If the secret
+  // isn't configured we refuse rather than allow (was: fail-open).
   const expected = process.env.CRON_SECRET?.trim();
-  if (expected) {
-    const auth = req.headers.get("authorization") ?? "";
-    const provided = auth.replace(/^Bearer\s+/i, "").trim();
-    if (provided !== expected) {
-      return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-    }
+  if (!expected) {
+    return NextResponse.json({ error: "cron not configured" }, { status: 503 });
+  }
+  const auth = req.headers.get("authorization") ?? "";
+  const provided = auth.replace(/^Bearer\s+/i, "").trim();
+  if (!timingSafeEqualStr(provided, expected)) {
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
   const supabase = createAdminClient();  // service role — bypasses RLS for the cron
@@ -237,6 +243,14 @@ async function handle(req: Request): Promise<NextResponse<CronResult | { error: 
           : null;
         const lineItems: QuoteLineItem[] = quoteResult?.lineItems ?? [];
 
+        // Public accept-link token (SEC-1)
+        let renewalToken: string | null = null;
+        if (renewalQuoteId) {
+          const { data: tok } = await supabase
+            .from("quotes").select("public_token").eq("id", renewalQuoteId).maybeSingle();
+          renewalToken = tok?.public_token ?? null;
+        }
+
         // 2. Recipient — prefer customer.contact_email
         const recipient = customer?.contact_email;
         if (!recipient) {
@@ -270,7 +284,9 @@ async function handle(req: Request): Promise<NextResponse<CronResult | { error: 
           }),
           daysUntil:       Math.abs(decision.daysUntilRenewal),
           graceDays:       tenant.grace_period_days ?? 0,
-          acceptLink:      renewalQuoteId ? `${process.env.NEXT_PUBLIC_APP_URL ?? ""}/quote/${renewalQuoteId}/accept` : undefined,
+          acceptLink:      renewalQuoteId && renewalToken
+            ? quoteAcceptUrl(process.env.NEXT_PUBLIC_APP_URL ?? "", renewalQuoteId, renewalToken)
+            : undefined,
         });
 
         // 4. Render PDF attachment (only when we have a quote)
@@ -294,7 +310,9 @@ async function handle(req: Request): Promise<NextResponse<CronResult | { error: 
               discount:      0,
               taxable:       renewalQuote.subtotal ?? renewalQuote.amount,
               taxRate:       renewalQuote.tax_rate ?? 18,
-              tax:           Math.round((renewalQuote.subtotal ?? renewalQuote.amount) * 0.18),
+              // Use the quote's actual rate (0 for a zero-rated export renewal) —
+              // never a hardcoded 18% (which taxed foreign auto-renewals wrongly).
+              tax:           Math.round((renewalQuote.subtotal ?? renewalQuote.amount) * (renewalQuote.tax_rate ?? 18) / 100),
               total:         renewalQuote.amount,
               interState:    isInterStateSupply(customer?.state_code, tenant.state_code),
               validityDays:  30,

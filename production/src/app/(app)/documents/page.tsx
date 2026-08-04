@@ -27,15 +27,16 @@ import {
   type DocumentRow,
 } from "@/lib/queries/documents";
 import { formatDate } from "@/lib/utils";
-import { toast } from "sonner";
 import { UploadDocumentDialog } from "@/components/features/documents/upload-document-dialog";
+import { DocViewerDialog } from "@/components/features/documents/doc-viewer-dialog";
 
 export default function DocumentsPage() {
-  const { data: docs, isLoading } = useDocuments();
+  const { data: docs, isLoading, error, refetch } = useDocuments();
   const del = useDeleteDocument();
   const [uploadOpen, setUploadOpen] = React.useState(false);
   const [cat, setCat] = React.useState("all");
   const [search, setSearch] = React.useState("");
+  const [viewing, setViewing] = React.useState<DocumentRow | null>(null);
 
   const filtered = (docs ?? []).filter((d) => {
     if (cat !== "all" && d.category !== cat) return false;
@@ -55,10 +56,9 @@ export default function DocumentsPage() {
     ...DOCUMENT_CATEGORIES.filter((c) => (catCounts[c.key] ?? 0) > 0).map((c) => ({ id: c.key, label: c.label, count: catCounts[c.key] })),
   ];
 
-  const openDoc = async (d: DocumentRow) => {
-    try { window.open(await getDocumentSignedUrl(d.file_path), "_blank", "noopener"); }
-    catch { toast.error("Could not open document"); }
-  };
+  // Preview the file inside the app (modal viewer) — no popup / new tab / browser
+  // "download PDFs" setting involved.
+  const openDoc = (d: DocumentRow) => setViewing(d);
 
   return (
     <div className="p-4 md:p-6 lg:p-8 max-w-[1800px] mx-auto">
@@ -91,6 +91,15 @@ export default function DocumentsPage() {
 
       {isLoading ? (
         <div className="space-y-2">{[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-14 w-full" />)}</div>
+      ) : error ? (
+        <Card>
+          <EmptyState
+            icon="alert"
+            title="Couldn't load your documents"
+            body="Something went wrong reaching the document vault. Check your connection and try again."
+            action={<Button variant="primary" icon="refresh" onClick={() => void refetch()}>Retry</Button>}
+          />
+        </Card>
       ) : !docs || docs.length === 0 ? (
         <Card>
           <EmptyState
@@ -111,6 +120,17 @@ export default function DocumentsPage() {
       )}
 
       <UploadDocumentDialog open={uploadOpen} onOpenChange={setUploadOpen} />
+      {viewing && (
+        <DocViewerDialog
+          open={!!viewing}
+          onOpenChange={(o) => { if (!o) setViewing(null); }}
+          title={viewing.title}
+          mimeType={viewing.mime_type}
+          fileName={viewing.file_name}
+          filePath={viewing.file_path}
+          signer={getDocumentSignedUrl}
+        />
+      )}
       <FAB icon="upload" label="Upload" onClick={() => setUploadOpen(true)} />
     </div>
   );

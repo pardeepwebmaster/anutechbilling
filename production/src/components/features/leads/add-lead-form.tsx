@@ -43,7 +43,8 @@ import {
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
-import { useCreateLead, useUpdateLead } from "@/lib/queries/leads";
+import { useCreateLead, useUpdateLead, useLeads } from "@/lib/queries/leads";
+import { normPhone, normCompany } from "@/lib/leads/duplicates";
 import { useCurrentUser } from "@/lib/hooks/useCurrentUser";
 import { createClient } from "@/lib/supabase/client";
 import { isValidGstin, validateGstin } from "@/lib/utils";
@@ -159,9 +160,12 @@ interface AddLeadFormProps {
   onOpenChange: (open: boolean) => void;
   /** When provided, the form pre-fills + updates this lead instead of creating new. */
   editingLead?: Lead | null;
+  /** Default stage for a NEW record. Passed as a deal stage (e.g. "quote") when
+   *  invoked from the Deal Pipeline so "Add Deal" actually lands in the pipeline. */
+  defaultStage?: FormData["stage"];
 }
 
-export function AddLeadForm({ open, onOpenChange, editingLead }: AddLeadFormProps) {
+export function AddLeadForm({ open, onOpenChange, editingLead, defaultStage }: AddLeadFormProps) {
   const router    = useRouter();
   const createLead = useCreateLead();
   const updateLead = useUpdateLead();
@@ -237,7 +241,7 @@ export function AddLeadForm({ open, onOpenChange, editingLead }: AddLeadFormProp
           notes:          editingLead.notes         ?? "",
         }
       : {
-          stage:    "new",
+          stage:    defaultStage ?? "new",
           source:   "manual",
           priority: "medium",
           // Seats/value intentionally left blank for raw leads. They get
@@ -247,6 +251,26 @@ export function AddLeadForm({ open, onOpenChange, editingLead }: AddLeadFormProp
   });
 
   const watchedSeats = watch("seats");
+
+  // ── Duplicate warning ──────────────────────────────────────────────
+  // As the operator types company / phone, surface any EXISTING lead that
+  // already matches — so they open it instead of creating a second record.
+  // Prevention beats cleanup. Skips the lead being edited. Non-blocking:
+  // it's a heads-up with a link, never a hard stop.
+  const { data: allLeads } = useLeads();
+  const wCompany = watch("company");
+  const wPhone   = watch("contact_phone");
+  const dupMatch = React.useMemo(() => {
+    if (!allLeads || allLeads.length === 0) return null;
+    const p = normPhone(wPhone);
+    const c = normCompany(wCompany);
+    if (!p && !c) return null;
+    return allLeads.find(
+      (l) =>
+        l.id !== editingLead?.id &&
+        ((p && normPhone(l.contact_phone) === p) || (c && normCompany(l.company) === c)),
+    ) ?? null;
+  }, [allLeads, wPhone, wCompany, editingLead?.id]);
 
   /**
    * Open the native Contacts Picker (Android Chrome / Edge Mobile only).
@@ -296,10 +320,15 @@ export function AddLeadForm({ open, onOpenChange, editingLead }: AddLeadFormProp
   // what crosses the gate into the deal stages. A lead already past the gate
   // (stage quote/demo/trial/won/lost) gets the deal-stage set.
   const availableStages = React.useMemo(() => {
-    const postQuote = !!editingLead && (POST_QUOTE_STAGE_VALUES as readonly string[]).includes(editingLead.stage);
-    const allowed = postQuote ? POST_QUOTE_STAGE_VALUES : RAW_LEAD_STAGE_VALUES;
+    // Deal stages are allowed when editing a lead already past the quote gate, OR
+    // when adding a NEW record straight into the Deal Pipeline (defaultStage is a
+    // deal stage). Otherwise a raw lead can only be New / Contacted / Lost.
+    const dealMode = editingLead
+      ? (POST_QUOTE_STAGE_VALUES as readonly string[]).includes(editingLead.stage)
+      : !!defaultStage && (POST_QUOTE_STAGE_VALUES as readonly string[]).includes(defaultStage);
+    const allowed = dealMode ? POST_QUOTE_STAGE_VALUES : RAW_LEAD_STAGE_VALUES;
     return STAGES.filter((s) => (allowed as readonly string[]).includes(s.value));
-  }, [editingLead]);
+  }, [editingLead, defaultStage]);
 
   // Keep the selected stage within the allowed set (e.g. if it drifted out of
   // range for this lead's funnel position).
@@ -418,11 +447,13 @@ export function AddLeadForm({ open, onOpenChange, editingLead }: AddLeadFormProp
         // they'd save a lead with a plan picked, then can't find it on /leads.
         // Solution: tell them WHICH page their lead landed on + 1-tap nav.
         toast.dismiss();
-        const wasQualified = Boolean(planVal && (seatsVal || valueVal));
+        // Where it LANDS is decided by stage (Deals = past the quote gate), not by
+        // plan/value — else we'd say "Deal" but the raw lead sits in the inbox.
+        const isDeal = (POST_QUOTE_STAGE_VALUES as readonly string[]).includes(data.stage);
         const companyName  = data.company;
-        if (wasQualified) {
+        if (isDeal) {
           toast.success(`${companyName} saved as Deal`, {
-            description: "Plan + value set — visible in Deal Pipeline",
+            description: "In your Deal Pipeline",
             duration: 6000,
             action: {
               label: "View deals",
@@ -431,7 +462,7 @@ export function AddLeadForm({ open, onOpenChange, editingLead }: AddLeadFormProp
           });
         } else {
           toast.success(`${companyName} added to your inbox`, {
-            description: "Pick a plan + seats anytime to qualify it as a deal",
+            description: "In Leads — send a quote to move it into the Deal Pipeline",
             duration: 6000,
             action: {
               label: "View leads",
@@ -456,11 +487,13 @@ export function AddLeadForm({ open, onOpenChange, editingLead }: AddLeadFormProp
         className="w-full sm:max-w-[520px] md:max-w-[600px] p-0 flex flex-col overflow-x-hidden"
       >
         <SheetHeader className="min-w-0">
-          <SheetTitle className="break-words">{isEditing ? "Edit lead" : "Add a new lead"}</SheetTitle>
+          <SheetTitle className="break-words">{isEditing ? "Edit lead" : defaultStage ? "Add a new deal" : "Add a new lead"}</SheetTitle>
           <SheetDescription className="break-words">
             {isEditing
               ? `Update details for ${editingLead?.company}.`
-              : "Track a potential deal. You can update stage anytime via drag-drop."}
+              : defaultStage
+                ? "Add an opportunity straight to your Deal Pipeline."
+                : "Track a potential lead. Send a quote to move it into the Deal Pipeline."}
           </SheetDescription>
         </SheetHeader>
 
@@ -479,6 +512,26 @@ export function AddLeadForm({ open, onOpenChange, editingLead }: AddLeadFormProp
               {...register("company")}
             />
           </FormField>
+
+          {/* Duplicate heads-up — an existing lead already matches this
+              company / phone. Non-blocking: offer to open it instead. */}
+          {!isEditing && dupMatch && (
+            <div className="rounded-md bg-amber-soft/60 border border-amber/30 px-3 py-2.5 flex items-start gap-2 min-w-0">
+              <Icon name="copy" size={14} className="text-amber-ink flex-shrink-0 mt-0.5" />
+              <div className="min-w-0 flex-1 text-xs text-amber-ink leading-snug">
+                <b>Shayad ye lead pehle se hai:</b> {dupMatch.company}
+                {dupMatch.contact_phone ? ` · ${dupMatch.contact_phone}` : ""}.
+                Naya banane ke bajaye usi ko kholein?
+                <button
+                  type="button"
+                  onClick={() => { onOpenChange(false); router.push(`/leads?lead=${dupMatch.id}` as Route); }}
+                  className="ml-1.5 font-semibold underline underline-offset-2 hover:text-amber"
+                >
+                  Open existing lead
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Pick from phone contacts — Android PWA only.
               Tap → native contact picker opens → name/phone/email auto-fill.

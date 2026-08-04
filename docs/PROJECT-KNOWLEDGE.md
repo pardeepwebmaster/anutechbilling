@@ -416,7 +416,7 @@ Single source of truth. `UserRole = owner|manager|sales`. `APP_NAV` sections: Wo
 ## 13. Infra: Hosting, Deploy, Env Vars, Sentry, Middleware
 
 ### 13.1 Hosting / deploy (transitioned Vercel → Firebase App Hosting → Cloud Run)
-- **Primary: Firebase App Hosting on Cloud Run** (`apphosting.yaml`, `firebase.json`, `.firebaserc`). Project `resellersos-prod`, service `resellersos` in **asia-south1 (Mumbai)**. runConfig: minInstances 0, maxInstances 10, concurrency 80, cpu 1, memory 512MiB. `_next/static/**` cached immutable. Secrets in Google Secret Manager.
+- **Primary: Firebase App Hosting on Cloud Run** (`apphosting.yaml`, `firebase.json`, `.firebaserc`). Project `resellsubsos-prod`, service `resellersos` in **asia-south1 (Mumbai)**. runConfig: minInstances 0, maxInstances 10, concurrency 80, cpu 1, memory 512MiB. `_next/static/**` cached immutable. Secrets in Google Secret Manager.
 - **Vercel** (`vercel.json`) — only the cron entry remains: `/api/cron/renewals` at `30 3 * * *`. Under Cloud Run, Cloud Scheduler hits the route with the Bearer secret.
 - `next.config.mjs`: `output: standalone`, `poweredByHeader:false`, typedRoutes, instrumentationHook, security headers (X-Frame SAMEORIGIN, nosniff, strict-origin referrer, Permissions-Policy locks camera/mic/geo), wrapped in `withSentryConfig`.
 

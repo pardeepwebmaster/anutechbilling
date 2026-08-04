@@ -335,7 +335,7 @@ export function ThanksClient({
         <div className="max-w-[800px] mx-auto px-6 space-y-1">
           <div>
             Excel Technologies Pvt Ltd · Google Premier Partner since 2014 ·
-            GSTIN registered · 1024 Indian SMEs trust us with their email.
+            GSTIN registered · Indian SMEs trust us with their email.
           </div>
           <div>
             <Link href="/buy/workspace" className="hover:text-ink underline underline-offset-2">

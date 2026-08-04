@@ -23,6 +23,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Button, IconButton } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
+import { FAB } from "@/components/ui/fab";
 import {
   Dialog,
   DialogContent,
@@ -282,7 +283,7 @@ export default function LeadGenPage() {
   const topSource   = captureChannels[0]; // already sorted by count desc (may be undefined)
 
   return (
-    <div className="mx-auto max-w-[1800px] px-8 pb-20 pt-7">
+    <div className="mx-auto max-w-[1800px] px-4 md:px-8 pb-20 pt-7">
       {/* ── Page header ── */}
       <div className="mb-6 flex items-start justify-between gap-4">
         <div>
@@ -302,14 +303,6 @@ export default function LeadGenPage() {
           >
             <Icon name="link" size={14} />
             Share form
-          </Button>
-          <Button
-            variant="default"
-            size="sm"
-            onClick={() => toast.info("Upload CSV file to import leads")}
-          >
-            <Icon name="download" size={14} />
-            Import CSV
           </Button>
           <Button
             variant="primary"
@@ -534,7 +527,9 @@ export default function LeadGenPage() {
             compact
           />
         ) : (
-          <div className="overflow-x-auto">
+          <>
+          {/* Desktop / tablet — table */}
+          <div className="hidden md:block overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-hairline bg-muted/30">
@@ -587,6 +582,35 @@ export default function LeadGenPage() {
               </tbody>
             </table>
           </div>
+
+          {/* Mobile — card list mirroring the table columns */}
+          <ul className="md:hidden divide-y divide-hairline">
+            {recentLeads.slice(0, 10).map((lead) => (
+              <li key={lead.id}>
+                <button
+                  type="button"
+                  onClick={() => router.push(`/leads?lead=${lead.id}` as never)}
+                  className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-muted/20 transition-colors"
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="font-semibold text-ink truncate">{lead.company}</p>
+                    <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                      <SourceIcon source={lead.source} />
+                      <span className="text-xs text-ink-3 truncate">· {lead.contact_name ?? "—"}</span>
+                    </div>
+                    <p className="mt-1 text-[11px] text-ink-3">
+                      {formatDate(lead.created_at, "relative")}
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 flex-col items-end gap-1.5">
+                    <StageBadge stage={lead.stage} />
+                    <Icon name="arrow_right" size={14} className="text-ink-3" />
+                  </div>
+                </button>
+              </li>
+            ))}
+          </ul>
+          </>
         )}
       </Card>
 
@@ -643,6 +667,9 @@ export default function LeadGenPage() {
 
       {/* ── Add Lead modal (same one used in Lead Pipeline) ── */}
       <AddLeadForm open={addOpen} onOpenChange={setAddOpen} />
+
+      {/* Mobile FAB — primary list action */}
+      <FAB icon="plus" label="Add lead" onClick={() => setAddOpen(true)} ariaLabel="Add lead" />
     </div>
   );
 }

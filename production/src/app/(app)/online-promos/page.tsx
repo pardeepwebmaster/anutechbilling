@@ -22,6 +22,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Icon } from "@/components/ui/icon";
+import { FAB } from "@/components/ui/fab";
 import { EmptyState } from "@/components/shared/empty-state";
 import { KPI } from "@/components/shared/kpi";
 import { formatDate, rupee, cn } from "@/lib/utils";
@@ -186,7 +187,9 @@ export default function OnlinePromosPage() {
       )}
 
       {!isLoading && !error && promos && promos.length > 0 && (
-        <Card flush>
+        <>
+          {/* Desktop table */}
+          <Card flush className="hidden md:block">
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead className="bg-paper-2 border-b border-hairline">
@@ -210,7 +213,6 @@ export default function OnlinePromosPage() {
                           <span className={cn("inline-block w-2 h-6 rounded-full", bannerBg(p.banner_style))} />
                           <div className="min-w-0">
                             <div className="font-medium text-sm text-ink truncate max-w-[280px]">{p.headline}</div>
-                            <div className="text-[10px] text-ink-3 font-mono">{p.id}</div>
                           </div>
                         </div>
                       </td>
@@ -256,7 +258,52 @@ export default function OnlinePromosPage() {
               </tbody>
             </table>
           </div>
-        </Card>
+          </Card>
+
+          {/* Mobile card list */}
+          <ul className="md:hidden space-y-2">
+            {promos.map((p) => {
+              const state = promoStateTone(p);
+              return (
+                <li key={p.id}>
+                  <Card className="p-3">
+                    <div className="flex items-start justify-between gap-2 mb-1.5">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className={cn("inline-block w-1.5 h-6 rounded-full shrink-0", bannerBg(p.banner_style))} />
+                        <div className="font-medium text-ink leading-tight truncate">{p.headline}</div>
+                      </div>
+                      <Badge kind={state.kind} dot>{state.label}</Badge>
+                    </div>
+                    <div className="flex items-center justify-between text-xs mb-2">
+                      <span className="text-ink font-medium">{discountLabel(p)}</span>
+                      <span className="text-ink-3 tabular-nums">
+                        {p.valid_until ? `ends ${formatDate(p.valid_until)}` : "no end date"}
+                      </span>
+                    </div>
+                    <div className="text-[11px] text-ink-3 tabular-nums mb-2">
+                      {p.min_seats}+ seats
+                      {p.max_seats != null ? ` · max ${p.max_seats}` : ""}
+                      {p.applies_to_tier ? ` · ${p.applies_to_tier}` : ""}
+                    </div>
+                    <div className="flex items-center gap-1 pt-1 border-t border-hairline">
+                      <Button variant="ghost" size="sm" onClick={() => onToggle(p)} disabled={toggle.isPending}>
+                        {p.is_active ? "Pause" : "Resume"}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        icon="trash"
+                        onClick={() => onDelete(p)}
+                        disabled={del.isPending}
+                        className="text-rose hover:text-rose ml-auto"
+                      />
+                    </div>
+                  </Card>
+                </li>
+              );
+            })}
+          </ul>
+        </>
       )}
 
       {!isLoading && promos && promos.length > 0 && (
@@ -269,6 +316,8 @@ export default function OnlinePromosPage() {
       {createOpen && (
         <CreatePromoDialog open={createOpen} onOpenChange={setCreateOpen} />
       )}
+
+      <FAB icon="zap" label="Promo" onClick={() => setCreateOpen(true)} ariaLabel="Launch promo" />
     </div>
   );
 }

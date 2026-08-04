@@ -747,7 +747,7 @@ export default function SettingsPage() {
   const [tab, setTab] = React.useState("company");
 
   return (
-    <div className="mx-auto max-w-[1800px] px-8 pb-20 pt-7">
+    <div className="mx-auto max-w-[1240px] p-4 md:p-6 lg:p-8 pb-20">
       {/* ── Page header ── */}
       <div className="mb-6">
         <p className="mb-0.5 text-xs font-medium uppercase tracking-widest text-ink-3">

@@ -127,7 +127,6 @@ export default function PurchaseOrdersPage() {
         </div>
         <div className="flex gap-2 flex-wrap">
           <Button icon="refresh" onClick={() => refetch()}>Refresh</Button>
-          <Button icon="download">Export</Button>
         </div>
       </div>
 

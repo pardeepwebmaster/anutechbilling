@@ -80,7 +80,6 @@ export default function PerformancePage() {
       <p className="text-[11px] text-ink-3">
         Weights: +1 pt / ₹{PERF_WEIGHTS.revenuePerRupees.toLocaleString("en-IN")} collected · deal won +{PERF_WEIGHTS.dealWon} ·
         quote +{PERF_WEIGHTS.quoteSent} · payment +{PERF_WEIGHTS.paymentRecorded} · task on-time +{PERF_WEIGHTS.taskOnTime} · late {PERF_WEIGHTS.taskLate}.
-        Tune them in <span className="font-mono">lib/queries/performance.ts</span>.
       </p>
     </div>
   );

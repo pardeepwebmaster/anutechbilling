@@ -16,12 +16,9 @@
 import * as React from "react";
 import { useSubscriptions } from "@/lib/queries/subscriptions";
 import { useCustomers } from "@/lib/queries/customers";
-import { toast } from "sonner";
 import { KPI } from "@/components/shared/kpi";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Icon } from "@/components/ui/icon";
 import { rupee } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 import {
@@ -238,7 +235,7 @@ export default function ReportsPage() {
   ].filter((s) => s.value > 0);
 
   return (
-    <div className="mx-auto max-w-[1800px] px-8 pb-20 pt-7">
+    <div className="mx-auto max-w-[1800px] px-4 md:px-8 pb-20 pt-7">
       {/* ── Page header ── */}
       <div className="mb-6 flex items-start justify-between gap-4">
         <div>
@@ -250,24 +247,8 @@ export default function ReportsPage() {
             Live business insights · auto-refreshed every 5 minutes
           </p>
         </div>
-        <div className="flex shrink-0 items-center gap-2">
-          <Button
-            variant="default"
-            size="sm"
-            onClick={() => toast.info("Date range picker coming soon")}
-          >
-            <Icon name="calendar" size={14} />
-            This month
-          </Button>
-          <Button
-            variant="default"
-            size="sm"
-            onClick={() => toast.info("PDF export coming soon")}
-          >
-            <Icon name="download" size={14} />
-            Export PDF
-          </Button>
-        </div>
+        {/* Date-range + PDF export intentionally omitted until implemented —
+            no dead "coming soon" buttons in the primary action slot. */}
       </div>
 
       {/* ── KPIs ── */}

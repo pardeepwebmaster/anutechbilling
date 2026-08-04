@@ -18,6 +18,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/shared/empty-state";
 import { KPI } from "@/components/shared/kpi";
 import { Icon } from "@/components/ui/icon";
+import { FAB } from "@/components/ui/fab";
 import { formatDate } from "@/lib/utils";
 import CampaignComposerDialog from "@/components/features/campaigns/campaign-composer-dialog";
 import type { CampaignRow } from "@/lib/supabase/database.types";
@@ -109,58 +110,85 @@ export default function CampaignsPage() {
       )}
 
       {!isLoading && !error && campaigns && campaigns.length > 0 && (
-        <Card flush>
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-paper-2 border-b border-hairline">
-                <tr>
-                  <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Campaign</th>
-                  <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Subject</th>
-                  <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Offer</th>
-                  <th className="text-right p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Reach</th>
-                  <th className="text-right p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Delivered</th>
-                  <th className="text-right p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Failed</th>
-                  <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Status</th>
-                  <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Sent</th>
-                </tr>
-              </thead>
-              <tbody>
-                {campaigns.map((c) => (
-                  <tr key={c.id} className="border-b border-hairline last:border-0 hover:bg-paper-2/40">
-                    <td className="p-3">
-                      <div className="font-medium text-sm text-ink">{c.name}</div>
-                      <div className="text-[11px] text-ink-3 font-mono">{c.id}</div>
-                    </td>
-                    <td className="p-3 text-sm text-ink-2 max-w-[280px] truncate">{c.subject}</td>
-                    <td className="p-3 text-xs">
-                      {c.offer_code ? (
-                        <>
-                          <span className="font-mono text-amber-ink">{c.offer_code}</span>
-                          <span className="text-ink-3"> · {c.offer_discount_pct}%</span>
-                        </>
-                      ) : (
-                        <span className="text-ink-3">—</span>
-                      )}
-                    </td>
-                    <td className="p-3 text-right tabular-nums text-sm">{c.recipients_count}</td>
-                    <td className="p-3 text-right tabular-nums text-sm text-emerald">{c.sent_count}</td>
-                    <td className="p-3 text-right tabular-nums text-sm">
-                      {c.failed_count > 0 ? <span className="text-rose">{c.failed_count}</span> : <span className="text-ink-3">0</span>}
-                    </td>
-                    <td className="p-3">
-                      <Badge kind={STATUS_TONE[c.status] ?? "muted"} dot>
-                        {c.status}
-                      </Badge>
-                    </td>
-                    <td className="p-3 text-xs text-ink-3 tabular-nums">
-                      {c.sent_at ? formatDate(c.sent_at) : "—"}
-                    </td>
+        <>
+          {/* Desktop table */}
+          <Card flush className="hidden md:block">
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-paper-2 border-b border-hairline">
+                  <tr>
+                    <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Campaign</th>
+                    <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Subject</th>
+                    <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Offer</th>
+                    <th className="text-right p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Reach</th>
+                    <th className="text-right p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Delivered</th>
+                    <th className="text-right p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Failed</th>
+                    <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Status</th>
+                    <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Sent</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </Card>
+                </thead>
+                <tbody>
+                  {campaigns.map((c) => (
+                    <tr key={c.id} className="border-b border-hairline last:border-0 hover:bg-paper-2/40">
+                      <td className="p-3">
+                        <div className="font-medium text-sm text-ink">{c.name}</div>
+                      </td>
+                      <td className="p-3 text-sm text-ink-2 max-w-[280px] truncate">{c.subject}</td>
+                      <td className="p-3 text-xs">
+                        {c.offer_code ? (
+                          <>
+                            <span className="font-mono text-amber-ink">{c.offer_code}</span>
+                            <span className="text-ink-3"> · {c.offer_discount_pct}%</span>
+                          </>
+                        ) : (
+                          <span className="text-ink-3">—</span>
+                        )}
+                      </td>
+                      <td className="p-3 text-right tabular-nums text-sm">{c.recipients_count}</td>
+                      <td className="p-3 text-right tabular-nums text-sm text-emerald">{c.sent_count}</td>
+                      <td className="p-3 text-right tabular-nums text-sm">
+                        {c.failed_count > 0 ? <span className="text-rose">{c.failed_count}</span> : <span className="text-ink-3">0</span>}
+                      </td>
+                      <td className="p-3">
+                        <Badge kind={STATUS_TONE[c.status] ?? "muted"} dot>
+                          {c.status}
+                        </Badge>
+                      </td>
+                      <td className="p-3 text-xs text-ink-3 tabular-nums">
+                        {c.sent_at ? formatDate(c.sent_at) : "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+
+          {/* Mobile card list */}
+          <ul className="md:hidden space-y-2">
+            {campaigns.map((c) => (
+              <li key={c.id}>
+                <Card className="p-3">
+                  <div className="flex items-start justify-between gap-2 mb-1">
+                    <div className="font-medium text-ink leading-tight">{c.name}</div>
+                    <Badge kind={STATUS_TONE[c.status] ?? "muted"} dot>{c.status}</Badge>
+                  </div>
+                  {c.subject && (
+                    <div className="text-xs text-ink-2 truncate mb-2">{c.subject}</div>
+                  )}
+                  <div className="flex items-center justify-between text-xs">
+                    <div className="flex items-center gap-3 tabular-nums">
+                      <span className="text-ink-2">{c.recipients_count} reach</span>
+                      <span className="text-emerald">{c.sent_count} sent</span>
+                      {c.failed_count > 0 && <span className="text-rose">{c.failed_count} failed</span>}
+                    </div>
+                    <span className="text-ink-3 tabular-nums">{c.sent_at ? formatDate(c.sent_at) : "—"}</span>
+                  </div>
+                </Card>
+              </li>
+            ))}
+          </ul>
+        </>
       )}
 
       {!isLoading && campaigns && campaigns.length > 0 && (
@@ -173,6 +201,8 @@ export default function CampaignsPage() {
       {composerOpen && (
         <CampaignComposerDialog open={composerOpen} onOpenChange={setComposerOpen} />
       )}
+
+      <FAB icon="send" label="Campaign" onClick={() => setComposerOpen(true)} ariaLabel="New campaign" />
     </div>
   );
 }

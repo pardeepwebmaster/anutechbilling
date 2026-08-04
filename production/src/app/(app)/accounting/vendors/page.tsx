@@ -51,7 +51,7 @@ export default function VendorsPage() {
   };
 
   return (
-    <div className="p-4 md:p-6 lg:p-8 max-w-[1400px] mx-auto">
+    <div className="p-4 md:p-6 lg:p-8 max-w-[1800px] mx-auto">
       <div className="flex items-end justify-between gap-3 flex-wrap mb-4">
         <div>
           <p className="text-xs uppercase tracking-wider text-ink-3 font-semibold mb-1">Accounting</p>

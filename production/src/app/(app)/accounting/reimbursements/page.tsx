@@ -59,7 +59,7 @@ export default function ReimbursementsPage() {
   };
 
   return (
-    <div className="p-4 md:p-6 lg:p-8 max-w-[1400px] mx-auto">
+    <div className="p-4 md:p-6 lg:p-8 max-w-[1800px] mx-auto">
       <div className="flex items-end justify-between gap-3 flex-wrap mb-4">
         <div>
           <p className="text-xs uppercase tracking-wider text-ink-3 font-semibold mb-1">Accounting</p>
@@ -148,33 +148,66 @@ function ReimbList({
       <Card className="overflow-hidden">
         <ul className="divide-y divide-hairline">
           {rows.map((r) => (
-            <li key={r.id} className="flex items-center gap-3 px-4 py-3">
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium text-ink truncate flex items-center gap-1.5">
-                  <span className="truncate">{r.person_name}</span>
-                  {r.employee_id && <Badge kind="info" size="sm">Employee</Badge>}
-                  <span className="text-ink-3 font-normal truncate">· {r.purpose}</span>
-                </p>
-                <p className="text-[11px] text-ink-3 truncate">
+            <li key={r.id}>
+              {/* Desktop / tablet — single row */}
+              <div className="hidden md:flex items-center gap-3 px-4 py-3">
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-ink truncate flex items-center gap-1.5">
+                    <span className="truncate">{r.person_name}</span>
+                    {r.employee_id && <Badge kind="info" size="sm">Employee</Badge>}
+                    <span className="text-ink-3 font-normal truncate">· {r.purpose}</span>
+                  </p>
+                  <p className="text-[11px] text-ink-3 truncate">
+                    {r.category} · {formatDate(r.incurred_on)}{r.paid_via ? ` · ${r.paid_via}` : ""}
+                    {settled && r.settled_on ? ` · settled ${formatDate(r.settled_on)}` : ""}
+                  </p>
+                </div>
+                {r.receipt_path && <ReceiptLink path={r.receipt_path} />}
+                <div className="text-right shrink-0">
+                  <p className={`font-mono text-sm font-semibold ${settled ? "text-ink-3" : "text-rose"}`}>{rupee(r.amount)}</p>
+                </div>
+                {settled ? (
+                  <Badge kind="success" size="sm" dot>Settled</Badge>
+                ) : (
+                  <Button size="sm" variant="primary" onClick={() => onSettle(r)}>Settle</Button>
+                )}
+                <Button
+                  size="sm" variant="ghost" icon="trash"
+                  className="!text-rose hover:!bg-rose/10"
+                  aria-label="Delete"
+                  onClick={() => onDelete(r)}
+                />
+              </div>
+
+              {/* Mobile — stacked card: person + amount on top, purpose + actions below */}
+              <div className="md:hidden px-4 py-3">
+                <div className="flex items-start justify-between gap-2">
+                  <p className="min-w-0 text-sm font-medium text-ink flex items-center gap-1.5">
+                    <span className="truncate">{r.person_name}</span>
+                    {r.employee_id && <Badge kind="info" size="sm">Employee</Badge>}
+                  </p>
+                  <p className={`font-mono text-sm font-semibold shrink-0 ${settled ? "text-ink-3" : "text-rose"}`}>{rupee(r.amount)}</p>
+                </div>
+                <p className="mt-1 text-[13px] text-ink-2">{r.purpose}</p>
+                <p className="mt-0.5 text-[11px] text-ink-3">
                   {r.category} · {formatDate(r.incurred_on)}{r.paid_via ? ` · ${r.paid_via}` : ""}
                   {settled && r.settled_on ? ` · settled ${formatDate(r.settled_on)}` : ""}
                 </p>
+                <div className="mt-2.5 flex items-center gap-2">
+                  {settled ? (
+                    <Badge kind="success" size="sm" dot>Settled</Badge>
+                  ) : (
+                    <Button size="sm" variant="primary" onClick={() => onSettle(r)}>Settle</Button>
+                  )}
+                  {r.receipt_path && <ReceiptLink path={r.receipt_path} />}
+                  <Button
+                    size="sm" variant="ghost" icon="trash"
+                    className="!text-rose hover:!bg-rose/10 ml-auto"
+                    aria-label="Delete"
+                    onClick={() => onDelete(r)}
+                  />
+                </div>
               </div>
-              {r.receipt_path && <ReceiptLink path={r.receipt_path} />}
-              <div className="text-right shrink-0">
-                <p className={`font-mono text-sm font-semibold ${settled ? "text-ink-3" : "text-rose"}`}>{rupee(r.amount)}</p>
-              </div>
-              {settled ? (
-                <Badge kind="success" size="sm" dot>Settled</Badge>
-              ) : (
-                <Button size="sm" variant="primary" onClick={() => onSettle(r)}>Settle</Button>
-              )}
-              <Button
-                size="sm" variant="ghost" icon="trash"
-                className="!text-rose hover:!bg-rose/10"
-                aria-label="Delete"
-                onClick={() => onDelete(r)}
-              />
             </li>
           ))}
         </ul>

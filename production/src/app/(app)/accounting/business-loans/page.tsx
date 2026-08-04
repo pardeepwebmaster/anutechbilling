@@ -54,7 +54,7 @@ export default function BusinessLoansPage() {
   };
 
   return (
-    <div className="p-4 md:p-6 lg:p-8 max-w-[1400px] mx-auto">
+    <div className="p-4 md:p-6 lg:p-8 max-w-[1800px] mx-auto">
       <div className="flex items-end justify-between gap-3 flex-wrap mb-4">
         <div>
           <p className="text-xs uppercase tracking-wider text-ink-3 font-semibold mb-1">Accounting</p>
@@ -66,12 +66,15 @@ export default function BusinessLoansPage() {
         <Button variant="primary" icon="plus" className="hidden md:inline-flex" onClick={() => setAddOpen(true)}>Add loan</Button>
       </div>
 
-      {/* How it works */}
-      <Card className="mb-5 p-3 md:p-4 border-amber/40 bg-amber-soft/25">
-        <p className="text-[13px] text-ink-2 leading-relaxed">
-          <b className="text-ink">Zaroori:</b> loan ka paisa <i>kharcha nahi</i> hai — wo bank me cash + utni liability hai. Har mahine ki EMI ka sirf <b>byaaj (interest)</b> kharcha hota hai; <b>principal</b> se loan ghatta hai. App ye split khud sambhal leta hai.
-        </p>
-      </Card>
+      {/* How it works — only when there's nothing yet, so once loans exist the
+          money (KPIs) reads first instead of an education banner. English-only. */}
+      {loans.length === 0 && (
+        <Card className="mb-5 p-3 md:p-4 border-amber/40 bg-amber-soft/25">
+          <p className="text-[13px] text-ink-2 leading-relaxed">
+            <b className="text-ink">Note:</b> a loan isn&apos;t an expense — it&apos;s cash in the bank plus an equal liability. Each month&apos;s EMI: only the <b>interest</b> is an expense; the <b>principal</b> reduces the loan. The app handles this split for you.
+          </p>
+        </Card>
+      )}
 
       {loans.length > 0 && (
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 md:gap-4 mb-5">

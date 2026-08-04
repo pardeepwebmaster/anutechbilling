@@ -22,6 +22,7 @@ import { Card } from "@/components/ui/card";
 import { Icon } from "@/components/ui/icon";
 import { Avatar } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
+import { FAB } from "@/components/ui/fab";
 import { KPI } from "@/components/shared/kpi";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
@@ -115,7 +116,8 @@ export default function TeamPage() {
         <KPI label="Active" value={members.filter((m) => m.is_active !== false).length} icon="check_circle" />
       </div>
 
-      <Card flush>
+      {/* Desktop / tablet — table (unchanged) */}
+      <Card flush className="hidden md:block">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-paper-2 border-b border-hairline">
@@ -199,6 +201,88 @@ export default function TeamPage() {
         </div>
       </Card>
 
+      {/* Mobile — member cards */}
+      <ul className="md:hidden space-y-2.5">
+        {members.map((m) => (
+          <li key={m.id}>
+            <Card className="p-4">
+              <div className="flex items-start gap-3">
+                <Avatar initials={m.initials ?? "?"} color={(m.color as never) ?? "slate"} size="sm" />
+                <div className="min-w-0 flex-1">
+                  <p className="font-medium text-ink leading-tight">
+                    {m.full_name ?? "—"}
+                    {m.id === me?.userId && <span className="text-ink-3 font-normal"> (you)</span>}
+                  </p>
+                  <p className="font-mono text-[11px] text-ink-2 truncate">{m.email}</p>
+                </div>
+                <Badge kind={m.is_active === false ? "muted" : "success"} dot>
+                  {m.is_active === false ? "Inactive" : "Active"}
+                </Badge>
+              </div>
+              <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
+                {isOwner && m.id !== me?.userId ? (
+                  <select
+                    value={m.role}
+                    onChange={(e) => updateMember.mutate({ id: m.id, patch: { role: e.target.value as Role } })}
+                    className="rounded-md border border-hairline bg-paper px-2 py-1 text-xs text-ink focus:outline-none focus:ring-2 focus:ring-amber/40"
+                  >
+                    {ROLES.map((r) => <option key={r} value={r}>{ROLE_LABEL[r]}</option>)}
+                  </select>
+                ) : (
+                  <Badge kind={ROLE_TONE[m.role] ?? "muted"}>{ROLE_LABEL[m.role] ?? m.role}</Badge>
+                )}
+                {isOwner && m.role === "sales" && (
+                  <label className="inline-flex items-center gap-1.5 text-xs text-ink-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(m.can_view_deals)}
+                      onChange={(e) => updateMember.mutate({ id: m.id, patch: { can_view_deals: e.target.checked } })}
+                      className="rounded border-hairline"
+                    />
+                    Can view deals
+                  </label>
+                )}
+                {isOwner && (m.role === "owner" || m.role === "sales_senior") && (
+                  <span className="text-[11px] text-emerald">Full deals access</span>
+                )}
+              </div>
+            </Card>
+          </li>
+        ))}
+      </ul>
+
+      {/* Mobile — pending invites (owner only), visually distinct from members */}
+      {isOwner && invites.length > 0 && (
+        <ul className="md:hidden mt-2.5 space-y-2.5">
+          {invites.map((inv) => (
+            <li key={inv.id}>
+              <Card className="border-amber/40 bg-amber-soft/20 p-4">
+                <div className="flex items-start gap-3">
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-paper-2 text-ink-3">
+                    <Icon name="mail" size={14} />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="font-mono text-[11px] text-ink-2 truncate">{inv.email}</p>
+                    <p className="text-[11px] italic text-ink-3">Invited · not joined yet</p>
+                  </div>
+                  <Badge kind="warning" dot>Pending</Badge>
+                </div>
+                <div className="mt-3 flex items-center justify-between gap-2">
+                  <Badge kind={ROLE_TONE[inv.role] ?? "muted"}>{ROLE_LABEL[inv.role] ?? inv.role}</Badge>
+                  <IconButton
+                    icon="trash"
+                    variant="ghost"
+                    size="sm"
+                    aria-label="Remove invite"
+                    onClick={() => removeInvite.mutate(inv.id)}
+                  />
+                </div>
+              </Card>
+            </li>
+          ))}
+        </ul>
+      )}
+
       <p className="mt-3 flex items-center gap-1.5 text-[11px] text-ink-3">
         <Icon name="info" size={11} />
         An invited email joins this workspace the first time they sign in with Google — no new tenant is created.
@@ -210,6 +294,11 @@ export default function TeamPage() {
           onOpenChange={setInviteOpen}
           onInvited={() => qc.invalidateQueries({ queryKey: ["team", "invites"] })}
         />
+      )}
+
+      {/* Mobile FAB — primary list action (owner only) */}
+      {isOwner && (
+        <FAB icon="plus" label="Invite member" onClick={() => setInviteOpen(true)} ariaLabel="Invite member" />
       )}
     </div>
   );

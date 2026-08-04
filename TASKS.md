@@ -5,6 +5,31 @@
 
 ## Active
 
+### 🧭 Layout-flow deep audit — ROUND 2 (rest of the app: Purchases · Payroll/HR · Engage · Catalog+Settings · Public) — mechanical wins ✅ DONE (localhost, typecheck+lint clean)
+5-agent parallel audit of the clusters not covered in round 1. ~55 findings; dominant themes: (a) §20 mobile breakages — many list pages lack a `md:hidden` card fallback + `<FAB>` (Engage campaigns/coupons/promos + WhatsApp inbox; Payroll employees/payroll/leave; Team; Lead-gen; portal invoices; reimbursements); (b) fixed `px-8` padding & ad-hoc max-widths; (c) dead "coming soon" buttons/tabs; (d) money-not-first / Hinglish copy on some pages.
+Fixed the pure-mechanical, zero-judgment wins now:
+- **max-width consistency**: vendors/reimbursements/business-loans 1400→1800; settings 1800→1240 (detail spec).
+- **responsive padding** px-8 → responsive: settings, reports, lead-gen.
+- **dead-ends removed**: PO "Export" (no onClick), Reports "This month"/"Export PDF" coming-soon buttons, Lead-gen "Import CSV" no-op, Performance dev-file reference ("tune in lib/queries…").
+- **business-loans**: education banner now shows only when empty (money/KPIs read first) + translated to English.
+
+**Round-2 — mobile sweep + buy-page trust (Pardeep approved both) ✅ DONE (localhost, typecheck+lint clean, mobile-verified):**
+- **§20 mobile sweep** (via 3 parallel agents + me): added `md:hidden` card lists + `<FAB>` to campaigns/coupons/promos (Engage), employees/payroll/leave (payroll screens.tsx — + payroll headline promoted to a KPI tile), team (members + separate pending-invite cards), lead-gen recent-inbound, reimbursements; removed raw campaign/promo UUID sub-lines. Desktop tables untouched (gated behind hidden md:block).
+- **Buy-page trust**: gated the fabricated logo-strip + testimonials behind `SHOW_SOCIAL_PROOF=false` (flip on when real consented content exists); removed the fabricated counts (1024 / 247) — kept honest claims (Premier Partner since 2014, GST); the founder + signed-refund card now renders on MOBILE too (was `hidden lg:flex` — the strongest trust signal was phone-invisible). Verified live on a 375px viewport.
+
+**Round-2 remainder — for Pardeep's call (bigger / needs a decision), NOT done:**
+- **Buy page "TEST MODE / Simulate payment" UI** shows whenever Razorpay isn't configured — will appear to REAL customers if the storefront is public before Razorpay live. Tied to Pardeep's Razorpay go-live task; hide/gate to non-prod as part of that.
+- **Buy page not tenant-aware** (hardcoded Excel/Pardeep) + **M365/Zoho buy pages missing** — product decisions.
+- WhatsApp inbox mobile single-pane; quote-accept confirm()→dialog; Items catalog restructure; Settings coming-soon tabs; Hinglish→English sweep; raw confirm()→shared dialog.
+- **§20 mobile sweep** (biggest, M each): add `md:hidden` card lists + `<FAB>` to campaigns/coupons/promos, employees/payroll/leave, team, portal-invoices, reimbursements, lead-gen; WhatsApp inbox single-pane mobile.
+- **Customer-facing / trust (needs decision)**: buy page conflicting social-proof (1024 vs 247) + placeholder testimonials + "TEST MODE / Simulate payment" UI visible if Razorpay unconfigured; founder/refund card hidden on mobile; buy page hardcoded to Excel/Pardeep (NOT tenant-aware); M365/Zoho buy pages don't exist though landing sells them.
+- **Quote-accept**: native confirm() → in-app dialog (customer-facing money click).
+- **Items catalog**: table buried under 4 KPIs + 3 tab-bars → restructure.
+- **Payroll**: headline ₹ buried in filter → promote to KPI; add KPI bands to employees/leave.
+- **Settings**: hide 2 "Coming soon" tabs (Notifications/Security); split pending-invites out of the members table.
+- **Hinglish→English** copy sweep (partners, saas-metrics insights, purchases subtitles, etc.).
+- **raw confirm() → shared dialog** across coupons/promos/purchases pages.
+
 ### 🏢 Customer Groups / Parent Accounts — ✅ DONE (localhost, browser-verified end-to-end)
 Real case (Pardeep): one reseller/coordinator (X) routes work for several companies, each needing its own invoice in its own legal name + GSTIN. GST forbids billing multiple entities on one invoice → each company stays its own customer; a lightweight umbrella links them for relationship + reporting. Payment side stays simple (each company pays separately — no consolidated allocation needed, per Pardeep).
 - **Migration 0168** (applied to prod DB): `customer_groups` table (tenant RLS + touch trigger) + `customers.group_id` FK `ON DELETE SET NULL` (deleting a group only un-links companies — verified: dummy's group_id went null, never deletes the customer/money history). Billing untouched.

@@ -179,7 +179,9 @@ export function QuoteBuilder() {
   const [validityDays, setValidityDays] = React.useState(30);
   // Invoice payment terms → net days for the due date (Due on Receipt / Net 15/30/45).
   // Drives the displayed due date + is saved so generate_invoice stamps it (0163).
-  const [paymentTermsDays, setPaymentTermsDays] = React.useState(30);
+  // Default 0 = Due on receipt (due date = invoice date); a customer's saved term
+  // or a revised quote's term overrides via the prefill effects below.
+  const [paymentTermsDays, setPaymentTermsDays] = React.useState(0);
   // Document-level terms & conditions (Zoho-style), shown on the quote/invoice PDF.
   const [termsConditions, setTermsConditions] = React.useState("");
   const [taxRate, setTaxRate] = React.useState(18);

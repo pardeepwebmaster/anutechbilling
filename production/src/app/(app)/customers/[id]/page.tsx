@@ -57,6 +57,9 @@ export default function CustomerDetailPage() {
 
   const searchParams = useSearchParams();
   const [mainTab, setMainTab] = React.useState<"overview" | "transactions" | "statement">("overview");
+  // Segment filter inside the Transactions tab so quotes / invoices / payments
+  // can each be viewed on their own (not just the combined feed).
+  const [txnFilter, setTxnFilter] = React.useState<"all" | "invoices" | "quotes" | "payments" | "projects">("all");
   const [svcView, setSvcView] = React.useState<"subscription" | "project">("subscription");
   const [projQuoteOpen, setProjQuoteOpen] = React.useState(false);
   const [referralOpen, setReferralOpen] = React.useState(false);
@@ -166,6 +169,23 @@ export default function CustomerDetailPage() {
     Invoice: "info", Payment: "success", Refund: "danger", Quote: "muted", Project: "warning",
   };
 
+  // Transactions segment filter — view invoices / quotes / payments separately.
+  const txnInFilter = (type: string) =>
+    txnFilter === "all" ? true
+    : txnFilter === "invoices" ? type === "Invoice"
+    : txnFilter === "quotes"   ? type === "Quote"
+    : txnFilter === "payments" ? (type === "Payment" || type === "Refund")
+    : txnFilter === "projects" ? type === "Project"
+    : true;
+  const txnSegments = [
+    { id: "all" as const,      label: "All",      n: txns.length },
+    { id: "invoices" as const, label: "Invoices", n: txns.filter((t) => t.type === "Invoice").length },
+    { id: "quotes" as const,   label: "Quotes",   n: txns.filter((t) => t.type === "Quote").length },
+    { id: "payments" as const, label: "Payments", n: txns.filter((t) => t.type === "Payment" || t.type === "Refund").length },
+    { id: "projects" as const, label: "Projects", n: txns.filter((t) => t.type === "Project").length },
+  ].filter((s) => s.id === "all" || s.n > 0);
+  const filteredTxns = txns.filter((t) => txnInFilter(t.type));
+
   return (
     <div className="p-4 md:p-6 lg:p-8 max-w-[1240px] mx-auto">
       {/* Header — identity + real contact actions */}
@@ -224,7 +244,7 @@ export default function CustomerDetailPage() {
           { id: "transactions", label: "Transactions", count: txns.length || undefined },
           { id: "statement",    label: "Statement" },
         ]}
-        className="mb-5"
+        className="mb-5 overflow-y-hidden"
       />
 
       {mainTab === "overview" && (
@@ -325,19 +345,46 @@ export default function CustomerDetailPage() {
         <Card flush>
           <div className="p-4">
             {txns.length > 0 ? (
-              <RecordTable
-                head={["Date", "Type", "Reference", "Amount", "Status"]}
-                rows={txns.map((t) => ({
-                  onClick: t.onClick,
-                  cells: [
-                    formatDate(t.date),
-                    <Badge key="ty" kind={TXN_BADGE[t.type]} dot>{t.type}</Badge>,
-                    <span key="r" className="font-mono text-xs">{t.ref}</span>,
-                    <span key="a" className="tabular-nums font-medium">{rupee(t.amount)}</span>,
-                    <span key="s" className="text-ink-2 capitalize">{t.status}</span>,
-                  ],
-                }))}
-              />
+              <>
+                {/* Segment filter — invoices / quotes / payments each on their own. */}
+                <div className="flex flex-wrap gap-2 mb-4">
+                  {txnSegments.map((s) => (
+                    <button
+                      key={s.id}
+                      type="button"
+                      aria-pressed={txnFilter === s.id}
+                      onClick={() => setTxnFilter(s.id)}
+                      className={cn(
+                        "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors",
+                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber",
+                        txnFilter === s.id
+                          ? "border-amber bg-amber-soft text-amber-ink"
+                          : "border-hairline text-ink-3 hover:text-ink hover:bg-paper-2",
+                      )}
+                    >
+                      {s.label}
+                      <span className={cn("tabular-nums", txnFilter === s.id ? "text-amber-ink" : "text-ink-3")}>{s.n}</span>
+                    </button>
+                  ))}
+                </div>
+                {filteredTxns.length > 0 ? (
+                  <RecordTable
+                    head={["Date", "Type", "Reference", "Amount", "Status"]}
+                    rows={filteredTxns.map((t) => ({
+                      onClick: t.onClick,
+                      cells: [
+                        formatDate(t.date),
+                        <Badge key="ty" kind={TXN_BADGE[t.type]} dot>{t.type}</Badge>,
+                        <span key="r" className="font-mono text-xs">{t.ref}</span>,
+                        <span key="a" className="tabular-nums font-medium">{rupee(t.amount)}</span>,
+                        <span key="s" className="text-ink-2 capitalize">{t.status}</span>,
+                      ],
+                    }))}
+                  />
+                ) : (
+                  <EmptyState icon="receipt" title="Nothing here" body="No records of this type for this customer." compact />
+                )}
+              </>
             ) : (
               <EmptyState icon="receipt" title="No transactions yet" body="Quotes, invoices and payments for this customer will appear here." compact />
             )}

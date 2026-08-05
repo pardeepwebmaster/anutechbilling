@@ -238,8 +238,11 @@ export function CustomerMetricBar({ insights }: { insights: CustomerInsights }) 
     overdueCount > 0 ? `${overdueCount} overdue` : null,
     projectReceivable > 0 ? `${rupee(projectReceivable, { compact: projectReceivable >= 100000 })} project` : null,
   ].filter(Boolean).join(" · ") || undefined;
+  // auto-fit → columns follow the CONTAINER width (not the viewport), so this
+  // strip fits whether it's in the narrow split-view panel, the full-width panel,
+  // or the /customers/[id] page — 4-across when wide, wraps otherwise, never cut.
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+    <div className="grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-3">
       <MetricCard
         label="Outstanding"
         value={outstanding > 0 ? rupee(outstanding, { compact: outstanding >= 100000 }) : "All clear"}

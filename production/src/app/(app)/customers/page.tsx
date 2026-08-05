@@ -506,11 +506,11 @@ export default function CustomersPage() {
           and flows in the page — auto height, no nested scrollbar (single page
           scrollbar instead of the ugly double one). */}
       {!isLoading && !error && selectedId && (
-        <div className="hidden md:flex border border-hairline rounded-xl overflow-hidden bg-paper 2xl:h-[calc(100vh-200px)] 2xl:min-h-[480px]">
+        <div className="hidden md:flex border border-hairline rounded-xl overflow-hidden bg-paper xl:h-[calc(100vh-200px)] xl:min-h-[480px]">
           {/* List rail only on very wide screens — below 2xl the detail panel
               takes the FULL width so its content never gets squeezed/cut. The
               panel's own Close (×) returns to the full list. */}
-          <div className="hidden 2xl:flex w-[300px] border-r border-hairline flex-col min-h-0">
+          <div className="hidden xl:flex w-[300px] border-r border-hairline flex-col min-h-0">
             <div className="p-2 border-b border-hairline">
               <Input
                 prefix={<Icon name="search" size={14} />}

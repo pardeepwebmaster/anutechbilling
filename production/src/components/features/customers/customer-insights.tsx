@@ -66,14 +66,29 @@ export function deriveCustomerInsights(
   const seatsTotal = activeSubs.reduce((s, x) => s + (x.seats ?? 0), 0);
   const seatsUsed = activeSubs.reduce((s, x) => s + (x.used ?? 0), 0);
 
-  // Outstanding = subscription dues + accepted-project receivables. Without the
-  // project side a customer with an unpaid project wrongly showed "All clear".
+  // Outstanding = subscription dues + accepted-project receivables + any
+  // STANDALONE unpaid invoices. Without the project side a customer with an
+  // unpaid project wrongly showed "All clear"; without the standalone-invoice
+  // side, a direct/one-off invoice (no subscription, no project — e.g. a
+  // "Website Development" bill) ALSO wrongly showed "All clear" even with a big
+  // balance due.
   const subsOutstanding = subs.reduce((s, x) => s + (x.outstanding_amount ?? 0), 0);
   const activeProjects = projects.filter((p) => p.status === "active");
   const projectReceivable = projects
     .filter((p) => p.status === "active" || p.status === "completed")
     .reduce((s, p) => s + Math.max(0, p.receivable ?? 0), 0);
-  const outstanding = subsOutstanding + projectReceivable;
+  // Unpaid invoices NOT already represented elsewhere, to avoid double-counting:
+  //  • a subscription's invoice → its money is in subsOutstanding (matched by quote_id)
+  //  • a project's invoice → raised with a null quote_id → in projectReceivable
+  // So only add pending/overdue invoices that have a quote_id NOT belonging to a
+  // subscription — i.e. genuine standalone/direct invoices.
+  const subQuoteIds = new Set(
+    subs.flatMap((s) => [s.quote_id, s.renewal_quote_id]).filter((q): q is string => !!q),
+  );
+  const standaloneUnpaid = invoices
+    .filter((i) => (i.status === "pending" || i.status === "overdue") && !!i.quote_id && !subQuoteIds.has(i.quote_id))
+    .reduce((s, i) => s + Math.max(0, i.net_payable ?? i.amount ?? 0), 0);
+  const outstanding = subsOutstanding + projectReceivable + standaloneUnpaid;
 
   const lifetimePaid = invoices.filter((i) => i.status === "paid").reduce((s, x) => s + (x.amount ?? 0), 0);
   const overdueCount = invoices.filter((i) => i.status === "overdue").length;

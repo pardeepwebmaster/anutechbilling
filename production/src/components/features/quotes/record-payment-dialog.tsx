@@ -101,6 +101,9 @@ export function RecordPaymentDialog({
   const qc = useQueryClient();
   const [method, setMethod] = React.useState("upi");
   const [bankAccountId, setBankAccountId] = React.useState<string>("");
+  // Optional proof-of-payment file (screenshot / PDF). Uploaded best-effort
+  // AFTER record_payment succeeds, so it never blocks the money.
+  const [receiptFile, setReceiptFile] = React.useState<File | null>(null);
   const { data: bankAccounts } = useBankAccounts();
 
   const remaining = Math.max(0, expectedAmount - alreadyReceived);
@@ -196,6 +199,7 @@ export function RecordPaymentDialog({
       setMethod("upi");
       setBankAccountId("");
       setAmountEdited(false);
+      setReceiptFile(null);
     } else {
       reset({
         amount:      remaining,
@@ -325,6 +329,26 @@ export function RecordPaymentDialog({
           .update({ bank_account_id: bankAccountId })
           .eq("id", r.payment_id);
         if (bankErr) console.error("[record-payment] bank_account tag failed (payment still recorded):", bankErr);
+      }
+
+      // ── 2c. Attach the optional payment-receipt file (best-effort) ───────
+      // Uploaded AFTER the money is recorded, via the admin server route. A
+      // failed upload only warns — the payment is already saved and the file
+      // can be re-attached later. Skipped on replay (no new row to attach to).
+      if (receiptFile && r.payment_id && !isReplay) {
+        try {
+          const fd = new FormData();
+          fd.append("file", receiptFile);
+          const res = await fetch(`/api/payments/${r.payment_id}/receipt`, { method: "POST", body: fd });
+          if (!res.ok) {
+            const j = await res.json().catch(() => ({}));
+            console.error("[record-payment] receipt upload failed (payment still recorded):", j?.error);
+            toast.warning("Payment saved — the receipt didn't attach. You can add it later from the payment.");
+          }
+        } catch (e) {
+          console.error("[record-payment] receipt upload error (payment still recorded):", e);
+          toast.warning("Payment saved — the receipt didn't attach. You can add it later from the payment.");
+        }
       }
 
       // ── 3. TDS receivable — now committed ATOMICALLY inside
@@ -776,6 +800,52 @@ export function RecordPaymentDialog({
               rows={2}
               {...register("notes")}
             />
+          </FormField>
+
+          {/* Optional proof-of-payment attachment (screenshot / PDF). */}
+          <FormField label="Payment receipt (optional)" htmlFor="receipt">
+            {receiptFile ? (
+              <div className="flex items-center justify-between gap-2 rounded-md border border-hairline bg-paper-2/40 px-3 py-2 text-sm">
+                <span className="flex items-center gap-2 min-w-0">
+                  <Icon name="file" size={14} className="shrink-0 text-ink-3" />
+                  <span className="truncate text-ink">{receiptFile.name}</span>
+                  <span className="shrink-0 text-[11px] text-ink-3">
+                    {(receiptFile.size / 1024).toFixed(0)} KB
+                  </span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setReceiptFile(null)}
+                  className="shrink-0 text-ink-3 hover:text-rose"
+                  aria-label="Remove attachment"
+                >
+                  <Icon name="x" size={15} />
+                </button>
+              </div>
+            ) : (
+              <label
+                htmlFor="receipt"
+                className="flex items-center gap-2 rounded-md border border-dashed border-hairline px-3 py-2 text-sm text-ink-3 cursor-pointer hover:border-amber hover:text-ink transition-colors"
+              >
+                <Icon name="upload" size={14} />
+                Attach a screenshot or PDF
+              </label>
+            )}
+            <input
+              id="receipt"
+              type="file"
+              accept="image/jpeg,image/png,image/webp,application/pdf"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0] ?? null;
+                if (f && f.size > 20 * 1024 * 1024) {
+                  toast.error("File must be under 20 MB");
+                  return;
+                }
+                setReceiptFile(f);
+              }}
+            />
+            <p className="mt-1 text-[11px] text-ink-3">JPG / PNG / WEBP / PDF · up to 20 MB · attached after the payment is saved.</p>
           </FormField>
 
           {newRunningTotal >= expectedAmount && (

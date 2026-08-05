@@ -7,6 +7,17 @@
 import * as React from "react";
 import Link from "next/link";
 import { toast } from "sonner";
+import { getDocumentSignedUrl } from "@/lib/queries/documents";
+
+/** Open a payment's attached receipt (private bucket → short-lived signed URL). */
+async function openReceipt(path: string) {
+  try {
+    const url = await getDocumentSignedUrl(path);
+    window.open(url, "_blank", "noopener,noreferrer");
+  } catch {
+    toast.error("Could not open the receipt");
+  }
+}
 
 import {
   usePayments,
@@ -483,14 +494,27 @@ export default function PaymentsPage() {
                     </Badge>
                   </div>
                 </Link>
-                {p.status === "received" && (
-                  <button
-                    type="button"
-                    onClick={() => setEditPayment(p)}
-                    className="flex w-full items-center justify-center gap-1.5 border-t border-hairline/60 py-2 text-xs font-medium text-ink-2 active:bg-paper-2"
-                  >
-                    <Icon name="edit" size={12} /> Edit details
-                  </button>
+                {(p.status === "received" || p.receipt_file_path) && (
+                <div className="flex border-t border-hairline/60">
+                  {p.status === "received" && (
+                    <button
+                      type="button"
+                      onClick={() => setEditPayment(p)}
+                      className="flex flex-1 items-center justify-center gap-1.5 py-2 text-xs font-medium text-ink-2 active:bg-paper-2"
+                    >
+                      <Icon name="edit" size={12} /> Edit details
+                    </button>
+                  )}
+                  {p.receipt_file_path && (
+                    <button
+                      type="button"
+                      onClick={() => openReceipt(p.receipt_file_path!)}
+                      className="flex flex-1 items-center justify-center gap-1.5 py-2 text-xs font-medium text-ink-2 active:bg-paper-2 border-l border-hairline/60"
+                    >
+                      <Icon name="external" size={12} /> View receipt
+                    </button>
+                  )}
+                </div>
                 )}
               </li>
             );
@@ -498,7 +522,7 @@ export default function PaymentsPage() {
         </ul>
       )}
 
-      {/* Desktop table — drag the full-height divider between any two columns to resize. */}
+      {/* Desktop table — fluid % columns so it always fits the viewport (no horizontal scroll). */}
       {!isLoading && !error && filtered.length > 0 && (
         <Card flush className="hidden md:block">
           <table className="w-full table-fixed">
@@ -826,6 +850,11 @@ function PaymentRowView({
               {p.status === "received" && me && (
                 <DropdownMenuItem className="gap-2.5 py-2 cursor-pointer" onClick={() => setReceiptOpen(true)}>
                   <Icon name="file" size={16} /> Receipt voucher
+                </DropdownMenuItem>
+              )}
+              {p.receipt_file_path && (
+                <DropdownMenuItem className="gap-2.5 py-2 cursor-pointer" onClick={() => openReceipt(p.receipt_file_path!)}>
+                  <Icon name="external" size={16} /> View attached receipt
                 </DropdownMenuItem>
               )}
               <DropdownMenuSeparator />

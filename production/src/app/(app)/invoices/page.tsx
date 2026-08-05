@@ -16,7 +16,8 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useInvoices, useQuotesAwaitingInvoice, useGenerateInvoice, useDeleteProjectInvoice, useDeleteSubscriptionInvoice } from "@/lib/queries/invoices";
 import { useQuoteByInvoiceId } from "@/lib/queries/quotes";
-import { usePaymentsByQuote } from "@/lib/queries/payments";
+import { usePaymentsByQuote, totalReceived } from "@/lib/queries/payments";
+import { RecordPaymentDialog } from "@/components/features/quotes/record-payment-dialog";
 import { useProjectPaymentsByInvoice, useProjectInvoiceIds, useMilestoneByInvoice } from "@/lib/queries/projects";
 import { RecordProjectPaymentDialog } from "@/components/features/projects/record-project-payment-dialog";
 import { useCustomer } from "@/lib/queries/customers";
@@ -676,6 +677,7 @@ function InvoiceRow({
   const [previewOpen, setPreviewOpen] = React.useState(false);
   const [delOpen, setDelOpen] = React.useState(false);
   const [payOpen, setPayOpen] = React.useState(false);
+  const [subPayOpen, setSubPayOpen] = React.useState(false);
   const [cnOpen, setCnOpen] = React.useState(false);
   const [dnOpen, setDnOpen] = React.useState(false);
   const delProjectInvoice = useDeleteProjectInvoice();
@@ -790,9 +792,16 @@ function InvoiceRow({
           {inv.status === "draft" && (
             <Button size="sm" icon="file" variant="ghost" onClick={() => setPreviewOpen(true)}>View</Button>
           )}
-          {/* Record payment — project invoices only (subscription payments go via the quote). */}
+          {/* Record payment — project invoices settle their milestone directly. */}
           {isProject && inv.status !== "paid" && inv.status !== "draft" && inv.status !== "void" && (
             <Button size="sm" variant="primary" icon="rupee" onClick={() => setPayOpen(true)}>
+              Record payment
+            </Button>
+          )}
+          {/* Record payment — subscription invoices route through the parent quote
+              (same proven record_payment path as the quote detail page). */}
+          {!isProject && (inv.status === "pending" || inv.status === "overdue") && (
+            <Button size="sm" variant="primary" icon="rupee" onClick={() => setSubPayOpen(true)}>
               Record payment
             </Button>
           )}
@@ -841,6 +850,13 @@ function InvoiceRow({
             onOpenChange={setPayOpen}
             milestone={payMilestone}
             projectId={payMilestone.project_id}
+          />
+        )}
+        {!isProject && subPayOpen && (
+          <RecordSubscriptionPaymentContainer
+            invoice={inv}
+            open={subPayOpen}
+            onOpenChange={setSubPayOpen}
           />
         )}
         <IssueCreditNoteDialog
@@ -943,6 +959,46 @@ function InvoicePreviewContainer({
       tenantPhone={me.tenantPhone}
       tenantAddress={me.tenantAddress}
       tenantState={me.tenantState}
+    />
+  );
+}
+
+/**
+ * RecordSubscriptionPaymentContainer — lazily loads the invoice's parent quote +
+ * its payments, then opens the SAME quote-keyed RecordPaymentDialog used on the
+ * quote detail page. Subscription invoices have no invoice-keyed payment RPC —
+ * record_payment runs on the parent quote and flips the invoice to paid when the
+ * balance is covered. This is a shortcut surface, not a new money path.
+ */
+function RecordSubscriptionPaymentContainer({
+  invoice,
+  open,
+  onOpenChange,
+}: {
+  invoice: Invoice;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const { data: quote, isLoading } = useQuoteByInvoiceId(invoice.id);
+  const { data: payments } = usePaymentsByQuote(quote?.id);
+
+  // Quote is the money source of truth. Until it loads we can't open the dialog
+  // safely (no expected amount / already-received), so hold with a tiny hint.
+  if (isLoading || !quote) {
+    return <div className="text-[10px] text-ink-3 mt-1 italic">Loading payment…</div>;
+  }
+
+  return (
+    <RecordPaymentDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      quoteId={quote.id}
+      customerName={invoice.customer_name ?? quote.customer_name}
+      expectedAmount={quote.amount ?? invoice.amount}
+      alreadyReceived={totalReceived(payments ?? [])}
+      isProspect={!!quote.lead_id && !quote.customer_id}
+      invoiceId={invoice.id}
+      customerId={invoice.customer_id ?? quote.customer_id}
     />
   );
 }

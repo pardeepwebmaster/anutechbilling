@@ -138,6 +138,28 @@ export function useDeleteCustomer() {
   });
 }
 
+/** Archive / reactivate a customer (Zoho-style "Mark as Inactive"). Flips the
+ *  is_active flag only — never touches invoices/payments/GST records. Reversible.
+ *  This is the right action for a customer that can't be deleted (has money
+ *  history) but is no longer doing business with us. */
+export function useSetCustomerActive() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, isActive }: { id: string; isActive: boolean }) => {
+      const supabase = createClient();
+      const { error } = await supabase.from("customers").update({ is_active: isActive }).eq("id", id);
+      if (error) throw error;
+      return { id, isActive };
+    },
+    onSuccess: ({ id, isActive }) => {
+      qc.invalidateQueries({ queryKey: ["customers"] });
+      qc.invalidateQueries({ queryKey: ["customers", id] });
+      toast.success(isActive ? "Customer reactivated" : "Customer archived — hidden from the active list");
+    },
+    onError: (err) => toast.error((err as Error).message),
+  });
+}
+
 /** Total OPEN advance credit (₹) this customer holds — from earlier overpayments.
  *  Adjust it against their next bill in the record-payment sheet. */
 export function useCustomerOpenCredit(customerId: string | null | undefined) {

@@ -15,7 +15,7 @@ import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 
-import { useCustomer, useDeleteCustomer, useCustomerOpenCredit, customerDeleteBlockReason } from "@/lib/queries/customers";
+import { useCustomer, useDeleteCustomer, useSetCustomerActive, useCustomerOpenCredit, customerDeleteBlockReason } from "@/lib/queries/customers";
 import { useCustomerGroups } from "@/lib/queries/customer-groups";
 import { useCustomerSubscriptions } from "@/lib/queries/subscriptions";
 import { useCustomerInvoices, useCustomerQuotes } from "@/lib/queries/invoices";
@@ -67,6 +67,7 @@ export default function CustomerDetailPage() {
   const [projInvoiceOpen, setProjInvoiceOpen] = React.useState(false);
   const { data: agreements } = useReferralAgreements(params.id);
   const deleteCustomer = useDeleteCustomer();
+  const setActive = useSetCustomerActive();
 
   // Deep-link: /customers/[id]?edit=1 sends straight to the full-page edit form
   // (used by the "Complete customer" nudge on a project with missing GST info).
@@ -221,6 +222,22 @@ export default function CustomerDetailPage() {
           <Button icon="edit" onClick={() => router.push(`/customers/${c.id}/edit` as never)}>Edit</Button>
           <Button icon="receipt" onClick={() => setInvoiceOpen(true)}>Invoice</Button>
           <Button variant="primary" icon="plus" onClick={() => router.push(`/quotes/new?customer=${c.id}` as any)}>New quote</Button>
+          {/* Archive / reactivate — the money-safe alternative to delete. Works
+              even when the customer has invoices/payments (records are kept). */}
+          <Button
+            icon="inbox"
+            variant="ghost"
+            loading={setActive.isPending}
+            onClick={() => {
+              const next = c.is_active === false;
+              if (next || window.confirm(`Archive "${c.name}"? They'll be hidden from your active customers (all invoices/payments are kept). You can reactivate anytime.`)) {
+                setActive.mutate({ id: c.id, isActive: next });
+              }
+            }}
+            title={c.is_active === false ? "Reactivate this customer" : "Archive (hide from active list)"}
+          >
+            {c.is_active === false ? "Reactivate" : "Archive"}
+          </Button>
           <Button
             icon="trash"
             variant="ghost"

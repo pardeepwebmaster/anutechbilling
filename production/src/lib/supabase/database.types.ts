@@ -511,6 +511,9 @@ type CustomerRow = {
   // Migration 0168 — optional parent account (customer_groups). Links companies
   // routed by one common reseller/coordinator; does NOT affect this customer's own invoicing.
   group_id: string | null;
+  // Migration 0172 — Zoho-style archive flag. false = inactive/archived (hidden
+  // from the default list; all money records retained). Reversible.
+  is_active: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -551,6 +554,7 @@ type CustomerInsert = {
   gstin_verification?: GstinVerification | null;
   linked_tenant_id?: string | null;
   group_id?: string | null;
+  is_active?: boolean;
 }
 type CustomerUpdate = Partial<CustomerInsert>;
 

@@ -109,6 +109,9 @@ export default function CustomersPage() {
   const [domainsOpen, setDomainsOpen] = React.useState(false);
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
   const [view, setView] = React.useState("all");
+  // Archived (is_active=false) customers are hidden by default; this toggle
+  // swaps the whole list to show ONLY archived ones (Zoho-style status filter).
+  const [showArchived, setShowArchived] = React.useState(false);
   const [sort, setSort] = React.useState<{ key: SortKey; dir: "asc" | "desc" }>({ key: "name", dir: "asc" });
   const [visible, setVisible] = React.useState(60);
 
@@ -136,7 +139,10 @@ export default function CustomersPage() {
   }, [customers, outstandingByCustomer, creditsByCustomer, subsByCustomer]);
 
   // Filter — segment then free-text.
+  const archivedCount = (customers ?? []).filter((c) => c.is_active === false).length;
   const filtered = (customers ?? []).filter((c) => {
+    // Active by default; the Archived toggle swaps to show only inactive ones.
+    if ((c.is_active === false) !== showArchived) return false;
     const out = outstandingByCustomer.get(c.id);
     const ctx: ViewCtx = { amount: out?.amount ?? 0, credit: creditsByCustomer[c.id] ?? 0, hasSub: subsByCustomer.has(c.id) };
     if (!activeView.test(ctx)) return false;
@@ -294,13 +300,31 @@ export default function CustomersPage() {
               );
             })}
           </div>
-          <div className="w-56 shrink-0">
+          <div className="flex items-center gap-2 shrink-0">
+            {(archivedCount > 0 || showArchived) && (
+              <button
+                type="button"
+                onClick={() => { setShowArchived((v) => !v); setSelectedId(null); }}
+                aria-pressed={showArchived}
+                className={cn(
+                  "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium whitespace-nowrap transition-colors",
+                  showArchived ? "border-amber bg-amber-soft text-amber-ink" : "border-hairline text-ink-3 hover:text-ink hover:bg-paper-2",
+                )}
+                title={showArchived ? "Back to active customers" : "Show archived customers"}
+              >
+                <Icon name="inbox" size={13} />
+                {showArchived ? "Active" : "Archived"}
+                <span className="rounded-full bg-paper-2 px-1.5 tabular-nums text-[11px] text-ink-3">{archivedCount}</span>
+              </button>
+            )}
+          <div className="w-56">
             <Input
               prefix={<Icon name="search" size={14} />}
               placeholder="Customer or domain…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
+          </div>
           </div>
         </div>
       )}

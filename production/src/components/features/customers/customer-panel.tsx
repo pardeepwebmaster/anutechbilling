@@ -16,7 +16,7 @@ import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/ui/icon";
-import { useCustomer } from "@/lib/queries/customers";
+import { useCustomer, useSetCustomerActive } from "@/lib/queries/customers";
 import { useCustomerSubscriptions } from "@/lib/queries/subscriptions";
 import { useCustomerInvoices, useCustomerQuotes } from "@/lib/queries/invoices";
 import { useCustomerProjects } from "@/lib/queries/projects";
@@ -41,6 +41,7 @@ import {
 
 export function CustomerPanel({ customerId, onClose }: { customerId: string; onClose?: () => void }) {
   const router = useRouter();
+  const setActive = useSetCustomerActive();
   const { data: c, isLoading } = useCustomer(customerId);
   const { data: subs } = useCustomerSubscriptions(customerId);
   const { data: invoices } = useCustomerInvoices(customerId);
@@ -119,6 +120,18 @@ export function CustomerPanel({ customerId, onClose }: { customerId: string; onC
           <Button size="sm" variant="default" icon="receipt" onClick={() => setInvoiceOpen(true)}>Invoice</Button>
           <IconButton icon="edit" aria-label="Edit customer" onClick={() => router.push(`/customers/${c.id}/edit` as never)} />
           <IconButton icon="external" aria-label="Open full profile" onClick={() => router.push(`/customers/${c.id}` as never)} />
+          {/* Archive / reactivate — money-safe alternative to delete (records kept). */}
+          <IconButton
+            icon="inbox"
+            aria-label={c.is_active === false ? "Reactivate customer" : "Archive customer"}
+            title={c.is_active === false ? "Reactivate customer" : "Archive (hide from active list)"}
+            onClick={() => {
+              const next = c.is_active === false;
+              if (next || window.confirm(`Archive "${c.name}"? Hidden from your active customers; all invoices/payments are kept. Reactivate anytime.`)) {
+                setActive.mutate({ id: c.id, isActive: next }, { onSuccess: () => { if (!next) onClose?.(); } });
+              }
+            }}
+          />
           {onClose && <IconButton icon="x" aria-label="Close" onClick={onClose} />}
         </div>
       </div>

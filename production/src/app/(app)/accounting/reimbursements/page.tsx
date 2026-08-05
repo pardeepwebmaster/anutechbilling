@@ -62,19 +62,19 @@ export default function ReimbursementsPage() {
     <div className="p-4 md:p-6 lg:p-8 max-w-[1800px] mx-auto">
       <div className="flex items-end justify-between gap-3 flex-wrap mb-4">
         <div>
-          <p className="text-xs uppercase tracking-wider text-ink-3 font-semibold mb-1">Accounting</p>
+          <p className="text-xs uppercase tracking-wider text-ink-3 font-semibold mb-1">Purchases</p>
           <h1 className="font-serif text-3xl md:text-4xl tracking-tight">Reimbursements</h1>
           <p className="text-sm text-ink-3 mt-1">
-            Employee (ya kisi) ne apne paise se company ka kharcha kiya? Yahan record karo — kharcha book ho jayega aur kisko kitna dena hai wo track hoga.
+            Someone paid a company expense from their own pocket? Record it here — the expense gets booked and we track how much you owe each person.
           </p>
         </div>
-        <Button variant="primary" icon="plus" onClick={() => setAddOpen(true)}>Add reimbursement</Button>
+        <Button variant="primary" icon="plus" className="hidden md:inline-flex" onClick={() => setAddOpen(true)}>Add reimbursement</Button>
       </div>
 
       {/* How it works — one-liner for a layman */}
       <Card className="mb-5 p-3 md:p-4 border-amber/40 bg-amber-soft/25">
         <p className="text-[13px] text-ink-2 leading-relaxed">
-          <b className="text-ink">Kaise:</b> kharcha ek baar yahan record hota hai (P&amp;L me chala jaata hai). Jab us vyakti ko wapas paisa do, <b>Settle</b> dabao — wo bank transfer aap Banking me reconcile karoge, wo <i>dobara kharcha</i> nahi hai.
+          <b className="text-ink">How it works:</b> the expense is recorded once here (it hits the P&amp;L). When you pay that person back, hit <b>Settle</b> — you reconcile that bank transfer in Banking; it&apos;s <i>not</i> a second expense.
         </p>
       </Card>
 
@@ -83,13 +83,13 @@ export default function ReimbursementsPage() {
         <Card className="mb-5 p-4">
           <div className="flex flex-wrap items-center gap-x-8 gap-y-3">
             <div>
-              <p className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold">Total dena baaki</p>
+              <p className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold">Total owed</p>
               <p className="font-serif text-2xl text-rose">{rupee(owed)}</p>
             </div>
             <div className="flex-1 min-w-[200px]">
-              <p className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold mb-1">Kisko kitna</p>
+              <p className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold mb-1">Owed per person</p>
               {owedByPerson.length === 0 ? (
-                <p className="text-sm text-ink-3">Sab settle ho gaya 🎉</p>
+                <p className="text-sm text-ink-3">All settled 🎉</p>
               ) : (
                 <div className="flex flex-wrap gap-2">
                   {owedByPerson.map(([name, amt]) => (
@@ -112,14 +112,14 @@ export default function ReimbursementsPage() {
           <EmptyState
             icon="rupee"
             title="No reimbursements yet"
-            body="Jab company ka kharcha kisi ke personal card / cash se ho, yahan add karo."
+            body="When a company expense is paid from someone's personal card or cash, add it here."
             action={<Button variant="primary" icon="plus" onClick={() => setAddOpen(true)}>Add the first one</Button>}
           />
         </Card>
       ) : (
         <div className="space-y-6">
           {pending.length > 0 && (
-            <ReimbList title={`Pending · dena baaki (${pending.length})`} rows={pending}
+            <ReimbList title={`Pending · owed (${pending.length})`} rows={pending}
               onSettle={setSettleFor} onDelete={confirmDelete} />
           )}
           {settled.length > 0 && (
@@ -276,7 +276,7 @@ function AddReimbursementDialog({ onClose }: { onClose: () => void }) {
       <DialogContent className="md:!max-w-md">
         <DialogHeader>
           <DialogTitle>Add reimbursement</DialogTitle>
-          <DialogDescription>Employee (ya kisi) ne apne paise se company ka kharcha kiya — yahan record karo.</DialogDescription>
+          <DialogDescription>Someone paid a company expense from their own pocket — record it here.</DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -348,7 +348,7 @@ function AddReimbursementDialog({ onClose }: { onClose: () => void }) {
           <FormField label="Receipt / bill (optional)">
             <label className="flex items-center gap-2 rounded-md border border-dashed border-hairline px-3 py-2 text-sm text-ink-2 cursor-pointer hover:border-hairline-strong">
               <Icon name="upload" size={14} className="text-ink-3" />
-              <span className="truncate">{receipt ? receipt.name : "Photo ya PDF attach karo"}</span>
+              <span className="truncate">{receipt ? receipt.name : "Attach a photo or PDF"}</span>
               <input
                 type="file"
                 accept="image/*,application/pdf"
@@ -357,7 +357,7 @@ function AddReimbursementDialog({ onClose }: { onClose: () => void }) {
               />
             </label>
           </FormField>
-          <p className="text-[11px] text-ink-3">Save karte hi ye kharcha P&amp;L me book ho jayega aur {person.trim() || "us vyakti"} ko dena baaki dikh jayega.</p>
+          <p className="text-[11px] text-ink-3">On save, this expense is booked to the P&amp;L and shown as owed to {person.trim() || "that person"}.</p>
         </div>
         <DialogFooter>
           <Button type="button" variant="default" onClick={onClose}>Cancel</Button>
@@ -388,7 +388,7 @@ function SettleDialog({ reimb, onClose }: { reimb: Reimbursement; onClose: () =>
         <DialogHeader>
           <DialogTitle>Settle · {reimb.person_name}</DialogTitle>
           <DialogDescription>
-            {reimb.person_name} ko <b className="text-ink">{rupee(reimb.amount)}</b> wapas de diya? Ye sirf "chuka diya" mark karta hai — bank transfer ko Banking me reconcile kar dena (dobara kharcha nahi banega).
+            Paid <b className="text-ink">{rupee(reimb.amount)}</b> back to {reimb.person_name}? This only marks it settled — reconcile the bank transfer in Banking (it won&apos;t create a second expense).
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">

@@ -182,7 +182,7 @@ export default function ContactsPage() {
       <div className="flex items-end justify-between gap-3 flex-wrap">
         <div>
           <p className="text-xs uppercase tracking-wider text-ink-3 font-semibold mb-1">
-            Workspace
+            Sales
           </p>
           <h1 className="font-serif text-2xl md:text-3xl leading-tight">Contacts</h1>
           <p className="text-sm text-ink-3 mt-0.5">
@@ -388,7 +388,11 @@ export default function ContactsPage() {
                   <tr
                     key={c.id}
                     onClick={() => openContact(c)}
-                    className={`group/row border-b border-hairline last:border-0 hover:bg-paper-2/40 cursor-pointer transition-colors ${
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`Open ${c.name ?? c.email ?? "contact"}`}
+                    onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openContact(c); } }}
+                    className={`group/row border-b border-hairline last:border-0 hover:bg-paper-2/40 cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber focus-visible:ring-inset ${
                       isSelected ? "bg-amber-soft/40" : ""
                     }`}
                   >

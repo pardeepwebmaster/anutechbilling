@@ -54,10 +54,10 @@ export default function VendorsPage() {
     <div className="p-4 md:p-6 lg:p-8 max-w-[1800px] mx-auto">
       <div className="flex items-end justify-between gap-3 flex-wrap mb-4">
         <div>
-          <p className="text-xs uppercase tracking-wider text-ink-3 font-semibold mb-1">Accounting</p>
+          <p className="text-xs uppercase tracking-wider text-ink-3 font-semibold mb-1">Purchases</p>
           <h1 className="font-serif text-3xl md:text-4xl tracking-tight">Vendors</h1>
           <p className="text-sm text-ink-3 mt-1">
-            Jinse aap kharidte ho (Google CSP · Microsoft · Zoho · etc.). Har vendor ke bills, kul kharcha aur dena baaki ek jagah.
+            Who you buy from (Google CSP · Microsoft · Zoho · etc.). Every vendor&apos;s bills, total spend, and outstanding balance in one place.
           </p>
         </div>
         <Button variant="primary" icon="plus" className="hidden md:inline-flex" onClick={() => setAddOpen(true)}>Add vendor</Button>
@@ -67,7 +67,7 @@ export default function VendorsPage() {
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 md:gap-4 mb-5">
           <KPI label="Vendors" value={String((vendors ?? []).length)} />
           <KPI label="Total billed" value={rupee(totalBilled, { compact: true })} />
-          <KPI label="Dena baaki" value={rupee(totalOutstanding, { compact: true })} tone={totalOutstanding > 0 ? "rose" : "emerald"} />
+          <KPI label="Outstanding" value={rupee(totalOutstanding, { compact: true })} tone={totalOutstanding > 0 ? "rose" : "emerald"} />
         </div>
       )}
 
@@ -99,7 +99,7 @@ export default function VendorsPage() {
                   <th className="text-left  px-4 py-3">Category</th>
                   <th className="text-right px-4 py-3">Bills</th>
                   <th className="text-right px-4 py-3">Total billed</th>
-                  <th className="text-right px-4 py-3">Dena baaki</th>
+                  <th className="text-right px-4 py-3">Outstanding</th>
                   <th className="text-right px-4 py-3">Actions</th>
                 </tr>
               </thead>
@@ -215,7 +215,7 @@ function VendorFormDialog({ vendor, onClose }: { vendor?: Vendor; onClose: () =>
       <DialogContent className="md:!max-w-md">
         <DialogHeader>
           <DialogTitle>{vendor ? "Edit vendor" : "Add vendor"}</DialogTitle>
-          <DialogDescription>Supplier ki details — bill add karte waqt ye apne-aap bhar jayengi.</DialogDescription>
+          <DialogDescription>Supplier details — these auto-fill when you add a bill.</DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -264,7 +264,7 @@ function VendorBillsDialog({ vendor, onClose, onEdit }: { vendor: Vendor; onClos
           </DialogTitle>
           <DialogDescription>
             {vendor.billCount} bill{vendor.billCount === 1 ? "" : "s"} · {rupee(vendor.totalBilled)} billed ·{" "}
-            <b className={vendor.outstanding > 0 ? "text-rose" : "text-emerald"}>{vendor.outstanding > 0 ? `${rupee(vendor.outstanding)} baaki` : "sab chukaya"}</b>
+            <b className={vendor.outstanding > 0 ? "text-rose" : "text-emerald"}>{vendor.outstanding > 0 ? `${rupee(vendor.outstanding)} due` : "all paid"}</b>
           </DialogDescription>
         </DialogHeader>
         <div className="max-h-[55vh] overflow-y-auto -mx-1 px-1">

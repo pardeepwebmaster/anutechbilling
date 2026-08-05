@@ -647,21 +647,6 @@ function InvoicesPageInner() {
         </Card>
       )}
 
-      {/* Auto-sync card */}
-      {!isLoading && invoices && invoices.length > 0 && (
-        <Card className="mt-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="text-sm font-semibold">Auto-Sync Status</div>
-              <div className="text-xs text-ink-3 mt-0.5">
-                Zoho Books sync · Coming in Phase 2 · Currently manual
-              </div>
-            </div>
-            <Badge kind="warning" dot>Not configured</Badge>
-          </div>
-        </Card>
-      )}
-
       {/* Mobile primary — the header "New invoice" scrolls away on a phone. */}
       <FAB icon="plus" label="New invoice" onClick={() => router.push("/quotes" as any)} />
     </div>

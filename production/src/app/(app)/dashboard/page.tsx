@@ -2,11 +2,12 @@
  * Dashboard — matches prototype layout.
  *
  * Layout:
- *   - Header (date eyebrow, "Good morning, Name", subtitle, Quick-add)
- *   - 6 KPI grid (MRR / Pipeline / Renewals Due / Overdue / CSAT / Churn)
- *   - Main 1.55fr 1fr grid:
+ *   - Header (date eyebrow, "Good morning, Name", money one-liner, Quick-add)
+ *   - Money-first KPIs: 3 big ₹ tiles (Closed this month / Pipeline / MRR) + a
+ *     compact StatStrip of counts (Customers / Drafts to send / Renewals · 30d)
+ *   - Main 1.55fr 1fr grid of drag-reorderable widgets:
  *     LEFT  → Today's Focus + Recent Activity + Pipeline by Stage
- *     RIGHT → Sales Leaderboard + Coming Up + Health
+ *     RIGHT → Chase the cash + Renewals + Trials + Leaderboard + Coming Up + Health
  */
 "use client";
 

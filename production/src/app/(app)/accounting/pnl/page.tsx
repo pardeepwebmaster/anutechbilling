@@ -239,6 +239,7 @@ export default function PnLPage() {
       {/* Header */}
       <div className="flex items-end justify-between gap-3 flex-wrap mb-6">
         <div>
+          <p className="text-xs uppercase tracking-wider text-ink-3 font-semibold mb-1">Accounting</p>
           <h1 className="font-serif text-3xl md:text-4xl tracking-tight">P&L Report</h1>
           <p className="text-sm text-ink-3 mt-1">
             Revenue minus cost of goods minus operating expenses = net profit.
@@ -387,10 +388,10 @@ export default function PnLPage() {
               <li className="text-rose">Is period mein <b>{rupee(Math.abs(data.netProfit))} ka loss</b> hai. COGS ya expenses zyada hain.</li>
             )}
             {data.marginPct < 20 && data.revenue > 0 && (
-              <li className="text-amber-ink">Gross margin sirf {data.marginPct.toFixed(1)}% hai — resellers ka healthy range 25-35% hota hai. Vendor bills check karo ya pricing review karo.</li>
+              <li className="text-amber-ink">Gross margin is only {data.marginPct.toFixed(1)}% — a healthy reseller range is 25–35%. Check your vendor bills or review your pricing.</li>
             )}
             {data.cogs === 0 && (
-              <li className="text-amber-ink">No COGS recorded for this period. Vendor bills add karo (Google CSP / MS / Zoho invoices) — fir real margin dikhega.</li>
+              <li className="text-amber-ink">No COGS recorded for this period. Add your vendor bills (Google CSP / MS / Zoho invoices) to see the real margin.</li>
             )}
           </ul>
         </Card>

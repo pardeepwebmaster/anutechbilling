@@ -341,38 +341,33 @@ export default function PaymentsPage() {
         );
       })()}
 
-      {/* Partial payments hint */}
-      {!isLoading && partialQuotes.length > 0 && (
-        <GeminiCard
-          title="Partial payments outstanding"
-          actions={
-            <Button asChild size="sm" variant="primary" icon="external">
-              <Link href={`/quotes/${partialQuotes[0].id}` as any}>
-                Open first one
-              </Link>
-            </Button>
-          }
-          compact
-        >
-          <b>{partialQuotes.length} quote{partialQuotes.length === 1 ? "" : "s"}</b> received
-          a partial payment but isn't fully paid yet. Follow up with the customer to collect
-          the remaining amount.
-        </GeminiCard>
-      )}
-
-      {/* Awaiting invoice nudge */}
-      {!isLoading && awaitingInvoiceQuotes.length > 0 && (
-        <GeminiCard
-          title="Generate pending invoices"
-          actions={
-            <Button asChild size="sm" variant="primary" icon="receipt">
-              <Link href={`/quotes/${awaitingInvoiceQuotes[0].id}` as any}>Open first one</Link>
-            </Button>
-          }
-          compact
-        >
-          <b>{awaitingInvoiceQuotes.length} quote{awaitingInvoiceQuotes.length === 1 ? "" : "s"}</b>{" "}
-          fully paid but GST invoice not generated (₹{awaitingInvoiceTotal.toLocaleString("en-IN")} worth).
+      {/* Action needed — the two "close the loop" worklists (collect balance +
+          generate the paid-but-uninvoiced GST invoices) merged into ONE compact
+          card so they don't push the payment table down as two stacked bands. */}
+      {!isLoading && (partialQuotes.length > 0 || awaitingInvoiceQuotes.length > 0) && (
+        <GeminiCard title="Action needed to close the loop" compact>
+          <ul className="space-y-2">
+            {partialQuotes.length > 0 && (
+              <li className="flex items-center justify-between gap-3">
+                <span className="min-w-0">
+                  <b>{partialQuotes.length} partial payment{partialQuotes.length === 1 ? "" : "s"}</b> — collect the remaining balance from the customer.
+                </span>
+                <Button asChild size="sm" variant="default" icon="external" className="shrink-0">
+                  <Link href={`/quotes/${partialQuotes[0].id}` as any}>Open</Link>
+                </Button>
+              </li>
+            )}
+            {awaitingInvoiceQuotes.length > 0 && (
+              <li className="flex items-center justify-between gap-3">
+                <span className="min-w-0">
+                  <b>{awaitingInvoiceQuotes.length} fully paid</b>, GST invoice not generated yet (₹{awaitingInvoiceTotal.toLocaleString("en-IN")} worth).
+                </span>
+                <Button asChild size="sm" variant="default" icon="receipt" className="shrink-0">
+                  <Link href={`/quotes/${awaitingInvoiceQuotes[0].id}` as any}>Generate</Link>
+                </Button>
+              </li>
+            )}
+          </ul>
         </GeminiCard>
       )}
 

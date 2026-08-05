@@ -54,8 +54,8 @@ const TABS: TabBarItem[] = [
   { id: "company",       label: "Company"       },
   { id: "integrations",  label: "Integrations"  },
   { id: "branding",      label: "Branding"      },
-  { id: "notifications", label: "Notifications" },
-  { id: "security",      label: "Security"      },
+  // Notifications + Security tabs intentionally omitted until they do something real —
+  // a "Coming soon" dead-end reads as half-built to a non-technical owner.
 ];
 
 // ─── Field wrapper ────────────────────────────────────────────────────────────
@@ -397,11 +397,11 @@ function ResellerTierCard() {
       {isDistributor ? (
         <div className="space-y-2 text-xs text-ink-3 leading-relaxed">
           <p>
-            <span className="text-ink-2 font-medium">{data?.name}</span> ka role: <b>Master reseller / Distributor</b>.
-            Sub-resellers (children) is tenant ke catalog par wholesale rates par chal sakte hain.
+            <span className="text-ink-2 font-medium">{data?.name}</span> is a <b>master reseller / distributor</b>.
+            Sub-resellers (children) can buy from this tenant's catalog at wholesale rates.
           </p>
           <p className="text-[11px] text-ink-3">
-            Children manage karna · Partner Catalog publish karna · cross-tenant invoice mirroring — ye sab Slice 1+ me unlock honge.
+            Managing children · publishing a Partner Catalog · cross-tenant invoice mirroring — all unlock in a later release.
           </p>
         </div>
       ) : parentName ? (
@@ -413,16 +413,16 @@ function ResellerTierCard() {
             </span>
           </p>
           <p className="text-[11px] text-ink-3">
-            Distributor ke catalog se SKUs sync karna · auto vendor-bill on parent invoices · renewal sync — Slice 1+ me unlock honge.
+            Syncing SKUs from the distributor's catalog · auto vendor-bill on parent invoices · renewal sync — all unlock in a later release.
           </p>
         </div>
       ) : (
         <div className="space-y-2 text-xs text-ink-3 leading-relaxed">
           <p>
-            Independent reseller — kisi distributor se attached nahi. Apne customers ko direct serve karte ho, apna catalog manage karte ho.
+            Independent reseller — not attached to any distributor. You serve your own customers directly and manage your own catalog.
           </p>
           <p className="text-[11px] text-ink-3">
-            Agar tum kisi master reseller (distributor) se wholesale leke aage bechte ho — Slice 1+ me link karne ka option milega.
+            If you buy wholesale from a master reseller (distributor) and resell onward, you'll get an option to link them in a later release.
           </p>
         </div>
       )}
@@ -729,18 +729,6 @@ function BrandingTab() {
   );
 }
 
-function ComingSoon({ label }: { label: string }) {
-  return (
-    <Card className="flex flex-col items-center justify-center py-16 text-center">
-      <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-paper-2 text-ink-3">
-        <Icon name="settings" size={28} />
-      </div>
-      <p className="font-serif text-xl text-ink">{label}</p>
-      <p className="mt-2 text-sm text-ink-3">Coming in the next release</p>
-    </Card>
-  );
-}
-
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function SettingsPage() {
@@ -768,8 +756,6 @@ export default function SettingsPage() {
       {tab === "company"       && <CompanyTab />}
       {tab === "integrations"  && <IntegrationsTab />}
       {tab === "branding"      && <BrandingTab />}
-      {tab === "notifications" && <ComingSoon label="Notifications" />}
-      {tab === "security"      && <ComingSoon label="Security" />}
     </div>
   );
 }

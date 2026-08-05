@@ -84,6 +84,7 @@ export default function VendorBillsPage() {
       {/* ── Header ─────────────────────────────────────────────── */}
       <div className="flex items-end justify-between gap-3 flex-wrap mb-6">
         <div>
+          <p className="text-xs uppercase tracking-wider text-ink-3 font-semibold mb-1">Purchases</p>
           <h1 className="font-serif text-3xl md:text-4xl tracking-tight">Vendor Bills</h1>
           <p className="text-sm text-ink-3 mt-1">
             Bills you receive from Google CSP, Microsoft Partner, Zoho Partner — your COGS source.
@@ -355,7 +356,7 @@ function PayBillDialog({ bill, onClose }: { bill: VendorBill; onClose: () => voi
         <DialogHeader>
           <DialogTitle>Pay · {bill.vendor_name}</DialogTitle>
           <DialogDescription>
-            Outstanding: <b className="text-ink">{rupee(outstanding)}</b> of {rupee(bill.total)}. Ye paisa chune bank account se niklega (Banking me reconcile bhi ho jayega).
+            Outstanding: <b className="text-ink">{rupee(outstanding)}</b> of {rupee(bill.total)}. This money leaves the chosen bank account (and gets reconciled in Banking).
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">

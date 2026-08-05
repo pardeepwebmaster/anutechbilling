@@ -14,6 +14,7 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { useSubscriptions } from "@/lib/queries/subscriptions";
 import { useCustomers } from "@/lib/queries/customers";
 import { KPI } from "@/components/shared/kpi";
@@ -247,8 +248,14 @@ export default function ReportsPage() {
             Live business insights · auto-refreshed every 5 minutes
           </p>
         </div>
-        {/* Date-range + PDF export intentionally omitted until implemented —
-            no dead "coming soon" buttons in the primary action slot. */}
+        {/* Deeper drill-down. (Date-range + PDF export intentionally omitted until
+            implemented — no dead "coming soon" buttons in the primary slot.) */}
+        <Link
+          href={"/reports/profit" as never}
+          className="shrink-0 self-center inline-flex items-center gap-1 rounded-md border border-hairline bg-paper px-3 py-1.5 text-sm text-ink-2 hover:bg-paper-2 hover:text-ink transition-colors"
+        >
+          Profit by product <span aria-hidden>→</span>
+        </Link>
       </div>
 
       {/* ── KPIs ── */}

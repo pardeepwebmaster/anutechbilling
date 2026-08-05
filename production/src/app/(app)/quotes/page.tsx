@@ -273,7 +273,6 @@ export default function QuotesPage() {
           <p className="text-sm text-ink-3 mt-1">All generated quotes · sorted by most recent</p>
         </div>
         <div className="flex gap-2 flex-wrap">
-          <Button icon="download">Export</Button>
           {view === "project" ? (
             <Button variant="primary" icon="plus" onClick={() => setProjectQuoteOpen(true)}>
               New Quote
@@ -435,12 +434,12 @@ export default function QuotesPage() {
         <StatStrip
           className="mb-5"
           items={[
-            { label: "Total quotes",   value: quotes.length },
-            { label: "Pipeline",       value: rupee(totalValue, { compact: true }) },
+            { label: "Pipeline",       value: rupee(totalValue, { compact: true }), tone: "amber" },
             { label: "Out for review", value: rupee(sentValue, { compact: true }) },
-            { label: "Pipeline margin",value: rupee(pipelineMargin, { compact: true }), tone: "emerald" },
             { label: "Accepted",       value: rupee(acceptedValue, { compact: true }), tone: "emerald" },
+            { label: "Pipeline margin",value: rupee(pipelineMargin, { compact: true }), tone: "emerald" },
             { label: "Win rate",       value: `${winRate}%` },
+            { label: "Total quotes",   value: quotes.length },
           ]}
         />
       )}

@@ -52,8 +52,8 @@ export default function ReferralsPage() {
         <p className="text-xs uppercase tracking-wider text-ink-3 font-semibold mb-1">Sales</p>
         <h1 className="font-serif text-3xl md:text-4xl leading-tight">Referrals & Commission</h1>
         <p className="text-sm text-ink-3 mt-1">
-          Jo log deal refer/close karate hain unki commission. Kisi deal par partner tag karne ke liye{" "}
-          <Link href="/customers" className="text-amber hover:underline">customer</Link> kholo → “Add referral”.
+          Commission for people who refer or help close deals. To tag a partner on a deal, open the{" "}
+          <Link href="/customers" className="text-amber hover:underline">customer</Link> → “Add referral”.
         </p>
       </div>
 
@@ -61,7 +61,7 @@ export default function ReferralsPage() {
       <Card className="mb-6">
         <div className="grid grid-cols-3 gap-4">
           <div>
-            <p className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold">Owed / udhari (to pay)</p>
+            <p className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold">Owed (to pay)</p>
             <p className="font-serif text-2xl text-amber-ink mt-1">{rupee(owed, { compact: true })}</p>
           </div>
           <div>
@@ -100,8 +100,8 @@ export default function ReferralsPage() {
           <Card>
             <EmptyState
               icon="award"
-              title="Abhi koi commission nahi."
-              body="Kisi customer ke deal par referral partner tag karo (customer → Add referral). Jab woh payment karega, commission apne aap yahan aa jayegi."
+              title="No commissions yet"
+              body="Tag a referral partner on a customer's deal (customer → Add referral). When that customer pays, the commission shows up here automatically."
             />
           </Card>
         ) : (
@@ -189,8 +189,8 @@ export default function ReferralsPage() {
           <Card>
             <EmptyState
               icon="users"
-              title="Abhi koi partner nahi."
-              body="Partner tab banta hai jab tum kisi customer ke deal par referral add karte ho (customer → Add referral). Naya partner wahin inline bhi bana sakte ho."
+              title="No partners yet"
+              body="A partner is created when you add a referral on a customer's deal (customer → Add referral). You can also create a new partner inline there."
             />
           </Card>
         ) : (

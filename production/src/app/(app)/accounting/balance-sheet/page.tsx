@@ -132,6 +132,25 @@ export default function BalanceSheetPage() {
         </div>
       </div>
 
+      {/* Headline summary — Net worth reads FIRST (was buried at the very bottom
+          after ~15 detail lines). Assets · Liabilities · Net worth up top. */}
+      {!loading && (
+        <div className="grid grid-cols-3 gap-3 mb-4">
+          <Card className="p-4">
+            <div className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold">Total assets</div>
+            <div className="font-serif text-2xl mt-1 tabular-nums text-ink">{rupee(totalAssets, { compact: true })}</div>
+          </Card>
+          <Card className="p-4">
+            <div className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold">Total liabilities</div>
+            <div className="font-serif text-2xl mt-1 tabular-nums text-ink">{rupee(totalLiab, { compact: true })}</div>
+          </Card>
+          <Card className="p-4">
+            <div className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold">Net worth</div>
+            <div className={`font-serif text-2xl mt-1 tabular-nums ${netWorth >= 0 ? "text-emerald" : "text-rose"}`}>{rupee(netWorth, { compact: true })}</div>
+          </Card>
+        </div>
+      )}
+
       {/* Honesty note */}
       <Card className="mb-6 bg-paper-2/40 p-3">
         <p className="text-[11px] text-ink-3 leading-relaxed flex items-start gap-1.5">

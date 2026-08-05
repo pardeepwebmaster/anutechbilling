@@ -75,6 +75,7 @@ import { cn } from "@/lib/utils";
 import type { Lead } from "@/lib/supabase/database.types";
 import { useBreakpoint } from "@/lib/hooks/useBreakpoint";
 import { FAB } from "@/components/ui/fab";
+import { StatStrip } from "@/components/shared/stat-strip";
 
 // ============================================================
 // Stage config (matches prototype LEAD_STAGES)
@@ -417,11 +418,15 @@ function LeadsPageInner() {
           </h1>
           {!isLoading && leads && (
             isDealsPage ? (
-              <p className="text-sm text-ink-3 mt-1 tabular-nums">
-                <b>{openDeals.length}</b> active deals ·{" "}
-                <b>{rupee(totalValue, { compact: true })}</b> open pipeline ·{" "}
-                <b>{conversion}%</b> won
-              </p>
+              <div className="mt-2">
+                <StatStrip
+                  items={[
+                    { label: "Active deals",  value: openDeals.length },
+                    { label: "Open pipeline", value: rupee(totalValue, { compact: true }), tone: "amber" },
+                    { label: "Won",           value: `${conversion}%`, tone: conversion > 0 ? "emerald" : "default" },
+                  ]}
+                />
+              </div>
             ) : (
               <p className="text-sm text-ink-3 mt-1 tabular-nums">
                 <b>{rawLeads.length}</b> open lead{rawLeads.length === 1 ? "" : "s"} · call them, email them, update status

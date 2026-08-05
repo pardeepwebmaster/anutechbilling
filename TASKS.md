@@ -5,6 +5,14 @@
 
 ## Active
 
+### 🎨 /customers world-class redesign (Pardeep: "deep study, logical+UX+psychological, world class banao") — ✅ DONE (localhost, typecheck+lint clean, desktop+mobile verified)
+Deep 4-lens analysis then rebuilt `customers/page.tsx` as a book-of-business tool, not an accountant ledger:
+- **Money-first StatStrip** (Customers · Active MRR · ARR · **Receivables due** in rose) — was a run-on subtitle sentence where receivables read as a tiny fragment.
+- **Visible segment chips** with counts (All · Has receivables · With subscriptions · No subscription · Has credit) — was a hidden dropdown; debt chip count turns rose when >0.
+- **Sortable table** (click Customer / MRR / Receivables / Credits headers, arrow shows dir) + a new **MRR column** (the value of each relationship — previously MRR was invisible on the list) + **colored avatars** for scannability. Contact merged (name+phone) to free space; receivables keep the rose left-border + loud amount.
+- **Header**: 4 competing buttons → **Add customer** primary + a **More** overflow (Export / Import / Link domains).
+- Enriched mobile cards (avatar + MRR + Owes/Credit). Master-detail, resizable columns, pagination, search all preserved. Money math untouched (layout/hierarchy only). Verified: sort-by-MRR reorders (Rakesh ₹3.0K/mo → top), chips filter, mobile clean.
+
 ### 🧭 Layout-flow deep audit — ROUND 2 (rest of the app: Purchases · Payroll/HR · Engage · Catalog+Settings · Public) — mechanical wins ✅ DONE (localhost, typecheck+lint clean)
 5-agent parallel audit of the clusters not covered in round 1. ~55 findings; dominant themes: (a) §20 mobile breakages — many list pages lack a `md:hidden` card fallback + `<FAB>` (Engage campaigns/coupons/promos + WhatsApp inbox; Payroll employees/payroll/leave; Team; Lead-gen; portal invoices; reimbursements); (b) fixed `px-8` padding & ad-hoc max-widths; (c) dead "coming soon" buttons/tabs; (d) money-not-first / Hinglish copy on some pages.
 Fixed the pure-mechanical, zero-judgment wins now:

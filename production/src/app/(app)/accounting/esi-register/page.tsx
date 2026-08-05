@@ -61,6 +61,7 @@ export default function EsiRegisterPage() {
   return (
     <div className="mx-auto max-w-[1240px] p-4 md:p-6 lg:p-8 space-y-6">
       <header>
+        <p className="text-xs uppercase tracking-wider text-ink-3 font-semibold mb-1">Payroll</p>
         <h1 className="font-serif text-3xl text-ink">ESI Register</h1>
         <p className="text-sm text-ink-2 mt-1">
           Employees' State Insurance — employee {(ESI_EMPLOYEE_RATE * 100).toFixed(2)}% + employer{" "}

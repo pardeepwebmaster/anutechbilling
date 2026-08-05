@@ -167,7 +167,7 @@ export default function SubscriptionsPage() {
   }).reduce((s, x) => s + x.mrr, 0);
 
   return (
-    <div className="p-4 md:p-6 lg:p-8 max-w-[1500px] mx-auto">
+    <div className="p-4 md:p-6 lg:p-8 max-w-[1800px] mx-auto">
       {/* Header */}
       <div className="flex items-end justify-between gap-3 flex-wrap mb-6">
         <div>
@@ -194,10 +194,10 @@ export default function SubscriptionsPage() {
         <StatStrip
           className="mb-5"
           items={[
-            { label: "Total subs",   value: `${counts.all} · ${counts.active} active` },
-            { label: "Active MRR",   value: rupee(activeMRR, { compact: true }) },
+            { label: "Active MRR",   value: rupee(activeMRR, { compact: true }), tone: "amber" },
             { label: "Active ARR",   value: rupee(activeARR, { compact: true }), tone: "emerald" },
             { label: "Margin · ARR", value: `${rupee(annualMargin, { compact: true })} · ${avgMarginPct}%`, tone: "emerald" },
+            { label: "Total subs",   value: `${counts.all} · ${counts.active} active` },
             { label: "Seats",        value: `${usedSeats}/${totalSeats}` },
             { label: "Trials",       value: trials?.length ?? 0 },
           ]}
@@ -737,21 +737,11 @@ export default function SubscriptionsPage() {
         onComplete={() => refetch()}
       />
 
-      {/* Bottom cards */}
+      {/* Real analytics card — MRR by plan. (The "Vendor Reconciliation ·
+          Not configured · Phase 2" placeholder that used to sit beside this was
+          removed — a dead card the owner can't act on.) */}
       {!isLoading && subs && subs.length > 0 && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-6">
-          <Card title="Vendor Reconciliation" sub="Compare our records vs vendor APIs">
-            <div className="space-y-3">
-              <ReconRow vendor="Google Reseller API" status="Not configured" tone="warn" />
-              <ReconRow vendor="Microsoft Partner Center" status="Not configured" tone="warn" />
-              <ReconRow vendor="Zoho Partner Portal" status="Not configured" tone="warn" />
-              <div className="flex justify-between items-center pt-3 border-t border-hairline">
-                <span className="text-xs text-ink-3">Auto-sync</span>
-                <Badge kind="warning" dot>Phase 2</Badge>
-              </div>
-            </div>
-          </Card>
-
+        <div className="mt-6 max-w-xl">
           <Card title="Subscriptions by Plan">
             {(() => {
               const byPlan = new Map<string, { count: number; mrr: number }>();
@@ -869,23 +859,6 @@ function DomainCell({ sub, compact = false }: { sub: Subscription; compact?: boo
         onClick={() => setEditing(false)}
         disabled={mut.isPending}
       />
-    </div>
-  );
-}
-
-// ============================================================
-// Reconciliation row
-// ============================================================
-function ReconRow({ vendor, status, tone }: { vendor: string; status: string; tone: "ok" | "warn" | "error" }) {
-  return (
-    <div className="flex justify-between items-center text-sm">
-      <span>{vendor}</span>
-      <span className={cn(
-        "text-xs",
-        tone === "ok" ? "text-emerald" : tone === "warn" ? "text-amber-ink" : "text-rose"
-      )}>
-        {status}
-      </span>
     </div>
   );
 }

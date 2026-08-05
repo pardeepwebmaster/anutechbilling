@@ -62,6 +62,7 @@ export function QuoteAcceptView({
 }: Props) {
   const [accepting, setAccepting] = React.useState(false);
   const [accepted, setAccepted] = React.useState(quote.status === "accepted");
+  const [confirmOpen, setConfirmOpen] = React.useState(false);
 
   // ── Money, computed CONSISTENTLY in the display currency ──
   // For a foreign quote we work per-unit in the client's currency (₹ ÷ rate,
@@ -105,12 +106,12 @@ export function QuoteAcceptView({
     perInvoice ? `${fmtC(dRound(annual / billingN))}${billingUnit}` : fmtC(annual);
 
   const handleAccept = async () => {
-    if (!confirm(`Accept quote ${quote.id} for ${fmtC(dTotal)}?\n\nWe'll notify ${tenantName} and share payment instructions.`)) return;
     setAccepting(true);
     try {
       const res = await fetch(`/api/public/quote/${quote.id}/accept?t=${encodeURIComponent(token)}`, { method: "POST" });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "Could not accept");
+      setConfirmOpen(false);
       setAccepted(true);
       toast.success("Quote accepted · the reseller has been notified");
     } catch (e) {
@@ -354,7 +355,7 @@ export function QuoteAcceptView({
               size="lg"
               icon="check_circle"
               loading={accepting}
-              onClick={handleAccept}
+              onClick={() => setConfirmOpen(true)}
               className="w-full justify-center"
             >
               Accept this quote · {fmtC(dTotal)}
@@ -374,6 +375,57 @@ export function QuoteAcceptView({
           </div>
         </div>
       </div>
+
+      {/* Accept confirmation — styled dialog, not a browser confirm() */}
+      {confirmOpen && (
+        <div
+          className="fixed inset-0 z-50 bg-ink/40 flex items-end sm:items-center justify-center p-0 sm:p-4"
+          onClick={() => !accepting && setConfirmOpen(false)}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="accept-confirm-title"
+        >
+          <div
+            className="bg-paper w-full sm:max-w-md rounded-t-2xl sm:rounded-xl shadow-lg border border-hairline p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-3 mb-3">
+              <div className="h-10 w-10 rounded-full bg-emerald/10 text-emerald grid place-items-center shrink-0">
+                <Icon name="check_circle" size={20} />
+              </div>
+              <h3 id="accept-confirm-title" className="font-serif text-xl text-ink leading-tight">
+                Accept this quote?
+              </h3>
+            </div>
+            <p className="text-sm text-ink-2 leading-relaxed">
+              You&apos;re accepting quote <span className="font-mono text-ink">{quote.id}</span> for{" "}
+              <span className="font-semibold text-ink">{fmtC(dTotal)}</span>.
+            </p>
+            <p className="text-[13px] text-ink-3 leading-relaxed mt-2">
+              {tenantName} will be notified and will share payment instructions. No payment is taken now.
+            </p>
+            <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2 mt-6">
+              <Button
+                variant="ghost"
+                onClick={() => setConfirmOpen(false)}
+                disabled={accepting}
+                className="sm:w-auto justify-center"
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                icon="check_circle"
+                loading={accepting}
+                onClick={handleAccept}
+                className="sm:w-auto justify-center"
+              >
+                Confirm &amp; accept
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

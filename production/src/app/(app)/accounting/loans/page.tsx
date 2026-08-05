@@ -99,6 +99,7 @@ export default function EmployeeLoansPage() {
     <div className="p-4 md:p-6 lg:p-8 max-w-[1800px] mx-auto">
       <div className="flex items-end justify-between gap-3 flex-wrap mb-6">
         <div>
+          <p className="text-xs uppercase tracking-wider text-ink-3 font-semibold mb-1">Payroll</p>
           <h1 className="font-serif text-3xl md:text-4xl tracking-tight">Employee Loans &amp; Advances</h1>
           <p className="text-sm text-ink-3 mt-1">
             Money lent to staff — an asset the company is owed back, not an expense. Cash moves through your bank/cash accounts and the outstanding shows on the Balance Sheet.

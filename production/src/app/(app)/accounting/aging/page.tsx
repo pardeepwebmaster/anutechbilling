@@ -175,6 +175,7 @@ export default function AgingPage() {
       {/* Header */}
       <div className="flex items-end justify-between gap-3 flex-wrap mb-6">
         <div>
+          <p className="text-xs uppercase tracking-wider text-ink-3 font-semibold mb-1">Accounting</p>
           <h1 className="font-serif text-3xl md:text-4xl tracking-tight">Customer Aging</h1>
           <p className="text-sm text-ink-3 mt-1">
             Who owes you money, and for how long. Sorted by largest exposure.
@@ -316,7 +317,7 @@ export default function AgingPage() {
                       {r.contactPhone && (
                         <a
                           href={whatsappLink(r.contactPhone,
-                            `Hi from ${bizName} — ${rupee(r.total)} pending on your account. Payment kab tak ho jayega?`)}
+                            `Hi from ${bizName} — ${rupee(r.total)} is pending on your account. When can we expect the payment?`)}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs text-paper"

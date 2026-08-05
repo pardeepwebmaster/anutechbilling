@@ -268,14 +268,21 @@ export default function LeadGenPage() {
     setCaptureHost(window.location.host);
   }, []);
 
-  // Last-7-days leads
-  const cutoff = new Date(Date.now() - 7 * 86_400_000);
+  // Last-7-days leads, plus the 7 days before that for a REAL week-over-week delta
+  const now       = Date.now();
+  const cutoff    = new Date(now - 7 * 86_400_000);
+  const prevStart = new Date(now - 14 * 86_400_000);
   const recentLeads = (leads ?? []).filter(
     (l) => new Date(l.created_at) >= cutoff,
   );
+  const prevWeekLeads = (leads ?? []).filter((l) => {
+    const t = new Date(l.created_at);
+    return t >= prevStart && t < cutoff;
+  }).length;
 
   // KPI calculations
   const mtdLeads    = recentLeads.length;
+  const weekDelta   = mtdLeads - prevWeekLeads; // real w/w change
   const total       = captureChannels.reduce((s, x) => s + x.count, 0);
   const avgConv     = Math.round(
     captureChannels.reduce((s, x) => s + x.count * x.conv, 0) / Math.max(1, total),
@@ -320,8 +327,12 @@ export default function LeadGenPage() {
         <KPI
           label="Leads · Last 7 days"
           value={mtdLeads}
-          trend="+8 vs last week"
-          trendKind="up"
+          trend={
+            prevWeekLeads === 0
+              ? "vs 0 last week"
+              : `${weekDelta >= 0 ? "+" : ""}${weekDelta} vs last week`
+          }
+          trendKind={weekDelta > 0 ? "up" : weekDelta < 0 ? "down" : "neutral"}
           icon="inbox"
         />
         <KPI
@@ -340,12 +351,11 @@ export default function LeadGenPage() {
           icon={topSource?.icon ?? "inbox"}
         />
         <KPI
-          label="Avg response"
-          value="2.4"
-          unit="h"
-          trend="−1.1h vs last mo"
-          trendKind="up"
-          icon="clock"
+          label="Total leads"
+          value={(leads ?? []).length}
+          trend="all time · all sources"
+          trendKind="neutral"
+          icon="users"
         />
       </div>
 

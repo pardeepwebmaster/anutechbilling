@@ -500,9 +500,13 @@ export default function CustomersPage() {
         </div>
       )}
 
-      {/* ── Master-detail (a customer is selected, desktop) ── */}
+      {/* ── Master-detail (a customer is selected, desktop) ──
+          Fixed viewport-height + internal scroll ONLY in the 2xl split view (so
+          the list rail scrolls independently). Below 2xl the panel is full-width
+          and flows in the page — auto height, no nested scrollbar (single page
+          scrollbar instead of the ugly double one). */}
       {!isLoading && !error && selectedId && (
-        <div className="hidden md:flex border border-hairline rounded-xl overflow-hidden bg-paper h-[calc(100vh-200px)] min-h-[480px]">
+        <div className="hidden md:flex border border-hairline rounded-xl overflow-hidden bg-paper 2xl:h-[calc(100vh-200px)] 2xl:min-h-[480px]">
           {/* List rail only on very wide screens — below 2xl the detail panel
               takes the FULL width so its content never gets squeezed/cut. The
               panel's own Close (×) returns to the full list. */}

@@ -41,17 +41,18 @@ import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
-import { useResizableColumns, ResizableHandles } from "@/components/ui/resizable-columns";
 import {
-  DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem,
+  DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { TabBar, type TabBarItem } from "@/components/ui/tabs";
 import { rupee, formatDate, daysBetween } from "@/lib/utils";
 import type { Invoice, Payment } from "@/lib/supabase/database.types";
 
 const INV_COL_ORDER = ["select", "invoice", "customer", "date", "due", "amount", "status", "action"];
-const INV_COL_DEFAULTS: Record<string, number> = {
-  select: 44, invoice: 150, customer: 200, date: 120, due: 120, amount: 140, status: 150, action: 210,
+// Fluid percentage widths (sum = 100) so the table always fits the viewport —
+// no fixed-pixel widths, no horizontal scroll. table-fixed keeps them honest.
+const INV_COL_WIDTHS: Record<string, string> = {
+  select: "4%", invoice: "15%", customer: "13%", date: "11%", due: "11%", amount: "13%", status: "12%", action: "21%",
 };
 
 function InvoicesPageInner() {
@@ -67,7 +68,6 @@ function InvoicesPageInner() {
   const generateInvoice = useGenerateInvoice();
   const [tab, setTab] = React.useState("all");
   const [search, setSearch] = React.useState("");
-  const { colW, startResize, totalWidth: invTableW } = useResizableColumns("ros_inv_colw", INV_COL_DEFAULTS);
   // Combined by default — Subscription & Project invoices live in one list
   // (each row carries a Type badge). The tabs below are just an optional filter.
   const [view, setView] = React.useState<"all" | "subscription" | "project">("all");
@@ -201,6 +201,7 @@ function InvoicesPageInner() {
       {/* Subscription vs Project invoices toggle */}
       <div className="mb-4">
         <TabBar
+          className="overflow-y-hidden"
           value={view}
           onChange={(v) => setView(v as "all" | "subscription" | "project")}
           items={[
@@ -479,7 +480,7 @@ function InvoicesPageInner() {
       {/* Tabs + search */}
       {!isLoading && invoices && invoices.length > 0 && (
         <div className="mb-3 space-y-3">
-          <TabBar value={tab} onChange={setTab} items={tabs} />
+          <TabBar className="overflow-y-hidden" value={tab} onChange={setTab} items={tabs} />
           <div className="flex justify-between items-center gap-3 flex-wrap">
             <div className="text-xs text-ink-3">
               Showing {rows.length} of {viewInvoices.length} invoice{viewInvoices.length === 1 ? "" : "s"}
@@ -605,46 +606,43 @@ function InvoicesPageInner() {
         </ul>
       )}
 
-      {/* Desktop table — drag the full-height divider between any two columns to resize. */}
+      {/* Desktop table — fluid % columns so it always fits the viewport (no horizontal scroll). */}
       {!isLoading && !error && rows.length > 0 && (
-        <Card flush className="hidden md:block overflow-x-auto">
-          <div className="relative" style={{ width: invTableW }}>
-            <table className="w-full table-fixed">
-              <colgroup>
-                {INV_COL_ORDER.map((id) => <col key={id} style={{ width: colW[id] }} />)}
-              </colgroup>
-              <thead className="bg-paper-2 border-b border-hairline">
-                <tr>
-                  <th className="p-3">
-                    <Checkbox
-                      checked={selected.size === rows.length && rows.length > 0}
-                      onCheckedChange={toggleAll}
-                    />
-                  </th>
-                  <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Invoice #</th>
-                  <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Customer</th>
-                  <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Date</th>
-                  <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Due date</th>
-                  <th className="text-right p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Amount</th>
-                  <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Status</th>
-                  <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((inv) => (
-                  <InvoiceRow
-                    key={inv.id}
-                    inv={inv}
-                    checked={selected.has(inv.id)}
-                    onToggle={() => toggleOne(inv.id)}
-                    autoOpen={inv.id === openInvoiceId}
-                    isProject={projectInvoiceIds?.has(inv.id) ?? false}
+        <Card flush className="hidden md:block">
+          <table className="w-full table-fixed">
+            <colgroup>
+              {INV_COL_ORDER.map((id) => <col key={id} style={{ width: INV_COL_WIDTHS[id] }} />)}
+            </colgroup>
+            <thead className="bg-paper-2 border-b border-hairline">
+              <tr>
+                <th className="p-3">
+                  <Checkbox
+                    checked={selected.size === rows.length && rows.length > 0}
+                    onCheckedChange={toggleAll}
                   />
-                ))}
-              </tbody>
-            </table>
-            <ResizableHandles colW={colW} order={INV_COL_ORDER} startResize={startResize} />
-          </div>
+                </th>
+                <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Invoice #</th>
+                <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Customer</th>
+                <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Date</th>
+                <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Due date</th>
+                <th className="text-right p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Amount</th>
+                <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Status</th>
+                <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((inv) => (
+                <InvoiceRow
+                  key={inv.id}
+                  inv={inv}
+                  checked={selected.has(inv.id)}
+                  onToggle={() => toggleOne(inv.id)}
+                  autoOpen={inv.id === openInvoiceId}
+                  isProject={projectInvoiceIds?.has(inv.id) ?? false}
+                />
+              ))}
+            </tbody>
+          </table>
         </Card>
       )}
 
@@ -768,62 +766,65 @@ function InvoiceRow({
         })()}
       </td>
       <td className="p-3">
-        <div className="flex gap-1">
-          {/* View — opens the full GST tax invoice PDF dialog */}
-          {inv.status !== "draft" && inv.status !== "void" && (
+        {(() => {
+          const moneyDue = inv.status === "pending" || inv.status === "overdue";
+          return (
+        <div className="flex gap-1 items-center">
+          {/* One contextual primary action keeps the column tight (no h-scroll).
+              Money-due invoices lead with Record payment; everything else with View. */}
+          {moneyDue ? (
+            <Button
+              size="sm"
+              variant="primary"
+              icon="rupee"
+              onClick={() => (isProject ? setPayOpen(true) : setSubPayOpen(true))}
+            >
+              Record payment
+            </Button>
+          ) : inv.status !== "void" ? (
             <Button size="sm" icon="file" variant="ghost" onClick={() => setPreviewOpen(true)}>
               View
             </Button>
-          )}
-          {(inv.status === "overdue" || inv.status === "pending") && (
-            <Button
-              size="sm"
-              variant={inv.status === "overdue" ? "danger" : "ghost"}
-              icon="phone"
-              onClick={() =>
-                inv.customer_id
-                  ? router.push(`/customers/${inv.customer_id}` as any)
-                  : toast.info("This invoice has no linked customer to follow up with")
-              }
-            >
-              Follow up
-            </Button>
-          )}
-          {inv.status === "draft" && (
-            <Button size="sm" icon="file" variant="ghost" onClick={() => setPreviewOpen(true)}>View</Button>
-          )}
-          {/* Record payment — project invoices settle their milestone directly. */}
-          {isProject && inv.status !== "paid" && inv.status !== "draft" && inv.status !== "void" && (
-            <Button size="sm" variant="primary" icon="rupee" onClick={() => setPayOpen(true)}>
-              Record payment
-            </Button>
-          )}
-          {/* Record payment — subscription invoices route through the parent quote
-              (same proven record_payment path as the quote detail page). */}
-          {!isProject && (inv.status === "pending" || inv.status === "overdue") && (
-            <Button size="sm" variant="primary" icon="rupee" onClick={() => setSubPayOpen(true)}>
-              Record payment
-            </Button>
-          )}
-          {/* Overflow — Delete lives here so it isn't fat-fingered next to View.
-              (The confirmation dialog still explains exactly what happens.) */}
+          ) : null}
+
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button size="sm" variant="ghost" icon="more_h" aria-label="More actions" />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
+              {/* When Record payment is primary, View + Follow up move into the menu. */}
+              {moneyDue && (
+                <>
+                  <DropdownMenuItem onClick={() => setPreviewOpen(true)}>
+                    <Icon name="file" size={15} className="mr-2" /> View invoice
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() =>
+                      inv.customer_id
+                        ? router.push(`/customers/${inv.customer_id}` as any)
+                        : toast.info("This invoice has no linked customer to follow up with")
+                    }
+                  >
+                    <Icon name="phone" size={15} className="mr-2" /> Follow up
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                </>
+              )}
               <DropdownMenuItem onClick={() => setCnOpen(true)}>
                 <Icon name="receipt" size={15} className="mr-2" /> Issue credit note
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => setDnOpen(true)}>
                 <Icon name="receipt" size={15} className="mr-2" /> Issue debit note
               </DropdownMenuItem>
+              <DropdownMenuSeparator />
               <DropdownMenuItem destructive onClick={() => setDelOpen(true)}>
                 <Icon name="trash" size={14} /> Delete invoice
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
+          );
+        })()}
 
         <DeleteInvoiceDialog
           open={delOpen}

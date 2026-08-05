@@ -503,7 +503,10 @@ export default function CustomersPage() {
       {/* ── Master-detail (a customer is selected, desktop) ── */}
       {!isLoading && !error && selectedId && (
         <div className="hidden md:flex border border-hairline rounded-xl overflow-hidden bg-paper h-[calc(100vh-200px)] min-h-[480px]">
-          <div className="w-[300px] border-r border-hairline flex flex-col min-h-0">
+          {/* List rail only on very wide screens — below 2xl the detail panel
+              takes the FULL width so its content never gets squeezed/cut. The
+              panel's own Close (×) returns to the full list. */}
+          <div className="hidden 2xl:flex w-[300px] border-r border-hairline flex-col min-h-0">
             <div className="p-2 border-b border-hairline">
               <Input
                 prefix={<Icon name="search" size={14} />}
@@ -552,7 +555,7 @@ export default function CustomersPage() {
               )}
             </div>
           </div>
-          <div className="flex-1 min-h-0">
+          <div className="flex-1 min-w-0 min-h-0">
             <CustomerPanel customerId={selectedId} onClose={() => setSelectedId(null)} />
           </div>
         </div>

@@ -37,7 +37,6 @@ import { LeadsSmartViews, type SmartView } from "@/components/features/leads/lea
 import { MergeLeadsDialog } from "@/components/features/leads/merge-leads-dialog";
 import { computeDuplicates } from "@/lib/leads/duplicates";
 import { isHotLead, isHighValueLead, hotReason } from "@/lib/leads/heat";
-import { useResizableColumns, ResizableHandles } from "@/components/ui/resizable-columns";
 import { SwipeLeadCard } from "@/components/features/leads/swipe-lead-card";
 import { ImportCsvDialog } from "@/components/features/leads/import-csv-dialog";
 import { ShareFormSheet, ENQUIRY_SHARE } from "@/components/features/leads/share-form-sheet";
@@ -2223,8 +2222,8 @@ function daysSince(iso: string): number {
 }
 
 const LEADLIST_COL_ORDER = ["select", "company", "stage", "contact", "plan", "value", "lastupdate", "actions"];
-const LEADLIST_COL_DEFAULTS: Record<string, number> = {
-  select: 44, company: 240, stage: 130, contact: 220, plan: 170, value: 120, lastupdate: 100, actions: 150,
+const LEADLIST_COL_WIDTHS: Record<string, string> = {
+  select: "4%", company: "20%", stage: "11%", contact: "19%", plan: "14%", value: "10%", lastupdate: "9%", actions: "13%",
 };
 
 function LeadListView({
@@ -2287,7 +2286,6 @@ function LeadListView({
   // Bulk-select state — desktop power-table only. A Set of lead IDs makes
   // toggle / has() / size O(1). Resets on the leads array changing
   // identity (e.g. after a refetch) to avoid keeping stale IDs.
-  const { colW, startResize, totalWidth: leadTableW } = useResizableColumns("ros_leadlist_colw", LEADLIST_COL_DEFAULTS);
   const [selectedIds, setSelectedIds] = React.useState<Set<string>>(new Set());
   const toggleId = (id: string) => {
     setSelectedIds((prev) => {
@@ -2431,12 +2429,11 @@ function LeadListView({
         stays put and the h-scrollbar is always on screen. The md+ fixed-height page
         wrapper is what makes flex-1 resolve to a real cap. */}
     <div className="hidden md:block w-full max-w-full border border-hairline rounded-md overflow-auto bg-paper flex-1 min-h-0">
-      {/* Every column is drag-resizable — grab the full-height divider between
-          two columns and drag. Container scrolls if the table grows past it. */}
-      <div className="relative" style={{ width: leadTableW }}>
+      {/* Fluid percentage columns — the table fills the container width with no
+          horizontal scrollbar at desktop widths. */}
       <table className="w-full table-fixed">
         <colgroup>
-          {LEADLIST_COL_ORDER.map((id) => <col key={id} style={{ width: colW[id] }} />)}
+          {LEADLIST_COL_ORDER.map((id) => <col key={id} style={{ width: LEADLIST_COL_WIDTHS[id] }} />)}
         </colgroup>
         <thead className="bg-paper-2 border-b border-hairline">
           <tr>
@@ -2641,8 +2638,6 @@ function LeadListView({
           })}
         </tbody>
       </table>
-      <ResizableHandles colW={colW} order={LEADLIST_COL_ORDER} startResize={startResize} />
-      </div>
       {sorted.length === 0 && (
         <div className="p-8 text-center text-sm text-ink-3 italic">No leads match.</div>
       )}

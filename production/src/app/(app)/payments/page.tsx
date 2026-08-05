@@ -33,7 +33,6 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
-import { useResizableColumns, ResizableHandles } from "@/components/ui/resizable-columns";
 import { TabBar, type TabBarItem } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Icon } from "@/components/ui/icon";
@@ -62,16 +61,15 @@ const METHOD_META: Record<string, { label: string; icon: string }> = {
   other:         { label: "Other",      icon: "info" },
 };
 
-// Resizable table columns (left→right) + default widths.
+// Table columns (left→right) + fluid percentage widths.
 const PAY_COL_ORDER = ["date", "customer", "quote", "amount", "method", "reference", "status", "action"];
-const PAY_COL_DEFAULTS: Record<string, number> = {
-  date: 120, customer: 190, quote: 110, amount: 130, method: 160, reference: 150, status: 130, action: 90,
+const PAY_COL_WIDTHS: Record<string, string> = {
+  date: "11%", customer: "18%", quote: "10%", amount: "12%", method: "15%", reference: "14%", status: "12%", action: "8%",
 };
 
 export default function PaymentsPage() {
   const [tab, setTab]       = React.useState<"all" | "received" | "refunded">("all");
   const [view, setView]     = React.useState<"all" | "subscription" | "project">("all");
-  const { colW, startResize, totalWidth: payTableW } = useResizableColumns("ros_pay_colw", PAY_COL_DEFAULTS);
   const [search, setSearch] = React.useState("");
   // Payment currently open in the "edit details" sheet (null = closed).
   const [editPayment, setEditPayment] = React.useState<Payment | null>(null);
@@ -208,6 +206,7 @@ export default function PaymentsPage() {
 
       {/* All / Subscription / Project payments toggle (mirrors the Invoices page) */}
       <TabBar
+        className="overflow-y-hidden"
         value={view}
         onChange={(v) => setView(v as "all" | "subscription" | "project")}
         items={[
@@ -374,7 +373,7 @@ export default function PaymentsPage() {
       {/* Tabs + Search */}
       {!isLoading && payments && (
         <>
-          <TabBar value={tab} onChange={(v) => setTab(v as typeof tab)} items={tabsWithCounts} />
+          <TabBar className="overflow-y-hidden" value={tab} onChange={(v) => setTab(v as typeof tab)} items={tabsWithCounts} />
           <div className="flex justify-between items-center gap-3 flex-wrap">
             <div className="text-xs text-ink-3">
               Showing {filtered.length} of {payments.length} payments · {rupee(totalCollected)} collected all-time
@@ -501,44 +500,41 @@ export default function PaymentsPage() {
 
       {/* Desktop table — drag the full-height divider between any two columns to resize. */}
       {!isLoading && !error && filtered.length > 0 && (
-        <Card flush className="hidden md:block overflow-x-auto">
-          <div className="relative" style={{ width: payTableW }}>
-            <table className="w-full table-fixed">
-              <colgroup>
-                {PAY_COL_ORDER.map((id) => <col key={id} style={{ width: colW[id] }} />)}
-              </colgroup>
-              <thead className="bg-paper-2 border-b border-hairline">
-                <tr>
-                  <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Date</th>
-                  <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Customer</th>
-                  <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Quote</th>
-                  <th className="text-right p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Amount</th>
-                  <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Method</th>
-                  <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Reference</th>
-                  <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Status</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((p) => {
-                  const ctx = quoteById.get(p.quote_id);
-                  const customer = ctx?.customerId ? customerById.get(ctx.customerId) : undefined;
-                  return (
-                    <PaymentRowView
-                      key={p.id}
-                      p={p}
-                      ctx={ctx}
-                      customer={customer}
-                      me={me}
-                      bankLabel={p.bank_account_id ? bankNameById.get(p.bank_account_id) : undefined}
-                      onEdit={() => setEditPayment(p)}
-                    />
-                  );
-                })}
-              </tbody>
-            </table>
-            <ResizableHandles colW={colW} order={PAY_COL_ORDER} startResize={startResize} />
-          </div>
+        <Card flush className="hidden md:block">
+          <table className="w-full table-fixed">
+            <colgroup>
+              {PAY_COL_ORDER.map((id) => <col key={id} style={{ width: PAY_COL_WIDTHS[id] }} />)}
+            </colgroup>
+            <thead className="bg-paper-2 border-b border-hairline">
+              <tr>
+                <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Date</th>
+                <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Customer</th>
+                <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Quote</th>
+                <th className="text-right p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Amount</th>
+                <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Method</th>
+                <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Reference</th>
+                <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Status</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((p) => {
+                const ctx = quoteById.get(p.quote_id);
+                const customer = ctx?.customerId ? customerById.get(ctx.customerId) : undefined;
+                return (
+                  <PaymentRowView
+                    key={p.id}
+                    p={p}
+                    ctx={ctx}
+                    customer={customer}
+                    me={me}
+                    bankLabel={p.bank_account_id ? bankNameById.get(p.bank_account_id) : undefined}
+                    onEdit={() => setEditPayment(p)}
+                  />
+                );
+              })}
+            </tbody>
+          </table>
         </Card>
       )}
 

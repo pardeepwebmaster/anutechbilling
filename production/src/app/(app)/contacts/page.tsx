@@ -21,7 +21,6 @@ import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { TabBar, type TabBarItem } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
-import { useResizableColumns, ResizableHandles } from "@/components/ui/resizable-columns";
 import { Icon } from "@/components/ui/icon";
 import { Avatar } from "@/components/ui/avatar";
 import { initials } from "@/lib/utils";
@@ -34,12 +33,12 @@ const SOURCE_TABS: TabBarItem[] = [
 ];
 
 const CONTACT_COL_ORDER = ["select", "name", "company", "email", "phone", "source", "action"];
-// Defaults tuned to fit even a 1280px laptop without horizontal scroll — the old
-// totals (1174px) overflowed a 1440px screen, forcing a sideways scroll to see
-// Phone / Source. Dropped the low-value "Created" column (still on the detail
-// page) to give Email / Company readable room. Any column is still drag-resizable.
-const CONTACT_COL_DEFAULTS: Record<string, number> = {
-  select: 38, name: 188, company: 160, email: 220, phone: 138, source: 92, action: 108,
+// Fluid percentage widths (sum = 100%) so the table always fits its container
+// with no horizontal scroll — replaces the old fixed-pixel resizable columns
+// that overflowed narrow laptops. Dropped the low-value "Created" column (still
+// on the detail page) to give Email / Company readable room.
+const CONTACT_COL_WIDTHS: Record<string, string> = {
+  select: "4%", name: "20%", company: "17%", email: "23%", phone: "15%", source: "10%", action: "11%",
 };
 
 export default function ContactsPage() {
@@ -52,7 +51,6 @@ export default function ContactsPage() {
   const [selected, setSelected] = React.useState<Set<string>>(new Set());
   const [importOpen, setImportOpen] = React.useState(false);
   const [addOpen, setAddOpen] = React.useState(false);
-  const { colW, startResize, totalWidth: ctTableW } = useResizableColumns("ros_contacts_colw", CONTACT_COL_DEFAULTS);
   const [emailComposerOpen, setEmailComposerOpen] = React.useState(false);
   const [composerRecipients, setComposerRecipients] = React.useState<{ email: string; name?: string; company?: string }[]>([]);
   const [composerTotalSelected, setComposerTotalSelected] = React.useState(0);
@@ -232,7 +230,7 @@ export default function ContactsPage() {
       {/* Filter + search */}
       {!isLoading && contacts && contacts.length > 0 && (
         <>
-          <TabBar value={tab} onChange={setTab} items={tabsWithCounts} />
+          <TabBar value={tab} onChange={setTab} items={tabsWithCounts} className="overflow-y-hidden" />
           <div className="flex justify-between items-center gap-3 flex-wrap">
             <div className="text-xs text-ink-3">
               Showing {filtered.length} of {counts.all ?? 0} contacts
@@ -356,11 +354,10 @@ export default function ContactsPage() {
           sticky header stays put while rows scroll. table-fixed + min-w keeps the
           columns readable on narrow widths instead of crushing. */}
       {!isLoading && !error && filtered.length > 0 && (
-        <div className="hidden md:block w-full max-w-full border border-hairline rounded-md overflow-auto bg-paper flex-1 min-h-0">
-          <div className="relative" style={{ width: ctTableW }}>
+        <div className="hidden md:block w-full max-w-full border border-hairline rounded-md overflow-y-auto overflow-x-hidden bg-paper flex-1 min-h-0">
           <table className="w-full table-fixed">
             <colgroup>
-              {CONTACT_COL_ORDER.map((id) => <col key={id} style={{ width: colW[id] }} />)}
+              {CONTACT_COL_ORDER.map((id) => <col key={id} style={{ width: CONTACT_COL_WIDTHS[id] }} />)}
             </colgroup>
             <thead>
               <tr>
@@ -490,8 +487,6 @@ export default function ContactsPage() {
               })}
             </tbody>
           </table>
-          <ResizableHandles colW={colW} order={CONTACT_COL_ORDER} startResize={startResize} />
-          </div>
         </div>
       )}
 

@@ -1225,25 +1225,25 @@ export function QuoteBuilder() {
                   </div>
                   <span className="text-[10px] text-ink-3">
                     {usdPricingBasis === "international"
-                      ? `Har item ka apna ${currency} price (jiska set hai); warna ₹ convert.`
-                      : `Sabka ₹ price rate pe ${currency} me convert.`}
+                      ? `Each item uses its own ${currency} price when set; otherwise the ₹ price is converted.`
+                      : `Every ₹ price is converted to ${currency} at this rate.`}
                   </span>
                 </div>
                 {fxMissing ? (
                   <p className="text-[11px] text-rose font-medium">
-                    ⚠ Exchange rate set karo (₹ per {currency}) — abhi 1 hai, isliye numbers galat aayenge.
-                    {fxLoading ? " Latest rate laa rahe hain…" : " Ya “Latest” dabao."}
+                    ⚠ Set the exchange rate (₹ per {currency}) — it&apos;s 1 right now, so the numbers will be wrong.
+                    {fxLoading ? " Fetching the latest rate…" : " Or tap “Latest”."}
                   </p>
                 ) : isForeign && fxAuto ? (
                   <p className="text-[11px] text-emerald">
                     ✓ Latest rate: <b>₹{exchangeRate}/{currency}</b>
-                    {fxInfo?.asOf ? ` · as of ${fxInfo.asOf}` : ""} (auto — edit karke override kar sakte ho).
-                    Books ₹ me record hongi (GST).
+                    {fxInfo?.asOf ? ` · as of ${fxInfo.asOf}` : ""} (auto — you can edit to override).
+                    Books are recorded in ₹ (GST).
                   </p>
                 ) : isForeign ? (
                   <p className="text-[11px] text-indigo-ink">
-                    Sab amounts ab <b>{currency}</b> me — customer ko yehi dikhega. Books ₹ me record hongi (GST).
-                    Catalog items apna real {currency} price use karenge (Items me set karo); warna ₹ convert hoga.
+                    All amounts are now in <b>{currency}</b> — this is what the customer sees. Books are recorded in ₹ (GST).
+                    Catalog items use their own {currency} price (set it in Items); otherwise the ₹ price is converted.
                   </p>
                 ) : null}
               </div>

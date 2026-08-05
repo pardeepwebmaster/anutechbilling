@@ -41,7 +41,7 @@ export function InvoiceChooserDialog({ open, onOpenChange, customerId, onChooseP
       <DialogContent className="max-w-[440px]">
         <DialogHeader>
           <DialogTitle>Create invoice</DialogTitle>
-          <DialogDescription>Kis cheez ka bill banana hai? Items catalog se aayenge.</DialogDescription>
+          <DialogDescription>What are you billing for? Items come from your catalog.</DialogDescription>
         </DialogHeader>
 
         <div className="grid gap-3">
@@ -54,7 +54,7 @@ export function InvoiceChooserDialog({ open, onOpenChange, customerId, onChooseP
             <span>
               <span className="block font-medium text-ink">Subscription / service</span>
               <span className="block text-[12px] text-ink-3 mt-0.5">
-                Catalog plans/services (Workspace, M365, seats…). One-time ya recurring. Foreign customer → auto zero-rated.
+                Catalog plans/services (Workspace, M365, seats…). One-time or recurring. Foreign customer → auto zero-rated.
               </span>
             </span>
           </button>
@@ -68,7 +68,7 @@ export function InvoiceChooserDialog({ open, onOpenChange, customerId, onChooseP
             <span>
               <span className="block font-medium text-ink">Project</span>
               <span className="block text-[12px] text-ink-3 mt-0.5">
-                Custom / one-time project work (milestone catalog items). Poora invoice turant raise hota hai.
+                Custom / one-time project work (milestone catalog items). The full invoice is raised immediately.
               </span>
             </span>
           </button>

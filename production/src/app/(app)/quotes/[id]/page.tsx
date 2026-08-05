@@ -240,11 +240,22 @@ export default function QuoteDetailPage() {
   if (quote.status === "accepted") {
     events.push({ icon: "check_circle", kind: "emerald", title: "Customer accepted", body: "Quote accepted · payment workflow started", time: formatDate(quote.updated_at, "long") });
   }
-  if (quote.payment_status === "received" || quote.payment_status === "invoiced") {
+  // Only record a "Payment received" event when money ACTUALLY landed. A quote
+  // can be 'invoiced' with ₹0 received (invoice raised, awaiting payment) — the
+  // old check keyed on payment_status === 'invoiced' and fell back to `total`,
+  // fabricating a "Payment received · <full total>" with "undefined · ref: null".
+  if (totalReceivedSoFar > 0) {
+    const received = (paymentHistory ?? []).filter((p) => p.status === "received");
+    const latest = received[received.length - 1];
     events.push({
-      icon: "rupee", kind: "emerald", title: `Payment received · ${rupee(quote.payment_amount ?? total)}`,
-      body: `${quote.payment_method?.toUpperCase()} · ref: ${quote.payment_reference}`,
-      time: quote.payment_received_at ? formatDate(quote.payment_received_at, "long") : "Recently",
+      icon: "rupee", kind: "emerald",
+      title: `Payment received · ${rupee(totalReceivedSoFar)}`,
+      body: received.length > 1
+        ? `${received.length} payments received`
+        : latest?.method
+          ? `${latest.method.toUpperCase()}${latest.reference ? ` · ref: ${latest.reference}` : ""}`
+          : "Recorded",
+      time: latest?.received_at ? formatDate(latest.received_at, "long") : "Recently",
     });
   }
   if (quote.payment_status === "invoiced" && quote.invoice_id) {
@@ -415,7 +426,14 @@ export default function QuoteDetailPage() {
           </div>
         )}
 
-        {(quote.status === "sent" || quote.status === "viewed") && (
+        {/* Pre-acceptance row — only while the quote is genuinely still open.
+            Once an invoice exists (payment_status 'invoiced' / invoice_id set),
+            the invoice block below owns the payment action — showing "Mark
+            accepted (no payment yet)" + "Record payment now" here too would be
+            contradictory (deal already invoiced) and duplicate the balance
+            button. */}
+        {(quote.status === "sent" || quote.status === "viewed")
+          && quote.payment_status !== "invoiced" && !quote.invoice_id && (
           <div className="flex items-center justify-between gap-3 flex-wrap">
             <div className="text-sm text-ink-3">
               {daysLeft !== null && daysLeft > 0 && (

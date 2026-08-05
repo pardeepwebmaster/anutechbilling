@@ -528,28 +528,41 @@ export default function QuoteDetailPage() {
         {quote.payment_status === "invoiced" && quote.invoice_id && (() => {
           const balanceRemaining = Math.max(0, total - totalReceivedSoFar);
           const hasBalance = balanceRemaining > 0;
+          // "Balance" only makes sense once SOME money has landed. With ₹0
+          // received the whole amount is simply "due" and the action is
+          // "Record payment" — not "Record balance payment".
+          const nothingPaid = totalReceivedSoFar <= 0;
           return (
             <div className="flex items-center justify-between gap-3 flex-wrap">
               <div className="text-sm">
-                {hasBalance ? (
+                {!hasBalance ? (
+                  <span className="font-medium text-emerald">
+                    ✓ Complete · Invoice fully paid
+                  </span>
+                ) : nothingPaid ? (
+                  <>
+                    <span className="font-medium text-amber-ink">
+                      Invoice issued · {rupee(total)} due
+                    </span>{" "}
+                    <span className="text-ink-3">
+                      Awaiting payment. Record it when received — no new receipt voucher needed (post-invoice).
+                    </span>
+                  </>
+                ) : (
                   <>
                     <span className="font-medium text-amber-ink">
                       Invoice issued · {rupee(balanceRemaining)} balance due
                     </span>{" "}
                     <span className="text-ink-3">
-                      Customer paid {rupee(totalReceivedSoFar)} of {rupee(total)}. Record balance when received — no new receipt voucher needed (post-invoice).
+                      Customer paid {rupee(totalReceivedSoFar)} of {rupee(total)}. Record the balance when received — no new receipt voucher needed (post-invoice).
                     </span>
                   </>
-                ) : (
-                  <span className="font-medium text-emerald">
-                    ✓ Complete · Invoice fully paid
-                  </span>
                 )}
               </div>
               <div className="flex gap-2">
                 {hasBalance && (
                   <Button variant="primary" icon="rupee" onClick={() => setPaymentOpen(true)}>
-                    Record balance payment
+                    {nothingPaid ? "Record payment" : "Record balance payment"}
                   </Button>
                 )}
                 <Button asChild variant={hasBalance ? "ghost" : "primary"} icon="receipt">

@@ -2600,6 +2600,12 @@ export type Database = {
         Args: { p_customer_id: string };
         Returns: { deleted: boolean; customer_id: string };
       };
+      /** Revert an accidentally-accepted quote back to 'sent' (0173). Refuses if
+       *  any money has moved (invoice / received payment). */
+      reopen_quote: {
+        Args: { p_quote_id: string };
+        Returns: undefined;
+      };
       /**
        * Atomic convert-to-lead for an inbound email (0079). Creates a lead from
        * the email + stamps the inbound_emails row (status/lead_id) in one

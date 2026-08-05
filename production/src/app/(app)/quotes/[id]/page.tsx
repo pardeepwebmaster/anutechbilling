@@ -184,6 +184,22 @@ export default function QuoteDetailPage() {
     onError: (e) => toast.error((e as Error).message),
   });
 
+  // Reopen — revert an accidentally-accepted quote back to 'sent'. The RPC
+  // refuses if any money has moved (invoice/payment); the customer + lead stay.
+  const reopenQuote = useMutation({
+    mutationFn: async () => {
+      const supabase = createClient();
+      const { error } = await supabase.rpc("reopen_quote", { p_quote_id: params.id });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["quotes"] });
+      qc.invalidateQueries({ queryKey: ["quotes", params.id] });
+      toast.success("Quote reopened — moved back to Sent");
+    },
+    onError: (e) => toast.error((e as Error).message),
+  });
+
   // Use the central useGenerateInvoice hook — it calls next_document_number RPC
   // (sequential GST-compliant), compute_advance_adjustment RPC (frozen
   // snapshot per Rule 53), and links quote_id correctly. The previous local
@@ -463,9 +479,24 @@ export default function QuoteDetailPage() {
               <span className="font-medium text-amber-ink">Awaiting payment of {rupee(total)}</span>{" "}
               <span className="text-ink-3">from {quote.customer_name}. Record payment when received — partial payments supported.</span>
             </div>
-            <Button variant="primary" icon="rupee" onClick={() => setPaymentOpen(true)}>
-              Record payment
-            </Button>
+            <div className="flex gap-2 flex-wrap">
+              {/* Reopen — undo an accidental accept (only while no money has moved). */}
+              <Button
+                variant="ghost"
+                icon="arrow_left"
+                loading={reopenQuote.isPending}
+                onClick={() => {
+                  if (window.confirm(`Reopen quote ${quote.id}? It moves back to Sent so you can edit/re-send. The customer record stays; reverse this only if the accept was a mistake.`)) {
+                    reopenQuote.mutate();
+                  }
+                }}
+              >
+                Reopen
+              </Button>
+              <Button variant="primary" icon="rupee" onClick={() => setPaymentOpen(true)}>
+                Record payment
+              </Button>
+            </div>
           </div>
         )}
 

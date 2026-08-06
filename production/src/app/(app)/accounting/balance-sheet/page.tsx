@@ -19,6 +19,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Icon } from "@/components/ui/icon";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useConfirm } from "@/components/providers/confirm-provider";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "@/components/ui/dialog";
@@ -43,6 +44,7 @@ export default function BalanceSheetPage() {
   const { data: auto, isLoading: autoLoading } = useBalanceSheetAuto();
   const { data: items, isLoading: itemsLoading } = useBalanceSheetItems();
   const del = useDeleteBalanceSheetItem();
+  const confirm = useConfirm();
   const [addOpen, setAddOpen] = React.useState(false);
   const [editItem, setEditItem] = React.useState<BalanceSheetItem | null>(null);
   const today = new Date(Date.now() + 5.5 * 60 * 60 * 1000).toISOString().slice(0, 10);
@@ -189,7 +191,7 @@ export default function BalanceSheetPage() {
                 )}
                 {gstCredit > 0 && <BSLine label="GST input credit (ITC)" amount={gstCredit} auto />}
                 {manualAssetRows.map((r) => (
-                  <BSLine key={r.id} label={r.label} amount={r.amount} onEdit={() => setEditItem(r)} onDelete={() => { if (window.confirm(`Remove "${r.label}" from the balance sheet?`)) del.mutate(r.id); }} />
+                  <BSLine key={r.id} label={r.label} amount={r.amount} onEdit={() => setEditItem(r)} onDelete={async () => { if (await confirm({ title: "Remove line?", body: `Remove "${r.label}" from the balance sheet?`, confirmLabel: "Remove", danger: true })) del.mutate(r.id); }} />
                 ))}
               </div>
               <TotalLine label="Total Assets" amount={totalAssets} />
@@ -222,7 +224,7 @@ export default function BalanceSheetPage() {
                   <BSLine label="GST payable" hint={`net, ${auto?.fyLabel ?? "this FY"} — before filing`} amount={gstPayable} auto />
                 )}
                 {manualLiabRows.map((r) => (
-                  <BSLine key={r.id} label={r.label} amount={r.amount} onEdit={() => setEditItem(r)} onDelete={() => { if (window.confirm(`Remove "${r.label}" from the balance sheet?`)) del.mutate(r.id); }} />
+                  <BSLine key={r.id} label={r.label} amount={r.amount} onEdit={() => setEditItem(r)} onDelete={async () => { if (await confirm({ title: "Remove line?", body: `Remove "${r.label}" from the balance sheet?`, confirmLabel: "Remove", danger: true })) del.mutate(r.id); }} />
                 ))}
               </div>
               <TotalLine label="Total Liabilities" amount={totalLiab} muted />
@@ -231,7 +233,7 @@ export default function BalanceSheetPage() {
                 <SectionTitle>Equity (net worth)</SectionTitle>
                 <div className="space-y-1 mt-3">
                   {manualEqRows.map((r) => (
-                    <BSLine key={r.id} label={r.label} amount={r.amount} onEdit={() => setEditItem(r)} onDelete={() => { if (window.confirm(`Remove "${r.label}" from the balance sheet?`)) del.mutate(r.id); }} />
+                    <BSLine key={r.id} label={r.label} amount={r.amount} onEdit={() => setEditItem(r)} onDelete={async () => { if (await confirm({ title: "Remove line?", body: `Remove "${r.label}" from the balance sheet?`, confirmLabel: "Remove", danger: true })) del.mutate(r.id); }} />
                   ))}
                   <BSLine
                     label="Retained earnings"

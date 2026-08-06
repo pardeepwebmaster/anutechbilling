@@ -43,6 +43,7 @@ import {
 import type { CurrentUserInfo } from "@/lib/hooks/useCurrentUser";
 import { EmployeeDetailDrawer } from "@/components/features/payroll/employee-detail-drawer";
 import { OfferLetterDialog } from "@/components/features/payroll/offer-letter-dialog";
+import { useConfirm } from "@/components/providers/confirm-provider";
 
 function todayISO(): string {
   return new Date(Date.now() + 5.5 * 60 * 60 * 1000).toISOString().slice(0, 10);
@@ -105,13 +106,19 @@ export function EmployeesTab() {
   const q = useEmployees();
   const leaveQ = useLeaveEntries();
   const del = useDeleteEmployee();
+  const confirm = useConfirm();
   const [edit, setEdit] = React.useState<Employee | null | "new">(null);
   const [viewEmp, setViewEmp] = React.useState<Employee | null>(null);
   const [offerEmp, setOfferEmp] = React.useState<Employee | null>(null);
   const rows = q.data ?? [];
 
-  const confirmDelete = (e: Employee) => {
-    if (window.confirm(`Remove ${e.name}? This deletes the employee and their attendance/leave records. (Blocked if they have salary payments — deactivate those instead.)`)) {
+  const confirmDelete = async (e: Employee) => {
+    if (await confirm({
+      title: `Remove ${e.name}?`,
+      body: "This deletes the employee and their attendance/leave records. (Blocked if they have salary payments — deactivate those instead.)",
+      confirmLabel: "Remove",
+      danger: true,
+    })) {
       del.mutate(e.id);
     }
   };
@@ -415,6 +422,7 @@ export function PayrollTab() {
   const [payFor, setPayFor] = React.useState<Employee | null>(null);
   const [calendarFor, setCalendarFor] = React.useState<Employee | null>(null);
   const undoSalary = useDeleteSalaryPayment();
+  const confirm = useConfirm();
 
   const employees = (empQ.data ?? []).filter((e) => e.is_active);
   const paidByEmp = new Map((payQ.data ?? []).map((p) => [p.employee_id, p]));
@@ -490,8 +498,13 @@ export function PayrollTab() {
                                 icon="trash"
                                 loading={undoSalary.isPending}
                                 title="Undo this salary — reverses the expense so you can pay it again"
-                                onClick={() => {
-                                  if (window.confirm(`Undo ${e.name}'s salary for this month?\n\nThis removes the salary + its booked expense so you can pay it again. (Blocked only once it's reconciled to a bank line — un-reconcile that first.)`)) {
+                                onClick={async () => {
+                                  if (await confirm({
+                                    title: `Undo ${e.name}'s salary for this month?`,
+                                    body: "This removes the salary + its booked expense so you can pay it again. (Blocked only once it's reconciled to a bank line — un-reconcile that first.)",
+                                    confirmLabel: "Undo",
+                                    danger: true,
+                                  })) {
                                     undoSalary.mutate(p.id);
                                   }
                                 }}
@@ -554,8 +567,13 @@ export function PayrollTab() {
                                 icon="trash"
                                 loading={undoSalary.isPending}
                                 title="Undo this salary — reverses the expense so you can pay it again"
-                                onClick={() => {
-                                  if (window.confirm(`Undo ${e.name}'s salary for this month?\n\nThis removes the salary + its booked expense so you can pay it again. (Blocked only once it's reconciled to a bank line — un-reconcile that first.)`)) {
+                                onClick={async () => {
+                                  if (await confirm({
+                                    title: `Undo ${e.name}'s salary for this month?`,
+                                    body: "This removes the salary + its booked expense so you can pay it again. (Blocked only once it's reconciled to a bank line — un-reconcile that first.)",
+                                    confirmLabel: "Undo",
+                                    danger: true,
+                                  })) {
                                     undoSalary.mutate(p.id);
                                   }
                                 }}
@@ -1030,6 +1048,7 @@ export function LeaveTab() {
   const empQ = useEmployees();
   const leaveQ = useLeaveEntries();
   const del = useDeleteLeaveEntry();
+  const confirm = useConfirm();
   const [addOpen, setAddOpen] = React.useState(false);
   const empName = new Map((empQ.data ?? []).map((e) => [e.id, e.name]));
   const rows = leaveQ.data ?? [];
@@ -1068,7 +1087,7 @@ export function LeaveTab() {
                       <Badge kind={l.type === "unpaid" ? "warning" : "info"}>{LEAVE_TYPE_LABEL[l.type]}</Badge>
                     </td>
                     <td className="px-4 py-3 text-right">
-                      <Button variant="ghost" size="sm" onClick={() => { if (window.confirm("Remove this leave entry?")) del.mutate(l.id); }}>Remove</Button>
+                      <Button variant="ghost" size="sm" onClick={async () => { if (await confirm({ title: "Remove this leave entry?", confirmLabel: "Remove", danger: true })) del.mutate(l.id); }}>Remove</Button>
                     </td>
                   </tr>
                 ))}
@@ -1090,7 +1109,7 @@ export function LeaveTab() {
                   </div>
                   <div className="flex items-center justify-between gap-2">
                     <Badge kind={l.type === "unpaid" ? "warning" : "info"}>{LEAVE_TYPE_LABEL[l.type]}</Badge>
-                    <Button variant="ghost" size="sm" onClick={() => { if (window.confirm("Remove this leave entry?")) del.mutate(l.id); }}>Remove</Button>
+                    <Button variant="ghost" size="sm" onClick={async () => { if (await confirm({ title: "Remove this leave entry?", confirmLabel: "Remove", danger: true })) del.mutate(l.id); }}>Remove</Button>
                   </div>
                 </Card>
               </li>
@@ -1110,6 +1129,7 @@ function HolidaysCard() {
   const holQ = useHolidays();
   const create = useCreateHoliday();
   const del = useDeleteHoliday();
+  const confirm = useConfirm();
   const [date, setDate] = React.useState("");
   const [name, setName] = React.useState("");
   const rows = holQ.data ?? [];
@@ -1147,7 +1167,7 @@ function HolidaysCard() {
               <span className="text-ink-3">{formatDate(h.holiday_date)}</span>
               <button
                 type="button"
-                onClick={() => { if (window.confirm("Remove this holiday?")) del.mutate(h.id); }}
+                onClick={async () => { if (await confirm({ title: "Remove this holiday?", confirmLabel: "Remove", danger: true })) del.mutate(h.id); }}
                 className="text-ink-3 hover:text-rose"
                 aria-label="Remove holiday"
               >×</button>

@@ -17,6 +17,7 @@ import { Icon } from "@/components/ui/icon";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/shared/empty-state";
 import { FAB } from "@/components/ui/fab";
+import { useConfirm } from "@/components/providers/confirm-provider";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "@/components/ui/dialog";
@@ -42,6 +43,7 @@ export default function ReimbursementsPage() {
   const [addOpen, setAddOpen] = React.useState(false);
   const [settleFor, setSettleFor] = React.useState<Reimbursement | null>(null);
   const del = useDeleteReimbursement();
+  const confirm = useConfirm();
 
   const pending = (rows ?? []).filter((r) => r.status === "pending");
   const settled = (rows ?? []).filter((r) => r.status === "settled");
@@ -52,8 +54,13 @@ export default function ReimbursementsPage() {
   for (const r of pending) byPerson.set(r.person_name, (byPerson.get(r.person_name) ?? 0) + r.amount);
   const owedByPerson = [...byPerson.entries()].sort((a, b) => b[1] - a[1]);
 
-  const confirmDelete = (r: Reimbursement) => {
-    if (window.confirm(`Remove this reimbursement (${rupee(r.amount)} · ${r.person_name})?\n\nThe booked expense is removed too (only if it isn't reconciled to a bank line).`)) {
+  const confirmDelete = async (r: Reimbursement) => {
+    if (await confirm({
+      title: `Remove this reimbursement (${rupee(r.amount)} · ${r.person_name})?`,
+      body: "The booked expense is removed too (only if it isn't reconciled to a bank line).",
+      confirmLabel: "Remove",
+      danger: true,
+    })) {
       del.mutate(r.id);
     }
   };

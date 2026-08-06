@@ -28,6 +28,7 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
+import { useConfirm } from "@/components/providers/confirm-provider";
 import { rupee } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
@@ -95,6 +96,7 @@ export default function ItemsPage() {
   const { data: items, isLoading, error, refetch } = useItems({ includeInactive: true });
   const deleteItem = useDeleteItem();
   const loadDefaults = useLoadDefaultCatalog();
+  const confirm = useConfirm();
 
   const [catalogType, setCatalogType] = React.useState<"subscription" | "one_time">("subscription");
   const [vendor, setVendor] = React.useState("all");
@@ -200,7 +202,7 @@ export default function ItemsPage() {
           isLoading={isLoading}
           onAdd={() => { setOneTimeEditing(null); setOneTimeOpen(true); }}
           onEdit={(it) => { setOneTimeEditing(it); setOneTimeOpen(true); }}
-          onDeactivate={(it) => { if (confirm(`Deactivate ${it.name}?`)) deleteItem.mutate(it.id); }}
+          onDeactivate={async (it) => { if (await confirm({ title: `Deactivate ${it.name}?`, danger: true, confirmLabel: "Deactivate" })) deleteItem.mutate(it.id); }}
         />
       ) : (
       <>
@@ -428,8 +430,8 @@ export default function ItemsPage() {
                           {it.is_active && (
                             <DropdownMenuItem
                               destructive
-                              onClick={() => {
-                                if (confirm(`Deactivate ${it.name}?`)) {
+                              onClick={async () => {
+                                if (await confirm({ title: `Deactivate ${it.name}?`, danger: true, confirmLabel: "Deactivate" })) {
                                   deleteItem.mutate(it.id);
                                 }
                               }}

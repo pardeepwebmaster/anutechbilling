@@ -18,6 +18,7 @@ import { Button, IconButton } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/shared/empty-state";
+import { useConfirm } from "@/components/providers/confirm-provider";
 import { initials, formatDate, cn } from "@/lib/utils";
 
 // ── Social handle → full URL. Accepts a full URL, a bare domain path, or a
@@ -47,6 +48,7 @@ export default function ContactDetailPage() {
   const router = useRouter();
   const { data: contact, isLoading, error } = useContact(params.id);
   const del = useDeleteContact();
+  const confirm = useConfirm();
   const [editOpen, setEditOpen] = React.useState(false);
 
   if (isLoading) {
@@ -89,9 +91,9 @@ export default function ContactDetailPage() {
   ];
   const hasSocial = socials.some((s) => s.value) || contact.website;
 
-  function handleDelete() {
+  async function handleDelete() {
     if (!contact) return;
-    if (!window.confirm(`Delete contact "${contact.full_name}"? This can't be undone.`)) return;
+    if (!(await confirm({ title: `Delete contact "${contact.full_name}"?`, body: "This can't be undone.", confirmLabel: "Delete", danger: true }))) return;
     del.mutate(contact.id, { onSuccess: () => router.push("/contacts" as never) });
   }
 

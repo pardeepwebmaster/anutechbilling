@@ -33,6 +33,7 @@ import {
 } from "@/lib/queries/coupons";
 import CreateCouponDialog        from "@/components/features/coupons/create-coupon-dialog";
 import CouponRedemptionsDialog   from "@/components/features/coupons/coupon-redemptions-dialog";
+import { useConfirm }            from "@/components/providers/confirm-provider";
 import type { CouponRow }        from "@/lib/supabase/database.types";
 
 function couponStateTone(c: CouponRow): {
@@ -63,6 +64,7 @@ export default function CouponsPage() {
   const { data: allRedemptions } = useAllRedemptions();
   const toggle = useToggleCoupon();
   const del    = useDeleteCoupon();
+  const confirm = useConfirm();
 
   const [createOpen,           setCreateOpen]         = React.useState(false);
   const [viewingRedemptions,   setViewingRedemptions] = React.useState<string | null>(null);
@@ -83,7 +85,12 @@ export default function CouponsPage() {
   }
 
   async function onDelete(c: CouponRow) {
-    if (!confirm(`Delete coupon "${c.code}"? This cannot be undone. (${c.redemption_count} redemption${c.redemption_count === 1 ? "" : "s"} on record.)`)) {
+    if (!(await confirm({
+      title: `Delete coupon "${c.code}"?`,
+      body: `This cannot be undone. (${c.redemption_count} redemption${c.redemption_count === 1 ? "" : "s"} on record.)`,
+      danger: true,
+      confirmLabel: "Delete",
+    }))) {
       return;
     }
     try {

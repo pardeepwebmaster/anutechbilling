@@ -17,6 +17,7 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/shared/empty-state";
 import { FAB } from "@/components/ui/fab";
+import { useConfirm } from "@/components/providers/confirm-provider";
 import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
@@ -41,14 +42,20 @@ export default function BusinessLoansPage() {
   const [emiFor, setEmiFor] = React.useState<BusinessLoan | null>(null);
   const [historyFor, setHistoryFor] = React.useState<BusinessLoan | null>(null);
   const del = useDeleteBusinessLoan();
+  const confirm = useConfirm();
 
   const loans = q.data ?? [];
   const totalOutstanding = loans.reduce((s, l) => s + l.outstanding, 0);
   const activeCount = loans.filter((l) => l.status === "active").length;
   const totalInterest = loans.reduce((s, l) => s + l.interestPaid, 0);
 
-  const confirmDelete = (l: BusinessLoan) => {
-    if (window.confirm(`Delete the ${l.lender} loan (${rupee(l.principal)})? The cash added to the account will be reversed. (Only works before any EMI is recorded.)`)) {
+  const confirmDelete = async (l: BusinessLoan) => {
+    if (await confirm({
+      title: `Delete the ${l.lender} loan (${rupee(l.principal)})?`,
+      body: "The cash added to the account will be reversed. (Only works before any EMI is recorded.)",
+      confirmLabel: "Delete",
+      danger: true,
+    })) {
       del.mutate(l.id);
     }
   };

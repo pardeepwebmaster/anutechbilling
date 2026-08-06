@@ -56,6 +56,7 @@ import {
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { rupee, formatDate, bankLabel } from "@/lib/utils";
+import { useConfirm } from "@/components/providers/confirm-provider";
 
 const STATUS_TABS: TabBarItem[] = [
   { id: "all",       label: "All" },
@@ -92,6 +93,7 @@ export default function PaymentsPage() {
   const { data: customers } = useCustomers();
   const { data: bankAccounts } = useBankAccounts();
   const { data: me } = useCurrentUser();
+  const confirm = useConfirm();
 
   // Lookup: bankAccountId → short label (for the "received in" hint on a row)
   const bankNameById = React.useMemo(() => {
@@ -324,8 +326,8 @@ export default function PaymentsPage() {
                           `Please complete the payment at your earliest convenience to keep your service uninterrupted.\n\n— Anutech Digital`;
                         window.location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
                       }}
-                      onSuspend={() => {
-                        if (confirm(`Pause subscription for ${o.customer_name}?\n\nThis pauses your service tracking. You'll need to suspend the actual licenses via Google CSP / M365 admin separately.`)) {
+                      onSuspend={async () => {
+                        if (await confirm({ title: `Pause subscription for ${o.customer_name}?`, body: "This pauses your service tracking. You'll need to suspend the actual licenses via Google CSP / M365 admin separately.", confirmLabel: "Pause" })) {
                           suspendSub.mutate(o.subscription_id);
                         }
                       }}
@@ -755,15 +757,20 @@ function PaymentRowView({
   const methodInfo = METHOD_META[p.method];
   const [receiptOpen, setReceiptOpen] = React.useState(false);
   const del = useDeletePayment();
+  const confirm = useConfirm();
 
   // Delete = correct a wrong entry. Explains the reversal, then reverses via RPC
   // (guards block if a GST invoice was issued / it's bank-reconciled).
-  const handleDelete = () => {
-    const msg = `Delete this ${rupee(p.amount)} payment on ${p.quote_id}?\n\n`
-      + `This reverses it: the quote's paid amount + the subscription's outstanding are recalculated. `
+  const handleDelete = async () => {
+    const body = `This reverses it: the quote's paid amount + the subscription's outstanding are recalculated. `
       + `If it's the only payment, the subscription + auto-created purchase order from this sale are removed too (the customer is kept).\n\n`
       + `Blocked if a GST invoice was already generated, or it's reconciled to a bank line — handle those first.`;
-    if (window.confirm(msg)) del.mutate(p.id);
+    if (await confirm({
+      title: `Delete this ${rupee(p.amount)} payment on ${p.quote_id}?`,
+      body,
+      confirmLabel: "Delete",
+      danger: true,
+    })) del.mutate(p.id);
   };
 
   // Inter-state if customer's state-code differs from tenant's. Default = intra-state.

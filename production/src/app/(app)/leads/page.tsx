@@ -71,6 +71,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { rupee, formatDate } from "@/lib/utils";
 import { cn } from "@/lib/utils";
+import { useConfirm } from "@/components/providers/confirm-provider";
 import type { Lead } from "@/lib/supabase/database.types";
 import { useBreakpoint } from "@/lib/hooks/useBreakpoint";
 import { FAB } from "@/components/ui/fab";
@@ -1225,6 +1226,7 @@ function LeadDetailSheet({
   const router      = useRouter();
   const updateStage = useUpdateLeadStage();
   const deleteLead  = useDeleteLead();
+  const confirm     = useConfirm();
   const { data: currentUser } = useCurrentUser();
   const logActivity = useLogLeadActivity();
   const { data: activities = [] } = useLeadActivities(lead?.id);
@@ -1247,10 +1249,13 @@ function LeadDetailSheet({
   const openTasks = tasksForLead.filter((t) => t.status === "pending" || t.status === "snoozed");
   const doneTasks = tasksForLead.filter((t) => t.status === "done");
 
-  const handleDelete = () => {
-    const confirmed = window.confirm(
-      `Permanently delete lead "${lead.company}"?\n\nThis cannot be undone.`,
-    );
+  const handleDelete = async () => {
+    const confirmed = await confirm({
+      title: `Permanently delete lead "${lead.company}"?`,
+      body: "This cannot be undone.",
+      confirmLabel: "Delete",
+      danger: true,
+    });
     if (!confirmed) return;
     deleteLead.mutate(lead.id, {
       onSuccess: () => onClose(),

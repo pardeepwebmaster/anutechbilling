@@ -9,6 +9,7 @@
 import * as React from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { useConfirm } from "@/components/providers/confirm-provider";
 
 interface Props {
   customerId: string;
@@ -23,9 +24,14 @@ export function VoiceNoteButton({
   customerId, purpose = "reminder", label = "🔊 Voice note", customerName, size = "sm", variant = "ghost",
 }: Props) {
   const [sending, setSending] = React.useState(false);
+  const confirm = useConfirm();
 
   async function send() {
-    if (!window.confirm(`Send a Hindi voice-note ${purpose} to ${customerName ?? "this customer"} on WhatsApp?`)) return;
+    if (!(await confirm({
+      title: `Send a Hindi voice-note ${purpose} to ${customerName ?? "this customer"} on WhatsApp?`,
+      confirmLabel: "Send",
+      icon: "whatsapp",
+    }))) return;
     setSending(true);
     try {
       const res = await fetch("/api/voice/whatsapp-note", {

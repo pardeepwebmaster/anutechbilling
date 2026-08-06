@@ -41,10 +41,12 @@ import {
 import { AddReferralDialog } from "@/components/features/referrals/add-referral-dialog";
 import { useReferralAgreements } from "@/lib/queries/referral-partners";
 import { InvoiceChooserDialog } from "@/components/features/invoices/invoice-chooser-dialog";
+import { useConfirm } from "@/components/providers/confirm-provider";
 
 export default function CustomerDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
+  const confirm = useConfirm();
 
   const { data: customer, isLoading, error } = useCustomer(params.id);
   const { data: allGroups } = useCustomerGroups();
@@ -153,9 +155,9 @@ export default function CustomerDetailPage() {
     payments: 0,
     invoices: allInvoices.length,
   });
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (deleteBlock) { toast.error(deleteBlock); return; }
-    if (window.confirm(`Permanently delete customer "${c.name}"?\n\nThis cannot be undone.`)) {
+    if (await confirm({ title: `Permanently delete customer "${c.name}"?`, body: "This cannot be undone.", confirmLabel: "Delete", danger: true })) {
       deleteCustomer.mutate(c.id, { onSuccess: () => router.push("/customers" as never) });
     }
   };
@@ -228,9 +230,9 @@ export default function CustomerDetailPage() {
             icon="inbox"
             variant="ghost"
             loading={setActive.isPending}
-            onClick={() => {
+            onClick={async () => {
               const next = c.is_active === false;
-              if (next || window.confirm(`Archive "${c.name}"? They'll be hidden from your active customers (all invoices/payments are kept). You can reactivate anytime.`)) {
+              if (next || (await confirm({ title: `Archive "${c.name}"?`, body: "They'll be hidden from your active customers (all invoices/payments are kept). You can reactivate anytime.", confirmLabel: "Archive", icon: "inbox" }))) {
                 setActive.mutate({ id: c.id, isActive: next });
               }
             }}

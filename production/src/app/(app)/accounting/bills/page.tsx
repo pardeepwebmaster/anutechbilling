@@ -43,6 +43,7 @@ import {
 import { useBankAccounts } from "@/lib/queries/bank";
 import { AddVendorBillDialog } from "@/components/features/accounting/add-vendor-bill-dialog";
 import { DocViewerDialog } from "@/components/features/documents/doc-viewer-dialog";
+import { useConfirm } from "@/components/providers/confirm-provider";
 
 /** Current financial year (Apr 1 → today), IST-safe, in YYYY-MM-DD. Defaulting
  *  to the FY (not just this month) so a freshly-added bill dated in an earlier
@@ -74,6 +75,7 @@ export default function VendorBillsPage() {
   });
   const totalsQ = useVendorBillsTotals(range);
   const del     = useDeleteVendorBill();
+  const confirm = useConfirm();
 
   const bills    = billsQ.data ?? [];
   const isLoading = billsQ.isLoading;
@@ -209,7 +211,7 @@ export default function VendorBillsPage() {
                           <BillActions
                             bill={b}
                             onPay={() => setPayBill(b)}
-                            onDelete={() => { if (confirm(`Delete bill ${b.bill_no || b.id}?`)) del.mutate(b.id); }}
+                            onDelete={async () => { if (await confirm({ title: `Delete bill ${b.bill_no || b.id}?`, danger: true, confirmLabel: "Delete" })) del.mutate(b.id); }}
                           />
                         </div>
                       </td>
@@ -245,7 +247,7 @@ export default function VendorBillsPage() {
                       <BillActions
                         bill={b}
                         onPay={() => setPayBill(b)}
-                        onDelete={() => { if (confirm(`Delete bill ${b.bill_no || b.id}?`)) del.mutate(b.id); }}
+                        onDelete={async () => { if (await confirm({ title: `Delete bill ${b.bill_no || b.id}?`, danger: true, confirmLabel: "Delete" })) del.mutate(b.id); }}
                       />
                     </div>
                   </Card>

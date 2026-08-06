@@ -32,6 +32,7 @@ import {
   useDeleteSitePromo,
 } from "@/lib/queries/site-promos";
 import CreatePromoDialog from "@/components/features/site-promos/create-promo-dialog";
+import { useConfirm } from "@/components/providers/confirm-provider";
 import type { SitePromoRow, SitePromoBannerStyle } from "@/lib/supabase/database.types";
 
 function bannerBg(style: SitePromoBannerStyle): string {
@@ -65,6 +66,7 @@ export default function OnlinePromosPage() {
   const { data: promos, isLoading, error, refetch } = useSitePromos();
   const toggle = useToggleSitePromo();
   const del    = useDeleteSitePromo();
+  const confirm = useConfirm();
 
   const [createOpen, setCreateOpen] = React.useState(false);
 
@@ -83,7 +85,7 @@ export default function OnlinePromosPage() {
   }
 
   async function onDelete(p: SitePromoRow) {
-    if (!confirm(`Delete promo "${p.headline}"? This removes it from the buy page immediately.`)) {
+    if (!(await confirm({ title: `Delete promo "${p.headline}"?`, body: "This removes it from the buy page immediately.", confirmLabel: "Delete", danger: true }))) {
       return;
     }
     try {

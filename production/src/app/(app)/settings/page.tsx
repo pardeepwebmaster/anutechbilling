@@ -34,6 +34,7 @@ import WhatsAppConfigureDialog from "@/components/features/integrations/whatsapp
 import RazorpayConfigureDialog from "@/components/features/integrations/razorpay-configure-dialog";
 import GeminiConfigureDialog from "@/components/features/integrations/gemini-configure-dialog";
 import ApiKeysCard from "@/components/features/integrations/api-keys-card";
+import { useConfirm } from "@/components/providers/confirm-provider";
 import { useQuery } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
 import type { TenantWithParent } from "@/lib/supabase/database.types";
@@ -677,6 +678,7 @@ function IntegrationsTab() {
 function BrandingTab() {
   const { data: me } = useCurrentUser();
   const setLogo = useSetTenantLogo();
+  const confirm = useConfirm();
   const fileRef = React.useRef<HTMLInputElement>(null);
   const logoUrl = me?.tenantLogoUrl ?? null;
 
@@ -715,7 +717,7 @@ function BrandingTab() {
             </Button>
             {logoUrl && (
               <Button variant="ghost" icon="trash" disabled={setLogo.isPending}
-                onClick={() => { if (confirm("Remove the company logo?")) setLogo.mutate(null); }}>
+                onClick={async () => { if (await confirm({ title: "Remove the company logo?", danger: true, confirmLabel: "Remove" })) setLogo.mutate(null); }}>
                 Remove
               </Button>
             )}

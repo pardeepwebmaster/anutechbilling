@@ -31,6 +31,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { rupee, formatDate, daysBetween } from "@/lib/utils";
 import { cn } from "@/lib/utils";
+import { useConfirm } from "@/components/providers/confirm-provider";
 import type { Subscription } from "@/lib/supabase/database.types";
 
 // Margin estimate per subscription (until items linked)
@@ -61,12 +62,17 @@ export default function SubscriptionsPage() {
   const [addSeatsSub, setAddSeatsSub] = React.useState<Subscription | null>(null);
   const [editSub,     setEditSub]     = React.useState<Subscription | null>(null);
   const delSub = useDeleteSubscription();
-  const handleDeleteSub = (s: Subscription) => {
-    const msg = `Delete ${s.customer_name}'s "${s.plan}" subscription?\n\n`
-      + `This removes the subscription (and any draft purchase order for it). `
+  const confirm = useConfirm();
+  const handleDeleteSub = async (s: Subscription) => {
+    const body = `This removes the subscription (and any draft purchase order for it). `
       + `It's for correcting a wrong / duplicate entry.\n\n`
       + `Blocked if it came from a paid quote — in that case delete the payment in Payments instead (that unwinds it cleanly).`;
-    if (window.confirm(msg)) delSub.mutate(s.id);
+    if (await confirm({
+      title: `Delete ${s.customer_name}'s "${s.plan}" subscription?`,
+      body,
+      confirmLabel: "Delete",
+      danger: true,
+    })) delSub.mutate(s.id);
   };
   const [importOpen,  setImportOpen]  = React.useState(false);
   const [reconcileOpen, setReconcileOpen] = React.useState(false);

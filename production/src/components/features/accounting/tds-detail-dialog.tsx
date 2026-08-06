@@ -28,6 +28,7 @@ import { Badge } from "@/components/ui/badge";
 import { Icon } from "@/components/ui/icon";
 import { rupee, formatDate } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
+import { useConfirm } from "@/components/providers/confirm-provider";
 import {
   type TdsReceivable,
   TDS_STATUS_LABEL,
@@ -59,6 +60,7 @@ export function TdsDetailDialog({ open, onOpenChange, tds }: Props) {
   const markDisputed       = useMarkDisputed();
   const writeOff           = useWriteOffTds();
   const deleteTds          = useDeleteTdsReceivable();
+  const confirm            = useConfirm();
 
   // Fetch customer phone for WhatsApp chase
   React.useEffect(() => {
@@ -240,8 +242,8 @@ export function TdsDetailDialog({ open, onOpenChange, tds }: Props) {
             <Button
               type="button"
               variant="default"
-              onClick={() => {
-                if (confirm("Delete this TDS entry permanently?")) {
+              onClick={async () => {
+                if (await confirm({ title: "Delete this TDS entry permanently?", danger: true, confirmLabel: "Delete" })) {
                   deleteTds.mutate(tds.id, { onSuccess: () => onOpenChange(false) });
                 }
               }}
@@ -254,8 +256,8 @@ export function TdsDetailDialog({ open, onOpenChange, tds }: Props) {
             <Button
               type="button"
               variant="default"
-              onClick={() => {
-                if (confirm(`Write off ₹${tds.tds_amount.toLocaleString("en-IN")} as loss? You won't claim this in ITR.`)) {
+              onClick={async () => {
+                if (await confirm({ title: `Write off ₹${tds.tds_amount.toLocaleString("en-IN")} as loss?`, body: "You won't claim this in ITR.", danger: true, confirmLabel: "Write off" })) {
                   writeOff.mutate(tds.id, { onSuccess: () => onOpenChange(false) });
                 }
               }}

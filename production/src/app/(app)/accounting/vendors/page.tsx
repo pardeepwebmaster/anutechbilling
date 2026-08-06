@@ -27,6 +27,7 @@ import { FormField } from "@/components/ui/label";
 import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
+import { useConfirm } from "@/components/providers/confirm-provider";
 import { useVendors, useUpsertVendor, useDeleteVendor, useBillsByVendor, type Vendor } from "@/lib/queries/vendors";
 import { VENDOR_BILL_CATEGORIES } from "@/lib/queries/vendor-bills";
 import { rupee, formatDate } from "@/lib/utils";
@@ -38,14 +39,20 @@ export default function VendorsPage() {
   const [editVendor, setEditVendor] = React.useState<Vendor | null>(null);
   const [detailVendor, setDetailVendor] = React.useState<Vendor | null>(null);
   const del = useDeleteVendor();
+  const confirm = useConfirm();
 
   const rows = (vendors ?? []).filter((v) =>
     !search.trim() || v.name.toLowerCase().includes(search.toLowerCase()) || (v.gstin ?? "").toLowerCase().includes(search.toLowerCase()));
   const totalOutstanding = (vendors ?? []).reduce((s, v) => s + v.outstanding, 0);
   const totalBilled = (vendors ?? []).reduce((s, v) => s + v.totalBilled, 0);
 
-  const confirmDelete = (v: Vendor) => {
-    if (window.confirm(`Remove vendor "${v.name}"?\n\nIts ${v.billCount} bill(s) stay — they just lose the vendor link (name is kept).`)) {
+  const confirmDelete = async (v: Vendor) => {
+    if (await confirm({
+      title: `Remove vendor "${v.name}"?`,
+      body: `Its ${v.billCount} bill(s) stay — they just lose the vendor link (name is kept).`,
+      confirmLabel: "Remove",
+      danger: true,
+    })) {
       del.mutate(v.id);
     }
   };

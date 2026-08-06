@@ -23,6 +23,7 @@ import {
 } from "@/lib/queries/expenses";
 import { AddExpenseDialog } from "@/components/features/accounting/add-expense-dialog";
 import { useSalaryPayments } from "@/lib/queries/payroll";
+import { useConfirm } from "@/components/providers/confirm-provider";
 
 type DateRange = { from: string; to: string };
 
@@ -95,6 +96,7 @@ export default function ExpensesPage() {
   const totalsQ = useExpensesTotals(range);
   const del     = useDeleteExpense();
   const salariesQ = useSalaryPayments();
+  const confirm = useConfirm();
 
   // expense_id → its salary payment (for the partial/paid reconcile tag).
   const salByExpense = React.useMemo(
@@ -244,8 +246,8 @@ export default function ExpensesPage() {
                         icon="trash"
                         aria-label="Delete expense"
                         className="ml-1"
-                        onClick={() => {
-                          if (confirm(`Delete this expense?`)) del.mutate(e.id);
+                        onClick={async () => {
+                          if (await confirm({ title: `Delete this expense?`, danger: true, confirmLabel: "Delete" })) del.mutate(e.id);
                         }}
                       />
                     </td>
@@ -281,8 +283,8 @@ export default function ExpensesPage() {
                       <IconButton
                         icon="trash"
                         aria-label="Delete expense"
-                        onClick={() => {
-                          if (confirm(`Delete this expense?`)) del.mutate(e.id);
+                        onClick={async () => {
+                          if (await confirm({ title: `Delete this expense?`, danger: true, confirmLabel: "Delete" })) del.mutate(e.id);
                         }}
                       />
                     </div>

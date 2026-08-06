@@ -28,6 +28,7 @@ import { TabBar, type TabBarItem } from "@/components/ui/tabs";
 import { initials, formatDate, rupee, daysBetween } from "@/lib/utils";
 import { InvoiceChooserDialog } from "@/components/features/invoices/invoice-chooser-dialog";
 import { CreateProjectQuoteDialog } from "@/components/features/projects/create-project-quote-dialog";
+import { useConfirm } from "@/components/providers/confirm-provider";
 import {
   deriveCustomerInsights,
   CustomerMetricBar,
@@ -42,6 +43,7 @@ import {
 export function CustomerPanel({ customerId, onClose }: { customerId: string; onClose?: () => void }) {
   const router = useRouter();
   const setActive = useSetCustomerActive();
+  const confirm = useConfirm();
   const { data: c, isLoading } = useCustomer(customerId);
   const { data: subs } = useCustomerSubscriptions(customerId);
   const { data: invoices } = useCustomerInvoices(customerId);
@@ -125,9 +127,9 @@ export function CustomerPanel({ customerId, onClose }: { customerId: string; onC
             icon="inbox"
             aria-label={c.is_active === false ? "Reactivate customer" : "Archive customer"}
             title={c.is_active === false ? "Reactivate customer" : "Archive (hide from active list)"}
-            onClick={() => {
+            onClick={async () => {
               const next = c.is_active === false;
-              if (next || window.confirm(`Archive "${c.name}"? Hidden from your active customers; all invoices/payments are kept. Reactivate anytime.`)) {
+              if (next || (await confirm({ title: `Archive "${c.name}"?`, body: "Hidden from your active customers; all invoices/payments are kept. Reactivate anytime.", confirmLabel: "Archive", icon: "inbox" }))) {
                 setActive.mutate({ id: c.id, isActive: next }, { onSuccess: () => { if (!next) onClose?.(); } });
               }
             }}

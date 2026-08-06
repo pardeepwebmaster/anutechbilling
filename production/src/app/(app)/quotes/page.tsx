@@ -43,6 +43,7 @@ import { Icon } from "@/components/ui/icon";
 import { FAB } from "@/components/ui/fab";
 import { rupee, daysBetween } from "@/lib/utils";
 import { cn } from "@/lib/utils";
+import { useConfirm } from "@/components/providers/confirm-provider";
 import { isForeignCurrency, foreignEquivalent, formatForeign } from "@/lib/currency";
 import type { Quote } from "@/lib/supabase/database.types";
 
@@ -159,8 +160,9 @@ export default function QuotesPage() {
   const [editProject, setEditProject] = React.useState<ProjectSaleWithTotals | null>(null);
   const deleteProject = useDeleteProjectSale();
   const [previewing, setPreviewing] = React.useState<Quote | null>(null);
+  const confirm = useConfirm();
 
-  const handleDelete = (q: Quote) => {
+  const handleDelete = async (q: Quote) => {
     // Hard-block quotes that already carry a payment (cascade would wipe the
     // payment ledger). Same guard the mutation enforces — surfaced early here.
     const blocked = quoteDeleteBlockReason(q);
@@ -168,7 +170,12 @@ export default function QuotesPage() {
       toast.error(blocked);
       return;
     }
-    if (window.confirm(`Permanently delete quote ${q.id}?\n\nThis cannot be undone.`)) {
+    if (await confirm({
+      title: `Permanently delete quote ${q.id}?`,
+      body: "This cannot be undone.",
+      confirmLabel: "Delete",
+      danger: true,
+    })) {
       deleteQuote.mutate(q);
     }
   };
@@ -331,8 +338,8 @@ export default function QuotesPage() {
                           <Icon name="edit" size={15} /> Edit
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
-                        <DropdownMenuItem destructive className="gap-2.5 py-2 cursor-pointer" onClick={() => {
-                          if (confirm(`Delete project "${p.title}"?\n\nThis removes the project + its milestone schedule. (Blocked if any milestone is already invoiced — delete that invoice first.)\n\nThis cannot be undone.`)) {
+                        <DropdownMenuItem destructive className="gap-2.5 py-2 cursor-pointer" onClick={async () => {
+                          if (await confirm({ title: `Delete project "${p.title}"?`, body: "This removes the project + its milestone schedule. (Blocked if any milestone is already invoiced — delete that invoice first.)\n\nThis cannot be undone.", confirmLabel: "Delete", danger: true })) {
                             deleteProject.mutate(p.id);
                           }
                         }}>
@@ -404,8 +411,8 @@ export default function QuotesPage() {
                               <Icon name="edit" size={15} /> Edit
                             </DropdownMenuItem>
                             <DropdownMenuSeparator />
-                            <DropdownMenuItem destructive className="gap-2.5 py-2 cursor-pointer" onClick={() => {
-                              if (confirm(`Delete project "${p.title}"?\n\nThis removes the project + its milestone schedule. (Blocked if any milestone is already invoiced — delete that invoice first.)\n\nThis cannot be undone.`)) {
+                            <DropdownMenuItem destructive className="gap-2.5 py-2 cursor-pointer" onClick={async () => {
+                              if (await confirm({ title: `Delete project "${p.title}"?`, body: "This removes the project + its milestone schedule. (Blocked if any milestone is already invoiced — delete that invoice first.)\n\nThis cannot be undone.", confirmLabel: "Delete", danger: true })) {
                                 deleteProject.mutate(p.id);
                               }
                             }}>

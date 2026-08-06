@@ -22,6 +22,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/shared/empty-state";
 import { FAB } from "@/components/ui/fab";
+import { useConfirm } from "@/components/providers/confirm-provider";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "@/components/ui/dialog";
@@ -72,11 +73,17 @@ export default function EmployeeLoansPage() {
   const [rejectClaimFor, setRejectClaimFor] = React.useState<ExpenseClaim | null>(null);
   const [editClaimFor, setEditClaimFor] = React.useState<ExpenseClaim | null>(null);
   const deleteLoan = useDeleteEmployeeLoan();
+  const confirm = useConfirm();
   const pendingClaimsQ = useExpenseClaims("pending");
   const pendingClaims = pendingClaimsQ.data ?? [];
 
-  const confirmDelete = (l: EmployeeLoan) => {
-    if (window.confirm(`Delete this ${LOAN_KIND_LABEL[l.kind].toLowerCase()} to ${l.employee_name} (${rupee(l.principal)})? The disbursed cash will be restored to the account.`)) {
+  const confirmDelete = async (l: EmployeeLoan) => {
+    if (await confirm({
+      title: `Delete this ${LOAN_KIND_LABEL[l.kind].toLowerCase()} to ${l.employee_name} (${rupee(l.principal)})?`,
+      body: "The disbursed cash will be restored to the account.",
+      confirmLabel: "Delete",
+      danger: true,
+    })) {
       deleteLoan.mutate(l.id);
     }
   };
@@ -299,8 +306,14 @@ function PendingClaimsPanel({
 }) {
   const approve = useApproveClaim();
   const del     = useDeleteClaim();
-  const confirmDeleteClaim = (c: ExpenseClaim) => {
-    if (window.confirm(`Delete ${c.employee_name}'s claim (${c.category} · ${rupee(c.amount)})? This just removes the claim — nothing was booked.`)) {
+  const confirm = useConfirm();
+  const confirmDeleteClaim = async (c: ExpenseClaim) => {
+    if (await confirm({
+      title: `Delete ${c.employee_name}'s claim (${c.category} · ${rupee(c.amount)})?`,
+      body: "This just removes the claim — nothing was booked.",
+      confirmLabel: "Delete",
+      danger: true,
+    })) {
       del.mutate(c.id);
     }
   };

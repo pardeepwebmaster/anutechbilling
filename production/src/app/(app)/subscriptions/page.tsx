@@ -29,10 +29,20 @@ import { Icon } from "@/components/ui/icon";
 import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
-import { rupee, formatDate, daysBetween } from "@/lib/utils";
+import { rupee, formatDate, daysBetween, cleanDisplayName } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 import { useConfirm } from "@/components/providers/confirm-provider";
 import type { Subscription } from "@/lib/supabase/database.types";
+
+// Vendor pill — capitalised label + a stable colour per vendor (Google/Microsoft
+// blue, Zoho green) so the vendor reads at a glance.
+function vendorMeta(v: string): { label: string; kind: "info" | "success" | "muted" } {
+  const s = (v ?? "").toLowerCase();
+  if (s === "google")    return { label: "Google",    kind: "info" };
+  if (s === "microsoft") return { label: "Microsoft", kind: "info" };
+  if (s === "zoho")      return { label: "Zoho",      kind: "success" };
+  return { label: v ? v.charAt(0).toUpperCase() + v.slice(1) : "—", kind: "muted" };
+}
 
 // Margin estimate per subscription (until items linked)
 function estimateMargin(s: Subscription) {
@@ -204,7 +214,7 @@ export default function SubscriptionsPage() {
             { label: "Active ARR",   value: rupee(activeARR, { compact: true }), tone: "emerald" },
             { label: "Margin · ARR", value: `${rupee(annualMargin, { compact: true })} · ${avgMarginPct}%`, tone: "emerald" },
             { label: "Total subs",   value: `${counts.all} · ${counts.active} active` },
-            { label: "Seats",        value: `${usedSeats}/${totalSeats}` },
+            { label: "Seats used",   value: `${usedSeats} of ${totalSeats}` },
             { label: "Trials",       value: trials?.length ?? 0 },
           ]}
         />
@@ -370,7 +380,7 @@ export default function SubscriptionsPage() {
               <li key={s.id} className="bg-paper border border-hairline rounded-lg p-3">
                 <div className="flex items-start justify-between gap-3 mb-1.5">
                   <div className="min-w-0 flex-1">
-                    <p className="font-medium text-ink truncate">{s.customer_name}</p>
+                    <p className="font-medium text-ink truncate">{cleanDisplayName(s.customer_name)}</p>
                     <DomainCell sub={s} compact />
                   </div>
                   <div className="text-right shrink-0">
@@ -413,18 +423,18 @@ export default function SubscriptionsPage() {
         <Card flush className="hidden md:block">
           <div className="overflow-x-auto">
             <table className="w-full">
-              <thead className="bg-paper-2 border-b border-hairline">
+              <thead className="bg-paper-2 border-b border-hairline-strong">
                 <tr>
-                  <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Customer · Domain</th>
-                  <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Plan</th>
-                  <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Vendor</th>
-                  <th className="text-right p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider" title="Licensed seats · seats in use">Seats</th>
-                  <th className="text-right p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">MRR</th>
-                  <th className="text-right p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider" title="Monthly margin">Margin</th>
-                  <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Started</th>
-                  <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Renewal</th>
-                  <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Status</th>
-                  <th className="w-24"></th>
+                  <th className="text-left px-3 py-2.5 text-[11px] font-semibold text-ink-3 uppercase tracking-wider">Customer · Domain</th>
+                  <th className="text-left px-3 py-2.5 text-[11px] font-semibold text-ink-3 uppercase tracking-wider">Plan</th>
+                  <th className="text-left px-3 py-2.5 text-[11px] font-semibold text-ink-3 uppercase tracking-wider">Vendor</th>
+                  <th className="text-right px-3 py-2.5 text-[11px] font-semibold text-ink-3 uppercase tracking-wider" title="Seats in use / licensed">Seats</th>
+                  <th className="text-right px-3 py-2.5 text-[11px] font-semibold text-ink-3 uppercase tracking-wider">MRR</th>
+                  <th className="text-right px-3 py-2.5 text-[11px] font-semibold text-ink-3 uppercase tracking-wider" title="Monthly margin">Margin</th>
+                  <th className="text-left px-3 py-2.5 text-[11px] font-semibold text-ink-3 uppercase tracking-wider">Started</th>
+                  <th className="text-left px-3 py-2.5 text-[11px] font-semibold text-ink-3 uppercase tracking-wider">Renewal</th>
+                  <th className="text-left px-3 py-2.5 text-[11px] font-semibold text-ink-3 uppercase tracking-wider">Status</th>
+                  <th className="px-2 py-2.5 text-right w-28"><span className="sr-only">Actions</span></th>
                 </tr>
               </thead>
               <tbody>
@@ -434,47 +444,53 @@ export default function SubscriptionsPage() {
                   const cycle = billingCycle(s.start_date, s.renewal_date);
                   const isUrgent = dl !== null && dl >= 0 && dl <= 30;
                   return (
-                    <tr key={s.id} className="border-b border-hairline last:border-0 hover:bg-paper-2/40">
-                      <td className="p-3">
-                        <div className="font-medium text-sm text-ink">{s.customer_name}</div>
+                    <tr
+                      key={s.id}
+                      className="group border-b border-hairline last:border-0 hover:bg-paper-2/50 cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber focus-visible:ring-inset"
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`Open ${cleanDisplayName(s.customer_name)}`}
+                      onClick={() => s.customer_id && router.push(`/customers/${s.customer_id}` as never)}
+                      onKeyDown={(e) => { if ((e.key === "Enter" || e.key === " ") && s.customer_id) { e.preventDefault(); router.push(`/customers/${s.customer_id}` as never); } }}
+                    >
+                      <td className="px-3 py-2.5 align-top" onClick={(e) => e.stopPropagation()}>
+                        <div className="font-medium text-sm text-ink break-words leading-snug">{cleanDisplayName(s.customer_name)}</div>
                         <DomainCell sub={s} />
                       </td>
-                      <td className="p-3 text-sm text-ink-2">
-                        <div>{s.plan}</div>
+                      <td className="px-3 py-2.5 text-sm text-ink-2 align-top">
+                        <div className="break-words leading-snug">{s.plan}</div>
                         {cycle && <Badge kind="muted" size="sm" className="mt-1">{cycle}</Badge>}
                       </td>
-                      <td className="p-3">
-                        <Badge kind={s.vendor === "google" ? "info" : s.vendor === "microsoft" ? "info" : "success"}>
-                          {s.vendor}
-                        </Badge>
+                      <td className="px-3 py-2.5 align-top">
+                        {(() => { const vm = vendorMeta(s.vendor); return <Badge kind={vm.kind} dot>{vm.label}</Badge>; })()}
                       </td>
-                      {/* Seats — flag low utilization (unused licences = churn risk
-                          at renewal OR an upsell that never happened). */}
-                      <td className="p-3 text-right tabular-nums text-sm" title={`${s.seats} licensed · ${s.used} in use`}>
-                        {s.seats}{" "}
-                        <span className={cn("text-xs", s.seats > 0 && s.used / s.seats < 0.5 ? "text-amber-ink font-medium" : "text-ink-3")}>· {s.used} used</span>
+                      {/* Seats — used / licensed; flag low utilisation (unused
+                          licences = churn risk at renewal OR a missed upsell). */}
+                      <td className="px-3 py-2.5 text-right tabular-nums text-sm align-top" title={`${s.used} in use of ${s.seats} licensed`}>
+                        <span className={cn(s.seats > 0 && s.used / s.seats < 0.5 ? "text-amber-ink font-medium" : "text-ink")}>{s.used}</span>
+                        <span className="text-ink-3"> / {s.seats}</span>
                       </td>
                       {/* MRR — the money, given weight. */}
-                      <td className="p-3 text-right tabular-nums">
+                      <td className="px-3 py-2.5 text-right tabular-nums align-top">
                         <span className="font-serif text-[15px] font-semibold text-ink">{rupee(s.mrr)}</span>
                       </td>
                       {/* Margin — colour-coded badge. */}
-                      <td className="p-3 text-right">
+                      <td className="px-3 py-2.5 text-right align-top">
                         <div className="flex flex-col items-end gap-0.5">
                           <Badge kind={m.marginPct >= 18 ? "success" : m.marginPct >= 14 ? "warning" : "danger"} size="sm">
                             {m.marginPct}%
                           </Badge>
-                          <span className="text-[10px] text-ink-3 tabular-nums">{rupee(m.margin)}</span>
+                          <span className="text-[10px] text-ink-2 tabular-nums font-medium">{rupee(m.margin)}</span>
                         </div>
                       </td>
-                      <td className="p-3 text-sm text-ink-2">{s.start_date ? formatDate(s.start_date) : "—"}</td>
-                      <td className="p-3 text-sm">
-                        <div>{s.renewal_date ? formatDate(s.renewal_date) : "—"}</div>
-                        {isUrgent && (
-                          <div className="mt-0.5"><Badge kind="danger" dot>{dl}d</Badge></div>
+                      <td className="px-3 py-2.5 text-sm text-ink-2 align-top whitespace-nowrap">{s.start_date ? formatDate(s.start_date) : "—"}</td>
+                      <td className="px-3 py-2.5 text-sm align-top whitespace-nowrap">
+                        <div className="text-ink-2">{s.renewal_date ? formatDate(s.renewal_date) : "—"}</div>
+                        {dl !== null && s.status !== "expired" && dl >= 0 && dl <= 30 && (
+                          <div className="mt-0.5"><Badge kind={dl <= 7 ? "danger" : "warning"} dot>{dl === 0 ? "Due today" : `In ${dl}d`}</Badge></div>
                         )}
                       </td>
-                      <td className="p-3">
+                      <td className="px-3 py-2.5 align-top">
                         {s.status === "expired" && dl !== null ? (
                           <Badge kind="danger" dot>Expired {Math.abs(dl)}d</Badge>
                         ) : s.status === "active" ? (
@@ -490,17 +506,10 @@ export default function SubscriptionsPage() {
                           </div>
                         )}
                       </td>
-                      <td className="p-3">
-                        <div className="flex items-center gap-1">
-                          {s.status === "expired" ? (
-                            <Button size="sm" variant="danger" icon="refresh" title="Renew this subscription" onClick={() => router.push("/renewals" as never)}>Renew</Button>
-                          ) : isUrgent ? (
-                            <>
-                              <Button size="sm" variant="primary" icon="refresh" title="Send the renewal quote" onClick={() => router.push("/renewals" as never)}>Renew</Button>
-                              <IconButton icon="plus" aria-label="Add seats" size="sm" title="Add seats (pro-rata)" onClick={() => setAddSeatsSub(s)} />
-                            </>
-                          ) : (
-                            <Button size="sm" icon="plus" onClick={() => setAddSeatsSub(s)}>Seats</Button>
+                      <td className="px-2 py-2.5 text-right align-top" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex items-center justify-end gap-1">
+                          {(s.status === "expired" || isUrgent) && (
+                            <Button size="sm" variant={s.status === "expired" ? "danger" : "primary"} icon="refresh" title="Send the renewal quote" onClick={() => router.push("/renewals" as never)}>Renew</Button>
                           )}
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
@@ -514,15 +523,23 @@ export default function SubscriptionsPage() {
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end" className="min-w-[13rem]">
                               <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                              <DropdownMenuItem className="gap-2.5 py-2 cursor-pointer" onClick={() => setEditSub(s)}>
-                                <Icon name="edit" size={16} /> Correct details
+                              <DropdownMenuItem className="gap-2.5 py-2 cursor-pointer" onClick={() => setAddSeatsSub(s)}>
+                                <Icon name="plus" size={16} /> Manage seats
                               </DropdownMenuItem>
                               <DropdownMenuItem className="gap-2.5 py-2 cursor-pointer" onClick={() => setExtendSub(s)}>
                                 <Icon name="clock" size={16} /> Extend term
                               </DropdownMenuItem>
+                              {s.customer_id && (
+                                <DropdownMenuItem className="gap-2.5 py-2 cursor-pointer" onClick={() => router.push(`/customers/${s.customer_id}` as never)}>
+                                  <Icon name="receipt" size={16} /> View invoices
+                                </DropdownMenuItem>
+                              )}
+                              <DropdownMenuItem className="gap-2.5 py-2 cursor-pointer" onClick={() => setEditSub(s)}>
+                                <Icon name="edit" size={16} /> Correct details
+                              </DropdownMenuItem>
                               <DropdownMenuSeparator />
                               <DropdownMenuItem className="gap-2.5 py-2 cursor-pointer text-rose" onClick={() => handleDeleteSub(s)}>
-                                <Icon name="trash" size={16} /> Delete subscription
+                                <Icon name="trash" size={16} /> Cancel / delete
                               </DropdownMenuItem>
                             </DropdownMenuContent>
                           </DropdownMenu>

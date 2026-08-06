@@ -6,6 +6,7 @@
 
 import * as React from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { getDocumentSignedUrl } from "@/lib/queries/documents";
 
@@ -55,7 +56,7 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
-import { rupee, formatDate, bankLabel } from "@/lib/utils";
+import { rupee, formatDate, bankLabel, cleanDisplayName } from "@/lib/utils";
 import { useConfirm } from "@/components/providers/confirm-provider";
 
 const STATUS_TABS: TabBarItem[] = [
@@ -73,10 +74,11 @@ const METHOD_META: Record<string, { label: string; icon: string }> = {
   other:         { label: "Other",      icon: "info" },
 };
 
-// Table columns (left→right) + fluid percentage widths.
-const PAY_COL_ORDER = ["date", "customer", "quote", "amount", "method", "reference", "status", "action"];
+// Table columns (left→right) + fluid percentage widths. A dedicated LINKED DOCS
+// column keeps the source quote / invoice / receipt out of the Status badge.
+const PAY_COL_ORDER = ["date", "customer", "amount", "method", "reference", "linked", "status", "action"];
 const PAY_COL_WIDTHS: Record<string, string> = {
-  date: "11%", customer: "18%", quote: "10%", amount: "12%", method: "15%", reference: "14%", status: "12%", action: "8%",
+  date: "10%", customer: "19%", amount: "12%", method: "13%", reference: "12%", linked: "16%", status: "10%", action: "8%",
 };
 
 export default function PaymentsPage() {
@@ -470,7 +472,7 @@ export default function PaymentsPage() {
                   <div className="flex items-start justify-between gap-3 mb-1.5">
                     <div className="min-w-0 flex-1">
                       <p className="font-medium text-ink truncate">
-                        {customer?.name ?? ctx?.customerName ?? "—"}
+                        {cleanDisplayName(customer?.name ?? ctx?.customerName ?? "—")}
                       </p>
                       <p className="font-mono text-[11px] text-ink-3 mt-0.5">{p.quote_id}</p>
                     </div>
@@ -531,16 +533,16 @@ export default function PaymentsPage() {
             <colgroup>
               {PAY_COL_ORDER.map((id) => <col key={id} style={{ width: PAY_COL_WIDTHS[id] }} />)}
             </colgroup>
-            <thead className="bg-paper-2 border-b border-hairline">
+            <thead className="bg-paper-2 border-b border-hairline-strong">
               <tr>
-                <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Date</th>
-                <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Customer</th>
-                <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Quote</th>
-                <th className="text-right p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Amount</th>
-                <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Method</th>
-                <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Reference</th>
-                <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Status</th>
-                <th></th>
+                <th className="text-left px-3 py-2.5 text-[11px] font-semibold text-ink-3 uppercase tracking-wider">Date</th>
+                <th className="text-left px-3 py-2.5 text-[11px] font-semibold text-ink-3 uppercase tracking-wider">Customer</th>
+                <th className="text-right px-3 py-2.5 text-[11px] font-semibold text-ink-3 uppercase tracking-wider">Amount</th>
+                <th className="text-left px-3 py-2.5 text-[11px] font-semibold text-ink-3 uppercase tracking-wider">Method</th>
+                <th className="text-left px-3 py-2.5 text-[11px] font-semibold text-ink-3 uppercase tracking-wider">Reference</th>
+                <th className="text-left px-3 py-2.5 text-[11px] font-semibold text-ink-3 uppercase tracking-wider">Linked docs</th>
+                <th className="text-left px-3 py-2.5 text-[11px] font-semibold text-ink-3 uppercase tracking-wider">Status</th>
+                <th className="px-2 py-2.5 text-right"><span className="sr-only">Actions</span></th>
               </tr>
             </thead>
             <tbody>
@@ -595,9 +597,9 @@ export default function PaymentsPage() {
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0 flex-1">
                     {p.customer_id ? (
-                      <Link href={`/customers/${p.customer_id}` as never} className="font-medium text-ink hover:text-amber-ink hover:underline block truncate">{p.customer_name}</Link>
+                      <Link href={`/customers/${p.customer_id}` as never} className="font-medium text-ink hover:text-amber-ink hover:underline block truncate">{cleanDisplayName(p.customer_name)}</Link>
                     ) : (
-                      <span className="font-medium text-ink block truncate">{p.customer_name}</span>
+                      <span className="font-medium text-ink block truncate">{cleanDisplayName(p.customer_name)}</span>
                     )}
                     <Link href={`/projects/${p.project_id}` as never} className="text-[11px] text-ink-2 hover:text-amber-ink hover:underline block truncate">{p.project_title}</Link>
                     <p className="text-[11px] text-ink-3 mt-0.5 capitalize">
@@ -625,9 +627,9 @@ export default function PaymentsPage() {
                   <tr key={p.id} className="hover:bg-paper-2/40">
                     <td className="px-4 py-2.5">
                       {p.customer_id ? (
-                        <Link href={`/customers/${p.customer_id}` as never} className="font-medium text-ink hover:text-amber-ink hover:underline">{p.customer_name}</Link>
+                        <Link href={`/customers/${p.customer_id}` as never} className="font-medium text-ink hover:text-amber-ink hover:underline">{cleanDisplayName(p.customer_name)}</Link>
                       ) : (
-                        <span className="font-medium text-ink">{p.customer_name}</span>
+                        <span className="font-medium text-ink">{cleanDisplayName(p.customer_name)}</span>
                       )}
                       <span className="text-ink-3"> · </span>
                       <Link href={`/projects/${p.project_id}` as never} className="text-ink-2 hover:text-amber-ink hover:underline">{p.project_title}</Link>
@@ -754,6 +756,7 @@ function PaymentRowView({
   bankLabel?: string;
   onEdit: () => void;
 }) {
+  const router = useRouter();
   const methodInfo = METHOD_META[p.method];
   const [receiptOpen, setReceiptOpen] = React.useState(false);
   const del = useDeletePayment();
@@ -780,26 +783,29 @@ function PaymentRowView({
     customer.state_code !== me.tenantStateCode,
   );
 
+  const customerName = cleanDisplayName(ctx?.customerName ?? "—");
   return (
-    <tr className="border-b border-hairline last:border-0 hover:bg-paper-2/40">
-      <td className="p-3 text-xs text-ink-2 whitespace-nowrap truncate">{formatDate(p.received_at)}</td>
-      <td className="p-3 text-sm font-medium text-ink truncate" title={ctx?.customerName ?? undefined}>{ctx?.customerName ?? "—"}</td>
-      <td className="p-3" title={p.quote_id}>
-        <Link
-          href={`/quotes/${p.quote_id}` as any}
-          className="inline-flex items-center rounded-md bg-paper-2 px-1.5 py-0.5 font-mono text-[11px] font-semibold text-ink hover:text-amber-ink"
-        >
-          #{p.quote_id.split("-").pop()}
-        </Link>
-        {ctx?.paymentStatus === "partial" && (
-          <div className="text-[10px] text-indigo mt-0.5">partial — open quote to see full history</div>
+    <tr
+      className="group border-b border-hairline last:border-0 hover:bg-paper-2/50 cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber focus-visible:ring-inset"
+      role="button"
+      tabIndex={0}
+      aria-label={`Open quote ${p.quote_id}`}
+      onClick={() => router.push(`/quotes/${p.quote_id}` as any)}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); router.push(`/quotes/${p.quote_id}` as any); } }}
+    >
+      <td className="px-3 py-2.5 text-xs text-ink-2 whitespace-nowrap align-top">{formatDate(p.received_at)}</td>
+      <td className="px-3 py-2.5 text-sm font-medium align-top" onClick={(e) => e.stopPropagation()}>
+        {ctx?.customerId ? (
+          <Link href={`/customers/${ctx.customerId}` as never} className="text-ink hover:text-amber-ink hover:underline break-words leading-snug">{customerName}</Link>
+        ) : (
+          <span className="text-ink break-words leading-snug">{customerName}</span>
         )}
       </td>
       {/* Amount — cash in, the happiest number; give it weight. */}
-      <td className="p-3 text-right tabular-nums">
+      <td className="px-3 py-2.5 text-right tabular-nums align-top">
         <span className="font-serif text-[15px] font-semibold text-emerald">{rupee(p.amount)}</span>
       </td>
-      <td className="p-3">
+      <td className="px-3 py-2.5 align-top">
         {methodInfo ? (
           <span className="inline-flex items-center gap-1.5 text-xs">
             <Icon name={methodInfo.icon} size={11} className="text-ink-3" />
@@ -814,23 +820,32 @@ function PaymentRowView({
           </div>
         )}
       </td>
-      <td className="p-3 font-mono text-xs text-ink-2 truncate" title={p.reference ?? undefined}>{p.reference ?? "—"}</td>
-      <td className="p-3">
+      <td className="px-3 py-2.5 font-mono text-xs text-ink-2 break-all align-top" title={p.reference ?? undefined}>{p.reference ?? "—"}</td>
+      {/* LINKED DOCS — source quote + GST invoice + receipt voucher as clickable
+          chips, so the Status column stays a clean single badge. */}
+      <td className="px-3 py-2.5 align-top" onClick={(e) => e.stopPropagation()}>
+        <div className="flex flex-col gap-1 items-start">
+          <Link href={`/quotes/${p.quote_id}` as any} className="inline-flex items-center rounded-md bg-paper-2 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-ink hover:text-amber-ink" title={p.quote_id}>
+            {p.quote_id}
+          </Link>
+          {ctx?.invoiceId && (
+            <Link href={`/invoices?open=${ctx.invoiceId}` as any} className="font-mono text-[10px] text-indigo-ink hover:underline" title="Open GST invoice">{ctx.invoiceId}</Link>
+          )}
+          {p.receipt_voucher_no && (
+            me
+              ? <button type="button" onClick={() => setReceiptOpen(true)} className="font-mono text-[10px] text-ink-3 hover:text-amber-ink hover:underline" title="Open receipt voucher">{p.receipt_voucher_no}</button>
+              : <span className="font-mono text-[10px] text-ink-3">{p.receipt_voucher_no}</span>
+          )}
+        </div>
+      </td>
+      <td className="px-3 py-2.5 align-top">
         {p.status === "received" ? (
           <Badge kind="success" dot>received</Badge>
         ) : (
           <Badge kind="danger" dot>refunded</Badge>
         )}
-        {ctx?.invoiceId && (
-          <div className="text-[10px] text-ink-3 font-mono mt-0.5">{ctx.invoiceId}</div>
-        )}
-        {p.receipt_voucher_no && (
-          <div className="text-[10px] text-ink-3 font-mono mt-0.5" title="Receipt voucher number">
-            {p.receipt_voucher_no}
-          </div>
-        )}
       </td>
-      <td className="p-3 text-right">
+      <td className="px-2 py-2.5 text-right align-top" onClick={(e) => e.stopPropagation()}>
         <div className="flex justify-end">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>

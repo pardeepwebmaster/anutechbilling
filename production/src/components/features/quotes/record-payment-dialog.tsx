@@ -57,6 +57,20 @@ const schema = z.object({
   tdsSection:   z.string().optional(),
   tdsRatePct:   z.coerce.number().min(0).max(100).optional(),
   customerTan:  z.string().optional(),
+}).superRefine((d, ctx) => {
+  // Reference sanity — block junk like "dfg" / "asfdgdfgsdfgds". A real UTR /
+  // txn id / cheque number always has digits; cash/other can be looser.
+  const ref = d.reference.trim();
+  const digital = d.method !== "cash" && d.method !== "other";
+  if (digital && (ref.length < 4 || !/\d/.test(ref))) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["reference"],
+      message: "Enter a real UTR / transaction ID (letters + digits, e.g. 402312345678).",
+    });
+  } else if (!digital && ref.length < 2) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["reference"], message: "Reference too short." });
+  }
 });
 
 type FormData = z.infer<typeof schema>;

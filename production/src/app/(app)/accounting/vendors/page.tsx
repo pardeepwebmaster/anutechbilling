@@ -8,8 +8,10 @@
 
 import * as React from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 
 import { Card } from "@/components/ui/card";
+import { StatStrip } from "@/components/shared/stat-strip";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -33,6 +35,7 @@ import { VENDOR_BILL_CATEGORIES } from "@/lib/queries/vendor-bills";
 import { rupee, formatDate } from "@/lib/utils";
 
 export default function VendorsPage() {
+  const router = useRouter();
   const { data: vendors, isLoading } = useVendors();
   const [search, setSearch] = React.useState("");
   const [addOpen, setAddOpen] = React.useState(false);
@@ -71,11 +74,14 @@ export default function VendorsPage() {
       </div>
 
       {!isLoading && (vendors ?? []).length > 0 && (
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 md:gap-4 mb-5">
-          <KPI label="Vendors" value={String((vendors ?? []).length)} />
-          <KPI label="Total billed" value={rupee(totalBilled, { compact: true })} />
-          <KPI label="Outstanding" value={rupee(totalOutstanding, { compact: true })} tone={totalOutstanding > 0 ? "rose" : "emerald"} />
-        </div>
+        <StatStrip
+          className="mb-5"
+          items={[
+            { label: "Vendors",      value: (vendors ?? []).length },
+            { label: "Total billed", value: rupee(totalBilled, { compact: true }) },
+            { label: "Outstanding",  value: rupee(totalOutstanding, { compact: true }), tone: totalOutstanding > 0 ? "rose" : "emerald" },
+          ]}
+        />
       )}
 
       {(vendors ?? []).length > 0 && (
@@ -98,36 +104,51 @@ export default function VendorsPage() {
       ) : (
         <>
           {/* Desktop table */}
-          <Card className="hidden md:block overflow-x-auto">
+          <Card flush className="hidden md:block overflow-x-auto">
             <table className="w-full text-sm">
-              <thead className="bg-paper-2/50 text-[10px] uppercase tracking-wider text-ink-3 font-semibold">
+              <thead className="bg-paper-2 border-b border-hairline-strong text-[11px] uppercase tracking-wider text-ink-3 font-semibold">
                 <tr>
-                  <th className="text-left  px-4 py-3">Vendor</th>
-                  <th className="text-left  px-4 py-3">Category</th>
-                  <th className="text-right px-4 py-3">Bills</th>
-                  <th className="text-right px-4 py-3">Total billed</th>
-                  <th className="text-right px-4 py-3">Outstanding</th>
-                  <th className="text-right px-4 py-3">Actions</th>
+                  <th className="text-left  px-4 py-2.5">Vendor</th>
+                  <th className="text-left  px-4 py-2.5">Category</th>
+                  <th className="text-right px-4 py-2.5">Bills</th>
+                  <th className="text-right px-4 py-2.5">Total billed</th>
+                  <th className="text-right px-4 py-2.5">Outstanding</th>
+                  <th className="text-right px-2 py-2.5"><span className="sr-only">Actions</span></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-hairline">
                 {rows.map((v) => (
-                  <tr key={v.id} className="hover:bg-paper-2/40 cursor-pointer" onClick={() => setDetailVendor(v)}>
-                    <td className="px-4 py-3">
-                      <div className="font-medium text-ink">{v.name}</div>
+                  <tr
+                    key={v.id}
+                    className="group hover:bg-paper-2/50 cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber focus-visible:ring-inset"
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`Open ${v.name}`}
+                    onClick={() => setDetailVendor(v)}
+                    onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setDetailVendor(v); } }}
+                  >
+                    <td className="px-4 py-2.5 align-top">
+                      <div className="font-medium text-ink leading-snug">{v.name}</div>
                       {v.gstin && <div className="text-[11px] text-ink-3 font-mono">{v.gstin}</div>}
+                      {v.contact_email && <div className="text-[11px] text-ink-3 truncate">{v.contact_email}</div>}
                     </td>
-                    <td className="px-4 py-3">{v.default_category ? <Badge kind="muted" size="sm">{v.default_category}</Badge> : <span className="text-ink-3">—</span>}</td>
-                    <td className="px-4 py-3 text-right tabular-nums text-ink-2">{v.billCount || "—"}</td>
-                    <td className="px-4 py-3 text-right tabular-nums">{v.totalBilled > 0 ? rupee(v.totalBilled) : "—"}</td>
-                    <td className="px-4 py-3 text-right tabular-nums">
+                    <td className="px-4 py-2.5 align-top">{v.default_category ? <Badge kind="muted" size="sm">{v.default_category}</Badge> : <span className="text-ink-3">—</span>}</td>
+                    <td className="px-4 py-2.5 text-right tabular-nums text-ink-2 align-top">{v.billCount || "—"}</td>
+                    <td className="px-4 py-2.5 text-right tabular-nums align-top">{v.totalBilled > 0 ? rupee(v.totalBilled) : "—"}</td>
+                    <td className="px-4 py-2.5 text-right tabular-nums align-top">
                       {v.outstanding > 0
                         ? <span className="font-serif text-[15px] font-semibold text-rose">{rupee(v.outstanding)}</span>
                         : <span className="text-emerald">✓</span>}
                     </td>
-                    <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                    <td className="px-2 py-2.5 align-top" onClick={(e) => e.stopPropagation()}>
                       <div className="flex justify-end">
-                        <VendorActions onView={() => setDetailVendor(v)} onEdit={() => setEditVendor(v)} onDelete={() => confirmDelete(v)} />
+                        <VendorActions
+                          onView={() => setDetailVendor(v)}
+                          onEdit={() => setEditVendor(v)}
+                          onDelete={() => confirmDelete(v)}
+                          onUploadBill={() => router.push("/accounting/bills" as never)}
+                          onRecordPayment={() => router.push("/accounting/bills" as never)}
+                        />
                       </div>
                     </td>
                   </tr>
@@ -168,27 +189,22 @@ export default function VendorsPage() {
   );
 }
 
-function KPI({ label, value, tone }: { label: string; value: string; tone?: "rose" | "emerald" }) {
-  const color = tone === "rose" ? "text-rose" : tone === "emerald" ? "text-emerald" : "text-ink";
-  return (
-    <Card className="p-3 md:p-4">
-      <div className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold mb-1">{label}</div>
-      <div className={`font-serif text-xl md:text-2xl ${color} leading-tight`}>{value}</div>
-    </Card>
-  );
-}
-
-function VendorActions({ onView, onEdit, onDelete }: { onView: () => void; onEdit: () => void; onDelete: () => void }) {
+function VendorActions({ onView, onEdit, onDelete, onUploadBill, onRecordPayment }: {
+  onView: () => void; onEdit: () => void; onDelete: () => void;
+  onUploadBill: () => void; onRecordPayment: () => void;
+}) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <button type="button" aria-label="Actions" className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-3 hover:bg-paper-2 hover:text-ink data-[state=open]:bg-paper-2">
+        <button type="button" aria-label="Vendor actions" className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-3 hover:bg-paper-2 hover:text-ink data-[state=open]:bg-paper-2">
           <Icon name="more_h" size={18} />
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="min-w-[11rem]">
-        <DropdownMenuItem className="gap-2.5 py-2 cursor-pointer" onClick={onView}><Icon name="eye" size={15} /> View bills</DropdownMenuItem>
-        <DropdownMenuItem className="gap-2.5 py-2 cursor-pointer" onClick={onEdit}><Icon name="edit" size={15} /> Edit</DropdownMenuItem>
+      <DropdownMenuContent align="end" className="min-w-[12rem]">
+        <DropdownMenuItem className="gap-2.5 py-2 cursor-pointer" onClick={onUploadBill}><Icon name="upload" size={15} /> Upload bill</DropdownMenuItem>
+        <DropdownMenuItem className="gap-2.5 py-2 cursor-pointer" onClick={onRecordPayment}><Icon name="rupee" size={15} /> Record payment</DropdownMenuItem>
+        <DropdownMenuItem className="gap-2.5 py-2 cursor-pointer" onClick={onView}><Icon name="eye" size={15} /> View ledger</DropdownMenuItem>
+        <DropdownMenuItem className="gap-2.5 py-2 cursor-pointer" onClick={onEdit}><Icon name="edit" size={15} /> Edit vendor details</DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem destructive className="gap-2.5 py-2 cursor-pointer" onClick={onDelete}><Icon name="trash" size={15} /> Delete</DropdownMenuItem>
       </DropdownMenuContent>

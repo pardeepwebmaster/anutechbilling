@@ -367,3 +367,23 @@ export function notNull<T>(value: T | null | undefined): value is T {
 export function entries<T extends object>(obj: T): [keyof T, T[keyof T]][] {
   return Object.entries(obj) as [keyof T, T[keyof T]][];
 }
+
+/**
+ * Clean an entity's display name for the primary line.
+ *
+ * A few tenants store a phone / GSTIN appended to the NAME
+ * (e.g. "Hakimuddin Nazarali -274092700925"). That raw number shouldn't crowd
+ * the primary name — strip a trailing " - <7+ digits>" so the name reads clean;
+ * the number can be surfaced as secondary metadata via {@link phoneSuffixOf}.
+ * Legit names (with dots, letters, short numbers) are left untouched.
+ */
+const NAME_NUM_SUFFIX = /\s*[-–—]\s*(\d[\d\s]{6,})\s*$/;
+export function cleanDisplayName(raw: string): string {
+  const name = raw.replace(NAME_NUM_SUFFIX, "").trim();
+  return name || raw.trim();
+}
+/** The phone/number suffix stripped from a name by {@link cleanDisplayName}, else null. */
+export function phoneSuffixOf(raw: string): string | null {
+  const m = raw.match(NAME_NUM_SUFFIX);
+  return m ? m[1].replace(/\s+/g, " ").trim() : null;
+}

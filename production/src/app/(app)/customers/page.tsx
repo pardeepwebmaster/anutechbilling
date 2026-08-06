@@ -39,7 +39,7 @@ import { Button, IconButton } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Icon } from "@/components/ui/icon";
-import { rupee, cn } from "@/lib/utils";
+import { rupee, cn, cleanDisplayName, phoneSuffixOf } from "@/lib/utils";
 
 // Saved-view segments (Zoho-style) — compact filters over already-loaded data
 // (receivables + unused credit + subscriptions).
@@ -77,27 +77,13 @@ type CustomerLike = {
   contact_phone: string | null; contact_email: string | null; domain: string | null; state: string | null;
 };
 function customerSubline(c: CustomerLike): string {
-  const primary = cleanCustomerName(c.display_name || c.name);
+  const primary = cleanDisplayName(c.display_name || c.name);
   const parts: string[] = [];
   if (c.contact_name?.trim() && c.contact_name.trim() !== primary) parts.push(c.contact_name.trim());
-  const phone = c.contact_phone?.trim() || strippedNumberSuffix(c.display_name || c.name);
+  const phone = c.contact_phone?.trim() || phoneSuffixOf(c.display_name || c.name);
   if (phone) parts.push(phone);
   if (parts.length) return parts.join(" · ");
   return c.domain || c.contact_email || c.state || "";
-}
-
-// A few tenants store the customer's phone/GSTIN appended to the NAME
-// (e.g. "Hakimuddin Nazarali -274092700925"). That raw number shouldn't crowd
-// the primary name — strip a trailing " - <7+ digits>" and surface it as the
-// subline (who-to-call) instead. Legit names with dots/spaces are left alone.
-const NAME_NUM_SUFFIX = /\s*[-–—]\s*(\d[\d\s]{6,})\s*$/;
-function cleanCustomerName(raw: string): string {
-  const name = raw.replace(NAME_NUM_SUFFIX, "").trim();
-  return name || raw.trim();
-}
-function strippedNumberSuffix(raw: string): string | null {
-  const m = raw.match(NAME_NUM_SUFFIX);
-  return m ? m[1].replace(/\s+/g, " ").trim() : null;
 }
 
 // Subscription status pill — maps 1:1 to the segment filters so the visible
@@ -415,10 +401,10 @@ export default function CustomersPage() {
                   )}
                 >
                   <div className="flex items-start gap-3">
-                    <Avatar name={cleanCustomerName(c.display_name || c.name)} color={avatarColor(c.id)} size="sm" />
+                    <Avatar name={cleanDisplayName(c.display_name || c.name)} color={avatarColor(c.id)} size="sm" />
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2 min-w-0">
-                        <p className="font-medium text-ink truncate">{cleanCustomerName(c.display_name || c.name)}</p>
+                        <p className="font-medium text-ink truncate">{cleanDisplayName(c.display_name || c.name)}</p>
                         {subsByCustomer.has(c.id) && <Badge kind="success" size="sm" dot>Active</Badge>}
                       </div>
                       <p className="text-[11px] text-ink-3 truncate mt-0.5">
@@ -480,7 +466,7 @@ export default function CustomersPage() {
                     const credit = creditsByCustomer[c.id] ?? 0;
                     const mrr = subsByCustomer.get(c.id)?.mrr ?? 0;
                     const st = subStatus(subsByCustomer.has(c.id), c.is_active === false);
-                    const primaryName = cleanCustomerName(c.display_name || c.name);
+                    const primaryName = cleanDisplayName(c.display_name || c.name);
                     return (
                       <tr
                         key={c.id}
@@ -608,9 +594,9 @@ export default function CustomersPage() {
                       active ? "bg-amber-soft/50" : "hover:bg-paper-2/50",
                     )}
                   >
-                    <Avatar name={cleanCustomerName(c.display_name || c.name)} color={avatarColor(c.id)} size="sm" className="shrink-0" />
+                    <Avatar name={cleanDisplayName(c.display_name || c.name)} color={avatarColor(c.id)} size="sm" className="shrink-0" />
                     <div className="min-w-0 flex-1">
-                      <div className="font-medium text-sm text-ink truncate">{cleanCustomerName(c.display_name || c.name)}</div>
+                      <div className="font-medium text-sm text-ink truncate">{cleanDisplayName(c.display_name || c.name)}</div>
                       <div className="flex items-center justify-between gap-2 text-[11px] mt-0.5">
                         <span className="truncate text-ink-3">{c.domain || c.contact_email || "—"}</span>
                         {receivable > 0

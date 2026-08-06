@@ -41,7 +41,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Icon } from "@/components/ui/icon";
 import { FAB } from "@/components/ui/fab";
-import { rupee, daysBetween } from "@/lib/utils";
+import { rupee, daysBetween, cleanDisplayName, phoneSuffixOf } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 import { useConfirm } from "@/components/providers/confirm-provider";
 import { isForeignCurrency, foreignEquivalent, formatForeign } from "@/lib/currency";
@@ -67,83 +67,41 @@ function estimateMarginForQuote(q: Quote) {
   return computeMargin(cost, q.amount);
 }
 
-const STATUS_META: Record<Quote["status"], { kind: "muted" | "success" | "warning" | "danger" | "info"; label: string }> = {
-  draft:    { kind: "muted",   label: "Draft" },
-  sent:     { kind: "warning", label: "Sent" },
-  viewed:   { kind: "info",    label: "Viewed" },
-  accepted: { kind: "success", label: "Accepted" },
-  rejected: { kind: "danger",  label: "Rejected" },
-  expired:  { kind: "danger",  label: "Expired" },
-};
+type QuoteBadgeKind = "muted" | "success" | "warning" | "danger" | "info";
 
 /**
- * Compact payment indicator shown under the amount.
- * 'none' is treated as "nothing to say" — most drafts/sent quotes are pre-payment
- * and shouldn't clutter the view. We surface every other state so an accepted-
- * but-unpaid quote stands out clearly.
+ * ONE primary status per row (Stripe/Linear style) — folds quote.status +
+ * payment_status into a single lifecycle stage, so a row never shows two
+ * competing badges (the old "Accepted" + "Invoiced" overlap). The outstanding-
+ * cash detail rides underneath as a muted hint via {@link dueHint}, not a badge.
  */
-type Tone = "emerald" | "amber" | "rose";
-function PaymentLabel({ ps, paid }: { ps: Quote["payment_status"] | null; paid: number | null }) {
-  if (!ps || ps === "none") return null;
-
-  const map: Record<Exclude<Quote["payment_status"], "none">, { tone: Tone; label: string }> = {
-    awaiting: { tone: "amber",   label: "Awaiting" },
-    partial:  { tone: "amber",   label: paid ? `Partial · ${rupee(paid)}` : "Partial" },
-    received: { tone: "emerald", label: "Paid" },
-    invoiced: { tone: "emerald", label: "Invoiced" },
-  };
-  const m = map[ps];
-  if (!m) return null;
-
-  const toneClass =
-    m.tone === "emerald" ? "text-emerald" :
-    m.tone === "amber"   ? "text-amber-ink" :
-                           "text-rose";
-
-  return (
-    <span className={cn("text-[10px] font-medium tabular-nums leading-tight", toneClass)}>
-      ● {m.label}
-    </span>
-  );
+function unifiedStatus(q: Quote): { label: string; kind: QuoteBadgeKind } {
+  if (q.payment_status === "invoiced") return { label: "Invoiced", kind: "info" };
+  if (q.status === "accepted") {
+    if (q.payment_status === "received") return { label: "Paid", kind: "success" };
+    if (q.payment_status === "partial")  return { label: "Partially paid", kind: "warning" };
+    return { label: "Accepted", kind: "success" };
+  }
+  switch (q.status) {
+    case "draft":    return { label: "Draft", kind: "muted" };
+    case "sent":     return { label: "Out for review", kind: "warning" };
+    case "viewed":   return { label: "Viewed", kind: "info" };
+    case "rejected": return { label: "Rejected", kind: "danger" };
+    case "expired":  return { label: "Expired", kind: "danger" };
+    default:         return { label: "Draft", kind: "muted" };
+  }
 }
 
-/**
- * Standalone Badge variant of payment status — used in the STATUS column
- * to give the payment state the same visual weight as the quote state.
- * Renders nothing for 'none' (no payment workflow started yet).
- */
-function PaymentBadge({
-  ps, paid, total,
-}: {
-  ps:    Quote["payment_status"] | null;
-  paid:  number | null;
-  total: number | null;
-}) {
-  if (!ps || ps === "none") return null;
-
-  // Compute remaining for partial payments — helps Pardeep see "how much still due"
-  const remaining = total && paid ? Math.max(0, total - paid) : 0;
-
-  const map: Record<Exclude<Quote["payment_status"], "none">, { kind: "success" | "warning" | "info" | "danger"; label: string }> = {
-    awaiting: { kind: "danger",  label: "Awaiting payment" },
-    partial:  {
-      kind: "warning",
-      label: paid && total
-        ? `Partial · ₹${remaining.toLocaleString("en-IN")} due`
-        : "Partial",
-    },
-    received: { kind: "success", label: paid ? `Paid · ${rupee(paid)}` : "Paid in full" },
-    // Invoiced but a balance is still due → surface it (warning), don't read as "done".
-    invoiced: remaining > 0
-      ? { kind: "warning", label: `Invoiced · ₹${remaining.toLocaleString("en-IN")} due` }
-      : { kind: "info", label: "Invoiced" },
-  };
-  const m = map[ps];
-  if (!m) return null;
-
-  return (
-    <Badge kind={m.kind} size="sm" dot>{m.label}</Badge>
-  );
+/** Muted "cash still due" hint shown under the status badge (only when relevant). */
+function dueHint(q: Quote): string | null {
+  const due = (q.amount ?? 0) - (q.payment_amount ?? 0);
+  if ((q.payment_status === "partial" || q.payment_status === "invoiced") && due > 0) {
+    return `₹${due.toLocaleString("en-IN")} due`;
+  }
+  if (q.payment_status === "awaiting" || (q.status === "accepted" && (!q.payment_status || q.payment_status === "none"))) {
+    return "Awaiting payment";
+  }
+  return null;
 }
 
 export default function QuotesPage() {
@@ -559,7 +517,7 @@ export default function QuotesPage() {
       {!isLoading && !error && filtered.length > 0 && (
         <ul className="md:hidden space-y-2 mb-3">
           {filtered.map((q) => {
-            const meta = STATUS_META[q.status];
+            const uStatus = unifiedStatus(q);
             const dl = q.expires_date ? daysBetween(new Date(), q.expires_date) : null;
             return (
               <li key={q.id}>
@@ -585,7 +543,7 @@ export default function QuotesPage() {
                         ) : null}
                       </div>
                       <p className="text-sm font-medium text-ink mt-0.5 truncate">
-                        {q.customer_name}
+                        {cleanDisplayName(q.customer_name)}
                       </p>
                     </div>
                     <div className="text-right shrink-0">
@@ -608,7 +566,7 @@ export default function QuotesPage() {
                           {dl}d
                         </Badge>
                       )}
-                      <Badge kind={meta.kind} size="sm" dot>{meta.label}</Badge>
+                      <Badge kind={uStatus.kind} size="sm" dot>{uStatus.label}</Badge>
                     </div>
                   </div>
                 </Link>
@@ -626,33 +584,33 @@ export default function QuotesPage() {
         <div className="hidden md:block">
           <Card flush>
             <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-paper-2 border-b border-hairline">
+            <table className="w-full min-w-[900px]">
+              <thead className="bg-paper-2 border-b border-hairline-strong">
                 <tr>
-                  <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Quote</th>
-                  <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Customer</th>
-                  <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Plan</th>
-                  <th className="text-right p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Amount</th>
-                  <th className="text-right p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider" title="Annual margin">Margin</th>
-                  <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Status</th>
-                  <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Validity</th>
-                  <th className="w-px"></th>
+                  <th className="text-left px-3 py-2.5 text-[11px] font-semibold text-ink-3 uppercase tracking-wider">Quote</th>
+                  <th className="text-left px-3 py-2.5 text-[11px] font-semibold text-ink-3 uppercase tracking-wider">Customer</th>
+                  <th className="text-left px-3 py-2.5 text-[11px] font-semibold text-ink-3 uppercase tracking-wider">Plan</th>
+                  <th className="text-right px-3 py-2.5 text-[11px] font-semibold text-ink-3 uppercase tracking-wider">Amount</th>
+                  <th className="text-right px-3 py-2.5 text-[11px] font-semibold text-ink-3 uppercase tracking-wider" title="Annual margin">Margin</th>
+                  <th className="text-left px-3 py-2.5 text-[11px] font-semibold text-ink-3 uppercase tracking-wider">Status</th>
+                  <th className="text-left px-3 py-2.5 text-[11px] font-semibold text-ink-3 uppercase tracking-wider">Validity</th>
+                  <th className="px-2 py-2.5 text-right"><span className="sr-only">Actions</span></th>
                 </tr>
               </thead>
               <tbody>
                 {filtered.map((q) => {
                   const margin = estimateMarginForQuote(q);
-                  const meta = STATUS_META[q.status];
+                  const uStatus = unifiedStatus(q);
                   const dl = q.expires_date ? daysBetween(new Date(), q.expires_date) : null;
                   const expiringSoon = dl !== null && dl >= 0 && dl <= 7;
                   return (
                     <tr
                       key={q.id}
                       onClick={() => router.push(`/quotes/${q.id}` as any)}
-                      className="border-b border-hairline last:border-0 hover:bg-paper-2/40 cursor-pointer transition-colors"
+                      className="group border-b border-hairline last:border-0 hover:bg-paper-2/50 cursor-pointer transition-colors"
                     >
                       {/* Compact ID — the tail number as a chip; full ID on hover. */}
-                      <td className="p-3" title={q.id}>
+                      <td className="px-3 py-2.5 align-top" title={q.id}>
                         <div className="flex items-center gap-1.5">
                           <span className="inline-flex items-center rounded-md bg-paper-2 px-1.5 py-0.5 font-mono text-[11px] font-semibold text-ink">
                             #{q.id.split("-").pop()}
@@ -670,30 +628,34 @@ export default function QuotesPage() {
                           ) : null}
                         </div>
                       </td>
-                      <td className="p-3">
-                        <div className="font-medium text-ink truncate max-w-[200px]" title={q.customer_name}>{q.customer_name}</div>
-                        {q.lead_id && (
-                          <div className="text-[10px] text-ink-3 font-mono">from {q.lead_id}</div>
+                      <td className="px-3 py-2.5 align-top">
+                        <div className="font-medium text-ink leading-snug break-words max-w-[220px]" title={cleanDisplayName(q.customer_name)}>{cleanDisplayName(q.customer_name)}</div>
+                        {phoneSuffixOf(q.customer_name) && (
+                          <div className="text-[10px] text-ink-3 tabular-nums mt-0.5">{phoneSuffixOf(q.customer_name)}</div>
                         )}
                       </td>
-                      {/* Plan — single-line truncate + tooltip; seats folded below. */}
-                      <td className="p-3 text-sm text-ink-2">
-                        <div className="truncate max-w-[190px]" title={q.plan ?? undefined}>{q.plan ?? "—"}</div>
+                      {/* Plan — wraps to a second line rather than truncating with "…". */}
+                      <td className="px-3 py-2.5 text-sm text-ink-2 align-top">
+                        <div className="leading-snug break-words max-w-[240px]">{q.plan ?? "—"}</div>
                         {q.seats != null && (
-                          <div className="text-[10px] text-ink-3"><span className="font-semibold text-ink-2 tabular-nums">{q.seats}</span> seats</div>
+                          <div className="text-[10px] text-ink-3 mt-0.5"><span className="font-semibold text-ink-2 tabular-nums">{q.seats}</span> seats</div>
                         )}
                       </td>
-                      <td className="p-3 text-right">
+                      <td className="px-3 py-2.5 text-right align-top">
                         <div className="flex flex-col items-end gap-0.5">
-                          <span className="tabular-nums text-sm font-medium">
+                          <span className="tabular-nums text-sm font-medium text-ink">
                             {quoteMoney(q)}
                           </span>
-                          <PaymentLabel ps={q.payment_status} paid={q.payment_amount} />
+                          {/* Foreign quote: show the ₹ base underneath so the amount
+                              reconciles with the (all-INR) pipeline totals. */}
+                          {isForeignCurrency(q.currency) && q.amount ? (
+                            <span className="text-[10px] text-ink-3 tabular-nums">≈ {rupee(q.amount)}</span>
+                          ) : null}
                         </div>
                       </td>
                       {/* Margin — colour-coded badge: green = healthy, amber =
                           thin, rose = risky. ₹ amount below for reference. */}
-                      <td className="p-3 text-right">
+                      <td className="px-3 py-2.5 text-right align-top">
                         {q.amount ? (
                           <div className="flex flex-col items-end gap-0.5">
                             <Badge
@@ -708,13 +670,17 @@ export default function QuotesPage() {
                           <span className="text-ink-3">—</span>
                         )}
                       </td>
-                      <td className="p-3">
-                        <div className="flex flex-col items-start gap-1">
-                          <Badge kind={meta.kind} dot>{meta.label}</Badge>
-                          <PaymentBadge ps={q.payment_status} paid={q.payment_amount} total={q.amount} />
+                      <td className="px-3 py-2.5 align-top">
+                        <div className="flex flex-col items-start gap-0.5">
+                          <Badge kind={uStatus.kind} dot>{uStatus.label}</Badge>
+                          {dueHint(q) && (
+                            <span className={cn("text-[10px] font-medium tabular-nums", dueHint(q) === "Awaiting payment" ? "text-amber-ink" : "text-rose")}>
+                              {dueHint(q)}
+                            </span>
+                          )}
                         </div>
                       </td>
-                      <td className="p-3 text-sm">
+                      <td className="px-3 py-2.5 text-sm align-top">
                         {q.status === "accepted" || q.status === "rejected" ? (
                           <span className="text-ink-3">—</span>
                         ) : dl === null ? (
@@ -727,16 +693,8 @@ export default function QuotesPage() {
                           <span className="text-xs text-ink-3 tabular-nums">{dl}d left</span>
                         )}
                       </td>
-                      <td className="p-3 text-right" onClick={(e) => e.stopPropagation()}>
+                      <td className="px-2 py-2.5 text-right align-top" onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center justify-end gap-1.5">
-                          <IconButton
-                            icon="file"
-                            size="sm"
-                            variant="ghost"
-                            aria-label="Preview quote"
-                            title="Preview quote"
-                            onClick={() => setPreviewing(q)}
-                          />
                           {q.status === "draft" && (
                             <Button asChild size="sm" variant="primary" icon="send">
                               <Link href={`/quotes/${q.id}` as any}>Send</Link>
@@ -802,27 +760,30 @@ export default function QuotesPage() {
                                 icon="more_h"
                                 size="sm"
                                 variant="ghost"
-                                aria-label="More actions"
+                                aria-label={`Actions for quote ${q.id}`}
                               />
                             </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                              <DropdownMenuItem
-                                onClick={() => router.push(`/quotes/${q.id}` as any)}
-                              >
-                                <Icon name="edit" size={14} /> Edit / View
+                            <DropdownMenuContent align="end" className="min-w-[12rem]">
+                              <DropdownMenuItem className="gap-2.5 py-2 cursor-pointer" onClick={() => setPreviewing(q)}>
+                                <Icon name="file" size={15} /> View PDF preview
                               </DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => handleDuplicate(q)}>
-                                <Icon name="copy" size={14} /> Duplicate & revise
+                              <DropdownMenuItem className="gap-2.5 py-2 cursor-pointer" onClick={() => router.push(`/quotes/${q.id}` as any)}>
+                                <Icon name="edit" size={15} /> Open / edit
                               </DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => setPreviewing(q)}>
-                                <Icon name="file" size={14} /> Preview
+                              <DropdownMenuItem className="gap-2.5 py-2 cursor-pointer" onClick={() => router.push(`/quotes/${q.id}?send=1` as any)}>
+                                <Icon name="send" size={15} /> Send / nudge
+                              </DropdownMenuItem>
+                              {(q.status === "accepted" || q.payment_status === "received") && q.payment_status !== "invoiced" && (
+                                <DropdownMenuItem className="gap-2.5 py-2 cursor-pointer" onClick={() => router.push(`/quotes/${q.id}` as any)}>
+                                  <Icon name="receipt" size={15} /> Convert to invoice
+                                </DropdownMenuItem>
+                              )}
+                              <DropdownMenuItem className="gap-2.5 py-2 cursor-pointer" onClick={() => handleDuplicate(q)}>
+                                <Icon name="copy" size={15} /> Duplicate &amp; revise
                               </DropdownMenuItem>
                               <DropdownMenuSeparator />
-                              <DropdownMenuItem
-                                destructive
-                                onClick={() => handleDelete(q)}
-                              >
-                                <Icon name="trash" size={14} /> Delete
+                              <DropdownMenuItem destructive className="gap-2.5 py-2 cursor-pointer" onClick={() => handleDelete(q)}>
+                                <Icon name="trash" size={15} /> Delete
                               </DropdownMenuItem>
                             </DropdownMenuContent>
                           </DropdownMenu>

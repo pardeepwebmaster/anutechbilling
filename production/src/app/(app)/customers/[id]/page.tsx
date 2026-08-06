@@ -13,7 +13,6 @@
 import * as React from "react";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { toast } from "sonner";
 
 import { useCustomer, useDeleteCustomer, useSetCustomerActive, useCustomerOpenCredit, customerDeleteBlockReason } from "@/lib/queries/customers";
 import { useCustomerGroups } from "@/lib/queries/customer-groups";
@@ -147,16 +146,34 @@ export default function CustomerDetailPage() {
   const ledger = ledgerRaw.map((e) => { runningBal += e.debit - e.credit; return { ...e, balance: runningBal }; });
   const closingBalance = runningBal;
 
-  // Guarded delete — only an "empty" customer (no money history) can be removed.
-  // Client check disables the button; the delete_customer RPC enforces it too
-  // (and additionally checks payments, which aren't loaded here).
+  // Guarded delete — Zoho-Books parity: a customer can be hard-deleted ONLY when
+  // it is truly empty (no subscriptions, payments, invoices, quotes, or projects).
+  // The delete_customer RPC (0174) is the authority; this client twin explains the
+  // block. The Delete button stays CLICKABLE (a disabled button + hover tooltip is
+  // invisible on touch/embeds) — on click it shows a clear dialog offering Archive.
   const deleteBlock = customerDeleteBlockReason({
     subscriptions: allSubs.length,
-    payments: 0,
+    payments: customerPayments.length,
     invoices: allInvoices.length,
+    quotes: allQuotes.length,
+    projects: allProjects.length,
   });
   const handleDelete = async () => {
-    if (deleteBlock) { toast.error(deleteBlock); return; }
+    if (deleteBlock) {
+      // Has documents → can't hard-delete. Explain why, and offer Archive (unless
+      // it's already archived, in which case just acknowledge).
+      const alreadyArchived = c.is_active === false;
+      const archived = await confirm({
+        title: `Can't delete "${c.name}"`,
+        body: deleteBlock,
+        confirmLabel: alreadyArchived ? "OK" : "Archive instead",
+        icon: "inbox",
+      });
+      if (archived && !alreadyArchived) {
+        setActive.mutate({ id: c.id, isActive: false });
+      }
+      return;
+    }
     if (await confirm({ title: `Permanently delete customer "${c.name}"?`, body: "This cannot be undone.", confirmLabel: "Delete", danger: true })) {
       deleteCustomer.mutate(c.id, { onSuccess: () => router.push("/customers" as never) });
     }
@@ -245,8 +262,7 @@ export default function CustomerDetailPage() {
             variant="ghost"
             onClick={handleDelete}
             loading={deleteCustomer.isPending}
-            disabled={Boolean(deleteBlock)}
-            title={deleteBlock ?? "Delete this customer"}
+            title={deleteBlock ? "This customer has documents — click to see options" : "Delete this customer"}
             className="!text-rose hover:!bg-rose/10"
           >
             Delete

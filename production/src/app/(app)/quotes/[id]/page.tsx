@@ -23,6 +23,9 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
+} from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/shared/empty-state";
@@ -89,6 +92,13 @@ export default function QuoteDetailPage() {
   const [receiptPayment, setReceiptPayment] = React.useState<Payment | null>(null);
   const [sendOpen,    setSendOpen]    = React.useState(false);
   const [whatsOpen,   setWhatsOpen]   = React.useState(false);
+  // In-app confirm dialog — native window.confirm() is suppressed in some
+  // embeds/webviews and silently returns false, which made destructive actions
+  // (Reopen, Delete) look dead. See tasks/page.tsx for the same fix.
+  const [confirm, setConfirm] = React.useState<{
+    title: string; body: string; confirmLabel: string; icon: string; danger?: boolean;
+    onConfirm: () => void;
+  } | null>(null);
 
   // Auto-open a send dialog when the builder redirected here with ?send=
   // (?send=whatsapp or ?send=email). Use a ref to only fire once per
@@ -121,9 +131,14 @@ export default function QuoteDetailPage() {
   const handleDelete = () => {
     if (!quote) return;
     if (deleteBlock) { toast.error(deleteBlock); return; }
-    if (window.confirm(`Permanently delete quote ${quote.id}?\n\nThis cannot be undone.`)) {
-      deleteQuote.mutate(quote, { onSuccess: () => router.push("/quotes" as never) });
-    }
+    setConfirm({
+      title: `Delete quote ${quote.id}?`,
+      body: "This permanently deletes the quote. It cannot be undone.",
+      confirmLabel: "Delete",
+      icon: "trash",
+      danger: true,
+      onConfirm: () => deleteQuote.mutate(quote, { onSuccess: () => router.push("/quotes" as never) }),
+    });
   };
 
   // ────────── Mutations ──────────
@@ -485,11 +500,13 @@ export default function QuoteDetailPage() {
                 variant="ghost"
                 icon="arrow_left"
                 loading={reopenQuote.isPending}
-                onClick={() => {
-                  if (window.confirm(`Reopen quote ${quote.id}? It moves back to Sent so you can edit/re-send. The customer record stays; reverse this only if the accept was a mistake.`)) {
-                    reopenQuote.mutate();
-                  }
-                }}
+                onClick={() => setConfirm({
+                  title: `Reopen quote ${quote.id}?`,
+                  body: "It moves back to Sent so you can edit or re-send. The customer record stays — reverse this only if the accept was a mistake.",
+                  confirmLabel: "Reopen quote",
+                  icon: "arrow_left",
+                  onConfirm: () => reopenQuote.mutate(),
+                })}
               >
                 Reopen
               </Button>
@@ -890,6 +907,38 @@ export default function QuoteDetailPage() {
           }}
         />
       )}
+
+      {/* Reusable confirm dialog (replaces native window.confirm, which is
+          suppressed in some embeds and silently returns false). */}
+      <Dialog open={!!confirm} onOpenChange={(o) => { if (!o) setConfirm(null); }}>
+        <DialogContent className="max-w-[440px]">
+          {confirm && (
+            <>
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <Icon name={confirm.icon} size={18} className={confirm.danger ? "text-rose" : "text-amber"} />
+                  {confirm.title}
+                </DialogTitle>
+                <DialogDescription>{confirm.body}</DialogDescription>
+              </DialogHeader>
+              <DialogFooter>
+                <Button type="button" variant="ghost" onClick={() => setConfirm(null)}>
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  variant={confirm.danger ? "danger" : "primary"}
+                  icon={confirm.icon}
+                  loading={deleteQuote.isPending || reopenQuote.isPending}
+                  onClick={() => { const fn = confirm.onConfirm; setConfirm(null); fn(); }}
+                >
+                  {confirm.confirmLabel}
+                </Button>
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

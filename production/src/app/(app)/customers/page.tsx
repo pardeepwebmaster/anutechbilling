@@ -21,10 +21,13 @@ import { FAB } from "@/components/ui/fab";
 import { ImportCustomersDialog } from "@/components/features/customers/import-customers-dialog";
 import { ImportDomainsDialog } from "@/components/features/customers/import-domains-dialog";
 import { CustomerPanel } from "@/components/features/customers/customer-panel";
+import { InvoiceChooserDialog } from "@/components/features/invoices/invoice-chooser-dialog";
+import { CreateProjectQuoteDialog } from "@/components/features/projects/create-project-quote-dialog";
 import { toast } from "sonner";
 import { EmptyState } from "@/components/shared/empty-state";
 import { StatStrip } from "@/components/shared/stat-strip";
 import { Avatar } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -32,7 +35,7 @@ import {
   DropdownMenuItem,
 } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Button } from "@/components/ui/button";
+import { Button, IconButton } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Icon } from "@/components/ui/icon";
@@ -50,11 +53,10 @@ const VIEW_DEFS: { id: string; label: string; test: (x: ViewCtx) => boolean }[] 
 ];
 
 // Columns tuned for a reseller: who they are (name + who-to-call folded in) ·
-// place of supply · what they're worth (MRR) · what they owe (receivables) ·
-// credit on file. Contact is a secondary line inside the Customer cell — a
-// separate column duplicated the name for individual customers (name == contact).
-// Widths are percentages so the table always fills its container — no h-scroll.
-const CUST_COL_WIDTHS = ["36%", "18%", "14%", "18%", "14%"];
+// subscription status · place of supply · what they're worth (MRR) · what they
+// owe (receivables) · credit on file · a per-row actions menu. Widths are
+// percentages so the table always fills its container — no h-scroll.
+const CUST_COL_WIDTHS = ["30%", "13%", "12%", "13%", "16%", "12%", "4%"];
 
 type SortKey = "name" | "mrr" | "receivables" | "credits";
 
@@ -75,12 +77,36 @@ type CustomerLike = {
   contact_phone: string | null; contact_email: string | null; domain: string | null; state: string | null;
 };
 function customerSubline(c: CustomerLike): string {
-  const primary = (c.display_name || c.name).trim();
+  const primary = cleanCustomerName(c.display_name || c.name);
   const parts: string[] = [];
   if (c.contact_name?.trim() && c.contact_name.trim() !== primary) parts.push(c.contact_name.trim());
-  if (c.contact_phone?.trim()) parts.push(c.contact_phone.trim());
+  const phone = c.contact_phone?.trim() || strippedNumberSuffix(c.display_name || c.name);
+  if (phone) parts.push(phone);
   if (parts.length) return parts.join(" · ");
   return c.domain || c.contact_email || c.state || "";
+}
+
+// A few tenants store the customer's phone/GSTIN appended to the NAME
+// (e.g. "Hakimuddin Nazarali -274092700925"). That raw number shouldn't crowd
+// the primary name — strip a trailing " - <7+ digits>" and surface it as the
+// subline (who-to-call) instead. Legit names with dots/spaces are left alone.
+const NAME_NUM_SUFFIX = /\s*[-–—]\s*(\d[\d\s]{6,})\s*$/;
+function cleanCustomerName(raw: string): string {
+  const name = raw.replace(NAME_NUM_SUFFIX, "").trim();
+  return name || raw.trim();
+}
+function strippedNumberSuffix(raw: string): string | null {
+  const m = raw.match(NAME_NUM_SUFFIX);
+  return m ? m[1].replace(/\s+/g, " ").trim() : null;
+}
+
+// Subscription status pill — maps 1:1 to the segment filters so the visible
+// tags and the filter counts always agree.
+function subStatus(hasActiveSub: boolean, archived: boolean):
+  { label: string; kind: "success" | "muted"; dot: boolean } {
+  if (archived) return { label: "Inactive", kind: "muted", dot: false };
+  if (hasActiveSub) return { label: "Active", kind: "success", dot: true };
+  return { label: "No subscription", kind: "muted", dot: false };
 }
 
 export default function CustomersPage() {
@@ -114,6 +140,9 @@ export default function CustomersPage() {
   const [showArchived, setShowArchived] = React.useState(false);
   const [sort, setSort] = React.useState<{ key: SortKey; dir: "asc" | "desc" }>({ key: "name", dir: "asc" });
   const [visible, setVisible] = React.useState(60);
+  // Row action → "Create invoice": open the invoice chooser for that customer.
+  const [invoiceForCustomer, setInvoiceForCustomer] = React.useState<string | null>(null);
+  const [projInvoiceForCustomer, setProjInvoiceForCustomer] = React.useState<string | null>(null);
 
   // MRR/ARR per customer from active subscriptions.
   const subsByCustomer = React.useMemo(() => {
@@ -386,9 +415,12 @@ export default function CustomersPage() {
                   )}
                 >
                   <div className="flex items-start gap-3">
-                    <Avatar name={c.display_name || c.name} color={avatarColor(c.id)} size="sm" />
+                    <Avatar name={cleanCustomerName(c.display_name || c.name)} color={avatarColor(c.id)} size="sm" />
                     <div className="min-w-0 flex-1">
-                      <p className="font-medium text-ink truncate">{c.display_name || c.name}</p>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <p className="font-medium text-ink truncate">{cleanCustomerName(c.display_name || c.name)}</p>
+                        {subsByCustomer.has(c.id) && <Badge kind="success" size="sm" dot>Active</Badge>}
+                      </div>
                       <p className="text-[11px] text-ink-3 truncate mt-0.5">
                         {customerSubline(c) || "—"}
                       </p>
@@ -429,13 +461,15 @@ export default function CustomersPage() {
                 <colgroup>
                   {CUST_COL_WIDTHS.map((w, i) => <col key={i} style={{ width: w }} />)}
                 </colgroup>
-                <thead className="bg-paper-2 border-b border-hairline">
+                <thead className="bg-paper-2 border-b border-hairline-strong">
                   <tr>
                     <SortHead label="Customer"        sortKey="name"        sort={sort} onSort={toggleSort} />
-                    <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Place of supply</th>
+                    <th className="text-left px-3 py-2.5 text-[11px] font-semibold text-ink-3 uppercase tracking-wider">Status</th>
+                    <th className="text-left px-3 py-2.5 text-[11px] font-semibold text-ink-3 uppercase tracking-wider">Place of supply</th>
                     <SortHead label="MRR"             sortKey="mrr"         sort={sort} onSort={toggleSort} align="right" />
                     <SortHead label="Receivables"     sortKey="receivables" sort={sort} onSort={toggleSort} align="right" />
                     <SortHead label="Unused credits"  sortKey="credits"     sort={sort} onSort={toggleSort} align="right" />
+                    <th className="px-2 py-2.5"><span className="sr-only">Actions</span></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -445,38 +479,43 @@ export default function CustomersPage() {
                     const days = outInfo?.days ?? 0;
                     const credit = creditsByCustomer[c.id] ?? 0;
                     const mrr = subsByCustomer.get(c.id)?.mrr ?? 0;
+                    const st = subStatus(subsByCustomer.has(c.id), c.is_active === false);
+                    const primaryName = cleanCustomerName(c.display_name || c.name);
                     return (
                       <tr
                         key={c.id}
                         onClick={() => setSelectedId(c.id)}
                         role="button"
                         tabIndex={0}
-                        aria-label={`Open ${c.display_name || c.name}`}
+                        aria-label={`Open ${primaryName}`}
                         onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSelectedId(c.id); } }}
                         className={cn(
-                          "border-b border-hairline last:border-0 cursor-pointer transition-colors",
+                          "group border-b border-hairline last:border-0 cursor-pointer transition-colors",
                           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber focus-visible:ring-inset",
-                          receivable > 0 ? "hover:bg-rose-soft/20" : "hover:bg-paper-2/40",
+                          receivable > 0 ? "hover:bg-rose-soft/20" : "hover:bg-paper-2/50",
                         )}
                       >
-                        <td className={cn("p-3", receivable > 0 && "border-l-2 border-l-rose")}>
+                        <td className={cn("px-3 py-2.5", receivable > 0 && "border-l-2 border-l-rose")}>
                           <div className="flex items-center gap-2.5 min-w-0">
-                            <Avatar name={c.display_name || c.name} color={avatarColor(c.id)} size="sm" className="shrink-0" />
+                            <Avatar name={primaryName} color={avatarColor(c.id)} size="sm" className="shrink-0" />
                             <div className="min-w-0">
-                              <div className="font-medium text-sm text-ink truncate">{c.display_name || c.name}</div>
+                              <div className="font-medium text-sm text-ink truncate">{primaryName}</div>
                               {customerSubline(c) && (
                                 <div className="text-[11px] text-ink-3 truncate mt-0.5">{customerSubline(c)}</div>
                               )}
                             </div>
                           </div>
                         </td>
-                        <td className="p-3 text-sm text-ink-2 truncate">{c.state || <span className="text-ink-3">—</span>}</td>
-                        <td className="p-3 text-right tabular-nums">
-                          <span className={mrr > 0 ? "text-sm font-medium text-ink" : "text-sm text-ink-3"}>
-                            {mrr > 0 ? <>{rupee(mrr, { compact: true })}<span className="text-[11px] text-ink-3">/mo</span></> : "—"}
-                          </span>
+                        <td className="px-3 py-2.5">
+                          <Badge kind={st.kind} size="sm" dot={st.dot}>{st.label}</Badge>
                         </td>
-                        <td className="p-3 text-right tabular-nums">
+                        <td className="px-3 py-2.5 text-sm text-ink-2 truncate">{c.state || <span className="text-ink-3">N/A</span>}</td>
+                        <td className="px-3 py-2.5 text-right tabular-nums">
+                          {mrr > 0
+                            ? <span className="text-sm font-medium text-ink">{rupee(mrr, { compact: true })}<span className="text-[11px] text-ink-3">/mo</span></span>
+                            : <span className="text-sm text-ink-3">{rupee(0)}</span>}
+                        </td>
+                        <td className="px-3 py-2.5 text-right tabular-nums">
                           {receivable > 0 ? (
                             <div>
                               <div className="text-sm font-semibold text-rose">{rupee(receivable)}</div>
@@ -484,10 +523,20 @@ export default function CustomersPage() {
                                 <div className={cn("text-[11px]", days > 45 ? "text-rose font-medium" : "text-ink-3")}>{days}d outstanding</div>
                               )}
                             </div>
-                          ) : <span className="text-sm text-ink-3">—</span>}
+                          ) : <span className="text-sm text-ink-3">{rupee(0)}</span>}
                         </td>
-                        <td className="p-3 text-right tabular-nums">
-                          <span className={credit > 0 ? "text-sm font-medium text-emerald" : "text-sm text-ink-3"}>{credit > 0 ? rupee(credit) : "—"}</span>
+                        <td className="px-3 py-2.5 text-right tabular-nums">
+                          <span className={credit > 0 ? "text-sm font-medium text-emerald" : "text-sm text-ink-3"}>{credit > 0 ? rupee(credit) : rupee(0)}</span>
+                        </td>
+                        <td className="px-2 py-2.5 text-right">
+                          <RowActions
+                            customerName={primaryName}
+                            onView={() => setSelectedId(c.id)}
+                            onEdit={() => router.push(`/customers/${c.id}/edit` as never)}
+                            onNewQuote={() => router.push(`/quotes/new?customer=${c.id}` as never)}
+                            onInvoice={() => setInvoiceForCustomer(c.id)}
+                            onManageSubs={() => router.push(`/customers/${c.id}` as never)}
+                          />
                         </td>
                       </tr>
                     );
@@ -559,9 +608,9 @@ export default function CustomersPage() {
                       active ? "bg-amber-soft/50" : "hover:bg-paper-2/50",
                     )}
                   >
-                    <Avatar name={c.display_name || c.name} color={avatarColor(c.id)} size="sm" className="shrink-0" />
+                    <Avatar name={cleanCustomerName(c.display_name || c.name)} color={avatarColor(c.id)} size="sm" className="shrink-0" />
                     <div className="min-w-0 flex-1">
-                      <div className="font-medium text-sm text-ink truncate">{c.display_name || c.name}</div>
+                      <div className="font-medium text-sm text-ink truncate">{cleanCustomerName(c.display_name || c.name)}</div>
                       <div className="flex items-center justify-between gap-2 text-[11px] mt-0.5">
                         <span className="truncate text-ink-3">{c.domain || c.contact_email || "—"}</span>
                         {receivable > 0
@@ -592,6 +641,20 @@ export default function CustomersPage() {
       <ImportCustomersDialog open={importOpen} onOpenChange={setImportOpen} onImportComplete={() => refetch()} />
       <ImportDomainsDialog open={domainsOpen} onOpenChange={setDomainsOpen} onComplete={() => refetch()} />
 
+      {/* Row action → Create invoice (subscription/one-off or project). */}
+      <InvoiceChooserDialog
+        open={!!invoiceForCustomer}
+        onOpenChange={(o) => { if (!o) setInvoiceForCustomer(null); }}
+        customerId={invoiceForCustomer ?? ""}
+        onChooseProject={() => { setProjInvoiceForCustomer(invoiceForCustomer); setInvoiceForCustomer(null); }}
+      />
+      <CreateProjectQuoteDialog
+        open={!!projInvoiceForCustomer}
+        onOpenChange={(o) => { if (!o) setProjInvoiceForCustomer(null); }}
+        mode="invoice"
+        prefillCustomerId={projInvoiceForCustomer ?? undefined}
+      />
+
       <FAB icon="plus" label="Add customer" onClick={goAdd} />
     </div>
   );
@@ -609,10 +672,11 @@ function SortHead({
 }) {
   const active = sort.key === sortKey;
   return (
-    <th className={cn("p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider", align === "right" ? "text-right" : "text-left")}>
+    <th className={cn("group px-3 py-2.5 text-[11px] font-semibold text-ink-3 uppercase tracking-wider", align === "right" ? "text-right" : "text-left")}>
       <button
         type="button"
         onClick={() => onSort(sortKey)}
+        aria-label={`Sort by ${label}${active ? (sort.dir === "asc" ? " (ascending)" : " (descending)") : ""}`}
         className={cn(
           "inline-flex items-center gap-1 hover:text-ink transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber rounded",
           align === "right" && "flex-row-reverse",
@@ -620,12 +684,61 @@ function SortHead({
         )}
       >
         {label}
+        {/* Modern sort indicator: only shown when active, or faintly on hover. */}
         <Icon
-          name={active ? (sort.dir === "asc" ? "chevron_up" : "chevron_down") : "chevron_down"}
+          name={active && sort.dir === "asc" ? "chevron_up" : "chevron_down"}
           size={13}
-          className={active ? "text-amber" : "text-ink-3/40"}
+          className={cn(
+            "transition-opacity",
+            active ? "text-amber opacity-100" : "text-ink-3 opacity-0 group-hover:opacity-60",
+          )}
         />
       </button>
     </th>
+  );
+}
+
+/** Per-row overflow menu (View · Edit · New quote · Create invoice · Manage subs).
+ *  stopPropagation on the trigger so opening it doesn't also fire the row click. */
+function RowActions({
+  customerName, onView, onEdit, onNewQuote, onInvoice, onManageSubs,
+}: {
+  customerName: string;
+  onView: () => void;
+  onEdit: () => void;
+  onNewQuote: () => void;
+  onInvoice: () => void;
+  onManageSubs: () => void;
+}) {
+  const stop = (fn: () => void) => (e: React.MouseEvent) => { e.stopPropagation(); fn(); };
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
+        <IconButton
+          icon="more_h"
+          size="sm"
+          variant="ghost"
+          aria-label={`Actions for ${customerName}`}
+          className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100"
+        />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="min-w-[12rem]" onClick={(e) => e.stopPropagation()}>
+        <DropdownMenuItem className="gap-2.5 py-2 cursor-pointer" onClick={stop(onView)}>
+          <Icon name="eye" size={15} /> View details
+        </DropdownMenuItem>
+        <DropdownMenuItem className="gap-2.5 py-2 cursor-pointer" onClick={stop(onEdit)}>
+          <Icon name="edit" size={15} /> Edit customer
+        </DropdownMenuItem>
+        <DropdownMenuItem className="gap-2.5 py-2 cursor-pointer" onClick={stop(onNewQuote)}>
+          <Icon name="plus" size={15} /> New quote
+        </DropdownMenuItem>
+        <DropdownMenuItem className="gap-2.5 py-2 cursor-pointer" onClick={stop(onInvoice)}>
+          <Icon name="receipt" size={15} /> Create invoice
+        </DropdownMenuItem>
+        <DropdownMenuItem className="gap-2.5 py-2 cursor-pointer" onClick={stop(onManageSubs)}>
+          <Icon name="refresh" size={15} /> Manage subscriptions
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

@@ -26,7 +26,7 @@ import { Button, IconButton } from "@/components/ui/button";
 import { Avatar } from "@/components/ui/avatar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TabBar, type TabBarItem } from "@/components/ui/tabs";
-import { initials, formatDate, rupee, daysBetween } from "@/lib/utils";
+import { initials, formatDate, rupee, daysBetween, cn } from "@/lib/utils";
 import { InvoiceChooserDialog } from "@/components/features/invoices/invoice-chooser-dialog";
 import { CreateProjectQuoteDialog } from "@/components/features/projects/create-project-quote-dialog";
 import { useConfirm } from "@/components/providers/confirm-provider";
@@ -103,7 +103,11 @@ export function CustomerPanel({ customerId, onClose }: { customerId: string; onC
         <div className="flex items-center gap-3 min-w-0">
           <Avatar initials={initials(c.name) || "?"} color="amber" size="md" />
           <div className="min-w-0">
-            <h2 className="font-serif text-2xl text-ink leading-tight truncate">{c.display_name || c.name}</h2>
+            <h2 className="font-serif text-2xl text-ink leading-tight truncate">
+              <Link href={`/customers/${c.id}` as never} className="hover:underline decoration-1 underline-offset-2" title="Open full customer profile">
+                {c.display_name || c.name}
+              </Link>
+            </h2>
             <div className="flex items-center gap-2 mt-1 flex-wrap">
               {/* Health is only meaningful for an active paying relationship. For a
                   customer with no active subscription, a score would be noise — show
@@ -206,6 +210,7 @@ export function CustomerPanel({ customerId, onClose }: { customerId: string; onC
                     i.id, formatDate(i.invoice_date), rupee(i.amount),
                     <Badge key="b" kind={i.status === "paid" ? "success" : i.status === "overdue" ? "danger" : "warning"} dot>{i.status}</Badge>,
                   ])}
+                  rowLinks={allInvoices.map((i) => `/invoices?open=${i.id}`)}
                 />
               ) : <PanelEmpty icon="receipt" text="No invoices yet." />
             )}
@@ -225,6 +230,10 @@ export function CustomerPanel({ customerId, onClose }: { customerId: string; onC
                       </Badge>,
                     ]),
                   ]}
+                  rowLinks={[
+                    ...allQuotes.map((q) => `/quotes/${q.id}`),
+                    ...custProjects.map((p) => `/projects/${p.id}`),
+                  ]}
                 />
               ) : <PanelEmpty icon="file" text="No quotes yet." />
             )}
@@ -239,7 +248,13 @@ export function CustomerPanel({ customerId, onClose }: { customerId: string; onC
   );
 }
 
-function SimpleTable({ head, rows }: { head: string[]; rows: React.ReactNode[][] }) {
+function SimpleTable({ head, rows, rowLinks }: {
+  head: string[];
+  rows: React.ReactNode[][];
+  /** Per-row destination; a row with a link becomes clickable (opens the doc). */
+  rowLinks?: (string | undefined)[];
+}) {
+  const router = useRouter();
   return (
     <div className="border border-hairline rounded-md overflow-hidden">
       <table className="w-full text-sm">
@@ -251,11 +266,24 @@ function SimpleTable({ head, rows }: { head: string[]; rows: React.ReactNode[][]
           </tr>
         </thead>
         <tbody className="divide-y divide-hairline">
-          {rows.map((r, i) => (
-            <tr key={i} className="hover:bg-paper-2/30">
-              {r.map((cell, j) => <td key={j} className="px-3 py-2 text-ink-2">{cell}</td>)}
-            </tr>
-          ))}
+          {rows.map((r, i) => {
+            const href = rowLinks?.[i];
+            const go = href ? () => router.push(href as never) : undefined;
+            return (
+              <tr
+                key={i}
+                className={cn("hover:bg-paper-2/30", href && "cursor-pointer")}
+                onClick={go}
+                role={href ? "button" : undefined}
+                tabIndex={href ? 0 : undefined}
+                onKeyDown={href ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go?.(); } } : undefined}
+              >
+                {r.map((cell, j) => (
+                  <td key={j} className={cn("px-3 py-2 text-ink-2", href && j === 0 && "font-medium text-amber hover:underline")}>{cell}</td>
+                ))}
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>

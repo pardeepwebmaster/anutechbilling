@@ -17,6 +17,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/ui/icon";
 import { useCustomer, useSetCustomerActive } from "@/lib/queries/customers";
+import { useCustomerGroups } from "@/lib/queries/customer-groups";
 import { useCustomerSubscriptions } from "@/lib/queries/subscriptions";
 import { useCustomerInvoices, useCustomerQuotes } from "@/lib/queries/invoices";
 import { useCustomerProjects } from "@/lib/queries/projects";
@@ -44,6 +45,7 @@ export function CustomerPanel({ customerId, onClose }: { customerId: string; onC
   const router = useRouter();
   const setActive = useSetCustomerActive();
   const confirm = useConfirm();
+  const { data: allGroups } = useCustomerGroups();
   const { data: c, isLoading } = useCustomer(customerId);
   const { data: subs } = useCustomerSubscriptions(customerId);
   const { data: invoices } = useCustomerInvoices(customerId);
@@ -112,6 +114,21 @@ export function CustomerPanel({ customerId, onClose }: { customerId: string; onC
               <span className="text-[11px] text-ink-3">{tenureDays === 0 ? "Added today" : `Customer for ${tenure}`}</span>
               {c.domain && <span className="text-[11px] text-ink-3 font-mono truncate">· {c.domain}</span>}
             </div>
+            {/* Parent account (customer group) — highlighted, so the operator
+                instantly sees this customer belongs to a larger account. */}
+            {c.group_id && (() => {
+              const g = (allGroups ?? []).find((x) => x.id === c.group_id);
+              return g ? (
+                <Link
+                  href={`/customers/groups/${g.id}` as never}
+                  className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-amber-soft px-2.5 py-1 text-[11px] font-semibold text-amber-ink hover:bg-amber/20 transition-colors max-w-full"
+                  title={`Part of parent account: ${g.name}`}
+                >
+                  <Icon name="layout" size={12} className="shrink-0" />
+                  <span className="truncate">Parent account: {g.name}</span>
+                </Link>
+              ) : null;
+            })()}
           </div>
         </div>
         <div className="flex items-center gap-1.5 flex-shrink-0">

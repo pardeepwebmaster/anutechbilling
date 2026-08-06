@@ -45,14 +45,14 @@ import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { TabBar, type TabBarItem } from "@/components/ui/tabs";
-import { rupee, formatDate, daysBetween } from "@/lib/utils";
+import { rupee, formatDate, daysBetween, cleanDisplayName } from "@/lib/utils";
 import type { Invoice, Payment } from "@/lib/supabase/database.types";
 
 const INV_COL_ORDER = ["select", "invoice", "customer", "date", "due", "amount", "status", "action"];
 // Fluid percentage widths (sum = 100) so the table always fits the viewport —
 // no fixed-pixel widths, no horizontal scroll. table-fixed keeps them honest.
 const INV_COL_WIDTHS: Record<string, string> = {
-  select: "4%", invoice: "15%", customer: "13%", date: "11%", due: "11%", amount: "13%", status: "12%", action: "21%",
+  select: "3%", invoice: "15%", customer: "19%", date: "10%", due: "10%", amount: "13%", status: "11%", action: "19%",
 };
 
 function InvoicesPageInner() {
@@ -571,7 +571,7 @@ function InvoicesPageInner() {
                 <div className="flex items-start justify-between gap-3 mb-1.5">
                   <div className="min-w-0 flex-1">
                     <p className="font-mono text-xs font-semibold text-ink">{inv.id}</p>
-                    <p className="text-sm font-medium text-ink mt-0.5 truncate">{inv.customer_name}</p>
+                    <p className="text-sm font-medium text-ink mt-0.5 truncate">{cleanDisplayName(inv.customer_name)}</p>
                   </div>
                   <div className="text-right shrink-0">
                     <p className="font-serif text-base tabular-nums text-ink">{rupee(inv.amount)}</p>
@@ -613,21 +613,21 @@ function InvoicesPageInner() {
             <colgroup>
               {INV_COL_ORDER.map((id) => <col key={id} style={{ width: INV_COL_WIDTHS[id] }} />)}
             </colgroup>
-            <thead className="bg-paper-2 border-b border-hairline">
+            <thead className="bg-paper-2 border-b border-hairline-strong">
               <tr>
-                <th className="p-3">
+                <th className="px-3 py-2.5">
                   <Checkbox
                     checked={selected.size === rows.length && rows.length > 0}
                     onCheckedChange={toggleAll}
                   />
                 </th>
-                <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Invoice #</th>
-                <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Customer</th>
-                <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Date</th>
-                <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Due date</th>
-                <th className="text-right p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Amount</th>
-                <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Status</th>
-                <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Action</th>
+                <th className="text-left px-3 py-2.5 text-[11px] font-semibold text-ink-3 uppercase tracking-wider">Invoice #</th>
+                <th className="text-left px-3 py-2.5 text-[11px] font-semibold text-ink-3 uppercase tracking-wider">Customer</th>
+                <th className="text-left px-3 py-2.5 text-[11px] font-semibold text-ink-3 uppercase tracking-wider">Date</th>
+                <th className="text-left px-3 py-2.5 text-[11px] font-semibold text-ink-3 uppercase tracking-wider">Due date</th>
+                <th className="text-right px-3 py-2.5 text-[11px] font-semibold text-ink-3 uppercase tracking-wider">Amount</th>
+                <th className="text-left px-3 py-2.5 text-[11px] font-semibold text-ink-3 uppercase tracking-wider">Status</th>
+                <th className="text-right px-3 py-2.5 text-[11px] font-semibold text-ink-3 uppercase tracking-wider">Action</th>
               </tr>
             </thead>
             <tbody>
@@ -694,45 +694,49 @@ function InvoiceRow({
 
   return (
     <>
-    <tr className="border-b border-hairline last:border-0 hover:bg-paper-2/40">
-      <td className="p-3">
+    <tr
+      className="group border-b border-hairline last:border-0 hover:bg-paper-2/50 cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber focus-visible:ring-inset"
+      role="button"
+      tabIndex={0}
+      aria-label={`Open invoice ${inv.id}`}
+      onClick={() => setPreviewOpen(true)}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setPreviewOpen(true); } }}
+    >
+      <td className="px-3 py-2.5" onClick={(e) => e.stopPropagation()}>
         <Checkbox checked={checked} onCheckedChange={onToggle} />
       </td>
-      {/* Compact invoice # — tail number as a chip; full number on hover. */}
-      <td className="p-3" title={inv.id}>
-        <div className="flex items-center gap-1.5">
-          <span className="inline-flex items-center rounded-md bg-paper-2 px-1.5 py-0.5 font-mono text-[11px] font-semibold text-ink">
-            #{inv.id.split("-").pop()}
-          </span>
-          <Badge kind={isProject ? "info" : "muted"} size="sm">{isProject ? "Project" : "Subscription"}</Badge>
-        </div>
+      {/* Full invoice number (mono) + type badge — never truncated. */}
+      <td className="px-3 py-2.5 align-top">
+        <div className="font-mono text-[12px] font-semibold text-ink break-all leading-snug">{inv.id}</div>
+        <Badge kind={isProject ? "info" : "muted"} size="sm" className="mt-1">{isProject ? "Project" : "Subscription"}</Badge>
       </td>
-      <td className="p-3 text-sm font-medium truncate" title={inv.customer_name}>
+      <td className="px-3 py-2.5 text-sm font-medium align-top" onClick={(e) => e.stopPropagation()}>
         {inv.customer_id ? (
-          <Link href={`/customers/${inv.customer_id}` as never} className="text-ink hover:text-amber-ink hover:underline">
-            {inv.customer_name}
+          <Link href={`/customers/${inv.customer_id}` as never} className="text-ink hover:text-amber-ink hover:underline break-words leading-snug">
+            {cleanDisplayName(inv.customer_name)}
           </Link>
         ) : (
-          inv.customer_name
+          <span className="text-ink break-words leading-snug">{cleanDisplayName(inv.customer_name)}</span>
         )}
       </td>
-      <td className="p-3 text-sm text-ink-2 whitespace-nowrap truncate">{formatDate(inv.invoice_date)}</td>
-      <td className="p-3 text-sm text-ink-2 whitespace-nowrap truncate">{inv.due_date ? formatDate(inv.due_date) : "—"}</td>
-      <td className="p-3 text-right">
+      <td className="px-3 py-2.5 text-sm text-ink-2 whitespace-nowrap align-top">{formatDate(inv.invoice_date)}</td>
+      <td className="px-3 py-2.5 text-sm text-ink-2 whitespace-nowrap align-top">{inv.due_date ? formatDate(inv.due_date) : "—"}</td>
+      <td className="px-3 py-2.5 text-right align-top">
         <div className="flex flex-col items-end gap-0.5">
           <span className="font-serif text-[15px] font-semibold text-ink tabular-nums">{rupee(inv.amount)}</span>
-          {/* Surface net-payable when advances were adjusted at issue time
-              (CGST Rule 53). Otherwise the gross alone is misleading — paid
-              invoices may have most of the amount cleared via advance receipts. */}
+          {/* Net payable when advances were adjusted at issue (CGST Rule 53).
+              Clean single line; the advance breakdown rides in the tooltip. */}
           {inv.net_payable !== null && inv.net_payable < inv.amount && (
-            <span className="text-[10px] font-medium tabular-nums leading-tight text-ink-3">
-              Net <span className="text-ink-2">{rupee(inv.net_payable)}</span>
-              <span className="text-emerald"> · {rupee(inv.amount - inv.net_payable)} adv</span>
+            <span
+              className="text-[10px] font-medium tabular-nums leading-tight text-ink-3 cursor-help"
+              title={`Net payable ${rupee(inv.net_payable)} · advance adjusted ${rupee(inv.amount - inv.net_payable)}`}
+            >
+              Net due <span className="text-ink-2">{rupee(inv.net_payable)}</span>
             </span>
           )}
         </div>
       </td>
-      <td className="p-3">
+      <td className="px-3 py-2.5 align-top" onClick={(e) => e.stopPropagation()}>
         {(() => {
           // "Partial" is a derived display state, not a separate DB enum value.
           // An invoice with status='pending' but adjusted_advances applied has
@@ -765,11 +769,11 @@ function InvoiceRow({
           );
         })()}
       </td>
-      <td className="p-3">
+      <td className="px-3 py-2.5 align-top" onClick={(e) => e.stopPropagation()}>
         {(() => {
           const moneyDue = inv.status === "pending" || inv.status === "overdue";
           return (
-        <div className="flex gap-1 items-center">
+        <div className="flex gap-1 items-center justify-end">
           {/* One contextual primary action keeps the column tight (no h-scroll).
               Money-due invoices lead with Record payment; everything else with View. */}
           {moneyDue ? (
@@ -791,34 +795,38 @@ function InvoiceRow({
             <DropdownMenuTrigger asChild>
               <Button size="sm" variant="ghost" icon="more_h" aria-label="More actions" />
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              {/* When Record payment is primary, View + Follow up move into the menu. */}
+            <DropdownMenuContent align="end" className="min-w-[13rem]">
+              {/* Uniform secondary actions for every invoice. */}
+              <DropdownMenuItem className="gap-2.5 py-2 cursor-pointer" onClick={() => setPreviewOpen(true)}>
+                <Icon name="file" size={15} /> View / download PDF
+              </DropdownMenuItem>
               {moneyDue && (
                 <>
-                  <DropdownMenuItem onClick={() => setPreviewOpen(true)}>
-                    <Icon name="file" size={15} className="mr-2" /> View invoice
+                  <DropdownMenuItem className="gap-2.5 py-2 cursor-pointer" onClick={() => (isProject ? setPayOpen(true) : setSubPayOpen(true))}>
+                    <Icon name="rupee" size={15} /> Record payment
                   </DropdownMenuItem>
                   <DropdownMenuItem
+                    className="gap-2.5 py-2 cursor-pointer"
                     onClick={() =>
                       inv.customer_id
                         ? router.push(`/customers/${inv.customer_id}` as any)
-                        : toast.info("This invoice has no linked customer to follow up with")
+                        : toast.info("This invoice has no linked customer to remind")
                     }
                   >
-                    <Icon name="phone" size={15} className="mr-2" /> Follow up
+                    <Icon name="mail" size={15} /> Send reminder
                   </DropdownMenuItem>
-                  <DropdownMenuSeparator />
                 </>
               )}
-              <DropdownMenuItem onClick={() => setCnOpen(true)}>
-                <Icon name="receipt" size={15} className="mr-2" /> Issue credit note
+              <DropdownMenuSeparator />
+              <DropdownMenuItem className="gap-2.5 py-2 cursor-pointer" onClick={() => setCnOpen(true)}>
+                <Icon name="receipt" size={15} /> Issue credit note
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setDnOpen(true)}>
-                <Icon name="receipt" size={15} className="mr-2" /> Issue debit note
+              <DropdownMenuItem className="gap-2.5 py-2 cursor-pointer" onClick={() => setDnOpen(true)}>
+                <Icon name="receipt" size={15} /> Issue debit note
               </DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem destructive onClick={() => setDelOpen(true)}>
-                <Icon name="trash" size={14} /> Delete invoice
+              <DropdownMenuItem destructive className="gap-2.5 py-2 cursor-pointer" onClick={() => setDelOpen(true)}>
+                <Icon name="trash" size={15} /> Delete invoice
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

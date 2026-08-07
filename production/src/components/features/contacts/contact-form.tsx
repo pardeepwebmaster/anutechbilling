@@ -130,21 +130,21 @@ export function ContactForm({
             {/* Identity */}
             <Section title="Who">
               <FormField label="Full name" required htmlFor="full_name">
-                <Input id="full_name" autoFocus placeholder="Rajesh Kumar" error={errors.full_name?.message} {...register("full_name")} />
+                <Input id="full_name" autoFocus placeholder="e.g. Rajesh Kumar" error={errors.full_name?.message} {...register("full_name")} />
               </FormField>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <FormField label="Company"><Input placeholder="Acme Corp" {...register("company")} /></FormField>
-                <FormField label="Designation"><Input placeholder="Founder / IT Head" {...register("title")} /></FormField>
+                <FormField label="Company"><Input placeholder="e.g. Acme Corp" {...register("company")} /></FormField>
+                <FormField label="Designation"><Input placeholder="e.g. Founder / IT Head" {...register("title")} /></FormField>
               </div>
             </Section>
 
             {/* Reach */}
             <Section title="How to reach">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <FormField label="Email"><Input type="email" placeholder="rajesh@acme.com" error={errors.email?.message} {...register("email")} /></FormField>
-                <FormField label="Phone"><Input placeholder="+91 98765 43210" {...register("phone")} /></FormField>
-                <FormField label="WhatsApp"><Input placeholder="+91 98765 43210" {...register("whatsapp")} /></FormField>
-                <FormField label="Website"><Input placeholder="acme.com" {...register("website")} /></FormField>
+                <FormField label="Email"><Input type="email" placeholder="e.g. rajesh@acme.com" error={errors.email?.message} {...register("email")} /></FormField>
+                <FormField label="Phone"><Input placeholder="e.g. +91 98765 43210" {...register("phone")} /></FormField>
+                <FormField label="WhatsApp"><Input placeholder="e.g. +91 98765 43210" {...register("whatsapp")} /></FormField>
+                <FormField label="Website"><Input placeholder="e.g. acme.com" {...register("website")} /></FormField>
               </div>
             </Section>
 
@@ -161,7 +161,7 @@ export function ContactForm({
             {/* Location — for meeting in person */}
             <Section title="Where to meet">
               <FormField label="Address"><Textarea rows={2} placeholder="Office / home address" {...register("address")} /></FormField>
-              <FormField label="City"><Input placeholder="Pune" {...register("city")} /></FormField>
+              <FormField label="City"><Input placeholder="e.g. Pune" {...register("city")} /></FormField>
             </Section>
 
             {/* Notes + tags */}

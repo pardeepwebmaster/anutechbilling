@@ -114,11 +114,11 @@ export function CreateProjectDialog({ open, onOpenChange }: Props) {
 
         <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4 space-y-4">
           <FormField label="Customer" required htmlFor="p_customer">
-            <Input id="p_customer" autoFocus placeholder="Excel Technologies" value={customerName} onChange={(e) => setCustomerName(e.target.value)} />
+            <Input id="p_customer" autoFocus placeholder="e.g. Excel Technologies" value={customerName} onChange={(e) => setCustomerName(e.target.value)} />
           </FormField>
 
           <FormField label="Project title" required htmlFor="p_title">
-            <Input id="p_title" placeholder="Custom accounting software" value={title} onChange={(e) => setTitle(e.target.value)} />
+            <Input id="p_title" placeholder="e.g. Custom accounting software" value={title} onChange={(e) => setTitle(e.target.value)} />
           </FormField>
 
           <FormField label="Description" htmlFor="p_desc">
@@ -131,7 +131,7 @@ export function CreateProjectDialog({ open, onOpenChange }: Props) {
 
           <div className="grid grid-cols-2 gap-3">
             <FormField label="Contract value (taxable ₹)" required htmlFor="p_taxable">
-              <Input id="p_taxable" inputMode="numeric" prefix="₹" placeholder="2200000" value={taxable} onChange={(e) => setTaxable(e.target.value)} />
+              <Input id="p_taxable" inputMode="numeric" prefix="₹" placeholder="e.g. 2200000" value={taxable} onChange={(e) => setTaxable(e.target.value)} />
             </FormField>
             <FormField label="GST rate %" htmlFor="p_gst">
               <Input id="p_gst" inputMode="numeric" placeholder="18" value={gstRate} onChange={(e) => setGstRate(e.target.value)} />

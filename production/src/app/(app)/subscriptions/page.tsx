@@ -861,7 +861,7 @@ function DomainCell({ sub, compact = false }: { sub: Subscription; compact?: boo
         autoFocus
         value={value}
         onChange={(e) => setValue(e.target.value)}
-        placeholder="acme.in"
+        placeholder="e.g. acme.in"
         className="h-7 text-[11px] font-mono py-0"
         onKeyDown={(e) => {
           if (e.key === "Enter") submit();

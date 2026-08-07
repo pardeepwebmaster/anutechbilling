@@ -2394,26 +2394,26 @@ function TrialDialog({
             <input type="hidden" {...register("tierId")} />
 
             <FormField label="Your name" required htmlFor="trial-fullName">
-              <Input id="trial-fullName" placeholder="Rajesh Kumar" error={errors.fullName?.message} {...register("fullName")} />
+              <Input id="trial-fullName" placeholder="e.g. Rajesh Kumar" error={errors.fullName?.message} {...register("fullName")} />
             </FormField>
 
             <FormField label="Company" required htmlFor="trial-companyName">
-              <Input id="trial-companyName" placeholder="Acme Pvt Ltd" error={errors.companyName?.message} {...register("companyName")} />
+              <Input id="trial-companyName" placeholder="e.g. Acme Pvt Ltd" error={errors.companyName?.message} {...register("companyName")} />
             </FormField>
 
             <FormField label="Your business domain" required htmlFor="trial-domain">
-              <Input id="trial-domain" placeholder="acme.in" error={errors.domain?.message} {...register("domain")} />
+              <Input id="trial-domain" placeholder="e.g. acme.in" error={errors.domain?.message} {...register("domain")} />
               <p className="text-[10px] text-ink-3 mt-1">
                 We&apos;ll provision Workspace on this domain. You must own it (DNS access).
               </p>
             </FormField>
 
             <FormField label="Work email" required htmlFor="trial-email">
-              <Input id="trial-email" type="email" placeholder="rajesh@acme.in" error={errors.email?.message} {...register("email")} />
+              <Input id="trial-email" type="email" placeholder="e.g. rajesh@acme.in" error={errors.email?.message} {...register("email")} />
             </FormField>
 
             <FormField label="Phone (we'll WhatsApp you)" required htmlFor="trial-phone">
-              <Input id="trial-phone" type="tel" placeholder="+91 98765 43210" error={errors.phone?.message} {...register("phone")} />
+              <Input id="trial-phone" type="tel" placeholder="e.g. +91 98765 43210" error={errors.phone?.message} {...register("phone")} />
             </FormField>
 
             <FormField label="How many users to start with?" required htmlFor="trial-seats">
@@ -2516,19 +2516,19 @@ function EnquiryDialog({
             <input type="hidden" {...register("billing")} />
 
             <FormField label="Your name" required htmlFor="fullName">
-              <Input id="fullName" placeholder="Rajesh Kumar" error={errors.fullName?.message} {...register("fullName")} />
+              <Input id="fullName" placeholder="e.g. Rajesh Kumar" error={errors.fullName?.message} {...register("fullName")} />
             </FormField>
 
             <FormField label="Company" required htmlFor="companyName">
-              <Input id="companyName" placeholder="Acme Pvt Ltd" error={errors.companyName?.message} {...register("companyName")} />
+              <Input id="companyName" placeholder="e.g. Acme Pvt Ltd" error={errors.companyName?.message} {...register("companyName")} />
             </FormField>
 
             <FormField label="Work email" required htmlFor="email">
-              <Input id="email" type="email" placeholder="rajesh@acme.in" error={errors.email?.message} {...register("email")} />
+              <Input id="email" type="email" placeholder="e.g. rajesh@acme.in" error={errors.email?.message} {...register("email")} />
             </FormField>
 
             <FormField label="Phone" required htmlFor="phone">
-              <Input id="phone" type="tel" placeholder="+91 98765 43210" error={errors.phone?.message} {...register("phone")} />
+              <Input id="phone" type="tel" placeholder="e.g. +91 98765 43210" error={errors.phone?.message} {...register("phone")} />
             </FormField>
 
             <FormField label="Your state (for GST invoice)" htmlFor="stateCode">
@@ -3212,7 +3212,7 @@ function BuyNowDialog({
                           applyCoupon();
                         }
                       }}
-                      placeholder="SAVE10"
+                      placeholder="e.g. SAVE10"
                       maxLength={50}
                       className="flex-1 bg-paper border border-hairline rounded-md px-3 py-2 text-sm font-mono uppercase placeholder:text-ink-4 placeholder:normal-case focus:outline-none focus:ring-2 focus:ring-amber/40"
                     />
@@ -3265,17 +3265,17 @@ function BuyNowDialog({
             <input type="hidden" {...register("seats")} />
 
             <FormField label="Your name" required htmlFor="buy-fullName">
-              <Input id="buy-fullName" placeholder="Rajesh Kumar"
+              <Input id="buy-fullName" placeholder="e.g. Rajesh Kumar"
                 error={errors.fullName?.message} {...register("fullName")} />
             </FormField>
 
             <FormField label="Company" required htmlFor="buy-companyName">
-              <Input id="buy-companyName" placeholder="Acme Pvt Ltd"
+              <Input id="buy-companyName" placeholder="e.g. Acme Pvt Ltd"
                 error={errors.companyName?.message} {...register("companyName")} />
             </FormField>
 
             <FormField label="Your business domain" required htmlFor="buy-domain">
-              <Input id="buy-domain" placeholder="acme.in"
+              <Input id="buy-domain" placeholder="e.g. acme.in"
                 error={errors.domain?.message} {...register("domain")} />
               <p className="text-[10px] text-ink-3 mt-1">
                 We&apos;ll provision Workspace on this domain. You must own it (DNS access).
@@ -3284,17 +3284,17 @@ function BuyNowDialog({
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <FormField label="Work email" required htmlFor="buy-email">
-                <Input id="buy-email" type="email" placeholder="rajesh@acme.in"
+                <Input id="buy-email" type="email" placeholder="e.g. rajesh@acme.in"
                   error={errors.email?.message} {...register("email")} />
               </FormField>
               <FormField label="Phone (WhatsApp)" required htmlFor="buy-phone">
-                <Input id="buy-phone" type="tel" placeholder="+91 98765 43210"
+                <Input id="buy-phone" type="tel" placeholder="e.g. +91 98765 43210"
                   error={errors.phone?.message} {...register("phone")} />
               </FormField>
             </div>
 
             <FormField label="GSTIN (optional)" htmlFor="buy-gstin">
-              <Input id="buy-gstin" placeholder="27ABCDE1234F1Z5" {...register("gstin")} />
+              <Input id="buy-gstin" placeholder="e.g. 27ABCDE1234F1Z5" {...register("gstin")} />
               <p className="text-[10px] text-ink-3 mt-1">
                 Add your GSTIN to claim input tax credit. Skip if not GST-registered.
               </p>

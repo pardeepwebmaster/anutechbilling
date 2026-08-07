@@ -361,7 +361,7 @@ function InviteDialog({ open, onOpenChange, onInvited }: {
         <div className="space-y-3">
           <div>
             <label htmlFor="inv-email" className="block text-xs font-medium text-ink-2 mb-1">Email</label>
-            <Input id="inv-email" type="email" placeholder="teammate@company.com" value={email}
+            <Input id="inv-email" type="email" placeholder="e.g. teammate@company.com" value={email}
               onChange={(e) => setEmail(e.target.value)} autoFocus />
           </div>
           <div>

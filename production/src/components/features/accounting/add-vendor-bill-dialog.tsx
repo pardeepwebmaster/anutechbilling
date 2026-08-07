@@ -274,7 +274,7 @@ export function AddVendorBillDialog({ onClose }: { onClose: () => void }) {
               <div className="relative">
                 <Input
                   id="vendor_name"
-                  placeholder="Google Cloud"
+                  placeholder="e.g. Google Cloud"
                   autoComplete="off"
                   error={errors.vendor_name?.message}
                   {...register("vendor_name", { onChange: () => { setVendorId(null); setVendorOpen(true); } })}
@@ -313,13 +313,13 @@ export function AddVendorBillDialog({ onClose }: { onClose: () => void }) {
               </div>
             </FormField>
             <FormField label="Vendor GSTIN (optional)" htmlFor="vendor_gstin">
-              <Input id="vendor_gstin" placeholder="27ABCDE1234F1Z5" {...register("vendor_gstin")} />
+              <Input id="vendor_gstin" placeholder="e.g. 27ABCDE1234F1Z5" {...register("vendor_gstin")} />
             </FormField>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <FormField label="Bill # (vendor's)" htmlFor="bill_no">
-              <Input id="bill_no" placeholder="INV-12345" {...register("bill_no")} />
+              <Input id="bill_no" placeholder="e.g. INV-12345" {...register("bill_no")} />
             </FormField>
             <FormField label="Bill date" required htmlFor="bill_date">
               <Input id="bill_date" type="date" error={errors.bill_date?.message} {...register("bill_date")} />

@@ -198,7 +198,7 @@ export function BulkDomainsDialog({ open, onOpenChange, catalog, customerId, onA
                   <div key={idx} className="flex items-center gap-2 px-2 py-1.5">
                     <Input
                       className="flex-1 h-8 text-sm font-mono"
-                      placeholder="domain.in"
+                      placeholder="e.g. domain.in"
                       value={row.domain}
                       onChange={(e) => setManual((arr) => arr.map((x, i) => i === idx ? { ...x, domain: e.target.value } : x))}
                     />

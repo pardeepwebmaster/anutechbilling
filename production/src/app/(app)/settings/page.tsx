@@ -207,7 +207,7 @@ function CompanyTab() {
               <Field label="GSTIN">
                 <Input
                   className="font-mono uppercase"
-                  placeholder="27AABCE1234D1Z9"
+                  placeholder="e.g. 27AABCE1234D1Z9"
                   error={errors.gstin?.message}
                   {...register("gstin")}
                 />
@@ -269,7 +269,7 @@ function CompanyTab() {
                   <Input
                     type="email"
                     className="font-mono"
-                    placeholder="billing@example.in"
+                    placeholder="e.g. billing@example.in"
                     error={errors.email?.message}
                     {...register("email")}
                   />
@@ -277,7 +277,7 @@ function CompanyTab() {
                 <Field label="Phone">
                   <Input
                     className="font-mono"
-                    placeholder="+91 98765 43210"
+                    placeholder="e.g. +91 98765 43210"
                     error={errors.phone?.message}
                     {...register("phone")}
                   />

@@ -857,7 +857,7 @@ export function QuoteBuilder() {
                     value={leadPhone}
                     onChange={(e) => setLeadPhone(e.target.value)}
                     className="font-mono"
-                    placeholder="+91 98765 43210"
+                    placeholder="e.g. +91 98765 43210"
                   />
                 </FormField>
               </div>
@@ -869,7 +869,7 @@ export function QuoteBuilder() {
                   value={leadEmail}
                   onChange={(e) => setLeadEmail(e.target.value)}
                   className="font-mono"
-                  placeholder="contact@company.com"
+                  placeholder="e.g. contact@company.com"
                 />
               </FormField>
 
@@ -897,7 +897,7 @@ export function QuoteBuilder() {
                     value={leadGstin}
                     onChange={(e) => setLeadGstin(e.target.value.toUpperCase())}
                     className="font-mono"
-                    placeholder="27AABCE9876D1Z3"
+                    placeholder="e.g. 27AABCE9876D1Z3"
                   />
                 </FormField>
               </div>
@@ -988,7 +988,7 @@ export function QuoteBuilder() {
               <FormField label="Prospect name" required htmlFor="prospectName">
                 <Input
                   id="prospectName"
-                  placeholder="Acme Corp Pvt Ltd"
+                  placeholder="e.g. Acme Corp Pvt Ltd"
                   value={prospectName}
                   onChange={(e) => setProspectName(e.target.value)}
                 />

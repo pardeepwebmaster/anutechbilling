@@ -294,7 +294,7 @@ export function CreateProjectQuoteDialog({ open, onOpenChange, editProject, pref
           )}
 
           <FormField label="Project title" required htmlFor="q_title">
-            <Input id="q_title" placeholder="Custom accounting software" value={title} onChange={(e) => setTitle(e.target.value)} disabled={partialLock} />
+            <Input id="q_title" placeholder="e.g. Custom accounting software" value={title} onChange={(e) => setTitle(e.target.value)} disabled={partialLock} />
           </FormField>
           <FormField label="Description" htmlFor="q_desc">
             <textarea id="q_desc" rows={2} value={description} onChange={(e) => setDescription(e.target.value)}

@@ -105,7 +105,7 @@ function StepCompany({
       <div className="grid grid-cols-2 gap-3">
         <Field label="Legal company name" className="col-span-2">
           <Input
-            placeholder="Excel Technologies Pvt Ltd"
+            placeholder="e.g. Excel Technologies Pvt Ltd"
             value={data.companyName}
             onChange={(e) => update("companyName", e.target.value)}
           />
@@ -113,7 +113,7 @@ function StepCompany({
         <Field label="GSTIN">
           <Input
             className="font-mono"
-            placeholder="27AABCE9876D1Z3"
+            placeholder="e.g. 27AABCE9876D1Z3"
             value={data.gstin}
             onChange={(e) => {
               const v = e.target.value.toUpperCase();
@@ -197,7 +197,7 @@ function StepCompany({
         <Field label="Contact email">
           <Input
             type="email"
-            placeholder="owner@yourcompany.in"
+            placeholder="e.g. owner@yourcompany.in"
             className="font-mono"
             value={data.contactEmail}
             onChange={(e) => update("contactEmail", e.target.value)}

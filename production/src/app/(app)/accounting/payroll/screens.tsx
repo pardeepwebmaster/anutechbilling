@@ -437,10 +437,10 @@ function EmployeeDialog({ employee, onClose }: { employee: Employee | null; onCl
                 <Input type="date" value={dob} onChange={(e) => setDob(e.target.value)} />
               </Field>
               <Field label="Mobile">
-                <Input inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+91 98765 43210" />
+                <Input inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="e.g. +91 98765 43210" />
               </Field>
               <Field label="Email">
-                <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@company.com" />
+                <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="e.g. name@company.com" />
               </Field>
             </div>
             <Field label="Address">
@@ -462,7 +462,7 @@ function EmployeeDialog({ employee, onClose }: { employee: Employee | null; onCl
                 <Input type="date" value={joined} onChange={(e) => setJoined(e.target.value)} />
               </Field>
               <Field label="PAN">
-                <Input value={pan} onChange={(e) => setPan(e.target.value)} placeholder="ABCDE1234F" className="uppercase" maxLength={10} />
+                <Input value={pan} onChange={(e) => setPan(e.target.value)} placeholder="e.g. ABCDE1234F" className="uppercase" maxLength={10} />
               </Field>
               <Field label="PF number">
                 <Input value={pfNo} onChange={(e) => setPfNo(e.target.value)} placeholder="Optional" />

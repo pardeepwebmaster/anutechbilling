@@ -72,7 +72,7 @@ export function UploadDocumentDialog({ open, onOpenChange }: Props) {
           </FormField>
 
           <FormField label="Title" required htmlFor="doc_title">
-            <Input id="doc_title" placeholder="GST registration certificate" value={title} onChange={(e) => setTitle(e.target.value)} />
+            <Input id="doc_title" placeholder="e.g. GST registration certificate" value={title} onChange={(e) => setTitle(e.target.value)} />
           </FormField>
 
           <FormField label="Category" htmlFor="doc_cat">

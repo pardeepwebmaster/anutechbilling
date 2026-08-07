@@ -161,19 +161,23 @@ export default function VendorBillsPage() {
         </Card>
       ) : (
         <>
-          {/* Desktop table */}
-          <Card flush className="hidden md:block overflow-x-auto">
-            <table className="w-full text-sm">
+          {/* Desktop table — 6 tidy columns that fit without horizontal scroll */}
+          <Card flush className="hidden md:block overflow-hidden">
+            <table className="w-full text-sm table-fixed">
+              <colgroup>
+                <col className="w-[30%]" />
+                <col className="w-[14%]" />
+                <col className="w-[13%]" />
+                <col className="w-[15%]" />
+                <col className="w-[11%]" />
+                <col className="w-[17%]" />
+              </colgroup>
               <thead className="bg-paper-2 border-b border-hairline-strong text-[11px] uppercase tracking-wider text-ink-3 font-semibold">
                 <tr>
                   <th className="text-left  px-4 py-2.5">Vendor</th>
-                  <th className="text-left  px-3 py-2.5">Category</th>
                   <th className="text-left  px-3 py-2.5">Bill #</th>
-                  <th className="text-left  px-3 py-2.5">Bill date</th>
-                  <th className="text-left  px-3 py-2.5">Due date</th>
-                  <th className="text-right px-3 py-2.5">Pre-GST</th>
-                  <th className="text-right px-3 py-2.5">GST</th>
-                  <th className="text-right px-3 py-2.5">Total</th>
+                  <th className="text-left  px-3 py-2.5">Date</th>
+                  <th className="text-right px-3 py-2.5">Amount</th>
                   <th className="text-left  px-3 py-2.5">Status</th>
                   <th className="text-right px-2 py-2.5"><span className="sr-only">Actions</span></th>
                 </tr>
@@ -192,30 +196,28 @@ export default function VendorBillsPage() {
                   const showAging = b.status !== "paid" && dueDays !== null && (dueDays < 0 || dueDays <= 15);
                   return (
                     <tr key={b.id} onClick={() => setDetailBill(b)} className="cursor-pointer border-b border-hairline last:border-0 hover:bg-paper-2/50 transition-colors">
-                      <td className="px-4 py-2.5 align-top">
-                        <div className="font-medium text-ink inline-flex items-center gap-2 flex-wrap">
-                          {b.vendor_name}
+                      {/* Vendor — identity + category + items */}
+                      <td className="px-4 py-3 align-top">
+                        <div className="font-medium text-ink flex items-center gap-2 flex-wrap">
+                          <span className="truncate">{b.vendor_name}</span>
                           {b.source_tenant_invoice_id && (
-                            <Badge color="indigo" title="Auto-imported from your distributor — created when they invoiced you">
-                              From distributor
-                            </Badge>
+                            <Badge color="indigo" title="Auto-imported from your distributor — created when they invoiced you">From distributor</Badge>
                           )}
                         </div>
-                        {b.vendor_gstin && (
-                          <div className="text-[11px] text-ink-3 font-mono">{b.vendor_gstin}</div>
-                        )}
-                        {(b.line_items?.length ?? 0) > 0 && (
-                          <span className="mt-1 inline-flex items-center gap-1 text-[11px] text-ink-3">
-                            <Icon name="file" size={11} />
-                            {b.line_items.length} item{b.line_items.length === 1 ? "" : "s"} · view
-                          </span>
-                        )}
+                        <div className="mt-0.5 flex items-center gap-2 flex-wrap text-[11px] text-ink-3">
+                          {b.vendor_gstin && <span className="font-mono">{b.vendor_gstin}</span>}
+                          {b.category && <Badge kind="muted" size="sm">{b.category}</Badge>}
+                          {(b.line_items?.length ?? 0) > 0 && (
+                            <span className="inline-flex items-center gap-1"><Icon name="file" size={11} />{b.line_items.length} item{b.line_items.length === 1 ? "" : "s"}</span>
+                          )}
+                        </div>
                       </td>
-                      <td className="px-3 py-2.5 align-top">{b.category ? <Badge kind="muted" size="sm">{b.category}</Badge> : <span className="text-ink-3">—</span>}</td>
-                      <td className="px-3 py-2.5 font-mono text-ink-2 align-top whitespace-nowrap">{b.bill_no || "—"}</td>
-                      <td className="px-3 py-2.5 text-ink-2 align-top whitespace-nowrap">{formatDate(b.bill_date)}</td>
-                      <td className="px-3 py-2.5 align-top whitespace-nowrap">
-                        <div className="text-ink-2">{b.due_date ? formatDate(b.due_date) : "—"}</div>
+                      {/* Bill # */}
+                      <td className="px-3 py-3 font-mono text-[11px] text-ink-2 align-top truncate" title={b.bill_no || undefined}>{b.bill_no || "—"}</td>
+                      {/* Date + aging */}
+                      <td className="px-3 py-3 align-top whitespace-nowrap">
+                        <div className="text-ink-2">{formatDate(b.bill_date)}</div>
+                        {b.due_date && <div className="text-[11px] text-ink-3">due {formatDate(b.due_date)}</div>}
                         {showAging && (
                           <div className="mt-0.5">
                             <Badge kind={dueDays! < 0 ? "danger" : dueDays! <= 7 ? "warning" : "muted"} dot>
@@ -224,19 +226,19 @@ export default function VendorBillsPage() {
                           </div>
                         )}
                       </td>
-                      <td className="px-3 py-2.5 text-right text-ink-2 font-mono align-top tabular-nums">{rupee(b.subtotal)}</td>
-                      <td className="px-3 py-2.5 text-right text-emerald font-mono align-top tabular-nums cursor-help" title={gstTitle}>{gst > 0 ? rupee(gst) : "—"}</td>
-                      <td className="px-3 py-2.5 text-right font-semibold text-ink font-mono align-top tabular-nums">
-                        {rupee(b.total)}
-                        {(() => { const fx = foreignAmount(b.currency, b.total, b.fx_rate); return fx ? <div className="text-[10px] font-normal text-ink-3">{fx}</div> : null; })()}
-                      </td>
-                      <td className="px-3 py-2.5 align-top">
-                        <Badge color={STATUS_COLOR[b.status] ?? "slate"}>{b.status}</Badge>
+                      {/* Amount — total prominent, GST + foreign as sublines */}
+                      <td className="px-3 py-3 text-right align-top whitespace-nowrap">
+                        <div className="font-semibold text-ink font-mono tabular-nums">{rupee(b.total)}</div>
+                        {(() => { const fx = foreignAmount(b.currency, b.total, b.fx_rate); return fx ? <div className="text-[11px] font-normal text-ink-3 font-mono">{fx}</div> : null; })()}
+                        {gst > 0 && <div className="text-[11px] text-emerald cursor-help" title={gstTitle}>incl {rupee(gst)} GST</div>}
                         {b.status !== "paid" && (b.total - (b.paid_amount ?? 0)) > 0 && (b.paid_amount ?? 0) > 0 && (
-                          <div className="text-[10px] text-rose tabular-nums mt-0.5">{rupee(b.total - (b.paid_amount ?? 0))} due</div>
+                          <div className="text-[10px] text-rose tabular-nums">{rupee(b.total - (b.paid_amount ?? 0))} due</div>
                         )}
                       </td>
-                      <td className="px-2 py-2.5 text-right align-top" onClick={(e) => e.stopPropagation()}>
+                      {/* Status */}
+                      <td className="px-3 py-3 align-top"><Badge color={STATUS_COLOR[b.status] ?? "slate"}>{b.status}</Badge></td>
+                      {/* Actions */}
+                      <td className="px-2 py-3 text-right align-top" onClick={(e) => e.stopPropagation()}>
                         <div className="flex justify-end">
                           <BillActions
                             bill={b}

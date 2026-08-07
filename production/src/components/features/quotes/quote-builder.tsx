@@ -994,12 +994,13 @@ export function QuoteBuilder() {
               )}
 
               <div className="grid grid-cols-2 gap-3">
-                <FormField label="Domain (optional)" htmlFor="domain">
+                <FormField label="Company website" htmlFor="company-website">
                   <Input
-                    id="domain"
-                    value={domain}
-                    onChange={(e) => setDomain(e.target.value)}
-                    placeholder="acme.in — for Google Workspace / M365 / Zoho"
+                    id="company-website"
+                    value={customer?.domain ?? ""}
+                    readOnly
+                    className="bg-paper-2 cursor-default"
+                    placeholder="—"
                   />
                 </FormField>
                 <FormField label="GSTIN" htmlFor="gstin">
@@ -1562,6 +1563,16 @@ export function QuoteBuilder() {
           <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-6 p-4 border-t border-hairline">
             {/* Notes (left) */}
             <div>
+              {/* Subscription domain — sits with the product because Google
+                  Workspace / M365 / Zoho licences are provisioned against it.
+                  Optional; saved on the quote and flows to the subscription. */}
+              <label className="text-xs font-medium text-ink-2 block mb-1.5">Domain (optional)</label>
+              <Input
+                value={domain}
+                onChange={(e) => setDomain(e.target.value)}
+                placeholder="acme.in — where Google Workspace / M365 / Zoho licences are set up"
+                className="mb-4"
+              />
               <label className="text-xs font-medium text-ink-2 block mb-1.5">Notes for customer</label>
               <Textarea
                 value={notes}

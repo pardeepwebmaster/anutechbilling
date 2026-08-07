@@ -27,7 +27,7 @@ import {
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
-import { cn } from "@/lib/utils";
+import { cn, rupee, formatForeignAmount } from "@/lib/utils";
 import {
   useCreateExpense,
   useUpdateExpense,
@@ -37,6 +37,7 @@ import {
 } from "@/lib/queries/expenses";
 import { useBankAccounts } from "@/lib/queries/bank";
 import { useVendors, ensureVendor } from "@/lib/queries/vendors";
+import { uploadBillAttachment } from "@/lib/queries/vendor-bills";
 
 const CURRENCY_OPTIONS = ["INR", "USD", "EUR", "GBP", "AED", "SGD", "AUD", "CAD"] as const;
 
@@ -104,10 +105,27 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
   const [reading, setReading] = React.useState(false);
   const [aiNote, setAiNote]   = React.useState<string | null>(null);
   const [aiError, setAiError] = React.useState<string | null>(null);
+  // The uploaded bill file — kept and attached to the expense on save (proof),
+  // whether or not the AI read is confirmed.
+  const [attachFile, setAttachFile] = React.useState<File | null>(null);
+  // What the AI extracted, held for the operator to CONFIRM before anything is
+  // written into the form. Nothing auto-fills — a mis-read bill must never
+  // silently push wrong amounts/items into a money entry. null = no pending read.
+  type PendingExtract = {
+    vendorName?: string;
+    billDate?:   string;
+    currency:    string;
+    total?:      number;
+    gst:         number;
+    billType:    "gst" | "kaccha";
+    items:       { description: string; qty: string; unit_price: string; amount: string }[];
+  };
+  const [pending, setPending] = React.useState<PendingExtract | null>(null);
 
   async function handleBillFile(file: File) {
-    setAiError(null); setAiNote(null);
+    setAiError(null); setAiNote(null); setPending(null);
     if (file.size > 8 * 1024 * 1024) { setAiError("File is too big (max 8 MB) — try a smaller photo."); return; }
+    setAttachFile(file);   // keep it — attaches to the expense on save (proof)
     setReading(true);
     try {
       const base64 = await new Promise<string>((resolve, reject) => {
@@ -122,40 +140,57 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
         body: JSON.stringify({ fileBase64: base64, mimeType: file.type }),
       });
       const json = await res.json();
-      if (!res.ok) { setAiError(json.error ?? "Couldn't read the bill."); return; }
+      if (!res.ok) { setAiError(json.error ?? "Couldn't read the bill — fields haath se bhar do. 📎 bill attach ho jayega."); return; }
       const f = json.fields as Record<string, unknown>;
-      if (f.vendor_name) setValue("vendor_name", String(f.vendor_name));
-      if (f.bill_date)   setValue("expense_date", String(f.bill_date));
       const cur = String(f.currency ?? "INR").toUpperCase();
       const gst = Number(f.cgst ?? 0) + Number(f.sgst ?? 0) + Number(f.igst ?? 0);
-      // Uploaded = a real bill; GST present ⇒ tax invoice, else kaccha. Auto-select.
-      setBillType(gst > 0 ? "gst" : "kaccha");
-      const detected = gst > 0 ? "GST invoice" : "Kaccha bill (no GST)";
-      setCurrency(cur);
-      // Amounts are entered in the bill's own currency (converted to ₹ on save).
-      if (f.total != null) setValue("amount", Number(f.total));
-      setValue("gst_paid", gst);
-      // Line items — faithful to the bill (own currency), so the entry is verifiable.
-      const items = Array.isArray((f as Record<string, unknown>).line_items)
-        ? ((f as Record<string, unknown>).line_items as Array<Record<string, unknown>>)
-        : [];
-      setLines(items.map((it) => ({
-        description: String(it.description ?? ""),
-        qty:         it.qty        != null ? String(it.qty)        : "",
-        unit_price:  it.unit_price != null ? String(it.unit_price) : "",
-        amount:      it.amount     != null ? String(it.amount)     : "",
-      })));
-      if (cur !== "INR") {
-        setFxRate("");   // force the operator to enter today's rate
-        setAiNote(`Detected: ${detected} · ${cur} — neeche exchange rate (₹/${cur}) daalo, phir Save.`);
-      } else {
-        setAiNote(`Detected: ${detected} — bhar diya. Category check karke Save karo.`);
-      }
+      const items = Array.isArray(f.line_items) ? (f.line_items as Array<Record<string, unknown>>) : [];
+      // Hold the read for the operator to CONFIRM — nothing fills the form yet.
+      setPending({
+        vendorName: f.vendor_name ? String(f.vendor_name) : undefined,
+        billDate:   f.bill_date   ? String(f.bill_date)   : undefined,
+        currency:   cur,
+        total:      f.total != null ? Number(f.total) : undefined,
+        gst,
+        billType:   gst > 0 ? "gst" : "kaccha",
+        items: items.map((it) => ({
+          description: String(it.description ?? ""),
+          qty:         it.qty        != null ? String(it.qty)        : "",
+          unit_price:  it.unit_price != null ? String(it.unit_price) : "",
+          amount:      it.amount     != null ? String(it.amount)     : "",
+        })),
+      });
     } catch {
       setAiError("Upload failed — try again, ya fields haath se bhar do.");
     } finally {
       setReading(false);
     }
+  }
+
+  // Operator confirmed the read is correct → fill the form (header + items).
+  function applyExtract() {
+    if (!pending) return;
+    if (pending.vendorName) setValue("vendor_name", pending.vendorName);
+    if (pending.billDate)   setValue("expense_date", pending.billDate);
+    setBillType(pending.billType);
+    setCurrency(pending.currency);
+    if (pending.total != null) setValue("amount", pending.total);
+    setValue("gst_paid", pending.gst);
+    setLines(pending.items);
+    if (pending.currency !== "INR") {
+      setFxRate("");   // force today's rate before it hits the ₹ books
+      setAiNote(`Bhar diya · bill ${pending.currency} me hai — neeche exchange rate (₹/${pending.currency}) daalo, phir Save. 📎 bill attach ho jayega.`);
+    } else {
+      setAiNote("Bhar diya — amounts bill se milaa ke Save karo. 📎 bill attach ho jayega.");
+    }
+    setPending(null);
+  }
+
+  // Operator says the read is wrong / wants to enter manually → discard the
+  // extraction (NO items, NO amounts auto-added), but keep the bill attached.
+  function discardExtract() {
+    setPending(null);
+    setAiNote(`Theek — fields aur items khud bhar do. 📎 "${attachFile?.name ?? "bill"}" expense ke saath attach ho jayega.`);
   }
 
   const {
@@ -215,6 +250,14 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
       }))
       .filter((l) => l.name || l.amount > 0);
 
+    // Attach the uploaded bill (proof) — non-fatal if the upload hiccups; the
+    // expense still saves. Keep any existing attachment on edit if no new file.
+    let attachment_url: string | null = expense?.attachment_url ?? null;
+    if (attachFile) {
+      try { attachment_url = await uploadBillAttachment(attachFile); }
+      catch { /* keep saving the expense even if the file upload fails */ }
+    }
+
     if (expense) {
       // Edit updates the expense row's fields only. (A linked petty-cash leg,
       // if any, isn't re-adjusted here — edit amount changes cautiously.)
@@ -228,6 +271,7 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
           fx_rate:        rate,
           bill_type:      billType,
           line_items,
+          attachment_url,
           expense_date:   values.expense_date,
           amount:         inr(values.amount),
           gst_paid:       gstAmt,
@@ -246,6 +290,7 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
       fx_rate:        rate,
       bill_type:      billType,
       line_items,
+      attachment_url,
       expense_date:   values.expense_date,
       amount:         inr(values.amount),
       gst_paid:       gstAmt,
@@ -291,6 +336,50 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
               </div>
               {aiNote && <p className="mt-2 flex items-start gap-1.5 text-[11px] text-emerald"><Icon name="check_circle" size={12} className="mt-0.5 shrink-0" /> {aiNote}</p>}
               {aiError && <p className="mt-2 flex items-start gap-1.5 text-[11px] text-rose"><Icon name="alert" size={12} className="mt-0.5 shrink-0" /> {aiError}</p>}
+
+              {/* Confirmation gate — AI read something; the operator must confirm
+                  it's correct before it fills the form. Nothing auto-applies. */}
+              {pending && (() => {
+                const fmt = (n: number) => pending.currency !== "INR" ? (formatForeignAmount(pending.currency, n) ?? `${pending.currency} ${n}`) : rupee(n);
+                return (
+                  <div className="mt-3 rounded-md border border-amber/40 bg-paper p-3">
+                    <p className="text-[12px] font-medium text-ink mb-2">
+                      AI ne ye padha — sahi hai? Confirm karo tabhi bharega.
+                    </p>
+                    <div className="space-y-1 text-[12px] text-ink-2">
+                      <div className="flex justify-between gap-2"><span className="text-ink-3">Vendor</span><span className="text-ink text-right">{pending.vendorName || "—"}</span></div>
+                      <div className="flex justify-between gap-2"><span className="text-ink-3">Bill date</span><span className="text-right">{pending.billDate || "—"}</span></div>
+                      <div className="flex justify-between gap-2"><span className="text-ink-3">Type</span><span className="text-right">{pending.billType === "gst" ? "GST invoice" : "Kaccha (no GST)"}</span></div>
+                      <div className="flex justify-between gap-2"><span className="text-ink-3">Total{pending.currency !== "INR" ? ` (${pending.currency})` : ""}</span><span className="font-mono text-ink text-right">{pending.total != null ? fmt(pending.total) : "—"}{pending.gst > 0 ? ` · GST ${fmt(pending.gst)}` : ""}</span></div>
+                    </div>
+                    {pending.items.length > 0 && (
+                      <div className="mt-2 border-t border-hairline pt-2">
+                        <p className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold mb-1">{pending.items.length} item{pending.items.length > 1 ? "s" : ""}</p>
+                        <ul className="space-y-0.5 max-h-28 overflow-y-auto">
+                          {pending.items.map((it, i) => (
+                            <li key={i} className="flex justify-between gap-2 text-[11px]">
+                              <span className="text-ink-2 truncate">{it.description || "—"}{it.qty ? ` × ${it.qty}` : ""}</span>
+                              <span className="font-mono text-ink-3 shrink-0">{it.amount ? fmt(Number(it.amount)) : "—"}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <Button type="button" variant="primary" size="sm" icon="check" onClick={applyExtract}>Haan, sahi hai — bhar do</Button>
+                      <Button type="button" variant="default" size="sm" onClick={discardExtract}>Galat — main khud bharunga</Button>
+                    </div>
+                    <p className="mt-2 text-[10px] text-ink-3">Kaise bhi karo, 📎 &ldquo;{attachFile?.name}&rdquo; bill expense ke saath attach ho jayega.</p>
+                  </div>
+                );
+              })()}
+
+              {/* File kept but read not pending (confirmed or entering manually). */}
+              {attachFile && !pending && (
+                <p className="mt-2 flex items-center gap-1.5 text-[11px] text-ink-2">
+                  <Icon name="file" size={12} /> {attachFile.name} — expense ke saath attach hoga
+                </p>
+              )}
             </div>
           )}
           {/* Who you paid — first */}

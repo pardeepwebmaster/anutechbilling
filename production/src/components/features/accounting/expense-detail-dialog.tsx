@@ -13,6 +13,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { rupee, formatDate, formatForeignAmount } from "@/lib/utils";
+import { getBillAttachmentUrl } from "@/lib/queries/vendor-bills";
 import type { Expense } from "@/lib/queries/expenses";
 
 export function ExpenseDetailDialog({ expense, onEdit, onClose }: {
@@ -40,6 +41,16 @@ export function ExpenseDetailDialog({ expense, onEdit, onClose }: {
   // Reconciliation checks (tolerance covers rounding / ₹↔currency drift).
   const tol = foreign ? 1 : 2;
   const itemsMatch = items.length === 0 ? null : Math.abs(itemsSum - subDisp) <= tol;
+
+  const [openingBill, setOpeningBill] = React.useState(false);
+  async function openAttachment() {
+    if (!expense.attachment_url) return;
+    setOpeningBill(true);
+    try {
+      const url = await getBillAttachmentUrl(expense.attachment_url);
+      if (url) window.open(url, "_blank", "noopener");
+    } finally { setOpeningBill(false); }
+  }
 
   const billTag =
     expense.bill_type === "kaccha" ? { label: "Kaccha bill", cls: "bg-amber-soft text-amber-ink" }
@@ -119,9 +130,16 @@ export function ExpenseDetailDialog({ expense, onEdit, onClose }: {
             </div>
           </div>
 
+          {expense.attachment_url && (
+            <button type="button" onClick={openAttachment} disabled={openingBill}
+              className="flex items-center gap-1.5 text-[12px] text-amber-ink hover:underline disabled:opacity-60">
+              <Icon name="file" size={13} /> {openingBill ? "Opening…" : "View attached bill"}
+            </button>
+          )}
+
           <p className="text-[11px] text-ink-3">
             Amounts shown in {foreign ? `${cur} (the bill's currency), with ₹ for the total` : "₹"}.
-            {expense.attachment_url ? " Open the original bill to compare." : ""}
+            {expense.attachment_url ? " Open the attached bill to compare." : ""}
           </p>
         </div>
 

@@ -79,7 +79,7 @@ const DialogContent = React.forwardRef<
 
         // Desktop position — `!` forces override of the mobile anchors.
         "md:!left-1/2 md:!right-auto md:!top-1/2 md:!bottom-auto",
-        "md:!w-auto md:!max-w-lg md:max-h-[85vh] md:-translate-x-1/2 md:-translate-y-1/2",
+        "md:!w-auto md:!max-w-xl md:max-h-[90vh] md:-translate-x-1/2 md:-translate-y-1/2",
         "md:rounded-lg md:border md:p-6",
         "md:data-[state=closed]:zoom-out-95 md:data-[state=open]:zoom-in-95",
         "md:data-[state=closed]:slide-out-to-left-1/2 md:data-[state=closed]:slide-out-to-top-[48%]",

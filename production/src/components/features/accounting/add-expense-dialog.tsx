@@ -134,6 +134,9 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
   // Vendor GSTIN read from the invoice — saved to the Vendors master on save so
   // the supplier's tax details are captured (the expenses row itself has none).
   const [aiGstin, setAiGstin] = React.useState<string | null>(null);
+  // After a bill read, whether the invoice's GSTIN/name matched an existing
+  // vendor (link to it) or is new (add to the master on save). Drives a hint.
+  const [vendorMatch, setVendorMatch] = React.useState<{ kind: "existing" | "new"; name: string } | null>(null);
 
   // Open the just-uploaded bill (a local File, not yet stored) in a new tab.
   // An anchor-click is more reliable than window.open for blob: URLs (some
@@ -200,8 +203,24 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
   // Operator confirmed the read is correct → fill the form (header + items).
   function applyExtract() {
     if (!pending) return;
-    if (pending.vendorName) setValue("vendor_name", pending.vendorName);
     if (pending.gstin) setAiGstin(pending.gstin);
+    // Match the invoice's GSTIN (then name) against the Vendors master:
+    //  match   → link to that existing vendor (no duplicate),
+    //  no match → a new vendor is added on save (carrying this GSTIN).
+    const gst = pending.gstin?.trim().toUpperCase();
+    const nm  = pending.vendorName?.trim();
+    const byGstin = gst ? (vendors ?? []).find((v) => (v.gstin ?? "").trim().toUpperCase() === gst) : undefined;
+    const byName  = !byGstin && nm ? (vendors ?? []).find((v) => v.name.trim().toLowerCase() === nm.toLowerCase()) : undefined;
+    const match = byGstin ?? byName;
+    if (match) {
+      setValue("vendor_name", match.name);
+      setVendorId(match.id);
+      setVendorMatch({ kind: "existing", name: match.name });
+    } else {
+      if (nm) setValue("vendor_name", nm);
+      setVendorId(null);
+      setVendorMatch(nm ? { kind: "new", name: nm } : null);
+    }
     if (pending.billDate)   setValue("expense_date", pending.billDate);
     setBillType(pending.billType);
     setCurrency(pending.currency);
@@ -494,7 +513,7 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
                   id="vendor_name"
                   autoComplete="off"
                   placeholder="e.g. Anthropic / Airtel / Office Landlord"
-                  {...register("vendor_name", { onChange: () => { setVendorId(null); setVendorOpen(true); } })}
+                  {...register("vendor_name", { onChange: () => { setVendorId(null); setVendorMatch(null); setVendorOpen(true); } })}
                   onFocus={() => setVendorOpen(true)}
                   onBlur={() => setTimeout(() => setVendorOpen(false), 130)}
                 />
@@ -506,7 +525,7 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
                     <div className="absolute z-20 mt-1 w-full max-h-52 overflow-y-auto rounded-md border border-hairline bg-paper shadow-lg">
                       {matches.map((v) => (
                         <button key={v.id} type="button"
-                          onMouseDown={(e) => { e.preventDefault(); setValue("vendor_name", v.name); setVendorId(v.id); setVendorOpen(false); }}
+                          onMouseDown={(e) => { e.preventDefault(); setValue("vendor_name", v.name); setVendorId(v.id); setVendorMatch({ kind: "existing", name: v.name }); setVendorOpen(false); }}
                           className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-paper-2">
                           <span className="text-ink truncate">{v.name}</span>
                           {v.gstin && <span className="text-[10px] text-ink-3 font-mono shrink-0">{v.gstin}</span>}
@@ -516,6 +535,22 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
                   );
                 })()}
               </div>
+              {/* GSTIN-based match hint after a bill read. */}
+              {vendorMatch && (
+                vendorMatch.kind === "existing" ? (
+                  <p className="mt-1 flex items-center gap-1.5 text-[11px] text-emerald">
+                    <Icon name="check_circle" size={12} /> Existing vendor mil gaya{aiGstin ? " (GSTIN se)" : ""} — isi se link hoga.
+                  </p>
+                ) : isGstBill ? (
+                  <p className="mt-1 flex items-center gap-1.5 text-[11px] text-amber-ink">
+                    <Icon name="plus" size={12} /> Naya vendor &ldquo;{vendorMatch.name}&rdquo;{aiGstin ? ` (GSTIN ${aiGstin})` : ""} — Save par Vendors master me add hoga.
+                  </p>
+                ) : (
+                  <p className="mt-1 text-[11px] text-ink-3">
+                    Naya payee — kaccha/no-bill hone se Vendors master me add nahi hoga (sirf naam save hoga).
+                  </p>
+                )
+              )}
             </FormField>
 
             {/* Line items — what's on the bill (auto-filled from the AI scan).

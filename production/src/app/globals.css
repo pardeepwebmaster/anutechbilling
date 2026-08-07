@@ -139,3 +139,17 @@
     display: none !important;
   }
 }
+
+/* Resizable dialogs (desktop) — when the user drags a dialog edge/corner,
+   DialogContent gets `.dlg-resizable` + --dlg-w/--dlg-h vars. The doubled
+   class raises specificity so these win over Tailwind's `!max-w-*` / `!w-auto`
+   utilities on the dialog (equal specificity + !important → source order is
+   unreliable, so we out-specify instead). Mobile keeps the bottom sheet. */
+@media (min-width: 768px) {
+  .dlg-resizable.dlg-resizable {
+    width:      var(--dlg-w) !important;
+    height:     var(--dlg-h) !important;
+    max-width:  none !important;
+    max-height: none !important;
+  }
+}

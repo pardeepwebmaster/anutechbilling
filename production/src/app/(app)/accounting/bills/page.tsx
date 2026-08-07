@@ -31,7 +31,7 @@ import { FormField } from "@/components/ui/label";
 import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
-import { rupee, formatDate, foreignAmount } from "@/lib/utils";
+import { rupee, formatDate, foreignAmount, formatForeignAmount } from "@/lib/utils";
 import {
   useVendorBills,
   useVendorBillsTotals,
@@ -67,7 +67,7 @@ export default function VendorBillsPage() {
   const [statusFilter, setStatusFilter] = React.useState<"" | "unpaid" | "paid" | "partial">("");
   const [addOpen, setAddOpen] = React.useState(false);
   const [payBill, setPayBill] = React.useState<VendorBill | null>(null);
-  const [openItems, setOpenItems] = React.useState<string | null>(null);
+  const [detailBill, setDetailBill] = React.useState<VendorBill | null>(null);
 
   const billsQ  = useVendorBills({
     from:   range.from,
@@ -191,8 +191,7 @@ export default function VendorBillsPage() {
                   const dueDays = b.due_date ? Math.ceil((new Date(`${b.due_date}T00:00:00`).getTime() - Date.now()) / 86400000) : null;
                   const showAging = b.status !== "paid" && dueDays !== null && (dueDays < 0 || dueDays <= 15);
                   return (
-                    <React.Fragment key={b.id}>
-                    <tr className="border-b border-hairline last:border-0 hover:bg-paper-2/50 transition-colors">
+                    <tr key={b.id} onClick={() => setDetailBill(b)} className="cursor-pointer border-b border-hairline last:border-0 hover:bg-paper-2/50 transition-colors">
                       <td className="px-4 py-2.5 align-top">
                         <div className="font-medium text-ink inline-flex items-center gap-2 flex-wrap">
                           {b.vendor_name}
@@ -206,14 +205,10 @@ export default function VendorBillsPage() {
                           <div className="text-[11px] text-ink-3 font-mono">{b.vendor_gstin}</div>
                         )}
                         {(b.line_items?.length ?? 0) > 0 && (
-                          <button
-                            type="button"
-                            onClick={() => setOpenItems((cur) => (cur === b.id ? null : b.id))}
-                            className="mt-1 inline-flex items-center gap-1 text-[11px] text-ink-3 hover:text-ink"
-                          >
-                            <Icon name={openItems === b.id ? "chevron_up" : "chevron_down"} size={12} />
-                            {b.line_items.length} item{b.line_items.length === 1 ? "" : "s"}
-                          </button>
+                          <span className="mt-1 inline-flex items-center gap-1 text-[11px] text-ink-3">
+                            <Icon name="file" size={11} />
+                            {b.line_items.length} item{b.line_items.length === 1 ? "" : "s"} · view
+                          </span>
                         )}
                       </td>
                       <td className="px-3 py-2.5 align-top">{b.category ? <Badge kind="muted" size="sm">{b.category}</Badge> : <span className="text-ink-3">—</span>}</td>
@@ -241,7 +236,7 @@ export default function VendorBillsPage() {
                           <div className="text-[10px] text-rose tabular-nums mt-0.5">{rupee(b.total - (b.paid_amount ?? 0))} due</div>
                         )}
                       </td>
-                      <td className="px-2 py-2.5 text-right align-top">
+                      <td className="px-2 py-2.5 text-right align-top" onClick={(e) => e.stopPropagation()}>
                         <div className="flex justify-end">
                           <BillActions
                             bill={b}
@@ -251,36 +246,6 @@ export default function VendorBillsPage() {
                         </div>
                       </td>
                     </tr>
-                    {openItems === b.id && (b.line_items?.length ?? 0) > 0 && (
-                      <tr className="bg-paper-2/40">
-                        <td colSpan={10} className="px-4 py-2.5">
-                          <div className="rounded-md border border-hairline overflow-hidden">
-                            <table className="w-full text-[12px]">
-                              <thead className="bg-paper-2 text-ink-3">
-                                <tr>
-                                  <th className="text-left px-3 py-1.5 font-medium">Item</th>
-                                  <th className="text-right px-3 py-1.5 font-medium">Qty</th>
-                                  <th className="text-right px-3 py-1.5 font-medium">Unit price</th>
-                                  <th className="text-right px-3 py-1.5 font-medium">Amount</th>
-                                </tr>
-                              </thead>
-                              <tbody className="divide-y divide-hairline">
-                                {b.line_items.map((li, i) => (
-                                  <tr key={i}>
-                                    <td className="px-3 py-1.5 text-ink">{li.name || "—"}</td>
-                                    <td className="px-3 py-1.5 text-right text-ink-2 tabular-nums">{li.qty ?? "—"}</td>
-                                    <td className="px-3 py-1.5 text-right text-ink-2 tabular-nums">{li.rate != null ? li.rate.toLocaleString("en-IN") : "—"}</td>
-                                    <td className="px-3 py-1.5 text-right text-ink font-mono tabular-nums">{li.amount.toLocaleString("en-IN")}</td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                          </div>
-                          <p className="mt-1 text-[10px] text-ink-3">Amounts as printed on the bill{b.notes?.startsWith("Foreign bill") ? " (foreign currency — see note)" : ""}.</p>
-                        </td>
-                      </tr>
-                    )}
-                    </React.Fragment>
                   );
                 })}
               </tbody>
@@ -293,9 +258,12 @@ export default function VendorBillsPage() {
               const gst = (b.cgst ?? 0) + (b.sgst ?? 0) + (b.igst ?? 0);
               return (
                 <li key={b.id}>
-                  <Card className="p-4">
+                  <Card className="p-4 cursor-pointer" onClick={() => setDetailBill(b)}>
                     <div className="flex items-start justify-between gap-2 mb-1">
-                      <div className="font-medium text-ink leading-tight">{b.vendor_name}</div>
+                      <div className="font-medium text-ink leading-tight">
+                        {b.vendor_name}
+                        {(b.line_items?.length ?? 0) > 0 && <span className="ml-1 text-[11px] font-normal text-ink-3">· {b.line_items.length} items</span>}
+                      </div>
                       <Badge color={STATUS_COLOR[b.status] ?? "slate"}>{b.status}</Badge>
                     </div>
                     <div className="text-[11px] text-ink-3 font-mono mb-2">
@@ -310,11 +278,13 @@ export default function VendorBillsPage() {
                           <div className="text-[11px] text-emerald mt-1">+{rupee(gst)} input GST</div>
                         )}
                       </div>
-                      <BillActions
-                        bill={b}
-                        onPay={() => setPayBill(b)}
-                        onDelete={async () => { if (await confirm({ title: `Delete bill ${b.bill_no || b.id}?`, danger: true, confirmLabel: "Delete" })) del.mutate(b.id); }}
-                      />
+                      <span onClick={(e) => e.stopPropagation()}>
+                        <BillActions
+                          bill={b}
+                          onPay={() => setPayBill(b)}
+                          onDelete={async () => { if (await confirm({ title: `Delete bill ${b.bill_no || b.id}?`, danger: true, confirmLabel: "Delete" })) del.mutate(b.id); }}
+                        />
+                      </span>
                     </div>
                   </Card>
                 </li>
@@ -330,7 +300,123 @@ export default function VendorBillsPage() {
       {/* Add dialog */}
       {addOpen && <AddVendorBillDialog onClose={() => setAddOpen(false)} />}
       {payBill && <PayBillDialog bill={payBill} onClose={() => setPayBill(null)} />}
+      {detailBill && <BillDetailDialog bill={detailBill} onClose={() => setDetailBill(null)} />}
     </div>
+  );
+}
+
+// ─── Bill detail — line items + a reconciliation you can check against the
+//     paper bill: items sum → subtotal → + GST → Total, in the bill's own
+//     currency (₹ shown alongside for foreign bills). ────────────────────────
+function BillDetailDialog({ bill, onClose }: { bill: VendorBill; onClose: () => void }) {
+  const foreign = (bill.currency ?? "INR") !== "INR" && (bill.fx_rate ?? 1) > 0;
+  const cur  = bill.currency ?? "INR";
+  const rate = bill.fx_rate || 1;
+  // Everything shown in the bill's OWN currency so it matches the paper bill.
+  // Line-item amounts are already native; ₹ columns get divided back by rate.
+  const disp  = (inr: number) => (foreign ? inr / rate : inr);
+  const money = (v: number) => (foreign ? (formatForeignAmount(cur, v) ?? "") : rupee(v));
+
+  const items   = bill.line_items ?? [];
+  const itemsSum = items.reduce((s, li) => s + (li.amount || 0), 0);
+  const subDisp  = disp(bill.subtotal ?? 0);
+  const gstInr   = (bill.cgst ?? 0) + (bill.sgst ?? 0) + (bill.igst ?? 0);
+  const gstDisp  = disp(gstInr);
+  const totDisp  = disp(bill.total ?? 0);
+
+  // Reconciliation checks (tolerance covers rounding / ₹↔currency drift).
+  const tol = foreign ? 1 : 2;
+  const itemsMatch = items.length === 0 ? null : Math.abs(itemsSum - subDisp) <= tol;
+  const totalMatch = Math.abs(subDisp + gstDisp - totDisp) <= tol;
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="md:!max-w-xl">
+        <DialogHeader>
+          <DialogTitle className="flex flex-wrap items-center gap-2">
+            {bill.vendor_name}
+            {bill.bill_no && <span className="font-mono text-xs text-ink-3">#{bill.bill_no}</span>}
+          </DialogTitle>
+          <DialogDescription>
+            {formatDate(bill.bill_date)} · {bill.category}
+            {foreign && <span className="ml-1 text-amber-ink">· {cur} @ ₹{rate}/{cur}</span>}
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-3 max-h-[62vh] overflow-y-auto -mx-1 px-1">
+          {/* Line items */}
+          <div className="rounded-lg border border-hairline overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="bg-paper-2 text-ink-3 text-[11px] uppercase tracking-wider">
+                <tr>
+                  <th className="text-left px-3 py-2 font-medium">Item</th>
+                  <th className="text-right px-3 py-2 font-medium">Qty</th>
+                  <th className="text-right px-3 py-2 font-medium">Unit price</th>
+                  <th className="text-right px-3 py-2 font-medium">Amount</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-hairline">
+                {items.length === 0 ? (
+                  <tr><td colSpan={4} className="px-3 py-4 text-center text-ink-3 text-[13px]">No line items captured for this bill.</td></tr>
+                ) : items.map((li, i) => (
+                  <tr key={i}>
+                    <td className="px-3 py-2 text-ink">{li.name || "—"}</td>
+                    <td className="px-3 py-2 text-right text-ink-2 tabular-nums">{li.qty ?? "—"}</td>
+                    <td className="px-3 py-2 text-right text-ink-2 tabular-nums">{li.rate != null ? money(li.rate) : "—"}</td>
+                    <td className="px-3 py-2 text-right text-ink font-mono tabular-nums">{money(li.amount)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Reconciliation — check the entry adds up against the paper bill */}
+          <div className="rounded-lg border border-hairline bg-paper-2/30 p-3 space-y-1.5 text-sm">
+            {items.length > 0 && (
+              <div className="flex items-center justify-between">
+                <span className="text-ink-3">Items total</span>
+                <span className="font-mono tabular-nums text-ink-2">{money(itemsSum)}</span>
+              </div>
+            )}
+            <div className="flex items-center justify-between">
+              <span className="text-ink-3">Subtotal (pre-GST)</span>
+              <span className="font-mono tabular-nums text-ink-2">{money(subDisp)}</span>
+            </div>
+            {itemsMatch !== null && (
+              <div className={`flex items-center gap-1.5 text-[11px] ${itemsMatch ? "text-emerald" : "text-amber-ink"}`}>
+                <Icon name={itemsMatch ? "check_circle" : "alert"} size={12} />
+                {itemsMatch ? "Items add up to the subtotal" : `Items (${money(itemsSum)}) don't match the subtotal (${money(subDisp)}) — check the entry`}
+              </div>
+            )}
+            <div className="flex items-center justify-between">
+              <span className="text-ink-3">GST</span>
+              <span className="font-mono tabular-nums text-emerald">{gstInr > 0 ? money(gstDisp) : "—"}</span>
+            </div>
+            <div className="flex items-center justify-between border-t border-hairline pt-1.5 mt-1">
+              <span className="font-semibold text-ink">Total</span>
+              <span className="text-right">
+                <span className="font-mono tabular-nums font-semibold text-ink">{money(totDisp)}</span>
+                {foreign && <span className="block text-[11px] font-normal text-ink-3">= {rupee(bill.total)}</span>}
+              </span>
+            </div>
+            {!totalMatch && (
+              <div className="flex items-center gap-1.5 text-[11px] text-amber-ink">
+                <Icon name="alert" size={12} /> Subtotal + GST doesn&apos;t equal Total — re-check the amounts.
+              </div>
+            )}
+          </div>
+
+          <p className="text-[11px] text-ink-3">
+            Amounts shown in {foreign ? `${cur} (the bill's currency), with ₹ for the total` : "₹"}.
+            {bill.attachment_url ? " Open the original bill from the ⋯ menu to compare." : ""}
+          </p>
+        </div>
+
+        <DialogFooter>
+          <Button type="button" variant="default" onClick={onClose}>Close</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

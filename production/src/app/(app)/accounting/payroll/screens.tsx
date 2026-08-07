@@ -57,6 +57,13 @@ function todayISO(): string {
 function currentPeriod(): string {
   return new Date(Date.now() + 5.5 * 60 * 60 * 1000).toISOString().slice(0, 7); // YYYY-MM
 }
+/** Previous month (YYYY-MM) — payroll is usually run for the month just ended. */
+function prevPeriod(): string {
+  const d = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
+  d.setUTCDate(1);
+  d.setUTCMonth(d.getUTCMonth() - 1);
+  return d.toISOString().slice(0, 7);
+}
 function fmtTimeIST(iso: string | null): string {
   if (!iso) return "—";
   return new Date(iso).toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit" });
@@ -527,7 +534,7 @@ function EmployeeDialog({ employee, onClose }: { employee: Employee | null; onCl
 // ── Payroll tab ─────────────────────────────────────────────────────────────
 export function PayrollTab() {
   const router = useRouter();
-  const [period, setPeriod] = React.useState(currentPeriod());
+  const [period, setPeriod] = React.useState(prevPeriod());
   const empQ = useEmployees();
   const payQ = useSalaryPayments(period);
   const meQ = useCurrentUser();

@@ -1166,6 +1166,11 @@ function PaySalaryDialog({ employee, period, onClose }: { employee: Employee; pe
                   )}
                 </p>
               )}
+              {payPeriod.complete && (
+                <p className="text-[11px] text-ink-3 mt-1">
+                  Full month · {payPeriod.daysInMonth} days ({periodLabel(period)}). Absences are deducted below as LOP.
+                </p>
+              )}
             </div>
             <div>
               <label className="block text-xs font-medium text-ink-2 mb-1">Pay from</label>

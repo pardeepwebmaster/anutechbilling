@@ -568,6 +568,9 @@ export function PayrollTab() {
   const paidByEmp = new Map((payQ.data ?? []).map((p) => [p.employee_id, p]));
   const totalNet = (payQ.data ?? []).reduce((s, p) => s + p.net, 0);
   const acctName = new Map((accountsQ.data ?? []).map((a) => [a.id, a.name]));
+  // Summary: full monthly cost (all active gross) vs what's actually been run.
+  const estimatedMonthly = employees.reduce((s, e) => s + e.monthly_gross, 0);
+  const runCount = employees.filter((e) => paidByEmp.has(e.id)).length;
 
   // Attendance this month: days present (distinct check-ins) vs working days so
   // far (Sundays + company holidays excluded; from the join date if mid-month).
@@ -598,10 +601,27 @@ export function PayrollTab() {
 
   return (
     <>
-      {/* Payroll-this-month KPI — money reads first */}
+      {/* Summary — full monthly cost vs what's been run this month */}
       <Card className="mb-4 p-4">
-        <div className="text-[11px] uppercase tracking-wider text-ink-3 font-semibold">Payroll this month</div>
-        <div className="font-serif text-2xl text-ink leading-tight mt-1">{rupee(totalNet)}</div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+          <div>
+            <div className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold">Estimated monthly cost</div>
+            <div className="font-serif text-2xl text-ink leading-tight mt-1">{rupee(estimatedMonthly)}</div>
+            <div className="text-[11px] text-ink-3 mt-0.5">All {employees.length} active employees&apos; gross</div>
+          </div>
+          <div>
+            <div className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold">Run this month (net)</div>
+            <div className="font-serif text-2xl text-ink leading-tight mt-1">{rupee(totalNet)}</div>
+            <div className="text-[11px] text-ink-3 mt-0.5">{runCount} of {employees.length} paid</div>
+          </div>
+          <div className="col-span-2 sm:col-span-1">
+            <div className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold">Still to run</div>
+            <div className={cn("font-serif text-2xl leading-tight mt-1", employees.length - runCount > 0 ? "text-amber-ink" : "text-emerald")}>
+              {employees.length - runCount}
+            </div>
+            <div className="text-[11px] text-ink-3 mt-0.5">{employees.length - runCount > 0 ? "employees pending" : "everyone paid 🎉"}</div>
+          </div>
+        </div>
       </Card>
 
       <Card className="mb-4 p-3 md:p-4">
@@ -668,52 +688,36 @@ export function PayrollTab() {
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex items-center justify-end gap-2">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            icon="calendar"
-                            title={`See ${e.name}'s full-year payroll`}
-                            onClick={() => setCalendarFor(e)}
-                          />
-                        {p ? (
-                          <div className="flex items-center justify-end gap-2">
-                            {p.paid_status === "paid" ? (
-                              <Badge kind="success" dot>Paid</Badge>
-                            ) : p.paid_status === "partial" ? (
-                              <Badge kind="warning" dot title={`Partly paid — ${rupee(p.net - p.paid_amount)} still owed. Reconcile another bank line to clear the balance.`}>
-                                Partial · {rupee(p.paid_amount)}/{rupee(p.net)}
-                              </Badge>
-                            ) : (
-                              <Badge kind="warning" dot title="Payroll run — awaiting the bank debit to be reconciled">Awaiting reconcile</Badge>
-                            )}
-                            <PayslipButton employee={e} payment={p} me={meQ.data ?? null} paidVia={p.bank_account_id ? acctName.get(p.bank_account_id) ?? null : null} />
-                            {p.paid_amount === 0 ? (
-                              <>
-                                <Button
-                                  variant="ghost" size="sm" icon="edit"
-                                  aria-label={`Edit ${e.name}'s salary`}
-                                  title="Edit this salary — reverses the run and reopens the pay form so you can correct it"
-                                  onClick={() => editSalary(e, p)}
-                                />
-                                <Button
-                                  variant="ghost" size="sm" icon="trash"
-                                  loading={undoSalary.isPending}
-                                  aria-label={`Undo ${e.name}'s salary`}
-                                  title="Undo this salary — reverses the expense so you can pay it again"
-                                  onClick={() => undoSalaryFor(e, p)}
-                                />
-                              </>
-                            ) : (
-                              <span className="inline-flex items-center gap-1 text-[11px] text-ink-3" title="Reconciled to a bank line. To edit or undo, first un-reconcile that bank line in Accounting → Banking.">
-                                <Icon name="lock" size={13} /> Locked
-                              </span>
-                            )}
-                          </div>
-                        ) : e.monthly_gross > 0 ? (
-                          <Button variant="primary" size="sm" onClick={() => setPayFor(e)}>Pay salary</Button>
-                        ) : (
-                          <Button variant="primary" size="sm" onClick={() => setEditFor(e)} title="Set this employee's monthly salary, then run payroll.">Set salary</Button>
-                        )}
+                          {p ? (
+                            <>
+                              {p.paid_status === "paid" ? (
+                                <Badge kind="success" dot>Paid</Badge>
+                              ) : p.paid_status === "partial" ? (
+                                <Badge kind="warning" dot title={`Partly paid — ${rupee(p.net - p.paid_amount)} still owed. Reconcile another bank line to clear the balance.`}>
+                                  Partial · {rupee(p.paid_amount)}/{rupee(p.net)}
+                                </Badge>
+                              ) : (
+                                <Badge kind="warning" dot title="Payroll run — awaiting the bank debit to be reconciled">Awaiting reconcile</Badge>
+                              )}
+                              <PayrollRowMenu
+                                e={e} p={p} me={meQ.data ?? null}
+                                paidVia={p.bank_account_id ? acctName.get(p.bank_account_id) ?? null : null}
+                                onYear={() => setCalendarFor(e)} onEdit={() => editSalary(e, p)} onUndo={() => undoSalaryFor(e, p)}
+                              />
+                            </>
+                          ) : (
+                            <>
+                              {e.monthly_gross > 0 ? (
+                                <Button variant="primary" size="sm" onClick={() => setPayFor(e)}>Pay salary</Button>
+                              ) : (
+                                <Button variant="primary" size="sm" onClick={() => setEditFor(e)} title="Set this employee's monthly salary, then run payroll.">Set salary</Button>
+                              )}
+                              <PayrollRowMenu
+                                e={e} me={meQ.data ?? null} paidVia={null}
+                                onYear={() => setCalendarFor(e)} onEdit={() => {}} onUndo={() => {}}
+                              />
+                            </>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -760,33 +764,24 @@ export function PayrollTab() {
                           ) : (
                             <Badge kind="warning" dot title="Payroll run — awaiting the bank debit to be reconciled">Awaiting reconcile</Badge>
                           )}
-                          <div className="flex items-center gap-1">
-                            <PayslipButton employee={e} payment={p} me={meQ.data ?? null} paidVia={p.bank_account_id ? acctName.get(p.bank_account_id) ?? null : null} />
-                            {p.paid_amount === 0 ? (
-                              <>
-                                <Button variant="ghost" size="sm" icon="edit" aria-label={`Edit ${e.name}'s salary`}
-                                  title="Edit — reverses the run and reopens the pay form" onClick={() => editSalary(e, p)} />
-                                <Button variant="ghost" size="sm" icon="trash" aria-label={`Undo ${e.name}'s salary`}
-                                  loading={undoSalary.isPending}
-                                  title="Undo this salary — reverses the expense so you can pay it again"
-                                  onClick={() => undoSalaryFor(e, p)} />
-                              </>
-                            ) : (
-                              <span className="inline-flex items-center gap-1 text-[11px] text-ink-3" title="Reconciled to a bank line. To edit or undo, first un-reconcile that bank line in Accounting → Banking.">
-                                <Icon name="lock" size={13} /> Locked
-                              </span>
-                            )}
-                          </div>
+                          <PayrollRowMenu
+                            e={e} p={p} me={meQ.data ?? null}
+                            paidVia={p.bank_account_id ? acctName.get(p.bank_account_id) ?? null : null}
+                            onYear={() => setCalendarFor(e)} onEdit={() => editSalary(e, p)} onUndo={() => undoSalaryFor(e, p)}
+                          />
                         </>
                       ) : (
-                        <>
-                          <span className="text-[11px] text-ink-3">Awaiting payroll run</span>
+                        <div className="flex items-center gap-2">
                           {e.monthly_gross > 0 ? (
                             <Button variant="primary" size="sm" onClick={() => setPayFor(e)}>Pay salary</Button>
                           ) : (
                             <Button variant="primary" size="sm" onClick={() => setEditFor(e)} title="Set this employee's monthly salary, then run payroll.">Set salary</Button>
                           )}
-                        </>
+                          <PayrollRowMenu
+                            e={e} me={meQ.data ?? null} paidVia={null}
+                            onYear={() => setCalendarFor(e)} onEdit={() => {}} onUndo={() => {}}
+                          />
+                        </div>
                       )}
                     </div>
                   </Card>
@@ -932,61 +927,85 @@ function EmployeePayrollYearDialog({
 }
 
 /** Download this month's payslip as a PDF the owner can share on WhatsApp/email. */
-function PayslipButton({
-  employee, payment, me, paidVia,
-}: {
-  employee: Employee;
-  payment: SalaryPayment;
-  me: CurrentUserInfo | null;
-  paidVia: string | null;
-}) {
-  const [busy, setBusy] = React.useState(false);
-
-  async function download() {
-    setBusy(true);
-    try {
-      const safeName = employee.name.replace(/[^a-zA-Z0-9]+/g, "-").replace(/^-|-$/g, "");
-      await downloadPayslipPDF(
-        {
-          company: {
-            name:    me?.tenantName ?? "Company",
-            address: me?.tenantAddress ?? null,
-            email:   me?.tenantEmail ?? null,
-            phone:   me?.tenantPhone ?? null,
-            gstin:   me?.tenantGstin ?? null,
-          },
-          employee: {
-            name:  employee.name,
-            pan:   employee.pan,
-            pfNo:  employee.pf_no,
-            esiNo: employee.esi_no,
-          },
-          period:           payment.period,
-          payDate:          payment.pay_date,
-          paidVia,
-          gross:            payment.gross,
-          lopDays:          payment.lop_days,
-          lopAmount:        payment.lop_amount,
-          incentive:        payment.incentive,
-          advanceRecovered: payment.advance_recovered,
-          tds:              payment.tds,
-          pf:               payment.pf,
-          esi:              payment.esi,
-          other:            payment.other_deduction,
-          net:              payment.net,
+/** Build + download a salary slip PDF (used from the payroll row menu). */
+async function generatePayslip(employee: Employee, payment: SalaryPayment, me: CurrentUserInfo | null, paidVia: string | null) {
+  try {
+    const safeName = employee.name.replace(/[^a-zA-Z0-9]+/g, "-").replace(/^-|-$/g, "");
+    await downloadPayslipPDF(
+      {
+        company: {
+          name:    me?.tenantName ?? "Company",
+          address: me?.tenantAddress ?? null,
+          email:   me?.tenantEmail ?? null,
+          phone:   me?.tenantPhone ?? null,
+          gstin:   me?.tenantGstin ?? null,
         },
-        `Payslip-${safeName}-${periodLabel(payment.period).replace(" ", "-")}.pdf`,
-      );
-    } catch (err) {
-      toast.error((err as Error).message || "Could not build the payslip");
-    } finally {
-      setBusy(false);
-    }
+        employee: { name: employee.name, pan: employee.pan, pfNo: employee.pf_no, esiNo: employee.esi_no },
+        period:           payment.period,
+        payDate:          payment.pay_date,
+        paidVia,
+        gross:            payment.gross,
+        lopDays:          payment.lop_days,
+        lopAmount:        payment.lop_amount,
+        incentive:        payment.incentive,
+        advanceRecovered: payment.advance_recovered,
+        tds:              payment.tds,
+        pf:               payment.pf,
+        esi:              payment.esi,
+        other:            payment.other_deduction,
+        net:              payment.net,
+      },
+      `Payslip-${safeName}-${periodLabel(payment.period).replace(" ", "-")}.pdf`,
+    );
+  } catch (err) {
+    toast.error((err as Error).message || "Could not build the payslip");
   }
+}
 
+/** One "…" menu per payroll row — full-year payroll, payslip, edit/undo (or a
+ *  reconciled lock). `p` undefined → row not yet run. */
+function PayrollRowMenu({ e, p, me, paidVia, onYear, onEdit, onUndo }: {
+  e: Employee; p?: SalaryPayment; me: CurrentUserInfo | null; paidVia: string | null;
+  onYear: () => void; onEdit: () => void; onUndo: () => void;
+}) {
   return (
-    <Button variant="ghost" size="sm" icon="download" loading={busy} onClick={download}
-      aria-label="Download payslip" title="Download payslip" />
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button type="button" aria-label={`More actions for ${toTitleCase(e.name)}`}
+          className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-ink-3 hover:bg-paper-2 hover:text-ink data-[state=open]:bg-paper-2">
+          <Icon name="more_h" size={18} />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="min-w-[13rem]">
+        <DropdownMenuItem className="gap-2.5 py-2 cursor-pointer" onClick={onYear}>
+          <Icon name="calendar" size={15} /> Full-year payroll
+        </DropdownMenuItem>
+        {p && (
+          <DropdownMenuItem className="gap-2.5 py-2 cursor-pointer" onClick={() => { void generatePayslip(e, p, me, paidVia); }}>
+            <Icon name="download" size={15} /> Download payslip
+          </DropdownMenuItem>
+        )}
+        {p && p.paid_amount === 0 && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem className="gap-2.5 py-2 cursor-pointer" onClick={onEdit}>
+              <Icon name="edit" size={15} /> Edit salary
+            </DropdownMenuItem>
+            <DropdownMenuItem destructive className="gap-2.5 py-2 cursor-pointer" onClick={onUndo}>
+              <Icon name="trash" size={15} /> Undo salary
+            </DropdownMenuItem>
+          </>
+        )}
+        {p && p.paid_amount > 0 && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem disabled className="gap-2.5 py-2 text-ink-3">
+              <Icon name="lock" size={15} /> Reconciled — un-reconcile to edit
+            </DropdownMenuItem>
+          </>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 

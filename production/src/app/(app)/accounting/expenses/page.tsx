@@ -8,6 +8,7 @@
 "use client";
 
 import * as React from "react";
+import { useRouter } from "next/navigation";
 
 import { Card } from "@/components/ui/card";
 import { Button, IconButton } from "@/components/ui/button";
@@ -58,6 +59,19 @@ function ReconcileTag({ tone, label, title }: { tone: "emerald" | "amber"; label
   );
 }
 
+/** Payroll / statutory postings (salaries, employer ESI/PF, TDS) are generated
+ *  by the Payroll module — they carry no bill or line items, so they get no
+ *  items editor and clicking one jumps to Payroll (their real home) instead of
+ *  the bill-style detail. */
+function isPayrollExpense(e: { category?: string | null; payment_method?: string | null }): boolean {
+  const cat = e.category ?? "";
+  return (
+    cat === "Salaries" ||
+    e.payment_method === "statutory" ||
+    /\b(ESI|EPF|PF|Provident|Gratuity|Bonus|TDS)\b/i.test(cat)
+  );
+}
+
 const iso = (y: number, m: number, d: number) =>
   `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
 const lastDay = (y: number, m: number) => new Date(Date.UTC(y, m, 0)).getUTCDate(); // m = 1..12
@@ -93,6 +107,14 @@ export default function ExpensesPage() {
   const [addOpen, setAddOpen] = React.useState(false);
   const [editing, setEditing] = React.useState<Expense | null>(null);
   const [detail, setDetail]   = React.useState<Expense | null>(null);
+  const router = useRouter();
+
+  // Row click: payroll/statutory postings open in Payroll (their source); every
+  // other expense opens the bill-style detail (items + reconciliation).
+  const openRow = (e: Expense) => {
+    if (isPayrollExpense(e)) { router.push("/accounting/payroll" as never); return; }
+    setDetail(e);
+  };
 
   const q       = useExpenses({ from: range.from, to: range.to, category: catFilter || undefined });
   const totalsQ = useExpensesTotals(range);
@@ -279,7 +301,7 @@ export default function ExpensesPage() {
               </thead>
               <tbody className="divide-y divide-hairline">
                 {rows.map((e) => (
-                  <tr key={e.id} className="hover:bg-paper-2/40 cursor-pointer" onClick={() => setDetail(e)}>
+                  <tr key={e.id} className="hover:bg-paper-2/40 cursor-pointer" onClick={() => openRow(e)}>
                     <td className="px-3 py-3 text-ink-2 whitespace-nowrap">{formatDate(e.expense_date)}</td>
                     <td className="px-3 py-3 text-ink whitespace-nowrap">
                       {e.category}
@@ -326,7 +348,7 @@ export default function ExpensesPage() {
           <ul className="md:hidden space-y-2.5">
             {rows.map((e) => (
               <li key={e.id}>
-                <Card className="p-4 cursor-pointer" onClick={() => setDetail(e)}>
+                <Card className="p-4 cursor-pointer" onClick={() => openRow(e)}>
                   <div className="flex items-start justify-between gap-2 mb-1">
                     <div className="font-medium text-ink leading-tight">
                       {e.category}

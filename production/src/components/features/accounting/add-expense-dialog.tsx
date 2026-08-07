@@ -82,6 +82,16 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
   const [billType, setBillType] = React.useState<string>(expense?.bill_type ?? "gst");
   const isGstBill = billType === "gst";
 
+  // Payroll / statutory postings (salary, employer ESI/PF, TDS) come from the
+  // Payroll module — they have no bill or line items, so we hide the items
+  // editor when editing one. (New expenses can't be salaries — the category is
+  // filtered out — so this only matters on edit.)
+  const isPayroll = Boolean(expense && (
+    expense.category === "Salaries" ||
+    expense.payment_method === "statutory" ||
+    /\b(ESI|EPF|PF|Provident|Gratuity|Bonus|TDS)\b/i.test(expense.category)
+  ));
+
   // Line items on the bill (e.g. an Anthropic / software invoice lists several).
   // Amounts stay in the bill's OWN currency, faithful to the document; the ₹
   // books use the converted `amount`. Same shape + behaviour as COGS bills.
@@ -467,7 +477,9 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
               </p>
             </div>
 
-            {/* Line items — what's on the bill (auto-filled from the AI scan). */}
+            {/* Line items — what's on the bill (auto-filled from the AI scan).
+                Hidden for payroll/statutory postings, which have no items. */}
+            {!isPayroll && (
             <div className="rounded-md border border-hairline bg-paper/60 p-2.5">
               <div className="flex items-center justify-between mb-1.5">
                 <p className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold">
@@ -505,6 +517,7 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
                 </div>
               )}
             </div>
+            )}
 
             {/* Currency + amount + GST */}
             <div className="grid grid-cols-12 gap-3">

@@ -86,6 +86,30 @@ function effectiveLeaveAllowance(
   if (monthsRemaining <= 0) return 0;
   return Math.round((base * monthsRemaining) / 12);
 }
+
+/** How long an employee has been with the company, from their joining date to
+ *  today (IST). Returns e.g. "2 yr 3 mo", "5 mo", "<1 mo", or null (no/future
+ *  join date). */
+function tenureLabel(joiningISO?: string | null): string | null {
+  if (!joiningISO) return null;
+  const now = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
+  const [jy, jm, jd] = joiningISO.split("-").map(Number);
+  if (!jy || !jm || !jd) return null;
+  let months = (now.getUTCFullYear() - jy) * 12 + (now.getUTCMonth() + 1 - jm);
+  if (now.getUTCDate() < jd) months -= 1;
+  if (months < 0) return null;               // joins in the future → no tenure yet
+  const y = Math.floor(months / 12), m = months % 12;
+  if (y === 0 && m === 0) return "<1 mo";
+  if (y === 0) return `${m} mo`;
+  if (m === 0) return `${y} yr`;
+  return `${y} yr ${m} mo`;
+}
+
+/** Muted subline shown under an employee's name: designation + tenure. */
+function employeeSubline(e: { designation?: string | null; joining_date?: string | null }): string | null {
+  const parts = [e.designation?.trim() || null, tenureLabel(e.joining_date)].filter(Boolean);
+  return parts.length ? parts.join(" · ") : null;
+}
 const selectCls = "w-full rounded-md border border-hairline bg-paper px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-amber";
 
 /** Shared page shell for the HR screens (consistent header + width). */
@@ -201,7 +225,7 @@ export function EmployeesTab() {
                     >
                       <td className="px-4 py-3">
                         <div className="font-medium text-ink group-hover:text-amber-ink transition-colors">{toTitleCase(e.name)}</div>
-                        {e.designation && <div className="text-[11px] text-ink-3 mt-0.5">{e.designation}</div>}
+                        {employeeSubline(e) && <div className="text-[11px] text-ink-3 mt-0.5">{employeeSubline(e)}</div>}
                       </td>
                       <td className="px-4 py-3 text-right">
                         {e.monthly_gross > 0 ? (
@@ -248,7 +272,7 @@ export function EmployeesTab() {
                     <div className="flex items-start justify-between gap-2 mb-1">
                       <div className="min-w-0">
                         <div className="font-medium text-ink leading-tight">{toTitleCase(e.name)}</div>
-                        {e.designation && <div className="text-[11px] text-ink-3 mt-0.5">{e.designation}</div>}
+                        {employeeSubline(e) && <div className="text-[11px] text-ink-3 mt-0.5">{employeeSubline(e)}</div>}
                       </div>
                       {e.monthly_gross > 0 ? (
                         <div className="font-serif text-xl leading-none text-ink shrink-0">{rupee(e.monthly_gross)}</div>
@@ -578,7 +602,7 @@ export function PayrollTab() {
                     <tr key={e.id} className="hover:bg-paper-2/40">
                       <td className="px-4 py-3">
                         <div className="font-medium text-ink">{toTitleCase(e.name)}</div>
-                        {e.designation && <div className="text-[11px] text-ink-3 mt-0.5">{e.designation}</div>}
+                        {employeeSubline(e) && <div className="text-[11px] text-ink-3 mt-0.5">{employeeSubline(e)}</div>}
                       </td>
                       <td className="px-4 py-3 text-right font-mono text-ink-2">{rupee(e.monthly_gross)}</td>
                       <td className="px-4 py-3 text-right font-mono">{p ? rupee(p.net) : <span className="text-ink-3">—</span>}</td>
@@ -654,7 +678,7 @@ export function PayrollTab() {
                         title={`See ${e.name}'s full-year payroll`}
                       >
                         <div className="font-medium text-ink leading-tight hover:text-amber-ink">{toTitleCase(e.name)}</div>
-                        {e.designation && <div className="text-[11px] text-ink-3 mt-0.5">{e.designation}</div>}
+                        {employeeSubline(e) && <div className="text-[11px] text-ink-3 mt-0.5">{employeeSubline(e)}</div>}
                       </button>
                       <div className="font-serif text-xl text-ink leading-none shrink-0">{p ? rupee(p.net) : rupee(e.monthly_gross)}</div>
                     </div>

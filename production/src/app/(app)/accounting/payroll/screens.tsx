@@ -63,6 +63,29 @@ function fyStartISO(): string {
   const y = d.getUTCMonth() < 3 ? d.getUTCFullYear() - 1 : d.getUTCFullYear();
   return `${y}-04-01`;
 }
+
+/**
+ * Paid-leave days an employee is ENTITLED to in a financial year (Apr 1 → Mar 31),
+ * PRORATED for mid-year joiners. Joined on/before the FY start (or no join date)
+ * → full stored allowance. Joined during the FY → base × (whole months from their
+ * join month through March) / 12, rounded. Joined after the FY → 0. `leave_allowance`
+ * stays the full annual entitlement; only the effective FY balance is prorated.
+ */
+function effectiveLeaveAllowance(
+  emp: { leave_allowance: number; joining_date?: string | null },
+  fyStart: string = fyStartISO(),
+): number {
+  const base = emp.leave_allowance ?? 0;
+  const jd = emp.joining_date;
+  if (!jd || jd <= fyStart) return base;
+  const startYear = Number(fyStart.slice(0, 4));
+  const [jy, jm] = jd.split("-").map(Number);       // join year, month (1–12)
+  const monthsSinceStart = (jy - startYear) * 12 + (jm - 4); // April = 0
+  const monthsRemaining = 12 - monthsSinceStart;    // inclusive of the join month
+  if (monthsRemaining >= 12) return base;
+  if (monthsRemaining <= 0) return 0;
+  return Math.round((base * monthsRemaining) / 12);
+}
 const selectCls = "w-full rounded-md border border-hairline bg-paper px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-amber";
 
 /** Shared page shell for the HR screens (consistent header + width). */
@@ -160,8 +183,12 @@ export function EmployeesTab() {
               <tbody className="divide-y divide-hairline">
                 {rows.map((e) => {
                   const taken = paidLeaveTaken(e.id);
-                  const left = Math.max(0, e.leave_allowance - taken);
-                  const leaveTitle = `${left} of ${e.leave_allowance} annual paid-leave day(s) left this financial year (${taken} used). The total is the allowance set in this employee's profile — edit the profile to change it.`;
+                  const allowance = effectiveLeaveAllowance(e);
+                  const left = Math.max(0, allowance - taken);
+                  const prorated = !!e.joining_date && allowance !== e.leave_allowance;
+                  const leaveTitle = prorated
+                    ? `${left} of ${allowance} paid-leave day(s) left this FY (${taken} used). Prorated from ${e.leave_allowance}/yr — joined mid-year on ${formatDate(e.joining_date!)}.`
+                    : `${left} of ${allowance} annual paid-leave day(s) left this financial year (${taken} used). Set the annual allowance in the employee's profile.`;
                   return (
                     <tr
                       key={e.id}
@@ -187,8 +214,9 @@ export function EmployeesTab() {
                       </td>
                       <td className="px-4 py-3 text-ink-2 whitespace-nowrap">{e.joining_date ? formatDate(e.joining_date) : "—"}</td>
                       <td className="px-4 py-3 text-right font-mono tabular-nums" title={leaveTitle}>
-                        <span className={cn(left === 0 && e.leave_allowance > 0 && "text-amber-ink")}>{left}</span>
-                        <span className="text-ink-3"> / {e.leave_allowance}</span>
+                        <span className={cn(left === 0 && allowance > 0 && "text-amber-ink")}>{left}</span>
+                        <span className="text-ink-3"> / {allowance}</span>
+                        {prorated && <span className="ml-1 text-[9px] uppercase tracking-wide text-ink-3 font-sans not-italic" title={leaveTitle}>pro-rata</span>}
                       </td>
                       <td className="px-4 py-3"><Badge kind={e.is_active ? "success" : "muted"} dot>{e.is_active ? "Active" : "Inactive"}</Badge></td>
                       <td className="px-4 py-3 text-right" onClick={(ev) => ev.stopPropagation()}>
@@ -204,7 +232,9 @@ export function EmployeesTab() {
           {/* Mobile cards */}
           <ul className="md:hidden space-y-2">
             {rows.map((e) => {
-              const left = Math.max(0, e.leave_allowance - paidLeaveTaken(e.id));
+              const allowance = effectiveLeaveAllowance(e);
+              const left = Math.max(0, allowance - paidLeaveTaken(e.id));
+              const prorated = !!e.joining_date && allowance !== e.leave_allowance;
               return (
                 <li key={e.id}>
                   <Card
@@ -227,7 +257,7 @@ export function EmployeesTab() {
                       )}
                     </div>
                     <div className="text-[11px] text-ink-3 mb-2">
-                      {e.joining_date ? `Joined ${formatDate(e.joining_date)}` : "Not joined yet"} · Paid leave {left}/{e.leave_allowance}
+                      {e.joining_date ? `Joined ${formatDate(e.joining_date)}` : "Not joined yet"} · Paid leave {left}/{allowance}{prorated ? " (pro-rata)" : ""}
                     </div>
                     <div className="flex items-center justify-between gap-2" onClick={(ev) => ev.stopPropagation()}>
                       <Badge kind={e.is_active ? "success" : "muted"} dot>{e.is_active ? "Active" : "Inactive"}</Badge>
@@ -1249,7 +1279,6 @@ function LeaveDialog({ employees, onClose }: { employees: Employee[]; onClose: (
   const valid = Boolean(empId) && daysN > 0 && from <= to;
   const isPaidType = type !== "unpaid";
   const emp = employees.find((e) => e.id === empId);
-  const allowance = emp?.leave_allowance ?? 0;
 
   // Paid-leave used in the leave-year (Indian FY, Apr–Mar) of the 'from' date.
   const fy = React.useMemo(() => {
@@ -1257,6 +1286,8 @@ function LeaveDialog({ employees, onClose }: { employees: Employee[]; onClose: (
     const sy = m >= 4 ? y : y - 1;
     return { start: `${sy}-04-01`, end: `${sy + 1}-03-31` };
   }, [from]);
+  // Prorated for mid-year joiners, against the leave entry's own FY.
+  const allowance = emp ? effectiveLeaveAllowance(emp, fy.start) : 0;
   const usage = React.useMemo(() => {
     const mine = (leaveQ.data ?? []).filter(
       (l) => l.employee_id === empId && l.from_date >= fy.start && l.from_date <= fy.end,

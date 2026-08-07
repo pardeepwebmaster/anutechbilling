@@ -26,6 +26,7 @@ import { rupee, formatDate, cn, toTitleCase } from "@/lib/utils";
 import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
+import { daysElapsedInPeriod, prorateSalary } from "@/lib/payroll/proration";
 import { computeEsi, isEsiEligible, ESI_WAGE_CEILING } from "@/lib/payroll/esi";
 import { computePf, PF_WAGE_CEILING } from "@/lib/payroll/pf";
 import { useBankAccounts } from "@/lib/queries/bank";
@@ -1023,7 +1024,11 @@ function PaySalaryDialog({ employee, period, onClose }: { employee: Employee; pe
     (l) => l.status === "active" && l.outstanding > 0 && l.employee_name.trim().toLowerCase() === employee.name.trim().toLowerCase(),
   );
 
-  const [gross, setGross]   = React.useState(String(employee.monthly_gross));
+  // Don't auto-pay days that haven't happened yet: for a not-yet-complete month
+  // the salary defaults to only the days elapsed so far (owner can pay full).
+  const payPeriod = daysElapsedInPeriod(period, todayISO());
+  const proratedDefault = prorateSalary(employee.monthly_gross, payPeriod.elapsed, payPeriod.daysInMonth);
+  const [gross, setGross]   = React.useState(String(payPeriod.complete ? employee.monthly_gross : proratedDefault));
   const [bonus, setBonus]   = React.useState("0");
   const [lopDays, setLopDays] = React.useState("0");
   const [lopAmt, setLopAmt]   = React.useState("0");
@@ -1068,11 +1073,12 @@ function PaySalaryDialog({ employee, period, onClose }: { employee: Employee; pe
   const advTooMuch = advN > 0 && selectedAdv ? advN > selectedAdv.outstanding : false;
   const valid = grossN > 0 && net >= 0 && Boolean(accountId) && !advTooMuch && (advN === 0 || Boolean(advId));
 
-  // Auto-fill LOP amount from days (gross / 30) unless the user overrode it.
+  // Auto-fill LOP amount from days. Always a FULL day's value (monthly ÷ 30),
+  // independent of any mid-month proration on the pay field.
   function onLopDays(v: string) {
     setLopDays(v);
     const d = Number(v) || 0;
-    setLopAmt(String(Math.round((grossN / 30) * d)));
+    setLopAmt(String(Math.round((employee.monthly_gross / 30) * d)));
   }
 
   // Suggested LOP from attendance + unpaid leave. Non-working days (Sunday
@@ -1134,8 +1140,18 @@ function PaySalaryDialog({ employee, period, onClose }: { employee: Employee; pe
         <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-1">
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-medium text-ink-2 mb-1">Gross salary (₹)</label>
+              <label className="block text-xs font-medium text-ink-2 mb-1">Salary to pay (₹)</label>
               <Input type="number" min={0} value={gross} onChange={(e) => setGross(e.target.value)} />
+              {!payPeriod.complete && (
+                <p className="text-[11px] text-ink-3 mt-1">
+                  {proratedDefault > 0
+                    ? <>Prorated to <b>{payPeriod.elapsed} of {payPeriod.daysInMonth} days</b> (till today) — days not yet worked aren&apos;t paid.</>
+                    : <>This month hasn&apos;t started yet — enter an amount to pay in advance.</>}
+                  {grossN !== employee.monthly_gross && (
+                    <>{" "}<button type="button" className="text-amber-ink font-medium hover:underline" onClick={() => setGross(String(employee.monthly_gross))}>Pay full month ({rupee(employee.monthly_gross)})</button></>
+                  )}
+                </p>
+              )}
             </div>
             <div>
               <label className="block text-xs font-medium text-ink-2 mb-1">Pay from</label>
@@ -1165,11 +1181,11 @@ function PaySalaryDialog({ employee, period, onClose }: { employee: Employee; pe
                   <p>
                     Attendance shows only <b>{lopSuggestion.present} present</b> day(s) this month
                     {lopSuggestion.absent > 0 ? <> and <b>{lopSuggestion.absent} absent</b></> : null} — about
-                    {" "}<b>{lopSuggestion.lopDays} day(s) of loss-of-pay</b> aren&apos;t deducted, so you&apos;re set to pay the <b>full</b> salary.
+                    {" "}<b>{lopSuggestion.lopDays} day(s) of loss-of-pay</b> for absent days aren&apos;t deducted yet.
                   </p>
                 )}
                 {monthIncomplete && (
-                  <p>{periodLabel(period)} isn&apos;t over yet — you&apos;re paying before the month ends, so attendance may still change.</p>
+                  <p>{periodLabel(period)} isn&apos;t over yet — the salary above is only for the days elapsed so far; days not yet worked aren&apos;t paid.</p>
                 )}
                 {suggestedLopUnapplied && (
                   <Button size="sm" variant="primary" onClick={applyLopSuggestion}>

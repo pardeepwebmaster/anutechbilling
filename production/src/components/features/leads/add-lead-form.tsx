@@ -819,7 +819,7 @@ export function AddLeadForm({ open, onOpenChange, editingLead, defaultStage }: A
               id="notes"
               rows={4}
               placeholder="Decision maker, timeline, budget, objections, next-step plan…"
-              className="w-full rounded-md border border-hairline bg-paper px-3 py-2 text-sm text-ink placeholder:text-ink-3 focus:outline-none focus:ring-2 focus:ring-amber resize-y"
+              className="w-full rounded-md border border-hairline bg-paper px-3 py-2 text-sm text-ink placeholder:text-ink-4 focus:outline-none focus:ring-2 focus:ring-amber resize-y"
               {...register("notes")}
             />
           </FormField>

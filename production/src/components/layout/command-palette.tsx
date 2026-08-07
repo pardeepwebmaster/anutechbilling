@@ -120,7 +120,7 @@ export function CommandPalette({
               <Icon name="search" size={18} className="text-ink-3" />
               <Command.Input
                 placeholder="Search customers, leads, quotes, invoices, or run an action…"
-                className="flex-1 bg-transparent border-0 outline-none text-base text-ink placeholder:text-ink-3 font-sans"
+                className="flex-1 bg-transparent border-0 outline-none text-base text-ink placeholder:text-ink-4 font-sans"
               />
               <kbd className="text-[10px] px-1.5 py-0.5 rounded bg-paper-2 border border-hairline text-ink-3 font-mono">
                 ESC

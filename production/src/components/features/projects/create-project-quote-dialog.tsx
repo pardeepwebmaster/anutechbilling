@@ -299,7 +299,7 @@ export function CreateProjectQuoteDialog({ open, onOpenChange, editProject, pref
           <FormField label="Description" htmlFor="q_desc">
             <textarea id="q_desc" rows={2} value={description} onChange={(e) => setDescription(e.target.value)}
               placeholder="Scope / notes (optional)" disabled={partialLock}
-              className="w-full rounded-md border border-hairline bg-paper px-3 py-2 text-sm text-ink placeholder:text-ink-3 focus:outline-none focus:ring-2 focus:ring-amber resize-y disabled:opacity-60 disabled:cursor-not-allowed" />
+              className="w-full rounded-md border border-hairline bg-paper px-3 py-2 text-sm text-ink placeholder:text-ink-4 focus:outline-none focus:ring-2 focus:ring-amber resize-y disabled:opacity-60 disabled:cursor-not-allowed" />
           </FormField>
 
           {/* Line items */}

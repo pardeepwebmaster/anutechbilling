@@ -287,7 +287,7 @@ export function ImportStatementDialog({ open, onOpenChange, accountId }: Props) 
             <textarea
               rows={6}
               placeholder={"Date,Description,Debit,Credit,Balance\n28/05/2026,UPI/RAZORPAY/...,0,521088,..."}
-              className="mt-1 w-full rounded-md border border-hairline bg-paper px-3 py-2 text-xs font-mono text-ink placeholder:text-ink-3 focus:outline-none focus:ring-2 focus:ring-amber resize-y"
+              className="mt-1 w-full rounded-md border border-hairline bg-paper px-3 py-2 text-xs font-mono text-ink placeholder:text-ink-4 focus:outline-none focus:ring-2 focus:ring-amber resize-y"
               value={csvText}
               onChange={(e) => setCsvText(e.target.value)}
             />

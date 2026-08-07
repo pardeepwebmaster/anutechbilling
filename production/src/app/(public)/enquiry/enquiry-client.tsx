@@ -194,7 +194,7 @@ export function EnquiryClient({
                     rows={4}
                     placeholder="e.g. We're 25 people moving from Microsoft 365 to Google Workspace and need help with migration + GST invoice."
                     className={cn(
-                      "w-full rounded-md border bg-paper px-3 py-2 text-sm text-ink placeholder:text-ink-3 focus:outline-none focus:ring-2 focus:ring-amber/40",
+                      "w-full rounded-md border bg-paper px-3 py-2 text-sm text-ink placeholder:text-ink-4 focus:outline-none focus:ring-2 focus:ring-amber/40",
                       errors.message ? "border-rose" : "border-hairline",
                     )}
                     {...register("message")}

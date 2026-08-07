@@ -3214,7 +3214,7 @@ function BuyNowDialog({
                       }}
                       placeholder="SAVE10"
                       maxLength={50}
-                      className="flex-1 bg-paper border border-hairline rounded-md px-3 py-2 text-sm font-mono uppercase placeholder:text-ink-3 placeholder:normal-case focus:outline-none focus:ring-2 focus:ring-amber/40"
+                      className="flex-1 bg-paper border border-hairline rounded-md px-3 py-2 text-sm font-mono uppercase placeholder:text-ink-4 placeholder:normal-case focus:outline-none focus:ring-2 focus:ring-amber/40"
                     />
                     <button
                       type="button"

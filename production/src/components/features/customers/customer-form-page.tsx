@@ -46,7 +46,7 @@ const selectClass =
 // Borderless cell input for the Zoho-style contact-persons table — the table
 // cell borders draw the grid; the input fills the cell and highlights on focus.
 const cellInput =
-  "w-full bg-transparent px-3 py-2 text-sm text-ink placeholder:text-ink-3/70 focus:outline-none focus:bg-amber-soft/25";
+  "w-full bg-transparent px-3 py-2 text-sm text-ink placeholder:text-ink-4/70 focus:outline-none focus:bg-amber-soft/25";
 
 /** Label-left / field-right row (Zoho parity). Stacks on mobile. */
 function Row({

@@ -89,6 +89,7 @@ interface PnLNumbers {
   grossMargin:    number;
   expenses:       number;
   expensesCount:  number;
+  expensesByCategory: { category: string; total: number; count: number }[];
   commissions:      number;   // referral / channel-partner commissions (gross)
   commissionsCount: number;
   netProfit:      number;
@@ -159,7 +160,7 @@ function usePnL(range: DateRange) {
       // ── Expenses: non-COGS ─────────────────────────────────────────
       const { data: expenses, error: eErr } = await supabase
         .from("expenses")
-        .select("amount, gst_paid")
+        .select("amount, gst_paid, category")
         .gte("expense_date", range.from)
         .lte("expense_date", range.to);
       if (eErr) throw eErr;
@@ -167,6 +168,18 @@ function usePnL(range: DateRange) {
       const expensesTotal = (expenses ?? []).reduce((s, e) => s + (e.amount ?? 0), 0);
       const expensesCount = (expenses ?? []).length;
       const expensesGst   = (expenses ?? []).reduce((s, e) => s + (e.gst_paid ?? 0), 0);
+
+      // Break operating expenses down by category (Salaries, Rent, Software…),
+      // biggest first — so you can see where the money went at a glance.
+      const catAgg = (expenses ?? []).reduce<Record<string, { total: number; count: number }>>((m, e) => {
+        const c = e.category || "Uncategorised";
+        (m[c] ??= { total: 0, count: 0 }).total += e.amount ?? 0;
+        m[c].count += 1;
+        return m;
+      }, {});
+      const expensesByCategory = Object.entries(catAgg)
+        .map(([category, v]) => ({ category, total: v.total, count: v.count }))
+        .sort((a, b) => b.total - a.total);
 
       // ── Referral commissions earned in the period (operating expense) ──
       // The GROSS commission is the expense; TDS is only a withholding, not a
@@ -193,7 +206,7 @@ function usePnL(range: DateRange) {
         revenue, revenueCount,
         cogs, cogsCount,
         grossMargin,
-        expenses: expensesTotal, expensesCount,
+        expenses: expensesTotal, expensesCount, expensesByCategory,
         commissions, commissionsCount,
         netProfit,
         outputGST, inputGST, netGST,
@@ -211,6 +224,7 @@ export default function PnLPage() {
   const [range, setRange] = React.useState<DateRange>(thisMonth());
   const { data, isLoading } = usePnL(range);
   const [drill, setDrill] = React.useState<PnLDrillKind | null>(null);
+  const [drillExpenseCat, setDrillExpenseCat] = React.useState<string | null>(null);
 
   // Export the statement as a CSV the owner can hand to their CA (mirrors GST export).
   function exportCSV() {
@@ -320,8 +334,28 @@ export default function PnLPage() {
               <Row label="− Operating expenses"
                    amount={-data.expenses}
                    hint={`${data.expensesCount} ${data.expensesCount === 1 ? "entry" : "entries"}`}
-                   onHint={() => setDrill("expenses")}
+                   onHint={() => { setDrillExpenseCat(null); setDrill("expenses"); }}
                    tone="rose" />
+
+              {/* Category breakdown — click a group to see its entries. */}
+              {data.expensesByCategory.length > 0 && (
+                <div className="mt-1 mb-1 space-y-0.5">
+                  {data.expensesByCategory.map((c) => (
+                    <button
+                      key={c.category}
+                      type="button"
+                      onClick={() => { setDrillExpenseCat(c.category); setDrill("expenses"); }}
+                      title={`See ${c.category} entries`}
+                      className="w-full flex items-center justify-between gap-3 rounded pl-6 pr-1 py-1 text-left transition-colors hover:bg-paper-2/60"
+                    >
+                      <span className="text-[13px] text-ink-2">
+                        {c.category} <span className="text-[11px] text-ink-3">· {c.count}</span>
+                      </span>
+                      <span className="font-mono text-[13px] tabular-nums text-rose">-{rupee(c.total)}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
 
               {data.commissions > 0 && (
                 <Row label="− Referral commissions"
@@ -399,9 +433,10 @@ export default function PnLPage() {
 
       <PnLDrilldownDialog
         open={drill !== null}
-        onOpenChange={(o) => { if (!o) setDrill(null); }}
+        onOpenChange={(o) => { if (!o) { setDrill(null); setDrillExpenseCat(null); } }}
         kind={drill}
         range={range}
+        expenseCategory={drillExpenseCat}
       />
     </div>
   );

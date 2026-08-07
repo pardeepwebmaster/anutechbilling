@@ -605,10 +605,8 @@ export function PayrollTab() {
                         <div className="font-medium text-ink">{toTitleCase(e.name)}</div>
                         {employeeSubline(e) && <div className="text-[11px] text-ink-3 mt-0.5">{employeeSubline(e)}</div>}
                       </td>
-                      <td className="px-4 py-3 text-right">
-                        {e.monthly_gross > 0
-                          ? <span className="font-mono text-ink-2">{rupee(e.monthly_gross)}</span>
-                          : <Badge kind="warning" size="sm">Salary pending</Badge>}
+                      <td className="px-4 py-3 text-right font-mono text-ink-2">
+                        {e.monthly_gross > 0 ? rupee(e.monthly_gross) : <span className="text-ink-3">—</span>}
                       </td>
                       <td className="px-4 py-3 text-right font-mono">{p ? rupee(p.net) : <span className="text-ink-3">—</span>}</td>
                       <td className="px-4 py-3">
@@ -687,13 +685,9 @@ export function PayrollTab() {
                         <div className="font-medium text-ink leading-tight hover:text-amber-ink">{toTitleCase(e.name)}</div>
                         {employeeSubline(e) && <div className="text-[11px] text-ink-3 mt-0.5">{employeeSubline(e)}</div>}
                       </button>
-                      {p ? (
-                        <div className="font-serif text-xl text-ink leading-none shrink-0">{rupee(p.net)}</div>
-                      ) : e.monthly_gross > 0 ? (
-                        <div className="font-serif text-xl text-ink leading-none shrink-0">{rupee(e.monthly_gross)}</div>
-                      ) : (
-                        <Badge kind="warning" size="sm">Salary pending</Badge>
-                      )}
+                      <div className="font-serif text-xl leading-none shrink-0 text-ink">
+                        {p ? rupee(p.net) : e.monthly_gross > 0 ? rupee(e.monthly_gross) : <span className="text-ink-3">—</span>}
+                      </div>
                     </div>
                     <div className="text-[11px] text-ink-3 mb-2">
                       {p ? `Net pay · monthly salary ${rupee(e.monthly_gross)}` : `Monthly salary · not run yet`}

@@ -40,6 +40,21 @@ import { VENDOR_BILL_CATEGORIES } from "@/lib/queries/vendor-bills";
 import { rupee, formatDate, GST_STATE_BY_CODE, gstStateFromGstin, foreignAmount, formatForeignAmount } from "@/lib/utils";
 import GstinVerifyCard from "@/components/features/gstin/gstin-verify-card";
 
+/** A short country / place-of-supply label from a vendor's GSTIN.
+ *  Indian state code → "India · <State>"; OIDAR code 99/96 → "Foreign …"
+ *  (with the embedded country code when present, e.g. Anthropic → "Foreign · USA"). */
+function vendorRegion(gstin: string | null | undefined): string | null {
+  const g = (gstin ?? "").trim().toUpperCase();
+  if (!g) return null;
+  const { code, name } = gstStateFromGstin(g);
+  if (!code) return null;
+  if (code === "99" || code === "96") {
+    const m = g.match(/^\d{4}([A-Z]{2,3})/);   // OIDAR often embeds a country code
+    return m ? `Foreign · ${m[1]}` : "Foreign supplier (OIDAR)";
+  }
+  return name ? `India · ${name}` : "India";
+}
+
 export default function VendorsPage() {
   const router = useRouter();
   const { data: vendors, isLoading } = useVendors();
@@ -136,6 +151,7 @@ export default function VendorsPage() {
                     <td className="px-4 py-2.5 align-top">
                       <div className="font-medium text-ink leading-snug">{v.name}</div>
                       {v.gstin && <div className="text-[11px] text-ink-3 font-mono">{v.gstin}</div>}
+                      {(() => { const r = vendorRegion(v.gstin); return r ? <div className="text-[11px] text-ink-3">{r}</div> : null; })()}
                       {v.contact_email && <div className="text-[11px] text-ink-3 truncate">{v.contact_email}</div>}
                     </td>
                     <td className="px-4 py-2.5 align-top">{v.default_category ? <Badge kind="muted" size="sm">{v.default_category}</Badge> : <span className="text-ink-3">—</span>}</td>
@@ -180,6 +196,7 @@ export default function VendorsPage() {
                     <div className="min-w-0">
                       <div className="font-medium text-ink truncate">{v.name}</div>
                       {v.gstin && <div className="text-[11px] text-ink-3 font-mono truncate">{v.gstin}</div>}
+                      {(() => { const r = vendorRegion(v.gstin); return r ? <div className="text-[11px] text-ink-3 truncate">{r}</div> : null; })()}
                       <div className="text-[11px] text-ink-3 mt-0.5">{v.docCount} {v.docCount === 1 ? "entry" : "entries"} · {rupee(v.totalSpend, { compact: true })} spent</div>
                     </div>
                     <div className="text-right shrink-0">
@@ -350,9 +367,10 @@ function VendorBillsDialog({ vendor, onClose, onEdit }: { vendor: Vendor; onClos
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="md:!max-w-lg">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
+          <DialogTitle className="flex flex-wrap items-center gap-2">
             {vendor.name}
             {vendor.gstin && <span className="font-mono text-[11px] text-ink-3">{vendor.gstin}</span>}
+            {(() => { const r = vendorRegion(vendor.gstin); return r ? <span className="text-[11px] font-normal text-ink-3 rounded-full bg-paper-2 px-2 py-0.5">{r}</span> : null; })()}
           </DialogTitle>
           <DialogDescription>
             {vendor.docCount} {vendor.docCount === 1 ? "entry" : "entries"} · {rupee(vendor.totalSpend)}

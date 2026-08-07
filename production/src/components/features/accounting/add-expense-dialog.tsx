@@ -136,8 +136,19 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
   const [aiGstin, setAiGstin] = React.useState<string | null>(null);
 
   // Open the just-uploaded bill (a local File, not yet stored) in a new tab.
+  // An anchor-click is more reliable than window.open for blob: URLs (some
+  // browsers open a blank tab for window.open(blob, _blank, noopener)).
   const openLocalFile = () => {
-    if (attachFile) window.open(URL.createObjectURL(attachFile), "_blank", "noopener");
+    if (!attachFile) return;
+    const url = URL.createObjectURL(attachFile);
+    const a = document.createElement("a");
+    a.href = url;
+    a.target = "_blank";
+    a.rel = "noopener";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
   };
 
   async function handleBillFile(file: File) {

@@ -133,15 +133,12 @@ export default function ExpensesPage() {
 
   return (
     <div className="p-4 md:p-6 lg:p-8 max-w-[1800px] mx-auto">
-      {/* Header — title left, primary action pinned top-right */}
-      <div className="flex items-start justify-between gap-4 mb-5">
+      {/* Header — eyebrow + title left, primary action pinned top-right.
+          The descriptive text lives in the collapsible below, not here. */}
+      <div className="flex items-start justify-between gap-4 mb-3">
         <div>
           <p className="text-xs uppercase tracking-wider text-ink-3 font-semibold mb-1">Purchases</p>
           <h1 className="font-serif text-3xl md:text-4xl tracking-tight">Expenses</h1>
-          <p className="text-sm text-ink-3 mt-1">
-            Operating spend — rent, salaries, stationery, your own software, marketing. These sit below the gross-margin line in your P&L.
-            <span className="block mt-0.5 text-[12px] text-ink-3">Bills for products you <b>resell</b> (Google/Microsoft/Zoho) go in <b>COGS Bills</b> instead.</span>
-          </p>
         </div>
         <Button
           variant="primary"
@@ -153,34 +150,38 @@ export default function ExpensesPage() {
         </Button>
       </div>
 
-      {/* KPI strip — compact, so the expense list gets more room */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mb-3">
+      {/* About + how it works — one collapsed inline panel (above the KPIs) so
+          the numbers + list sit right at the top. Expand for the guidance. */}
+      <details className="group mb-3 rounded-lg border border-hairline bg-paper-2/30">
+        <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-[12px] font-medium text-ink-2 select-none">
+          <Icon name="info" size={13} className="text-amber-ink shrink-0" />
+          About expenses — what goes here &amp; how payments work
+          <Icon name="chevron_down" size={14} className="ml-auto text-ink-3 transition-transform group-open:rotate-180" />
+        </summary>
+        <div className="px-3 pb-3 space-y-1.5 text-[12px] text-ink-2 leading-relaxed">
+          <p>
+            Operating spend — rent, salaries, stationery, your own software, marketing. These sit below the gross-margin line in your P&amp;L. Bills for products you <b>resell</b> (Google/Microsoft/Zoho) go in <b>COGS Bills</b> instead.
+          </p>
+          <p>
+            <b>How it works:</b> record the cost <b>once</b> here — it hits your P&amp;L. When you actually pay the vendor, that money-out is <b>reconciled in Banking</b> against this expense — don&apos;t enter it again as a second expense. Paying by <b>cash</b>? pick a petty-cash account and it&apos;s deducted from cash-in-hand automatically.
+          </p>
+        </div>
+      </details>
+
+      {/* KPI strip — tight inline stats, minimal height. */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">
         <KPI label="Entries" value={totals ? String(totals.count) : "—"} />
-        <KPI label="Total spend"          value={totals ? rupee(totals.amount) : "—"} tone="rose" />
-        <KPI label="Input GST" value={totals ? rupee(totals.gstPaid) : "—"} tone="emerald" />
+        <KPI label="Total spend"  value={totals ? rupee(totals.amount) : "—"} tone="rose" />
+        <KPI label="Input GST"    value={totals ? rupee(totals.gstPaid) : "—"} tone="emerald" />
         <KPI label="Top category"
              value={totals && categoryOptions.length > 0
                ? Object.entries(totals.byCategory).sort((a, b) => b[1] - a[1])[0][0]
                : "—"} />
       </div>
 
-      {/* How it works — collapsed by default (inline expandable) so the KPIs +
-          list sit higher up. */}
-      <details className="group mb-4 rounded-lg border border-hairline bg-paper-2/30">
-        <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-[12px] font-medium text-ink-2 select-none">
-          <Icon name="info" size={13} className="text-amber-ink shrink-0" />
-          How it works — recording an expense &amp; its payment
-          <Icon name="chevron_down" size={14} className="ml-auto text-ink-3 transition-transform group-open:rotate-180" />
-        </summary>
-        <p className="px-3 pb-3 text-[12px] text-ink-2 leading-relaxed">
-          Record the cost <b>once</b> here — it hits your P&amp;L. When you actually pay the vendor, that money-out is <b>reconciled in Banking</b> against this expense — don&apos;t enter it again as a second expense. Paying by <b>cash</b>? pick a petty-cash account and it&apos;s deducted from cash-in-hand automatically.
-        </p>
-      </details>
-
-      {/* Filter strip */}
-      <Card className="mb-5 p-3 md:p-4">
-        {/* Quick range presets */}
-        <div className="flex flex-wrap items-center gap-1.5 mb-3">
+      {/* Filter bar — compact: presets + count on one line, inputs on the next. */}
+      <Card className="mb-4 p-2.5">
+        <div className="flex flex-wrap items-center gap-1.5">
           {RANGE_PRESETS.map((p) => {
             const r = p.range();
             const active = range.from === r.from && range.to === r.to;
@@ -189,7 +190,7 @@ export default function ExpensesPage() {
                 key={p.id}
                 type="button"
                 onClick={() => setRange(r)}
-                className={`rounded-full px-3 py-1 text-xs font-medium border transition-colors ${
+                className={`rounded-full px-2.5 py-0.5 text-[11px] font-medium border transition-colors ${
                   active
                     ? "bg-amber text-white border-amber"
                     : "bg-paper border-hairline text-ink-2 hover:border-hairline-strong"
@@ -199,19 +200,21 @@ export default function ExpensesPage() {
               </button>
             );
           })}
+          <span className="ml-auto text-[11px] text-ink-3">
+            {rows.length} {rows.length === 1 ? "entry" : "entries"}
+          </span>
         </div>
-        <div className="flex flex-wrap items-center gap-3">
-          <label className="text-xs text-ink-3 font-semibold uppercase tracking-wide">From</label>
-          <input type="date" value={range.from}
+        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+          <input type="date" value={range.from} aria-label="From date"
             onChange={(e) => setRange((r) => ({ ...r, from: e.target.value }))}
-            className="px-3 py-1.5 text-sm rounded-md border border-hairline bg-paper" />
-          <label className="text-xs text-ink-3 font-semibold uppercase tracking-wide">To</label>
-          <input type="date" value={range.to}
+            className="px-2 py-1 text-[13px] rounded-md border border-hairline bg-paper" />
+          <span className="text-ink-3 text-xs">–</span>
+          <input type="date" value={range.to} aria-label="To date"
             onChange={(e) => setRange((r) => ({ ...r, to: e.target.value }))}
-            className="px-3 py-1.5 text-sm rounded-md border border-hairline bg-paper" />
+            className="px-2 py-1 text-[13px] rounded-md border border-hairline bg-paper" />
           <select value={catFilter}
             onChange={(e) => setCatFilter(e.target.value)}
-            className="px-3 py-1.5 text-sm rounded-md border border-hairline bg-paper">
+            className="px-2 py-1 text-[13px] rounded-md border border-hairline bg-paper">
             <option value="">All categories</option>
             {categoryOptions.map((c) => (
               <option key={c} value={c}>{c}</option>
@@ -219,7 +222,7 @@ export default function ExpensesPage() {
           </select>
           <select value={payeeFilter}
             onChange={(e) => setPayeeFilter(e.target.value)}
-            className="px-3 py-1.5 text-sm rounded-md border border-hairline bg-paper max-w-[200px]">
+            className="px-2 py-1 text-[13px] rounded-md border border-hairline bg-paper max-w-[180px]">
             <option value="">All vendors / payees</option>
             {payeeOptions.map((p) => (
               <option key={p} value={p}>{p}</option>
@@ -227,22 +230,17 @@ export default function ExpensesPage() {
           </select>
           {isFiltered && (
             <button type="button" onClick={() => { setCatFilter(""); setPayeeFilter(""); }}
-              className="text-xs text-amber-ink hover:underline">Clear</button>
+              className="text-[11px] text-amber-ink hover:underline">Clear</button>
           )}
-          <div className="ml-auto text-xs text-ink-3">
-            Showing {rows.length} {rows.length === 1 ? "entry" : "entries"}
-          </div>
         </div>
-        {/* Filtered summary — total paid + input GST for the current filter
-            (e.g. everything paid to one vendor). */}
+        {/* Filtered summary — total paid + input GST for the current filter. */}
         {isFiltered && rows.length > 0 && (
-          <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1 rounded-md bg-paper-2/50 px-3 py-2 text-sm">
+          <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-md bg-paper-2/50 px-2.5 py-1.5 text-[13px]">
             <span className="text-ink-3">
               {payeeFilter || catFilter}{payeeFilter && catFilter ? ` · ${catFilter}` : ""}
             </span>
             <span className="text-ink-2"><b className="text-ink font-mono tabular-nums">{rupee(filtered.amount)}</b> paid</span>
             <span className="text-emerald"><b className="font-mono tabular-nums">{rupee(filtered.gst)}</b> input GST</span>
-            <span className="text-ink-3">{rows.length} {rows.length === 1 ? "payment" : "payments"}</span>
           </div>
         )}
       </Card>

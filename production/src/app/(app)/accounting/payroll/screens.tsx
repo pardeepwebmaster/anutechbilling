@@ -616,7 +616,7 @@ export function PayrollTab() {
       ) : (
         <>
           {/* Desktop table */}
-          <Card className="hidden md:block overflow-hidden">
+          <Card flush className="hidden md:block">
             <table className="w-full text-sm">
               <thead className="bg-paper-2/50 text-[10px] uppercase tracking-wider text-ink-3 font-semibold">
                 <tr>
@@ -676,19 +676,17 @@ export function PayrollTab() {
                               <>
                                 <Button
                                   variant="ghost" size="sm" icon="edit"
+                                  aria-label={`Edit ${e.name}'s salary`}
                                   title="Edit this salary — reverses the run and reopens the pay form so you can correct it"
                                   onClick={() => editSalary(e, p)}
-                                >
-                                  Edit
-                                </Button>
+                                />
                                 <Button
                                   variant="ghost" size="sm" icon="trash"
                                   loading={undoSalary.isPending}
+                                  aria-label={`Undo ${e.name}'s salary`}
                                   title="Undo this salary — reverses the expense so you can pay it again"
                                   onClick={() => undoSalaryFor(e, p)}
-                                >
-                                  Undo
-                                </Button>
+                                />
                               </>
                             ) : (
                               <span className="inline-flex items-center gap-1 text-[11px] text-ink-3" title="Reconciled to a bank line. To edit or undo, first un-reconcile that bank line in Accounting → Banking.">
@@ -971,9 +969,8 @@ function PayslipButton({
   }
 
   return (
-    <Button variant="ghost" size="sm" icon="download" loading={busy} onClick={download}>
-      Payslip
-    </Button>
+    <Button variant="ghost" size="sm" icon="download" loading={busy} onClick={download}
+      aria-label="Download payslip" title="Download payslip" />
   );
 }
 

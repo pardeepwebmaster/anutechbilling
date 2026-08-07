@@ -81,6 +81,23 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
   const [billType, setBillType] = React.useState<string>(expense?.bill_type ?? "gst");
   const isGstBill = billType === "gst";
 
+  // Line items on the bill (e.g. an Anthropic / software invoice lists several).
+  // Amounts stay in the bill's OWN currency, faithful to the document; the ₹
+  // books use the converted `amount`. Same shape + behaviour as COGS bills.
+  type Line = { description: string; qty: string; unit_price: string; amount: string };
+  const [lines, setLines] = React.useState<Line[]>(
+    (expense?.line_items ?? []).map((li) => ({
+      description: li.name ?? "",
+      qty:         li.qty        != null ? String(li.qty)        : "",
+      unit_price:  li.rate       != null ? String(li.rate)       : "",
+      amount:      li.amount     != null ? String(li.amount)     : "",
+    })),
+  );
+  const addLine    = () => setLines((ls) => [...ls, { description: "", qty: "", unit_price: "", amount: "" }]);
+  const removeLine = (i: number) => setLines((ls) => ls.filter((_, idx) => idx !== i));
+  const setLine    = (i: number, patch: Partial<Line>) =>
+    setLines((ls) => ls.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
+
   // ── AI bill reader — upload a stationery/software/rent invoice → Gemini
   //    extracts the fields → we PRE-FILL (operator verifies before saving).
   const fileRef = React.useRef<HTMLInputElement>(null);
@@ -118,6 +135,16 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
       // Amounts are entered in the bill's own currency (converted to ₹ on save).
       if (f.total != null) setValue("amount", Number(f.total));
       setValue("gst_paid", gst);
+      // Line items — faithful to the bill (own currency), so the entry is verifiable.
+      const items = Array.isArray((f as Record<string, unknown>).line_items)
+        ? ((f as Record<string, unknown>).line_items as Array<Record<string, unknown>>)
+        : [];
+      setLines(items.map((it) => ({
+        description: String(it.description ?? ""),
+        qty:         it.qty        != null ? String(it.qty)        : "",
+        unit_price:  it.unit_price != null ? String(it.unit_price) : "",
+        amount:      it.amount     != null ? String(it.amount)     : "",
+      })));
       if (cur !== "INR") {
         setFxRate("");   // force the operator to enter today's rate
         setAiNote(`Detected: ${detected} · ${cur} — neeche exchange rate (₹/${cur}) daalo, phir Save.`);
@@ -177,6 +204,17 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
     // No input GST on a kaccha / no-bill expense.
     const gstAmt = isGstBill ? inr(values.gst_paid) : 0;
 
+    // Line items — keep amounts in the bill's OWN currency (faithful to the
+    // document); drop blank rows. Same shape as COGS bills (VendorBillLine).
+    const line_items = lines
+      .map((l) => ({
+        name:   l.description.trim(),
+        qty:    l.qty ? Number(l.qty) : undefined,
+        rate:   l.unit_price ? Number(l.unit_price) : undefined,
+        amount: Number(l.amount || 0),
+      }))
+      .filter((l) => l.name || l.amount > 0);
+
     if (expense) {
       // Edit updates the expense row's fields only. (A linked petty-cash leg,
       // if any, isn't re-adjusted here — edit amount changes cautiously.)
@@ -189,6 +227,7 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
           currency,
           fx_rate:        rate,
           bill_type:      billType,
+          line_items,
           expense_date:   values.expense_date,
           amount:         inr(values.amount),
           gst_paid:       gstAmt,
@@ -206,6 +245,7 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
       currency,
       fx_rate:        rate,
       bill_type:      billType,
+      line_items,
       expense_date:   values.expense_date,
       amount:         inr(values.amount),
       gst_paid:       gstAmt,
@@ -336,6 +376,44 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
                   ? "Proper GST tax invoice — input GST is claimable, and the vendor is saved to your Vendors master."
                   : "Recorded & income-tax deductible — but no input GST credit (that needs a GST tax invoice)."}
               </p>
+            </div>
+
+            {/* Line items — what's on the bill (auto-filled from the AI scan). */}
+            <div className="rounded-md border border-hairline bg-paper/60 p-2.5">
+              <div className="flex items-center justify-between mb-1.5">
+                <p className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold">
+                  Items on this bill{isForeign ? ` · in ${currency}` : ""}
+                </p>
+                <Button type="button" variant="ghost" size="sm" icon="plus" onClick={addLine}>Add item</Button>
+              </div>
+              {lines.length === 0 ? (
+                <p className="text-[11px] text-ink-3">Optional — upload a bill to auto-fill, or add rows to itemise (e.g. per-seat plan lines).</p>
+              ) : (
+                <div className="space-y-2">
+                  <div className="hidden sm:grid grid-cols-12 gap-2 text-[10px] uppercase tracking-wider text-ink-3">
+                    <span className="col-span-6">Description</span>
+                    <span className="col-span-2 text-right">Qty</span>
+                    <span className="col-span-2 text-right">Unit price</span>
+                    <span className="col-span-2 text-right">Amount</span>
+                  </div>
+                  {lines.map((l, i) => (
+                    <div key={i} className="grid grid-cols-12 gap-2 items-center">
+                      <Input wrapperClassName="col-span-12 sm:col-span-5" placeholder="e.g. Team plan - Premium"
+                        value={l.description} onChange={(e) => setLine(i, { description: e.target.value })} />
+                      <Input wrapperClassName="col-span-3 sm:col-span-2" className="text-right" type="number" min={0} step="any" placeholder="Qty"
+                        value={l.qty} onChange={(e) => setLine(i, { qty: e.target.value })} />
+                      <Input wrapperClassName="col-span-3 sm:col-span-2" className="text-right" type="number" min={0} step="any" placeholder="Unit"
+                        value={l.unit_price} onChange={(e) => setLine(i, { unit_price: e.target.value })} />
+                      <Input wrapperClassName="col-span-3 sm:col-span-2" className="text-right" type="number" min={0} step="any" placeholder="Amount"
+                        value={l.amount} onChange={(e) => setLine(i, { amount: e.target.value })} />
+                      <button type="button" onClick={() => removeLine(i)} aria-label="Remove item"
+                        className="col-span-3 sm:col-span-1 justify-self-center text-ink-3 hover:text-rose">
+                        <Icon name="x" size={14} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* Currency + amount + GST */}

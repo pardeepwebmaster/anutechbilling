@@ -22,6 +22,7 @@ import {
   type Expense,
 } from "@/lib/queries/expenses";
 import { AddExpenseDialog } from "@/components/features/accounting/add-expense-dialog";
+import { ExpenseDetailDialog } from "@/components/features/accounting/expense-detail-dialog";
 import { useSalaryPayments } from "@/lib/queries/payroll";
 import { useConfirm } from "@/components/providers/confirm-provider";
 
@@ -90,6 +91,7 @@ export default function ExpensesPage() {
   const [payeeFilter, setPayeeFilter] = React.useState("");
   const [addOpen, setAddOpen] = React.useState(false);
   const [editing, setEditing] = React.useState<Expense | null>(null);
+  const [detail, setDetail]   = React.useState<Expense | null>(null);
 
   const q       = useExpenses({ from: range.from, to: range.to, category: catFilter || undefined });
   const totalsQ = useExpensesTotals(range);
@@ -272,7 +274,7 @@ export default function ExpensesPage() {
               </thead>
               <tbody className="divide-y divide-hairline">
                 {rows.map((e) => (
-                  <tr key={e.id} className="hover:bg-paper-2/40">
+                  <tr key={e.id} className="hover:bg-paper-2/40 cursor-pointer" onClick={() => setDetail(e)}>
                     <td className="px-3 py-3 text-ink-2 whitespace-nowrap">{formatDate(e.expense_date)}</td>
                     <td className="px-3 py-3 text-ink whitespace-nowrap">
                       {e.category}
@@ -297,13 +299,14 @@ export default function ExpensesPage() {
                       <IconButton
                         icon="edit"
                         aria-label="Edit expense"
-                        onClick={() => setEditing(e)}
+                        onClick={(ev) => { ev.stopPropagation(); setEditing(e); }}
                       />
                       <IconButton
                         icon="trash"
                         aria-label="Delete expense"
                         className="ml-1"
-                        onClick={async () => {
+                        onClick={async (ev) => {
+                          ev.stopPropagation();
                           if (await confirm({ title: `Delete this expense?`, danger: true, confirmLabel: "Delete" })) del.mutate(e.id);
                         }}
                       />
@@ -318,7 +321,7 @@ export default function ExpensesPage() {
           <ul className="md:hidden space-y-2.5">
             {rows.map((e) => (
               <li key={e.id}>
-                <Card className="p-4">
+                <Card className="p-4 cursor-pointer" onClick={() => setDetail(e)}>
                   <div className="flex items-start justify-between gap-2 mb-1">
                     <div className="font-medium text-ink leading-tight">
                       {e.category}
@@ -339,11 +342,12 @@ export default function ExpensesPage() {
                       <span className="text-[11px] text-emerald">+{foreignAmount(e.currency, e.gst_paid, e.fx_rate) ?? rupee(e.gst_paid)} input GST</span>
                     )}
                     <div className="ml-auto flex items-center gap-1">
-                      <IconButton icon="edit" aria-label="Edit expense" onClick={() => setEditing(e)} />
+                      <IconButton icon="edit" aria-label="Edit expense" onClick={(ev) => { ev.stopPropagation(); setEditing(e); }} />
                       <IconButton
                         icon="trash"
                         aria-label="Delete expense"
-                        onClick={async () => {
+                        onClick={async (ev) => {
+                          ev.stopPropagation();
                           if (await confirm({ title: `Delete this expense?`, danger: true, confirmLabel: "Delete" })) del.mutate(e.id);
                         }}
                       />
@@ -359,6 +363,13 @@ export default function ExpensesPage() {
       <FAB icon="plus" label="Expense" onClick={() => setAddOpen(true)} ariaLabel="Add Expense" />
       {addOpen && <AddExpenseDialog onClose={() => setAddOpen(false)} />}
       {editing && <AddExpenseDialog expense={editing} onClose={() => setEditing(null)} />}
+      {detail && (
+        <ExpenseDetailDialog
+          expense={detail}
+          onEdit={() => { const e = detail; setDetail(null); setEditing(e); }}
+          onClose={() => setDetail(null)}
+        />
+      )}
     </div>
   );
 }

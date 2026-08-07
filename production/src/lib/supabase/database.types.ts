@@ -1302,6 +1302,7 @@ export type ExpenseRow = {
   currency:         string;                  // migration 0179 — 'INR' | 'USD' | … (INR = domestic)
   fx_rate:          number;                  // ₹ per 1 unit of currency (1 for INR); foreign amt = amount / fx_rate
   bill_type:        string;                  // migration 0180 — 'gst' | 'kaccha' | 'none'
+  line_items:       VendorBillLine[];        // migration 0181 — itemised lines in the bill's own currency
   expense_date:     string;                  // YYYY-MM-DD
   amount:           number;
   gst_paid:         number;
@@ -1321,6 +1322,7 @@ type ExpenseInsert = {
   currency?:        string;
   fx_rate?:         number;
   bill_type?:       string;
+  line_items?:      VendorBillLine[];
   expense_date:     string;
   amount:           number;
   gst_paid?:        number;

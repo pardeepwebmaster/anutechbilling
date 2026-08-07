@@ -159,8 +159,9 @@ export function EmployeesTab() {
               </thead>
               <tbody className="divide-y divide-hairline">
                 {rows.map((e) => {
-                  const left = Math.max(0, e.leave_allowance - paidLeaveTaken(e.id));
-                  const leaveTitle = `${left} of ${e.leave_allowance} paid-leave day(s) left this financial year. New joiners get a prorated allowance for their first year, so their total can be below the standard.`;
+                  const taken = paidLeaveTaken(e.id);
+                  const left = Math.max(0, e.leave_allowance - taken);
+                  const leaveTitle = `${left} of ${e.leave_allowance} annual paid-leave day(s) left this financial year (${taken} used). The total is the allowance set in this employee's profile — edit the profile to change it.`;
                   return (
                     <tr
                       key={e.id}

@@ -20,7 +20,7 @@
 
 import * as React from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
-import { X } from "lucide-react";
+import { X, GripVertical } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const Dialog = DialogPrimitive.Root;
@@ -174,13 +174,13 @@ const DialogContent = React.forwardRef<
     window.removeEventListener("pointerup", onMoveUp);
   }, [onMoving]);
 
-  const onContentPointerDown = React.useCallback((e: React.PointerEvent) => {
+  // Move is started ONLY from the two top-corner grips (below) — never by
+  // dragging the body — so it never fights with scrolling or clicking fields.
+  const startMove = React.useCallback((e: React.PointerEvent) => {
     if (e.button !== 0) return;
-    // Don't hijack clicks on controls, links, the close button, or the resize
-    // handles — only bare chrome (header text, labels, padding) starts a move.
-    const target = e.target as HTMLElement;
-    if (target.closest("input,textarea,select,button,a,label,[role='combobox'],[role='listbox'],[contenteditable='true'],[data-radix-scroll-area-viewport]")) return;
     if (typeof window !== "undefined" && window.innerWidth < 768) return; // desktop only
+    e.preventDefault();
+    e.stopPropagation();
     moveRef.current = { x: e.clientX, y: e.clientY, dx: pos?.dx ?? 0, dy: pos?.dy ?? 0 };
     document.body.style.userSelect = "none";
     window.addEventListener("pointermove", onMoving);
@@ -197,7 +197,6 @@ const DialogContent = React.forwardRef<
     <DialogOverlay />
     <DialogPrimitive.Content
       ref={setRefs}
-      onPointerDown={onContentPointerDown}
       style={{
         ...(size ? { ["--dlg-w"]: `${size.w}px`, ["--dlg-h"]: `${size.h}px` } : {}),
         ...(pos ? { ["--dlg-x"]: `${pos.dx}px`, ["--dlg-y"]: `${pos.dy}px` } : {}),
@@ -241,6 +240,26 @@ const DialogContent = React.forwardRef<
     >
       {/* Drag handle (mobile only — visual affordance that the sheet is dismissible) */}
       <div className="md:hidden mx-auto -mt-1 mb-2 h-1.5 w-12 rounded-full bg-hairline" aria-hidden />
+
+      {/* Move grips (desktop only) — the ONLY way to reposition the dialog: grab
+          the top-left or top-right corner and drag it anywhere on screen. */}
+      <div
+        onPointerDown={startMove}
+        title="Drag to move"
+        aria-hidden
+        className="hidden md:flex absolute left-1.5 top-1.5 z-[61] h-6 w-6 cursor-move items-center justify-center rounded text-ink-3/40 hover:text-ink-2 hover:bg-paper-2 touch-none"
+      >
+        <GripVertical className="h-4 w-4" />
+      </div>
+      <div
+        onPointerDown={startMove}
+        title="Drag to move"
+        aria-hidden
+        className="hidden md:flex absolute right-12 top-1.5 z-[61] h-6 w-6 cursor-move items-center justify-center rounded text-ink-3/40 hover:text-ink-2 hover:bg-paper-2 touch-none"
+      >
+        <GripVertical className="h-4 w-4" />
+      </div>
+
       {children}
       {!hideClose && (
         <DialogPrimitive.Close
@@ -284,7 +303,7 @@ DialogContent.displayName = DialogPrimitive.Content.displayName; // resizable di
 
 const DialogHeader = ({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) => (
   <div
-    className={cn("flex flex-col gap-1 text-left md:cursor-move", className)}
+    className={cn("flex flex-col gap-1 text-left", className)}
     {...props}
   />
 );

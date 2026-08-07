@@ -208,7 +208,7 @@ function usePnL(range: DateRange) {
 // ────────────────────────────────────────────────────────────────
 
 export default function PnLPage() {
-  const [range, setRange] = React.useState<DateRange>(thisFY());
+  const [range, setRange] = React.useState<DateRange>(thisMonth());
   const { data, isLoading } = usePnL(range);
   const [drill, setDrill] = React.useState<PnLDrillKind | null>(null);
 

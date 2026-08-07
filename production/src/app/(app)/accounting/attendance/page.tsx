@@ -10,7 +10,7 @@ import { AttendanceTab, HrPageShell } from "../payroll/screens";
 export default function AttendancePage() {
   return (
     <HrPageShell
-      title="Attendance"
+      title="Attendance Register"
       sub="Monthly attendance register + office-network settings. Employees check in at the Attendance Kiosk."
     >
       <AttendanceTab />

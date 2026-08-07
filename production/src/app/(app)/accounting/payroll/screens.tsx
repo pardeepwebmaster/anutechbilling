@@ -670,7 +670,7 @@ export function PayrollTab() {
                         {employeeSubline(e) && <div className="text-[11px] text-ink-3 mt-0.5">{employeeSubline(e)}</div>}
                       </td>
                       <td className="px-4 py-3 text-right font-mono text-ink-2">
-                        {e.monthly_gross > 0 ? rupee(e.monthly_gross) : <span className="text-ink-3">—</span>}
+                        {p ? rupee(p.gross) : e.monthly_gross > 0 ? rupee(e.monthly_gross) : <span className="text-ink-3">—</span>}
                       </td>
                       <td className="px-4 py-3 text-right font-mono">{p ? rupee(p.net) : <span className="text-ink-3">—</span>}</td>
                       <td className="px-4 py-3 text-right">
@@ -752,7 +752,7 @@ export function PayrollTab() {
                       </div>
                     </div>
                     <div className="text-[11px] text-ink-3 mb-2">
-                      {p ? `Net pay · monthly salary ${rupee(e.monthly_gross)}` : `Monthly salary · not run yet`}
+                      {p ? `Net pay · gross ${rupee(p.gross)}` : `Monthly salary · not run yet`}
                       {(() => { const a = attendanceFor(e); return ` · Present ${a.present}/${a.expected} this mo`; })()}
                     </div>
                     <div className="flex items-center justify-between gap-2">

@@ -200,7 +200,7 @@ export const APP_NAV: NavSection[] = [
       { id: "leave",            href: "/accounting/leave",      label: "Leave",            icon: "clock" },
       { id: "attendance",       href: "/accounting/attendance", label: "Attendance",       icon: "calendar" },
       { id: "attendance-kiosk", href: "/attendance/kiosk",      label: "Attendance Kiosk", icon: "mobile" },
-      { id: "employee-loans",   href: "/accounting/loans",      label: "Employee Loans",   icon: "rupee" },
+      { id: "employee-loans",   href: "/accounting/loans",      label: "Loans & Advances", icon: "rupee" },
     ],
   },
   {
@@ -323,7 +323,7 @@ export const SCREEN_TITLES: Record<string, string[]> = {
   "/accounting/tds-receivable":          ["Accounting", "TDS Receivable"],
   "/accounting/tds-receivable/year-end": ["Accounting", "TDS Receivable", "Year-End"],
   "/accounting/gst":      ["Accounting", "GST Reports"],
-  "/accounting/loans":         ["Payroll", "Employee Loans"],
+  "/accounting/loans":         ["Payroll", "Loans & Advances"],
   "/accounting/employees":     ["Payroll", "Employees"],
   "/accounting/payroll":       ["Payroll", "Payroll"],
   "/accounting/leave":         ["Payroll", "Leave"],

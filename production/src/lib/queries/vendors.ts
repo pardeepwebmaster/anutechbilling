@@ -12,16 +12,75 @@ import type { VendorRow } from "@/lib/supabase/database.types";
 import type { VendorBill } from "@/lib/queries/vendor-bills";
 
 export type Vendor = VendorRow & {
+  /** COGS bills (resale purchases). */
   billCount:   number;
   totalBilled: number;
   outstanding: number;
+  /** Operating expenses invoiced by this vendor. */
+  expenseCount: number;
+  expenseTotal: number;
+  /** Everything transacted with this supplier = COGS bills + expenses. */
+  totalSpend:  number;
+  docCount:    number;
   lastBillDate: string | null;
-  /** Common foreign currency across ALL this vendor's bills (e.g. "USD"), or
-   *  null when domestic or mixed — then only ₹ is meaningful. */
+  /** Common foreign currency across ALL this vendor's COGS bills (e.g. "USD"),
+   *  or null when domestic or mixed — then only ₹ is meaningful. */
   billCurrency:        string | null;
   foreignBilled:       number;
   foreignOutstanding:  number;
 };
+
+// Minimal shapes the rollup needs (keeps the pure fn independent of full rows).
+type RollupBill    = { vendor_id: string | null; total: number | null; paid_amount: number | null; bill_date: string | null; currency?: string | null; fx_rate?: number | null };
+type RollupExpense = { vendor_id: string | null; amount: number | null; expense_date: string | null };
+
+/**
+ * Pure rollup — folds COGS bills + operating expenses into each vendor.
+ * A vendor is anyone who invoices us, so their "total spend" spans both.
+ * Outstanding stays from COGS bills (expenses are recorded costs, settled via
+ * bank reconciliation — no separate payable balance). Exported for unit tests.
+ */
+export function rollupVendors(vendors: VendorRow[], bills: RollupBill[], expenses: RollupExpense[]): Vendor[] {
+  type Agg = { count: number; total: number; out: number; last: string | null; curs: Set<string>; fBilled: number; fOut: number; expCount: number; expTotal: number };
+  const blank = (): Agg => ({ count: 0, total: 0, out: 0, last: null, curs: new Set<string>(), fBilled: 0, fOut: 0, expCount: 0, expTotal: 0 });
+  const agg = new Map<string, Agg>();
+
+  for (const b of bills) {
+    if (!b.vendor_id) continue;
+    const a = agg.get(b.vendor_id) ?? blank();
+    const total = b.total ?? 0;
+    const out   = Math.max(0, total - (b.paid_amount ?? 0));
+    a.count += 1; a.total += total; a.out += out;
+    if (b.bill_date && (!a.last || b.bill_date > a.last)) a.last = b.bill_date;
+    const code = (b.currency || "INR").toUpperCase();
+    const rate = Number(b.fx_rate) || 1;
+    a.curs.add(code);
+    if (code !== "INR" && rate > 0) { a.fBilled += total / rate; a.fOut += out / rate; }
+    agg.set(b.vendor_id, a);
+  }
+  for (const e of expenses) {
+    if (!e.vendor_id) continue;
+    const a = agg.get(e.vendor_id) ?? blank();
+    a.expCount += 1; a.expTotal += e.amount ?? 0;
+    if (e.expense_date && (!a.last || e.expense_date > a.last)) a.last = e.expense_date;
+    agg.set(e.vendor_id, a);
+  }
+
+  return vendors.map((v) => {
+    const a = agg.get(v.id) ?? blank();
+    const billCurrency = a.curs.size === 1 && !a.curs.has("INR") ? [...a.curs][0] : null;
+    return {
+      ...(v as VendorRow),
+      billCount: a.count, totalBilled: a.total, outstanding: a.out,
+      expenseCount: a.expCount, expenseTotal: a.expTotal,
+      totalSpend: a.total + a.expTotal, docCount: a.count + a.expCount,
+      lastBillDate: a.last,
+      billCurrency,
+      foreignBilled:      billCurrency ? Math.round(a.fBilled * 100) / 100 : 0,
+      foreignOutstanding: billCurrency ? Math.round(a.fOut * 100) / 100 : 0,
+    };
+  });
+}
 
 export function useVendors() {
   return useQuery({
@@ -33,41 +92,29 @@ export function useVendors() {
       const { data: bills, error: bErr } = await supabase
         .from("vendor_bills").select("vendor_id, total, paid_amount, bill_date, currency, fx_rate");
       if (bErr) throw bErr;
+      const { data: expenses, error: eErr } = await supabase
+        .from("expenses").select("vendor_id, amount, expense_date");
+      if (eErr) throw eErr;
 
-      type Agg = { count: number; total: number; out: number; last: string | null;
-                   curs: Set<string>; fBilled: number; fOut: number };
-      const agg = new Map<string, Agg>();
-      for (const b of bills ?? []) {
-        if (!b.vendor_id) continue;
-        const cur = agg.get(b.vendor_id) ?? { count: 0, total: 0, out: 0, last: null, curs: new Set<string>(), fBilled: 0, fOut: 0 };
-        const total = b.total ?? 0;
-        const out   = Math.max(0, total - (b.paid_amount ?? 0));
-        cur.count += 1;
-        cur.total += total;
-        cur.out   += out;
-        if (b.bill_date && (!cur.last || b.bill_date > cur.last)) cur.last = b.bill_date;
-        // Currency tracking — for a foreign, single-currency vendor we can show
-        // its own-currency totals too. Any INR bill or a second currency ⇒ mixed.
-        const code = ((b as { currency?: string | null }).currency || "INR").toUpperCase();
-        const rate = Number((b as { fx_rate?: number | null }).fx_rate) || 1;
-        cur.curs.add(code);
-        if (code !== "INR" && rate > 0) { cur.fBilled += total / rate; cur.fOut += out / rate; }
-        agg.set(b.vendor_id, cur);
-      }
-      return (vendors ?? []).map((v) => {
-        const a = agg.get(v.id) ?? { count: 0, total: 0, out: 0, last: null, curs: new Set<string>(), fBilled: 0, fOut: 0 };
-        // Uniform foreign currency only (exactly one code, and it isn't INR).
-        const billCurrency = a.curs.size === 1 && !a.curs.has("INR") ? [...a.curs][0] : null;
-        return {
-          ...(v as VendorRow),
-          billCount: a.count, totalBilled: a.total, outstanding: a.out, lastBillDate: a.last,
-          billCurrency,
-          foreignBilled:      billCurrency ? Math.round(a.fBilled * 100) / 100 : 0,
-          foreignOutstanding: billCurrency ? Math.round(a.fOut * 100) / 100 : 0,
-        };
-      });
+      return rollupVendors((vendors ?? []) as VendorRow[], (bills ?? []) as RollupBill[], (expenses ?? []) as RollupExpense[]);
     },
     staleTime: 30_000,
+  });
+}
+
+/** Expenses invoiced by one vendor (for the vendor detail view). */
+export function useExpensesByVendor(vendorId: string | null | undefined) {
+  return useQuery({
+    queryKey: ["expenses", "by-vendor", vendorId],
+    enabled: Boolean(vendorId),
+    queryFn: async () => {
+      const supabase = createClient();
+      const { data, error } = await supabase
+        .from("expenses").select("id, category, amount, gst_paid, expense_date, description")
+        .eq("vendor_id", vendorId!).order("expense_date", { ascending: false });
+      if (error) throw error;
+      return data ?? [];
+    },
   });
 }
 

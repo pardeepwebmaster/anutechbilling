@@ -1298,6 +1298,7 @@ export type ExpenseRow = {
   tenant_id:        string;
   category:         string;                  // 'Hosting' | 'Software' | 'Salaries' | 'Office' | 'Marketing' | 'Travel' | 'Professional' | 'Bank' | 'Other'
   vendor_name:      string | null;
+  vendor_id:        string | null;           // migration 0178 — link to the vendors master
   expense_date:     string;                  // YYYY-MM-DD
   amount:           number;
   gst_paid:         number;
@@ -1313,6 +1314,7 @@ type ExpenseInsert = {
   tenant_id:        string;
   category:         string;
   vendor_name?:     string | null;
+  vendor_id?:       string | null;
   expense_date:     string;
   amount:           number;
   gst_paid?:        number;

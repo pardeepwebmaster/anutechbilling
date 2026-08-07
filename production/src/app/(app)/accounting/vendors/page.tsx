@@ -31,7 +31,7 @@ import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { useConfirm } from "@/components/providers/confirm-provider";
-import { useVendors, useUpsertVendor, useDeleteVendor, useBillsByVendor, type Vendor } from "@/lib/queries/vendors";
+import { useVendors, useUpsertVendor, useDeleteVendor, useBillsByVendor, useExpensesByVendor, type Vendor } from "@/lib/queries/vendors";
 import type { VendorBill } from "@/lib/queries/vendor-bills";
 import { BillDetailDialog } from "@/components/features/accounting/bill-detail-dialog";
 import { VENDOR_BILL_CATEGORIES } from "@/lib/queries/vendor-bills";
@@ -51,7 +51,7 @@ export default function VendorsPage() {
   const rows = (vendors ?? []).filter((v) =>
     !search.trim() || v.name.toLowerCase().includes(search.toLowerCase()) || (v.gstin ?? "").toLowerCase().includes(search.toLowerCase()));
   const totalOutstanding = (vendors ?? []).reduce((s, v) => s + v.outstanding, 0);
-  const totalBilled = (vendors ?? []).reduce((s, v) => s + v.totalBilled, 0);
+  const totalSpend = (vendors ?? []).reduce((s, v) => s + v.totalSpend, 0);
 
   const confirmDelete = async (v: Vendor) => {
     if (await confirm({
@@ -71,7 +71,7 @@ export default function VendorsPage() {
           <p className="text-xs uppercase tracking-wider text-ink-3 font-semibold mb-1">Purchases</p>
           <h1 className="font-serif text-3xl md:text-4xl tracking-tight">Vendors</h1>
           <p className="text-sm text-ink-3 mt-1">
-            Who you buy from (Google CSP · Microsoft · Zoho · etc.). Every vendor&apos;s bills, total spend, and outstanding balance in one place.
+            Everyone who invoices you — resale suppliers (Google / Microsoft / Zoho) and expense vendors (software, rent, stationery). Total spend across COGS bills + expenses, all in one place.
           </p>
         </div>
         <Button variant="primary" icon="plus" className="hidden md:inline-flex" onClick={() => setAddOpen(true)}>Add vendor</Button>
@@ -82,7 +82,7 @@ export default function VendorsPage() {
           className="mb-5"
           items={[
             { label: "Vendors",      value: (vendors ?? []).length },
-            { label: "Total billed", value: rupee(totalBilled, { compact: true }) },
+            { label: "Total spend",  value: rupee(totalSpend, { compact: true }) },
             { label: "Outstanding",  value: rupee(totalOutstanding, { compact: true }), tone: totalOutstanding > 0 ? "rose" : "emerald" },
           ]}
         />
@@ -114,8 +114,8 @@ export default function VendorsPage() {
                 <tr>
                   <th className="text-left  px-4 py-2.5">Vendor</th>
                   <th className="text-left  px-4 py-2.5">Category</th>
-                  <th className="text-right px-4 py-2.5">Bills</th>
-                  <th className="text-right px-4 py-2.5">Total billed</th>
+                  <th className="text-right px-4 py-2.5">Entries</th>
+                  <th className="text-right px-4 py-2.5">Total spend</th>
                   <th className="text-right px-4 py-2.5">Outstanding</th>
                   <th className="text-right px-2 py-2.5"><span className="sr-only">Actions</span></th>
                 </tr>
@@ -137,11 +137,11 @@ export default function VendorsPage() {
                       {v.contact_email && <div className="text-[11px] text-ink-3 truncate">{v.contact_email}</div>}
                     </td>
                     <td className="px-4 py-2.5 align-top">{v.default_category ? <Badge kind="muted" size="sm">{v.default_category}</Badge> : <span className="text-ink-3">—</span>}</td>
-                    <td className="px-4 py-2.5 text-right tabular-nums text-ink-2 align-top">{v.billCount || "—"}</td>
+                    <td className="px-4 py-2.5 text-right tabular-nums text-ink-2 align-top">{v.docCount || "—"}</td>
                     <td className="px-4 py-2.5 text-right tabular-nums align-top">
-                      {v.totalBilled > 0 ? rupee(v.totalBilled) : "—"}
+                      {v.totalSpend > 0 ? rupee(v.totalSpend) : "—"}
                       {v.billCurrency && v.totalBilled > 0 && (
-                        <div className="text-[10px] text-ink-3">{formatForeignAmount(v.billCurrency, v.foreignBilled)}</div>
+                        <div className="text-[10px] text-ink-3">{formatForeignAmount(v.billCurrency, v.foreignBilled)} COGS</div>
                       )}
                     </td>
                     <td className="px-4 py-2.5 text-right tabular-nums align-top">
@@ -178,7 +178,7 @@ export default function VendorsPage() {
                     <div className="min-w-0">
                       <div className="font-medium text-ink truncate">{v.name}</div>
                       {v.gstin && <div className="text-[11px] text-ink-3 font-mono truncate">{v.gstin}</div>}
-                      <div className="text-[11px] text-ink-3 mt-0.5">{v.billCount} bill{v.billCount === 1 ? "" : "s"} · {rupee(v.totalBilled, { compact: true })} billed</div>
+                      <div className="text-[11px] text-ink-3 mt-0.5">{v.docCount} {v.docCount === 1 ? "entry" : "entries"} · {rupee(v.totalSpend, { compact: true })} spent</div>
                     </div>
                     <div className="text-right shrink-0">
                       {v.outstanding > 0
@@ -339,6 +339,7 @@ function VendorFormDialog({ vendor, onClose }: { vendor?: Vendor; onClose: () =>
 
 function VendorBillsDialog({ vendor, onClose, onEdit }: { vendor: Vendor; onClose: () => void; onEdit: () => void }) {
   const { data: bills, isLoading } = useBillsByVendor(vendor.id);
+  const { data: vExpenses } = useExpensesByVendor(vendor.id);
   const [detailBill, setDetailBill] = React.useState<VendorBill | null>(null);
 
   return (
@@ -351,9 +352,12 @@ function VendorBillsDialog({ vendor, onClose, onEdit }: { vendor: Vendor; onClos
             {vendor.gstin && <span className="font-mono text-[11px] text-ink-3">{vendor.gstin}</span>}
           </DialogTitle>
           <DialogDescription>
-            {vendor.billCount} bill{vendor.billCount === 1 ? "" : "s"} · {rupee(vendor.totalBilled)}
-            {vendor.billCurrency ? ` (${formatForeignAmount(vendor.billCurrency, vendor.foreignBilled)})` : ""} billed ·{" "}
-            <b className={vendor.outstanding > 0 ? "text-rose" : "text-emerald"}>{vendor.outstanding > 0 ? `${rupee(vendor.outstanding)} due` : "all paid"}</b>
+            {vendor.docCount} {vendor.docCount === 1 ? "entry" : "entries"} · {rupee(vendor.totalSpend)}
+            {vendor.billCurrency ? ` (${formatForeignAmount(vendor.billCurrency, vendor.foreignBilled)})` : ""} spent ·{" "}
+            <b className={vendor.outstanding > 0 ? "text-rose" : "text-emerald"}>{vendor.outstanding > 0 ? `${rupee(vendor.outstanding)} due` : "all settled"}</b>
+            {vendor.billCount > 0 && vendor.expenseCount > 0 && (
+              <span className="text-ink-3"> · {vendor.billCount} COGS bill{vendor.billCount === 1 ? "" : "s"} + {vendor.expenseCount} expense{vendor.expenseCount === 1 ? "" : "s"}</span>
+            )}
             {[vendor.address, vendor.city, vendor.state, vendor.pincode].some(Boolean) && (
               <span className="mt-1 block text-[12px] not-italic text-ink-3">
                 📍 {[vendor.address, vendor.city, vendor.state, vendor.pincode].filter(Boolean).join(", ")}
@@ -361,12 +365,16 @@ function VendorBillsDialog({ vendor, onClose, onEdit }: { vendor: Vendor; onClos
             )}
           </DialogDescription>
         </DialogHeader>
-        <div className="max-h-[55vh] overflow-y-auto -mx-1 px-1">
+        <div className="max-h-[55vh] overflow-y-auto -mx-1 px-1 space-y-4">
           {isLoading ? (
             <div className="space-y-2">{[1, 2, 3].map((i) => <Skeleton key={i} className="h-12" />)}</div>
-          ) : (bills ?? []).length === 0 ? (
-            <p className="py-6 text-center text-sm text-ink-3">No bills for this vendor yet.</p>
+          ) : (bills ?? []).length === 0 && (vExpenses ?? []).length === 0 ? (
+            <p className="py-6 text-center text-sm text-ink-3">No bills or expenses for this vendor yet.</p>
           ) : (
+          <>
+            {(bills ?? []).length > 0 && (
+            <div>
+              <p className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold mb-1 px-1">COGS bills</p>
             <ul className="divide-y divide-hairline">
               {(bills ?? []).map((b) => {
                 const out = Math.max(0, (b.total ?? 0) - (b.paid_amount ?? 0));
@@ -392,6 +400,28 @@ function VendorBillsDialog({ vendor, onClose, onEdit }: { vendor: Vendor; onClos
                 );
               })}
             </ul>
+            </div>
+            )}
+            {(vExpenses ?? []).length > 0 && (
+            <div>
+              <p className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold mb-1 px-1">Expenses</p>
+              <ul className="divide-y divide-hairline">
+                {(vExpenses ?? []).map((e) => (
+                  <li key={e.id} className="flex items-center justify-between gap-3 py-2.5 px-1">
+                    <div className="min-w-0">
+                      <p className="text-sm text-ink truncate">{e.category}{e.description ? <span className="text-ink-3"> · {e.description}</span> : ""}</p>
+                      <p className="text-[11px] text-ink-3">{formatDate(e.expense_date)}</p>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <p className="font-mono text-sm font-semibold text-ink">{rupee(e.amount)}</p>
+                      {e.gst_paid > 0 && <p className="text-[10px] text-emerald">+{rupee(e.gst_paid)} GST</p>}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+            )}
+          </>
           )}
         </div>
         <DialogFooter>

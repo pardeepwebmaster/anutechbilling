@@ -35,6 +35,7 @@ import {
   type Expense,
 } from "@/lib/queries/expenses";
 import { useBankAccounts } from "@/lib/queries/bank";
+import { useVendors, ensureVendor } from "@/lib/queries/vendors";
 
 const schema = z.object({
   category:       z.string().min(2),
@@ -56,6 +57,12 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
   const { data: bankAccounts } = useBankAccounts();
   const cashAccounts = (bankAccounts ?? []).filter((a) => a.account_type === "cash");
   const [pettyCashAccountId, setPettyCashAccountId] = React.useState<string>("");
+
+  // Vendor master link — pick an existing supplier or type a new one (auto-added
+  // to Vendors on save), so every OPEX supplier is a managed vendor too.
+  const { data: vendors } = useVendors();
+  const [vendorId, setVendorId] = React.useState<string | null>(expense?.vendor_id ?? null);
+  const [vendorOpen, setVendorOpen] = React.useState(false);
 
   // ── AI bill reader — upload a stationery/software/rent invoice → Gemini
   //    extracts the fields → we PRE-FILL (operator verifies before saving).
@@ -127,6 +134,16 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
   });
 
   async function onSubmit(values: FormData) {
+    const payee = values.vendor_name?.trim() || "";
+    // Only GST-invoice suppliers belong in the Vendors master. So: an already-
+    // picked vendor keeps its link; a NEW typed payee is added to Vendors only
+    // when this is a GST bill (GST paid entered). Non-GST / one-off payees stay
+    // as a free-text name and don't clutter the supplier master.
+    const isGstBill = Number(values.gst_paid) > 0;
+    const vId = payee
+      ? (vendorId ?? (isGstBill ? await ensureVendor({ name: payee, defaultCategory: values.category }) : null))
+      : null;
+
     if (expense) {
       // Edit updates the expense row's fields only. (A linked petty-cash leg,
       // if any, isn't re-adjusted here — edit amount changes cautiously.)
@@ -134,7 +151,8 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
         id: expense.id,
         patch: {
           category:       values.category,
-          vendor_name:    values.vendor_name    || null,
+          vendor_name:    payee || null,
+          vendor_id:      vId,
           expense_date:   values.expense_date,
           amount:         Math.round(values.amount),
           gst_paid:       Math.round(values.gst_paid),
@@ -147,7 +165,8 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
     }
     await create.mutateAsync({
       category:       values.category,
-      vendor_name:    values.vendor_name    || null,
+      vendor_name:    payee || null,
+      vendor_id:      vId,
       expense_date:   values.expense_date,
       amount:         Math.round(values.amount),
       gst_paid:       Math.round(values.gst_paid),
@@ -229,7 +248,37 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
           )}
 
           <FormField label="Vendor / payee (optional)" htmlFor="vendor_name">
-            <Input id="vendor_name" placeholder="Cloud Run / Resend / Office Landlord" {...register("vendor_name")} />
+            <div className="relative">
+              <Input
+                id="vendor_name"
+                autoComplete="off"
+                placeholder="e.g. Anthropic / Airtel / Office Landlord"
+                {...register("vendor_name", { onChange: () => { setVendorId(null); setVendorOpen(true); } })}
+                onFocus={() => setVendorOpen(true)}
+                onBlur={() => setTimeout(() => setVendorOpen(false), 130)}
+              />
+              {vendorOpen && (vendors ?? []).length > 0 && (() => {
+                const query = (watch("vendor_name") || "").trim().toLowerCase();
+                const matches = (vendors ?? []).filter((v) => !query || v.name.toLowerCase().includes(query)).slice(0, 8);
+                if (matches.length === 0) return null;
+                return (
+                  <div className="absolute z-20 mt-1 w-full max-h-52 overflow-y-auto rounded-md border border-hairline bg-paper shadow-lg">
+                    {matches.map((v) => (
+                      <button
+                        key={v.id}
+                        type="button"
+                        onMouseDown={(e) => { e.preventDefault(); setValue("vendor_name", v.name); setVendorId(v.id); setVendorOpen(false); }}
+                        className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-paper-2"
+                      >
+                        <span className="text-ink truncate">{v.name}</span>
+                        {v.gstin && <span className="text-[10px] text-ink-3 font-mono shrink-0">{v.gstin}</span>}
+                      </button>
+                    ))}
+                  </div>
+                );
+              })()}
+            </div>
+            <p className="text-[10px] text-ink-3 mt-1">Pick an existing vendor, or type a new one — a new payee is added to your Vendors master only when it&apos;s a GST bill (GST paid entered).</p>
           </FormField>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

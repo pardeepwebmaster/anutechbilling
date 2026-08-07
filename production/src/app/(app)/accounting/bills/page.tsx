@@ -67,6 +67,7 @@ export default function VendorBillsPage() {
   const [statusFilter, setStatusFilter] = React.useState<"" | "unpaid" | "paid" | "partial">("");
   const [addOpen, setAddOpen] = React.useState(false);
   const [payBill, setPayBill] = React.useState<VendorBill | null>(null);
+  const [openItems, setOpenItems] = React.useState<string | null>(null);
 
   const billsQ  = useVendorBills({
     from:   range.from,
@@ -190,7 +191,8 @@ export default function VendorBillsPage() {
                   const dueDays = b.due_date ? Math.ceil((new Date(`${b.due_date}T00:00:00`).getTime() - Date.now()) / 86400000) : null;
                   const showAging = b.status !== "paid" && dueDays !== null && (dueDays < 0 || dueDays <= 15);
                   return (
-                    <tr key={b.id} className="border-b border-hairline last:border-0 hover:bg-paper-2/50 transition-colors">
+                    <React.Fragment key={b.id}>
+                    <tr className="border-b border-hairline last:border-0 hover:bg-paper-2/50 transition-colors">
                       <td className="px-4 py-2.5 align-top">
                         <div className="font-medium text-ink inline-flex items-center gap-2 flex-wrap">
                           {b.vendor_name}
@@ -202,6 +204,16 @@ export default function VendorBillsPage() {
                         </div>
                         {b.vendor_gstin && (
                           <div className="text-[11px] text-ink-3 font-mono">{b.vendor_gstin}</div>
+                        )}
+                        {(b.line_items?.length ?? 0) > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => setOpenItems((cur) => (cur === b.id ? null : b.id))}
+                            className="mt-1 inline-flex items-center gap-1 text-[11px] text-ink-3 hover:text-ink"
+                          >
+                            <Icon name={openItems === b.id ? "chevron_up" : "chevron_down"} size={12} />
+                            {b.line_items.length} item{b.line_items.length === 1 ? "" : "s"}
+                          </button>
                         )}
                       </td>
                       <td className="px-3 py-2.5 align-top">{b.category ? <Badge kind="muted" size="sm">{b.category}</Badge> : <span className="text-ink-3">—</span>}</td>
@@ -236,6 +248,36 @@ export default function VendorBillsPage() {
                         </div>
                       </td>
                     </tr>
+                    {openItems === b.id && (b.line_items?.length ?? 0) > 0 && (
+                      <tr className="bg-paper-2/40">
+                        <td colSpan={10} className="px-4 py-2.5">
+                          <div className="rounded-md border border-hairline overflow-hidden">
+                            <table className="w-full text-[12px]">
+                              <thead className="bg-paper-2 text-ink-3">
+                                <tr>
+                                  <th className="text-left px-3 py-1.5 font-medium">Item</th>
+                                  <th className="text-right px-3 py-1.5 font-medium">Qty</th>
+                                  <th className="text-right px-3 py-1.5 font-medium">Unit price</th>
+                                  <th className="text-right px-3 py-1.5 font-medium">Amount</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-hairline">
+                                {b.line_items.map((li, i) => (
+                                  <tr key={i}>
+                                    <td className="px-3 py-1.5 text-ink">{li.name || "—"}</td>
+                                    <td className="px-3 py-1.5 text-right text-ink-2 tabular-nums">{li.qty ?? "—"}</td>
+                                    <td className="px-3 py-1.5 text-right text-ink-2 tabular-nums">{li.rate != null ? li.rate.toLocaleString("en-IN") : "—"}</td>
+                                    <td className="px-3 py-1.5 text-right text-ink font-mono tabular-nums">{li.amount.toLocaleString("en-IN")}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                          <p className="mt-1 text-[10px] text-ink-3">Amounts as printed on the bill{b.notes?.startsWith("Foreign bill") ? " (foreign currency — see note)" : ""}.</p>
+                        </td>
+                      </tr>
+                    )}
+                    </React.Fragment>
                   );
                 })}
               </tbody>

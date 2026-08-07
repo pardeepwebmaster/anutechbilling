@@ -1301,6 +1301,7 @@ export type ExpenseRow = {
   vendor_id:        string | null;           // migration 0178 — link to the vendors master
   currency:         string;                  // migration 0179 — 'INR' | 'USD' | … (INR = domestic)
   fx_rate:          number;                  // ₹ per 1 unit of currency (1 for INR); foreign amt = amount / fx_rate
+  bill_type:        string;                  // migration 0180 — 'gst' | 'kaccha' | 'none'
   expense_date:     string;                  // YYYY-MM-DD
   amount:           number;
   gst_paid:         number;
@@ -1319,6 +1320,7 @@ type ExpenseInsert = {
   vendor_id?:       string | null;
   currency?:        string;
   fx_rate?:         number;
+  bill_type?:       string;
   expense_date:     string;
   amount:           number;
   gst_paid?:        number;

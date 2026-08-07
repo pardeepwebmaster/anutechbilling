@@ -74,6 +74,12 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
   const isForeign = currency !== "INR";
   const rate = isForeign ? Number(fxRate || 0) : 1;
 
+  // How the expense is supported: proper GST tax invoice, a kaccha (informal /
+  // non-GST) bill, or no bill at all (petty cash). Only a GST invoice carries
+  // input tax credit — and only a GST-invoice vendor joins the Vendors master.
+  const [billType, setBillType] = React.useState<string>(expense?.bill_type ?? "gst");
+  const isGstBill = billType === "gst";
+
   // ── AI bill reader — upload a stationery/software/rent invoice → Gemini
   //    extracts the fields → we PRE-FILL (operator verifies before saving).
   const fileRef = React.useRef<HTMLInputElement>(null);
@@ -104,6 +110,7 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
       if (f.bill_date)   setValue("expense_date", String(f.bill_date));
       const cur = String(f.currency ?? "INR").toUpperCase();
       const gst = Number(f.cgst ?? 0) + Number(f.sgst ?? 0) + Number(f.igst ?? 0);
+      setBillType(gst > 0 ? "gst" : "kaccha");   // uploaded = a bill; GST present ⇒ tax invoice
       setCurrency(cur);
       // Amounts are entered in the bill's own currency (converted to ₹ on save).
       if (f.total != null) setValue("amount", Number(f.total));
@@ -152,7 +159,7 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
     // picked vendor keeps its link; a NEW typed payee is added to Vendors only
     // when this is a GST bill (GST paid entered). Non-GST / one-off payees stay
     // as a free-text name and don't clutter the supplier master.
-    const isGstBill = Number(values.gst_paid) > 0;
+    // Only a GST invoice adds a NEW payee to the Vendors master + carries GST.
     const vId = payee
       ? (vendorId ?? (isGstBill ? await ensureVendor({ name: payee, defaultCategory: values.category }) : null))
       : null;
@@ -164,6 +171,8 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
     }
     setFxError(null);
     const inr = (n: number) => Math.round(n * rate);   // convert entered currency → ₹ (rate 1 for INR)
+    // No input GST on a kaccha / no-bill expense.
+    const gstAmt = isGstBill ? inr(values.gst_paid) : 0;
 
     if (expense) {
       // Edit updates the expense row's fields only. (A linked petty-cash leg,
@@ -176,9 +185,10 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
           vendor_id:      vId,
           currency,
           fx_rate:        rate,
+          bill_type:      billType,
           expense_date:   values.expense_date,
           amount:         inr(values.amount),
-          gst_paid:       inr(values.gst_paid),
+          gst_paid:       gstAmt,
           payment_method: values.payment_method || null,
           description:    values.description    || null,
         },
@@ -192,9 +202,10 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
       vendor_id:      vId,
       currency,
       fx_rate:        rate,
+      bill_type:      billType,
       expense_date:   values.expense_date,
       amount:         inr(values.amount),
-      gst_paid:       inr(values.gst_paid),
+      gst_paid:       gstAmt,
       payment_method: values.payment_method || null,
       description:    values.description    || null,
       // Only tag a petty-cash out-flow when paid by cash from a chosen account.
@@ -306,6 +317,21 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
             <p className="text-[10px] text-ink-3 mt-1">Pick an existing vendor, or type a new one — a new payee is added to your Vendors master only when it&apos;s a GST bill (GST paid entered).</p>
           </FormField>
 
+          {/* Bill type — GST invoice vs kaccha / no bill (drives input-credit) */}
+          <FormField label="Bill" htmlFor="bill_type">
+            <Select value={billType} onValueChange={(v) => { setBillType(v); if (v !== "gst") { setValue("gst_paid", 0); setVendorId(null); } }}>
+              <SelectTrigger id="bill_type"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="gst">GST invoice (input credit)</SelectItem>
+                <SelectItem value="kaccha">Kaccha bill (no GST)</SelectItem>
+                <SelectItem value="none">No bill</SelectItem>
+              </SelectContent>
+            </Select>
+            {!isGstBill && (
+              <p className="text-[10px] text-amber-ink mt-1">Still recorded &amp; deductible — but no input GST credit (needs a GST tax invoice).</p>
+            )}
+          </FormField>
+
           {/* Currency + exchange rate — foreign bills convert to ₹ for the books */}
           <div className="grid grid-cols-2 gap-3">
             <FormField label="Currency" htmlFor="currency">
@@ -332,9 +358,9 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
                 <p className="text-[10px] text-emerald mt-1">≈ ₹{Math.round(Number(watch("amount")) * rate).toLocaleString("en-IN")} in books</p>
               )}
             </FormField>
-            <FormField label={`GST paid (${isForeign ? currency : "₹"}, if invoiced)`} htmlFor="gst_paid">
-              <Input id="gst_paid" type="number" min={0} step="any" {...register("gst_paid")} />
-              <p className="text-[10px] text-ink-3 mt-1">Claimable as input tax credit.</p>
+            <FormField label={`GST paid (${isForeign ? currency : "₹"})`} htmlFor="gst_paid">
+              <Input id="gst_paid" type="number" min={0} step="any" disabled={!isGstBill} {...register("gst_paid")} />
+              <p className="text-[10px] text-ink-3 mt-1">{isGstBill ? "Claimable as input tax credit." : "No GST — kaccha / no bill."}</p>
             </FormField>
           </div>
 

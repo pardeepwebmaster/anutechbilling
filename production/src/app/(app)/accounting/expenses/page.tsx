@@ -276,6 +276,8 @@ export default function ExpensesPage() {
                     <td className="px-3 py-3 text-ink-2 whitespace-nowrap">{formatDate(e.expense_date)}</td>
                     <td className="px-3 py-3 text-ink whitespace-nowrap">
                       {e.category}
+                      {e.bill_type === "kaccha" && <span className="ml-1.5 text-[9px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-soft/60 text-amber-ink align-middle">Kaccha bill</span>}
+                      {e.bill_type === "none" && <span className="ml-1.5 text-[9px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-paper-2 text-ink-3 align-middle">No bill</span>}
                       {(() => { const t = reconcileTag(e, salByExpense.get(e.id)); return t ? <ReconcileTag {...t} /> : null; })()}
                     </td>
                     <td className="px-3 py-3 text-ink-2 whitespace-nowrap">{e.vendor_name ?? "—"}</td>
@@ -320,6 +322,8 @@ export default function ExpensesPage() {
                   <div className="flex items-start justify-between gap-2 mb-1">
                     <div className="font-medium text-ink leading-tight">
                       {e.category}
+                      {e.bill_type === "kaccha" && <span className="ml-1.5 text-[9px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-soft/60 text-amber-ink align-middle">Kaccha bill</span>}
+                      {e.bill_type === "none" && <span className="ml-1.5 text-[9px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-paper-2 text-ink-3 align-middle">No bill</span>}
                       {(() => { const t = reconcileTag(e, salByExpense.get(e.id)); return t ? <ReconcileTag {...t} /> : null; })()}
                     </div>
                     <div className="font-serif text-xl text-ink leading-none">{rupee(e.amount)}</div>

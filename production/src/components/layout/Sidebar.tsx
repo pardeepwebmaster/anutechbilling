@@ -125,7 +125,7 @@ function SidebarContent({ onNavigate, collapsed = false, onToggle }: { onNavigat
                 onClick={onNavigate}
                 target={it.external ? "_blank" : undefined}
                 rel={it.external ? "noopener noreferrer" : undefined}
-                title={collapsed ? it.label : undefined}
+                title={collapsed ? (it.hint ? `${it.label} — ${it.hint}` : it.label) : it.hint}
                 className={cn(
                   "group relative flex items-center rounded-md text-sm transition-colors",
                   collapsed ? "justify-center px-0 py-2" : child ? "gap-2 pl-8 pr-3 py-1.5 text-[13px]" : "gap-2.5 px-3 py-1.5",

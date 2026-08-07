@@ -27,6 +27,8 @@ export interface NavItem {
   children?: NavItem[];
   /** External URL — opens in a new tab (e.g. Google Drive) instead of in-app routing. */
   external?: boolean;
+  /** Hover tooltip — a one-line hint so a data-entry user knows what belongs here. */
+  hint?: string;
 }
 
 export interface NavSection {
@@ -164,9 +166,9 @@ export const APP_NAV: NavSection[] = [
     roles: ["owner", "manager"],
     items: [
       { id: "vendors",         href: "/accounting/vendors",        label: "Vendors",         icon: "users" },
-      { id: "bills",           href: "/accounting/bills",          label: "Vendor Bills",    icon: "receipt" },
+      { id: "bills",           href: "/accounting/bills",          label: "Vendor Bills",    icon: "receipt", hint: "Bills for products you RESELL — Google / Microsoft / Zoho. These are COGS (cost of goods sold)." },
       { id: "bill-payments",   href: "/accounting/bill-payments",  label: "Payments Made",   icon: "rupee" },
-      { id: "expenses",        href: "/accounting/expenses",       label: "Expenses",        icon: "rupee" },
+      { id: "expenses",        href: "/accounting/expenses",       label: "Expenses",        icon: "rupee", hint: "Running-the-business costs — rent, salaries, stationery, your OWN software (not for resale). Operating expenses." },
       { id: "reimbursements",  href: "/accounting/reimbursements", label: "Reimbursements",  icon: "refresh" },
       { id: "purchase-orders", href: "/purchase-orders",           label: "Purchase Orders", icon: "cart" },
     ],

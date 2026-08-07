@@ -1,0 +1,222 @@
+/**
+ * Salary Register — the month-wise payroll register (a standard Indian HR /
+ * compliance document): gross, each deduction, and net pay per employee.
+ *
+ *  • Default view: pick a month → every employee paid that month, with totals.
+ *  • `?employee=<id>`: that ONE employee's register across the financial year
+ *    (opened from the Run-payroll "Present (mo)" cell).
+ */
+"use client";
+
+import * as React from "react";
+import { useSearchParams, useRouter } from "next/navigation";
+
+import { HrPageShell } from "../payroll/screens";
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Icon } from "@/components/ui/icon";
+import { Skeleton } from "@/components/ui/skeleton";
+import { EmptyState } from "@/components/shared/empty-state";
+import { rupee, formatDate, toTitleCase } from "@/lib/utils";
+import {
+  useEmployees, useSalaryPayments, useEmployeeSalaryHistory,
+  type SalaryPayment,
+} from "@/lib/queries/payroll";
+
+function nowPeriod(): string {
+  return new Date(Date.now() + 5.5 * 60 * 60 * 1000).toISOString().slice(0, 7);
+}
+function monthLabel(period: string): string {
+  const [y, m] = period.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString("en-IN", { month: "short", year: "numeric" });
+}
+function statusBadge(s: SalaryPayment["paid_status"]) {
+  return (
+    <Badge kind={s === "paid" ? "success" : "warning"} size="sm" dot>
+      {s === "paid" ? "Paid" : s === "partial" ? "Partial" : "Awaiting reconcile"}
+    </Badge>
+  );
+}
+const num = (n: number) => (n > 0 ? rupee(n) : <span className="text-ink-3">—</span>);
+
+export default function SalaryRegisterPage() {
+  const params = useSearchParams();
+  const employeeId = params.get("employee");
+  return (
+    <HrPageShell
+      title="Salary Register"
+      sub="Month-wise salary breakdown — gross, deductions and net pay per employee."
+    >
+      {employeeId ? <EmployeeRegister employeeId={employeeId} /> : <MonthRegister />}
+    </HrPageShell>
+  );
+}
+
+/** Money columns shared by both views (kept in one place so headers + rows stay aligned). */
+const MONEY_COLS: { key: keyof SalaryPayment; label: string }[] = [
+  { key: "gross", label: "Gross" },
+  { key: "incentive", label: "Bonus" },
+  { key: "lop_amount", label: "LOP" },
+  { key: "advance_recovered", label: "Advance" },
+  { key: "tds", label: "TDS" },
+  { key: "pf", label: "PF" },
+  { key: "esi", label: "ESI" },
+  { key: "other_deduction", label: "Other" },
+];
+
+function TotalsRow({ label, rows, leadSpan }: { label: string; rows: SalaryPayment[]; leadSpan: number }) {
+  return (
+    <tr className="border-t-2 border-hairline-strong bg-paper-2/40 font-semibold">
+      <td className="px-3 py-2.5 text-ink" colSpan={leadSpan}>{label}</td>
+      {MONEY_COLS.map((c) => (
+        <td key={c.key} className="px-3 py-2.5 text-right font-mono tabular-nums">
+          {num(rows.reduce((s, r) => s + (r[c.key] as number), 0))}
+        </td>
+      ))}
+      <td className="px-3 py-2.5 text-right font-mono tabular-nums text-ink">
+        {rupee(rows.reduce((s, r) => s + r.net, 0))}
+      </td>
+      <td className="px-3 py-2.5" />
+    </tr>
+  );
+}
+
+// ── All employees for one month ──────────────────────────────────────────────
+function MonthRegister() {
+  const router = useRouter();
+  const [period, setPeriod] = React.useState(nowPeriod());
+  const empQ = useEmployees();
+  const payQ = useSalaryPayments(period);
+
+  const empById = new Map((empQ.data ?? []).map((e) => [e.id, e]));
+  const rows = (payQ.data ?? []).slice().sort((a, b) =>
+    (empById.get(a.employee_id)?.name ?? "").localeCompare(empById.get(b.employee_id)?.name ?? ""));
+
+  return (
+    <>
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+        <div className="flex items-center gap-2">
+          <label className="text-xs text-ink-3 font-semibold uppercase tracking-wide">Month</label>
+          <input type="month" value={period} onChange={(e) => setPeriod(e.target.value)}
+            className="px-3 py-1.5 text-sm rounded-md border border-hairline bg-paper" />
+        </div>
+        {rows.length > 0 && (
+          <Button variant="ghost" size="sm" icon="download" onClick={() => window.print()}>Print</Button>
+        )}
+      </div>
+
+      {payQ.isLoading ? (
+        <div className="space-y-3">{[1, 2, 3].map((i) => <Skeleton key={i} className="h-12 w-full" />)}</div>
+      ) : rows.length === 0 ? (
+        <Card className="py-2"><EmptyState icon="rupee" title={`No salaries run for ${monthLabel(period)}`} body="Run payroll for this month, then the register fills in." /></Card>
+      ) : (
+        <Card flush>
+          <table className="w-full text-sm">
+            <thead className="bg-paper-2/50 text-[10px] uppercase tracking-wider text-ink-3 font-semibold">
+              <tr>
+                <th className="text-left px-3 py-3 whitespace-nowrap">Employee</th>
+                {MONEY_COLS.map((c) => <th key={c.key} className="text-right px-3 py-3 whitespace-nowrap">{c.label}</th>)}
+                <th className="text-right px-3 py-3 whitespace-nowrap">Net pay</th>
+                <th className="text-left px-3 py-3 whitespace-nowrap">Status</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-hairline">
+              {rows.map((p) => {
+                const e = empById.get(p.employee_id);
+                return (
+                  <tr
+                    key={p.id}
+                    className="cursor-pointer hover:bg-paper-2/40 transition-colors"
+                    role="button" tabIndex={0}
+                    onClick={() => router.push(`/accounting/salary-register?employee=${p.employee_id}` as never)}
+                    onKeyDown={(ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); router.push(`/accounting/salary-register?employee=${p.employee_id}` as never); } }}
+                  >
+                    <td className="px-3 py-2.5">
+                      <div className="font-medium text-ink">{toTitleCase(e?.name ?? "Employee")}</div>
+                      {e?.designation && <div className="text-[11px] text-ink-3 mt-0.5">{e.designation}</div>}
+                    </td>
+                    {MONEY_COLS.map((c) => (
+                      <td key={c.key} className="px-3 py-2.5 text-right font-mono tabular-nums text-ink-2">{num(p[c.key] as number)}</td>
+                    ))}
+                    <td className="px-3 py-2.5 text-right font-mono tabular-nums font-semibold text-ink">{rupee(p.net)}</td>
+                    <td className="px-3 py-2.5">{statusBadge(p.paid_status)}</td>
+                  </tr>
+                );
+              })}
+              <TotalsRow label={`${rows.length} employee${rows.length > 1 ? "s" : ""} · ${monthLabel(period)}`} rows={rows} leadSpan={1} />
+            </tbody>
+          </table>
+        </Card>
+      )}
+    </>
+  );
+}
+
+// ── One employee across the financial year ──────────────────────────────────
+function EmployeeRegister({ employeeId }: { employeeId: string }) {
+  const router = useRouter();
+  const empQ = useEmployees();
+  const histQ = useEmployeeSalaryHistory(employeeId);
+  const emp = (empQ.data ?? []).find((e) => e.id === employeeId);
+  const rows = (histQ.data ?? []).slice().sort((a, b) => a.period.localeCompare(b.period));
+
+  return (
+    <>
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+        <button
+          type="button"
+          onClick={() => router.push("/accounting/salary-register" as never)}
+          className="inline-flex items-center gap-1 text-sm text-ink-2 hover:text-ink"
+        >
+          <Icon name="arrow_left" size={15} /> All employees
+        </button>
+        {rows.length > 0 && (
+          <Button variant="ghost" size="sm" icon="download" onClick={() => window.print()}>Print</Button>
+        )}
+      </div>
+
+      <Card className="mb-4 p-4">
+        <div className="text-[11px] uppercase tracking-wider text-ink-3 font-semibold">Salary register</div>
+        <div className="font-serif text-2xl text-ink leading-tight mt-1">{toTitleCase(emp?.name ?? "Employee")}</div>
+        <div className="text-[11px] text-ink-3 mt-0.5">
+          {[emp?.designation?.trim() || null, emp?.joining_date ? `Joined ${formatDate(emp.joining_date)}` : null].filter(Boolean).join(" · ")}
+        </div>
+      </Card>
+
+      {histQ.isLoading ? (
+        <div className="space-y-3">{[1, 2, 3].map((i) => <Skeleton key={i} className="h-12 w-full" />)}</div>
+      ) : rows.length === 0 ? (
+        <Card className="py-2"><EmptyState icon="rupee" title="No salary runs yet" body="Once you run this employee's payroll, every month shows here." /></Card>
+      ) : (
+        <Card flush>
+          <table className="w-full text-sm">
+            <thead className="bg-paper-2/50 text-[10px] uppercase tracking-wider text-ink-3 font-semibold">
+              <tr>
+                <th className="text-left px-3 py-3 whitespace-nowrap">Month</th>
+                <th className="text-left px-3 py-3 whitespace-nowrap">Pay date</th>
+                {MONEY_COLS.map((c) => <th key={c.key} className="text-right px-3 py-3 whitespace-nowrap">{c.label}</th>)}
+                <th className="text-right px-3 py-3 whitespace-nowrap">Net pay</th>
+                <th className="text-left px-3 py-3 whitespace-nowrap">Status</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-hairline">
+              {rows.map((p) => (
+                <tr key={p.id} className="hover:bg-paper-2/40">
+                  <td className="px-3 py-2.5 font-medium text-ink whitespace-nowrap">{monthLabel(p.period)}</td>
+                  <td className="px-3 py-2.5 text-ink-2 whitespace-nowrap">{p.pay_date ? formatDate(p.pay_date) : "—"}</td>
+                  {MONEY_COLS.map((c) => (
+                    <td key={c.key} className="px-3 py-2.5 text-right font-mono tabular-nums text-ink-2">{num(p[c.key] as number)}</td>
+                  ))}
+                  <td className="px-3 py-2.5 text-right font-mono tabular-nums font-semibold text-ink">{rupee(p.net)}</td>
+                  <td className="px-3 py-2.5">{statusBadge(p.paid_status)}</td>
+                </tr>
+              ))}
+              <TotalsRow label={`${rows.length} month${rows.length > 1 ? "s" : ""}`} rows={rows} leadSpan={2} />
+            </tbody>
+          </table>
+        </Card>
+      )}
+    </>
+  );
+}

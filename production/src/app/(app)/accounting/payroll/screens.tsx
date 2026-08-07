@@ -9,6 +9,7 @@
 "use client";
 
 import * as React from "react";
+import { useRouter } from "next/navigation";
 
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -523,6 +524,7 @@ function EmployeeDialog({ employee, onClose }: { employee: Employee | null; onCl
 
 // ── Payroll tab ─────────────────────────────────────────────────────────────
 export function PayrollTab() {
+  const router = useRouter();
   const [period, setPeriod] = React.useState(currentPeriod());
   const empQ = useEmployees();
   const payQ = useSalaryPayments(period);
@@ -640,14 +642,19 @@ export function PayrollTab() {
                         {e.monthly_gross > 0 ? rupee(e.monthly_gross) : <span className="text-ink-3">—</span>}
                       </td>
                       <td className="px-4 py-3 text-right font-mono">{p ? rupee(p.net) : <span className="text-ink-3">—</span>}</td>
-                      <td className="px-4 py-3 text-right font-mono tabular-nums">
+                      <td className="px-4 py-3 text-right">
                         {(() => {
                           const a = attendanceFor(e);
                           return (
-                            <span title={`${a.present} present of ${a.expected} working day(s) so far this month (Sundays + holidays excluded).`}>
+                            <button
+                              type="button"
+                              onClick={() => router.push(`/accounting/salary-register?employee=${e.id}` as never)}
+                              className="font-mono tabular-nums hover:text-amber-ink hover:underline"
+                              title={`${a.present} present of ${a.expected} working day(s) this month (Sundays + holidays excluded). Click to open the salary register.`}
+                            >
                               <span className={cn(a.expected > 0 && a.present < a.expected && "text-amber-ink")}>{a.present}</span>
                               <span className="text-ink-3"> / {a.expected}</span>
-                            </span>
+                            </button>
                           );
                         })()}
                       </td>

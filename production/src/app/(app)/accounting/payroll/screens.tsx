@@ -558,10 +558,40 @@ export function PayrollTab() {
     }
   };
 
+  const attQ = useAttendance(period);
+  const holQ = useHolidays();
+
   const employees = (empQ.data ?? []).filter((e) => e.is_active);
   const paidByEmp = new Map((payQ.data ?? []).map((p) => [p.employee_id, p]));
   const totalNet = (payQ.data ?? []).reduce((s, p) => s + p.net, 0);
   const acctName = new Map((accountsQ.data ?? []).map((a) => [a.id, a.name]));
+
+  // Attendance this month: days present (distinct check-ins) vs working days so
+  // far (Sundays + company holidays excluded; from the join date if mid-month).
+  // Same basis payroll uses for loss-of-pay — so it reads consistently.
+  const attendanceFor = React.useMemo(() => {
+    const [yy, mm] = period.split("-").map(Number);
+    const monthStart = new Date(Date.UTC(yy, mm - 1, 1));
+    const monthEnd = new Date(Date.UTC(yy, mm, 0));
+    const todayUTC = new Date(todayISO() + "T00:00:00Z");
+    const rangeEnd = todayUTC < monthEnd ? todayUTC : monthEnd;
+    const holidaySet = new Set((holQ.data ?? []).map((h) => h.holiday_date));
+    const presentByEmp = new Map<string, Set<string>>();
+    for (const a of attQ.data ?? []) {
+      if (!a.check_in) continue;
+      (presentByEmp.get(a.employee_id) ?? presentByEmp.set(a.employee_id, new Set()).get(a.employee_id)!).add(a.work_date);
+    }
+    return (e: Employee): { present: number; expected: number } => {
+      const rangeStart = e.joining_date && e.joining_date > `${period}-01`
+        ? new Date(e.joining_date + "T00:00:00Z") : monthStart;
+      let expected = 0;
+      for (const d = new Date(rangeStart); d <= rangeEnd; d.setUTCDate(d.getUTCDate() + 1)) {
+        const iso = d.toISOString().slice(0, 10);
+        if (d.getUTCDay() !== 0 && !holidaySet.has(iso)) expected++;
+      }
+      return { present: presentByEmp.get(e.id)?.size ?? 0, expected };
+    };
+  }, [period, attQ.data, holQ.data]);
 
   return (
     <>
@@ -593,6 +623,7 @@ export function PayrollTab() {
                   <th className="text-left px-4 py-3">Employee</th>
                   <th className="text-right px-4 py-3">Monthly salary</th>
                   <th className="text-right px-4 py-3">Net</th>
+                  <th className="text-right px-4 py-3 whitespace-nowrap">Present (mo)</th>
                   <th className="text-right px-4 py-3">Action</th>
                 </tr>
               </thead>
@@ -609,6 +640,17 @@ export function PayrollTab() {
                         {e.monthly_gross > 0 ? rupee(e.monthly_gross) : <span className="text-ink-3">—</span>}
                       </td>
                       <td className="px-4 py-3 text-right font-mono">{p ? rupee(p.net) : <span className="text-ink-3">—</span>}</td>
+                      <td className="px-4 py-3 text-right font-mono tabular-nums">
+                        {(() => {
+                          const a = attendanceFor(e);
+                          return (
+                            <span title={`${a.present} present of ${a.expected} working day(s) so far this month (Sundays + holidays excluded).`}>
+                              <span className={cn(a.expected > 0 && a.present < a.expected && "text-amber-ink")}>{a.present}</span>
+                              <span className="text-ink-3"> / {a.expected}</span>
+                            </span>
+                          );
+                        })()}
+                      </td>
                       <td className="px-4 py-3">
                         <div className="flex items-center justify-end gap-2">
                           <Button
@@ -691,6 +733,7 @@ export function PayrollTab() {
                     </div>
                     <div className="text-[11px] text-ink-3 mb-2">
                       {p ? `Net pay · monthly salary ${rupee(e.monthly_gross)}` : `Monthly salary · not run yet`}
+                      {(() => { const a = attendanceFor(e); return ` · Present ${a.present}/${a.expected} this mo`; })()}
                     </div>
                     <div className="flex items-center justify-between gap-2">
                       {p ? (

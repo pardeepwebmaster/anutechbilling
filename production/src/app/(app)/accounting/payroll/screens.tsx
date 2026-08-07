@@ -1045,7 +1045,14 @@ function PaySalaryDialog({ employee, period, onClose }: { employee: Employee; pe
   const [accountId, setAccountId] = React.useState("");
   const [date, setDate]       = React.useState(todayISO());
 
-  React.useEffect(() => { if (!accountId && accounts.length > 0) setAccountId(accounts[0].id); }, [accounts, accountId]);
+  // Default to the main bank account (current/savings), not Petty Cash — salary
+  // normally goes out of the company bank.
+  React.useEffect(() => {
+    if (!accountId && accounts.length > 0) {
+      const bank = accounts.find((a) => a.account_type !== "cash" && a.account_type !== "credit_card");
+      setAccountId((bank ?? accounts[0]).id);
+    }
+  }, [accounts, accountId]);
   React.useEffect(() => { if (!advId && advances.length > 0) setAdvId(advances[0].id); }, [advances, advId]);
 
   const n = (s: string) => Math.max(0, Math.round(Number(s) || 0));
@@ -1098,17 +1105,19 @@ function PaySalaryDialog({ employee, period, onClose }: { employee: Employee; pe
     // Company holidays + auto national gazetted holidays (26 Jan / 15 Aug / 2 Oct).
     const holidaySet = new Set((holQ.data ?? []).map((h) => h.holiday_date));
     nationalHolidaysForYear(yy).forEach((d) => holidaySet.add(d));
-    let expected = 0;
+    let expected = 0, sundays = 0, holidays = 0;
     for (const d = new Date(rangeStart); d <= rangeEnd; d.setUTCDate(d.getUTCDate() + 1)) {
       const iso = d.toISOString().slice(0, 10);
-      if (d.getUTCDay() !== 0 && !holidaySet.has(iso)) expected++;
+      if (d.getUTCDay() === 0) sundays++;            // weekly off — paid, never LOP
+      else if (holidaySet.has(iso)) holidays++;      // Sunday/holiday clash counts once as Sunday
+      else expected++;                                // working day
     }
     const present = new Set((attQ.data ?? []).filter((a) => a.employee_id === employee.id && a.check_in).map((a) => a.work_date)).size;
     const monthLeaves = (leaveQ.data ?? []).filter((l) => l.employee_id === employee.id && l.from_date <= `${period}-31` && l.to_date >= `${period}-01`);
     const paidLeave = monthLeaves.filter((l) => l.type !== "unpaid").reduce((s, l) => s + l.days, 0);
     const unpaidLeave = monthLeaves.filter((l) => l.type === "unpaid").reduce((s, l) => s + l.days, 0);
     const absent = Math.max(0, expected - present - paidLeave - unpaidLeave);
-    return { present, absent, unpaidLeave, lopDays: absent + unpaidLeave };
+    return { present, absent, unpaidLeave, lopDays: absent + unpaidLeave, workingDays: expected, sundays, holidays };
   }, [period, employee, attQ.data, leaveQ.data, holQ.data]);
 
   function applyLopSuggestion() {
@@ -1203,9 +1212,14 @@ function PaySalaryDialog({ employee, period, onClose }: { employee: Employee; pe
 
           <div className="rounded-md border border-hairline p-3 space-y-3">
             <div className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold">Deductions</div>
-            <div className="flex items-center justify-between gap-2 rounded bg-paper-2/50 px-2.5 py-1.5 text-[11px] text-ink-3">
-              <span>From attendance: <b className="text-ink-2">{lopSuggestion.present}</b> present · <b className="text-ink-2">{lopSuggestion.absent}</b> absent · <b className="text-ink-2">{lopSuggestion.unpaidLeave}</b> unpaid leave → LOP <b className="text-ink">{lopSuggestion.lopDays}d</b></span>
-              <button type="button" onClick={applyLopSuggestion} className="shrink-0 rounded border border-hairline px-2 py-0.5 font-medium text-ink hover:bg-paper">Apply</button>
+            <div className="rounded bg-paper-2/50 px-2.5 py-2 text-[11px] text-ink-3">
+              <div className="flex items-center justify-between gap-2">
+                <span><b className="text-ink-2">{lopSuggestion.workingDays}</b> working days · <b className="text-ink-2">{lopSuggestion.present}</b> present · <b className="text-ink-2">{lopSuggestion.absent}</b> absent · <b className="text-ink-2">{lopSuggestion.unpaidLeave}</b> unpaid leave → LOP <b className="text-ink">{lopSuggestion.lopDays}d</b></span>
+                <button type="button" onClick={applyLopSuggestion} className="shrink-0 rounded border border-hairline px-2 py-0.5 font-medium text-ink hover:bg-paper">Apply</button>
+              </div>
+              <div className="mt-1 text-emerald">
+                {lopSuggestion.sundays} Sunday{lopSuggestion.sundays === 1 ? "" : "s"}{lopSuggestion.holidays > 0 ? ` + ${lopSuggestion.holidays} holiday${lopSuggestion.holidays === 1 ? "" : "s"}` : ""} — paid, never counted as loss-of-pay.
+              </div>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>

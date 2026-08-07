@@ -9,7 +9,7 @@
 "use client";
 
 import * as React from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -648,9 +648,9 @@ export function PayrollTab() {
                           return (
                             <button
                               type="button"
-                              onClick={() => router.push(`/accounting/salary-register?employee=${e.id}` as never)}
+                              onClick={() => router.push(`/accounting/attendance?employee=${e.id}&month=${period}` as never)}
                               className="font-mono tabular-nums hover:text-amber-ink hover:underline"
-                              title={`${a.present} present of ${a.expected} working day(s) this month (Sundays + holidays excluded). Click to open the salary register.`}
+                              title={`${a.present} present of ${a.expected} working day(s) this month (Sundays + holidays excluded). Click to open the attendance register.`}
                             >
                               <span className={cn(a.expected > 0 && a.present < a.expected && "text-amber-ink")}>{a.present}</span>
                               <span className="text-ink-3"> / {a.expected}</span>
@@ -1567,10 +1567,48 @@ function NetworkCard() {
 }
 
 export function AttendanceTab() {
-  const [period, setPeriod] = React.useState(currentPeriod());
+  const router = useRouter();
+  const params = useSearchParams();
+  const monthParam = params.get("month");
+  const focusId = params.get("employee");
+  const [period, setPeriod] = React.useState(
+    monthParam && /^\d{4}-\d{2}$/.test(monthParam) ? monthParam : currentPeriod(),
+  );
   const empQ = useEmployees();
   const attQ = useAttendance(period);
   const employees = (empQ.data ?? []).filter((e) => e.is_active);
+  const focusEmp = focusId ? (empQ.data ?? []).find((e) => e.id === focusId) ?? null : null;
+
+  // Focused view: ONE employee's attendance register (opened from the payroll
+  // "Present (mo)" cell).
+  if (focusId && focusEmp) {
+    return (
+      <>
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+          <button
+            type="button"
+            onClick={() => router.push("/accounting/attendance" as never)}
+            className="inline-flex items-center gap-1 text-sm text-ink-2 hover:text-ink"
+          >
+            <Icon name="arrow_left" size={15} /> All employees
+          </button>
+          <div className="flex items-center gap-2">
+            <label className="text-xs text-ink-3 font-semibold uppercase tracking-wide">Month</label>
+            <input type="month" value={period} onChange={(e) => setPeriod(e.target.value)}
+              className="px-3 py-1.5 text-sm rounded-md border border-hairline bg-paper" />
+          </div>
+        </div>
+        <Card className="mb-4 p-4">
+          <div className="text-[11px] uppercase tracking-wider text-ink-3 font-semibold">Attendance register</div>
+          <div className="font-serif text-2xl text-ink leading-tight mt-1">{toTitleCase(focusEmp.name)}</div>
+          {focusEmp.designation && <div className="text-[11px] text-ink-3 mt-0.5">{focusEmp.designation}</div>}
+        </Card>
+        {attQ.isLoading
+          ? <div className="space-y-3">{[1, 2, 3].map((i) => <Skeleton key={i} className="h-12 w-full" />)}</div>
+          : <AttendanceRegister period={period} employees={[focusEmp]} attendance={attQ.data ?? []} />}
+      </>
+    );
+  }
 
   const byEmp = new Map<string, { present: number; last: string | null }>();
   for (const a of attQ.data ?? []) {

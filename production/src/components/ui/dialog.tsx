@@ -70,11 +70,14 @@ const DialogContent = React.forwardRef<
 >(({ className, children, hideClose, resizable = true, style, ...props }, ref) => {
   // Size the user has dragged the dialog to (null = natural / default size).
   const [size, setSize] = React.useState<{ w: number; h: number } | null>(null);
+  // Offset (px) the user has dragged the dialog away from centre (null = centred).
+  const [pos, setPos] = React.useState<{ dx: number; dy: number } | null>(null);
   // Live bounding box of the dialog, mirrored onto the handle overlay.
   const [box, setBox] = React.useState<{ left: number; top: number; width: number; height: number } | null>(null);
 
   const innerRef = React.useRef<HTMLDivElement | null>(null);
   const drag = React.useRef<{ dir: string; x: number; y: number; w: number; h: number } | null>(null);
+  const moveRef = React.useRef<{ x: number; y: number; dx: number; dy: number } | null>(null);
 
   const syncBox = React.useCallback(() => {
     const el = innerRef.current;
@@ -149,12 +152,57 @@ const DialogContent = React.forwardRef<
     window.removeEventListener("pointerup", onUp);
   }, [onMove, onUp]);
 
+  // ── Drag-to-move: grab any non-interactive part of the dialog (header, blank
+  //    space, labels) and reposition it anywhere on screen. Desktop only.
+  const onMoving = React.useCallback((e: PointerEvent) => {
+    const m = moveRef.current;
+    if (!m) return;
+    let dx = m.dx + (e.clientX - m.x);
+    let dy = m.dy + (e.clientY - m.y);
+    // Keep the dialog reachable — don't let it fully leave the viewport.
+    const maxX = window.innerWidth / 2;
+    const maxY = window.innerHeight / 2;
+    dx = Math.max(-maxX + 80, Math.min(dx, maxX - 80));
+    dy = Math.max(-maxY + 40, Math.min(dy, maxY - 40));
+    setPos({ dx, dy });
+  }, []);
+
+  const onMoveUp = React.useCallback(() => {
+    moveRef.current = null;
+    document.body.style.userSelect = "";
+    window.removeEventListener("pointermove", onMoving);
+    window.removeEventListener("pointerup", onMoveUp);
+  }, [onMoving]);
+
+  const onContentPointerDown = React.useCallback((e: React.PointerEvent) => {
+    if (e.button !== 0) return;
+    // Don't hijack clicks on controls, links, the close button, or the resize
+    // handles — only bare chrome (header text, labels, padding) starts a move.
+    const target = e.target as HTMLElement;
+    if (target.closest("input,textarea,select,button,a,label,[role='combobox'],[role='listbox'],[contenteditable='true'],[data-radix-scroll-area-viewport]")) return;
+    if (typeof window !== "undefined" && window.innerWidth < 768) return; // desktop only
+    moveRef.current = { x: e.clientX, y: e.clientY, dx: pos?.dx ?? 0, dy: pos?.dy ?? 0 };
+    document.body.style.userSelect = "none";
+    window.addEventListener("pointermove", onMoving);
+    window.addEventListener("pointerup", onMoveUp);
+  }, [pos, onMoving, onMoveUp]);
+
+  React.useEffect(() => () => {
+    window.removeEventListener("pointermove", onMoving);
+    window.removeEventListener("pointerup", onMoveUp);
+  }, [onMoving, onMoveUp]);
+
   return (
   <DialogPortal>
     <DialogOverlay />
     <DialogPrimitive.Content
       ref={setRefs}
-      style={size ? ({ ["--dlg-w"]: `${size.w}px`, ["--dlg-h"]: `${size.h}px`, ...style } as React.CSSProperties) : style}
+      onPointerDown={onContentPointerDown}
+      style={{
+        ...(size ? { ["--dlg-w"]: `${size.w}px`, ["--dlg-h"]: `${size.h}px` } : {}),
+        ...(pos ? { ["--dlg-x"]: `${pos.dx}px`, ["--dlg-y"]: `${pos.dy}px` } : {}),
+        ...style,
+      } as React.CSSProperties}
       className={cn(
         // ── Mobile (default): bottom sheet — slides up from viewport bottom,
         //    full-width, top-rounded only.
@@ -186,6 +234,7 @@ const DialogContent = React.forwardRef<
         // Reset mobile-only slides on desktop
         "md:data-[state=closed]:slide-out-to-bottom-0 md:data-[state=open]:slide-in-from-bottom-0",
         size && "dlg-resizable",
+        pos && "dlg-movable",
         className
       )}
       {...props}
@@ -235,7 +284,7 @@ DialogContent.displayName = DialogPrimitive.Content.displayName; // resizable di
 
 const DialogHeader = ({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) => (
   <div
-    className={cn("flex flex-col gap-1 text-left", className)}
+    className={cn("flex flex-col gap-1 text-left md:cursor-move", className)}
     {...props}
   />
 );

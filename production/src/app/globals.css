@@ -152,4 +152,9 @@
     max-width:  none !important;
     max-height: none !important;
   }
+  /* Drag-to-move: offset from the centred position. Out-specifies Tailwind's
+     `-translate-x/y-1/2` centring utilities so the user's offset wins. */
+  .dlg-movable.dlg-movable {
+    transform: translate(calc(-50% + var(--dlg-x, 0px)), calc(-50% + var(--dlg-y, 0px))) !important;
+  }
 }

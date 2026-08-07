@@ -576,7 +576,10 @@ export function PayrollTab() {
                   const p = paidByEmp.get(e.id);
                   return (
                     <tr key={e.id} className="hover:bg-paper-2/40">
-                      <td className="px-4 py-3 font-medium text-ink">{e.name}</td>
+                      <td className="px-4 py-3">
+                        <div className="font-medium text-ink">{toTitleCase(e.name)}</div>
+                        {e.designation && <div className="text-[11px] text-ink-3 mt-0.5">{e.designation}</div>}
+                      </td>
                       <td className="px-4 py-3 text-right font-mono text-ink-2">{rupee(e.monthly_gross)}</td>
                       <td className="px-4 py-3 text-right font-mono">{p ? rupee(p.net) : <span className="text-ink-3">—</span>}</td>
                       <td className="px-4 py-3">
@@ -647,12 +650,13 @@ export function PayrollTab() {
                       <button
                         type="button"
                         onClick={() => setCalendarFor(e)}
-                        className="font-medium text-ink leading-tight text-left hover:text-amber-ink"
+                        className="min-w-0 text-left"
                         title={`See ${e.name}'s full-year payroll`}
                       >
-                        {e.name}
+                        <div className="font-medium text-ink leading-tight hover:text-amber-ink">{toTitleCase(e.name)}</div>
+                        {e.designation && <div className="text-[11px] text-ink-3 mt-0.5">{e.designation}</div>}
                       </button>
-                      <div className="font-serif text-xl text-ink leading-none">{p ? rupee(p.net) : rupee(e.monthly_gross)}</div>
+                      <div className="font-serif text-xl text-ink leading-none shrink-0">{p ? rupee(p.net) : rupee(e.monthly_gross)}</div>
                     </div>
                     <div className="text-[11px] text-ink-3 mb-2">
                       {p ? `Net pay · monthly salary ${rupee(e.monthly_gross)}` : `Monthly salary · not run yet`}

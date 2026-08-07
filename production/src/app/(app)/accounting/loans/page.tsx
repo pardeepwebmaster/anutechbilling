@@ -134,7 +134,7 @@ export default function EmployeeLoansPage() {
             Expense claim link
           </Button>
           <Button variant="primary" icon="plus" className="hidden md:inline-flex" onClick={() => setDisburseOpen(true)}>
-            Give loan
+            Give loan / advance
           </Button>
         </div>
       </div>
@@ -183,7 +183,7 @@ export default function EmployeeLoansPage() {
             icon="rupee"
             title="No employee loans yet"
             body="Record a loan or advance you've given a team member. It's tracked as money owed back — repayments reduce it, and the balance shows as an asset."
-            action={<Button variant="primary" icon="plus" onClick={() => setDisburseOpen(true)}>Give a loan</Button>}
+            action={<Button variant="primary" icon="plus" onClick={() => setDisburseOpen(true)}>Give loan / advance</Button>}
           />
         </Card>
       ) : (
@@ -299,7 +299,7 @@ export default function EmployeeLoansPage() {
         </>
       )}
 
-      <FAB icon="plus" label="Loan" onClick={() => setDisburseOpen(true)} ariaLabel="Give loan" />
+      <FAB icon="plus" label="Loan / advance" onClick={() => setDisburseOpen(true)} ariaLabel="Give loan or advance" />
       {disburseOpen && <DisburseDialog initialKind={giveKind ?? undefined} onClose={() => { setDisburseOpen(false); setGiveKind(null); }} />}
       {repayFor && <RepaymentDialog loan={repayFor} onClose={() => setRepayFor(null)} />}
       {settleFor && <SettleDialog loan={settleFor} onClose={() => setSettleFor(null)} />}

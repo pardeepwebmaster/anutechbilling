@@ -62,7 +62,16 @@ export function ExpenseDetailDialog({ expense, onEdit, onClose }: {
       <DialogContent className="md:!max-w-xl">
         <DialogHeader>
           <DialogTitle className="flex flex-wrap items-center gap-2">
-            {expense.vendor_name || expense.category}
+            {expense.attachment_url ? (
+              <button type="button" onClick={openAttachment} disabled={openingBill}
+                title="Open the attached bill"
+                className="inline-flex items-center gap-1.5 text-amber-ink hover:underline disabled:opacity-60">
+                {expense.vendor_name || expense.category}
+                <Icon name="file" size={14} className="shrink-0" />
+              </button>
+            ) : (
+              expense.vendor_name || expense.category
+            )}
             {billTag && <span className={`text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded ${billTag.cls}`}>{billTag.label}</span>}
           </DialogTitle>
           <DialogDescription>

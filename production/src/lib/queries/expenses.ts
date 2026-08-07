@@ -63,7 +63,13 @@ export function useExpenses(opts?: {
     queryKey: ["expenses", { from, to, category }],
     queryFn: async (): Promise<Expense[]> => {
       const supabase = createClient();
-      let q = supabase.from("expenses").select("*").order("expense_date", { ascending: false });
+      // Newest first: by bill date, then most-recently-added (created_at) so a
+      // freshly-entered expense always lands at the top even on a shared date.
+      let q = supabase
+        .from("expenses")
+        .select("*")
+        .order("expense_date", { ascending: false })
+        .order("created_at", { ascending: false });
       if (from)     q = q.gte("expense_date", from);
       if (to)       q = q.lte("expense_date", to);
       if (category) q = q.eq("category", category);

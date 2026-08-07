@@ -11,6 +11,7 @@ import * as React from "react";
 
 import { Card } from "@/components/ui/card";
 import { Button, IconButton } from "@/components/ui/button";
+import { Icon } from "@/components/ui/icon";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/shared/empty-state";
 import { FAB } from "@/components/ui/fab";
@@ -132,8 +133,8 @@ export default function ExpensesPage() {
 
   return (
     <div className="p-4 md:p-6 lg:p-8 max-w-[1800px] mx-auto">
-      {/* Header */}
-      <div className="flex items-end justify-between gap-3 flex-wrap mb-6">
+      {/* Header — title left, primary action pinned top-right */}
+      <div className="flex items-start justify-between gap-4 mb-5">
         <div>
           <p className="text-xs uppercase tracking-wider text-ink-3 font-semibold mb-1">Purchases</p>
           <h1 className="font-serif text-3xl md:text-4xl tracking-tight">Expenses</h1>
@@ -145,30 +146,36 @@ export default function ExpensesPage() {
         <Button
           variant="primary"
           icon="plus"
-          className="hidden md:inline-flex"
+          className="hidden md:inline-flex shrink-0"
           onClick={() => setAddOpen(true)}
         >
           Add Expense
         </Button>
       </div>
 
-      {/* How it works — payment handling, so nobody double-enters the pay-out */}
-      <Card className="mb-5 p-3 md:p-4 border-amber/40 bg-amber-soft/25">
-        <p className="text-[13px] text-ink-2 leading-relaxed">
-          <b className="text-ink">How it works:</b> record the cost <b>once</b> here — it hits your P&amp;L. When you actually pay the vendor, that money-out is <b>reconciled in Banking</b> against this expense — don&apos;t enter it again as a second expense. Paying by <b>cash</b>? pick a petty-cash account and it&apos;s deducted from cash-in-hand automatically.
-        </p>
-      </Card>
-
-      {/* KPI strip */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 md:gap-4 mb-6">
-        <KPI label="Entries (this month)" value={totals ? String(totals.count) : "—"} />
+      {/* KPI strip — compact, so the expense list gets more room */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mb-3">
+        <KPI label="Entries" value={totals ? String(totals.count) : "—"} />
         <KPI label="Total spend"          value={totals ? rupee(totals.amount) : "—"} tone="rose" />
-        <KPI label="Input GST (claimable)" value={totals ? rupee(totals.gstPaid) : "—"} tone="emerald" />
+        <KPI label="Input GST" value={totals ? rupee(totals.gstPaid) : "—"} tone="emerald" />
         <KPI label="Top category"
              value={totals && categoryOptions.length > 0
                ? Object.entries(totals.byCategory).sort((a, b) => b[1] - a[1])[0][0]
                : "—"} />
       </div>
+
+      {/* How it works — collapsed by default (inline expandable) so the KPIs +
+          list sit higher up. */}
+      <details className="group mb-4 rounded-lg border border-hairline bg-paper-2/30">
+        <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-[12px] font-medium text-ink-2 select-none">
+          <Icon name="info" size={13} className="text-amber-ink shrink-0" />
+          How it works — recording an expense &amp; its payment
+          <Icon name="chevron_down" size={14} className="ml-auto text-ink-3 transition-transform group-open:rotate-180" />
+        </summary>
+        <p className="px-3 pb-3 text-[12px] text-ink-2 leading-relaxed">
+          Record the cost <b>once</b> here — it hits your P&amp;L. When you actually pay the vendor, that money-out is <b>reconciled in Banking</b> against this expense — don&apos;t enter it again as a second expense. Paying by <b>cash</b>? pick a petty-cash account and it&apos;s deducted from cash-in-hand automatically.
+        </p>
+      </details>
 
       {/* Filter strip */}
       <Card className="mb-5 p-3 md:p-4">
@@ -385,9 +392,9 @@ function KPI({
                    : tone === "rose"    ? "text-rose"
                    : "text-ink";
   return (
-    <Card className="p-3 md:p-4">
-      <div className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold mb-1">{label}</div>
-      <div className={`font-serif text-xl md:text-2xl ${colorClass} leading-tight`}>{value}</div>
+    <Card className="p-2.5">
+      <div className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold mb-0.5 truncate">{label}</div>
+      <div className={`font-serif text-lg md:text-xl ${colorClass} leading-tight truncate`}>{value}</div>
     </Card>
   );
 }

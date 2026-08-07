@@ -1008,6 +1008,8 @@ function RecordSubscriptionPaymentContainer({
       isProspect={!!quote.lead_id && !quote.customer_id}
       invoiceId={invoice.id}
       customerId={invoice.customer_id ?? quote.customer_id}
+      askDomain={!quote.is_one_off}
+      defaultDomain={quote.domain ?? undefined}
     />
   );
 }

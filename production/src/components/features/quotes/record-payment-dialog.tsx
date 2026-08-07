@@ -52,6 +52,9 @@ const schema = z.object({
   method:       z.string().min(1, "Method required"),
   reference:    z.string().min(1, "Transaction reference required"),
   notes:        z.string().optional(),
+  // Optional — the customer's domain (Google Workspace / M365 subscriptions need
+  // it). Stamped onto the subscription that record_payment creates.
+  domain:       z.string().optional(),
   // TDS fields — only validated when tdsDeducted is true (handled in submit)
   tdsDeducted:  z.boolean().optional(),
   tdsSection:   z.string().optional(),
@@ -99,6 +102,11 @@ interface RecordPaymentDialogProps {
   /** Customer FK — used to fetch saved TAN + default TDS section/rate so the TDS section
    *  pre-fills correctly. Null for prospect quotes (no customer row yet). */
   customerId?: string | null;
+  /** Show the optional Domain field (subscription quotes only — Google Workspace /
+   *  M365 need the customer domain). Hidden for one-off / direct invoices. */
+  askDomain?: boolean;
+  /** Pre-fill the domain field (e.g. from the customer/lead's known domain). */
+  defaultDomain?: string | null;
 }
 
 export function RecordPaymentDialog({
@@ -111,6 +119,8 @@ export function RecordPaymentDialog({
   isProspect = false,
   invoiceId = null,
   customerId = null,
+  askDomain = false,
+  defaultDomain = null,
 }: RecordPaymentDialogProps) {
   const qc = useQueryClient();
   const [method, setMethod] = React.useState("upi");
@@ -175,6 +185,7 @@ export function RecordPaymentDialog({
     defaultValues: {
       amount:      remaining,
       method:      "upi",
+      domain:      defaultDomain ?? "",
       tdsDeducted: false,
       tdsSection:  "194J",
       tdsRatePct:  10,
@@ -363,6 +374,23 @@ export function RecordPaymentDialog({
           console.error("[record-payment] receipt upload error (payment still recorded):", e);
           toast.warning("Payment saved — the receipt didn't attach. You can add it later from the payment.");
         }
+      }
+
+      // ── 2d. Stamp the optional domain onto the subscription (best-effort). ──
+      // record_payment creates/keeps the subscription (linked by quote_id).
+      // Google Workspace / M365 subscriptions need the customer's domain, so we
+      // capture it optionally here and set it if one was entered and it isn't
+      // already set (never overwrite). Non-money metadata — a failure only logs;
+      // the domain can still be added later on the Subscriptions page. Matches 0
+      // rows harmlessly for one-off / direct-invoice quotes (no subscription).
+      const domainVal = data.domain?.trim();
+      if (domainVal) {
+        const { error: domErr } = await supabase
+          .from("subscriptions")
+          .update({ domain: domainVal })
+          .eq("quote_id", quoteId)
+          .is("domain", null);
+        if (domErr) console.error("[record-payment] domain stamp failed (payment still recorded):", domErr);
       }
 
       // ── 3. TDS receivable — now committed ATOMICALLY inside
@@ -815,6 +843,19 @@ export function RecordPaymentDialog({
               {...register("notes")}
             />
           </FormField>
+
+          {/* Domain — optional. Google Workspace / M365 subscriptions are keyed
+              to the customer's domain; capture it here so the subscription is
+              ready to provision. Purely optional — leave blank if not known yet. */}
+          {askDomain && (
+            <FormField label="Customer domain (optional)" htmlFor="domain">
+              <Input
+                id="domain"
+                placeholder="acme.in — needed for Google Workspace / M365 provisioning"
+                {...register("domain")}
+              />
+            </FormField>
+          )}
 
           {/* Optional proof-of-payment attachment (screenshot / PDF). */}
           <FormField label="Payment receipt (optional)" htmlFor="receipt">

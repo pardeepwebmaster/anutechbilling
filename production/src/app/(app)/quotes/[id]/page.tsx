@@ -801,6 +801,8 @@ export default function QuoteDetailPage() {
         isProspect={!!quote.lead_id && !quote.customer_id}
         invoiceId={quote.invoice_id}
         customerId={quote.customer_id}
+        askDomain={!quote.is_one_off}
+        defaultDomain={customer?.domain ?? lead?.domain ?? undefined}
       />
 
       {/* Customer-facing quote preview */}

@@ -512,9 +512,11 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
                         value={l.description} onChange={(e) => setLine(i, { description: e.target.value })} />
                       <Input wrapperClassName="col-span-3 sm:col-span-2" className="text-right" type="number" min={0} step="any" placeholder="Qty"
                         value={l.qty} onChange={(e) => setLine(i, { qty: e.target.value })} />
-                      <Input wrapperClassName="col-span-3 sm:col-span-2" className="text-right" type="number" min={0} step="any" placeholder="Unit"
+                      <Input wrapperClassName="col-span-3 sm:col-span-2" className="text-right" type="number" step="any" placeholder="Unit"
                         value={l.unit_price} onChange={(e) => setLine(i, { unit_price: e.target.value })} />
-                      <Input wrapperClassName="col-span-3 sm:col-span-2" className="text-right" type="number" min={0} step="any" placeholder="Amount"
+                      {/* Amount allows negatives — credit / unused-time lines on a
+                          proration invoice are refunds (e.g. -$61.41). */}
+                      <Input wrapperClassName="col-span-3 sm:col-span-2" className="text-right" type="number" step="any" placeholder="Amount"
                         value={l.amount} onChange={(e) => setLine(i, { amount: e.target.value })} />
                       <button type="button" onClick={() => removeLine(i)} aria-label="Remove item"
                         className="col-span-3 sm:col-span-1 justify-self-center text-ink-3 hover:text-rose">

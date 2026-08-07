@@ -85,6 +85,36 @@ describe("sanitizeExtractedBill — foreign USD (OIDAR, e.g. Anthropic)", () => 
   });
 });
 
+describe("sanitizeExtractedBill — proration invoice with a credit line", () => {
+  // Anthropic plan-change: a Premium charge + a Standard charge + a NEGATIVE
+  // 'unused time' credit that makes the items reconcile to the subtotal.
+  const out = sanitizeExtractedBill({
+    vendor_name: "Anthropic, PBC",
+    currency: "USD",
+    subtotal: 49.13,
+    igst: 8.84,
+    total: 57.97,
+    line_items: [
+      { description: "Remaining time on Team plan - Premium", qty: 1, unit_price: 61.41, amount: 61.41 },
+      { description: "Remaining time on 4 x Team plan - Standard", qty: 4, unit_price: 12.28, amount: 49.13 },
+      { description: "Unused time on 5 x Team plan - Standard", qty: 5, unit_price: -12.28, amount: -61.41 },
+    ],
+  });
+
+  it("keeps the credit line's NEGATIVE amount (does not clamp to 0)", () => {
+    expect(out.line_items).toHaveLength(3);
+    expect(out.line_items[2]).toEqual({
+      description: "Unused time on 5 x Team plan - Standard",
+      qty: 5, unit_price: -12.28, amount: -61.41,
+    });
+  });
+
+  it("line items now reconcile to the pre-GST subtotal", () => {
+    const sum = out.line_items.reduce((s, l) => s + l.amount, 0);
+    expect(Math.round(sum * 100) / 100).toBe(out.subtotal);
+  });
+});
+
 describe("sanitizeExtractedBill — missing / dirty data", () => {
   it("returns nulls + empty line items without throwing", () => {
     const out = sanitizeExtractedBill({});

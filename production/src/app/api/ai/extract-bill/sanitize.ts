@@ -31,9 +31,16 @@ export interface ExtractedBill {
 }
 
 // Keep decimals — foreign bills (USD) need cents; INR gets rounded in the form.
+// Header amounts (subtotal/tax/total) can't be negative, so floor at 0.
 const toNum = (v: unknown): number | null => {
   const n = typeof v === "number" ? v : Number(v);
   return Number.isFinite(n) ? Math.max(0, Math.round(n * 100) / 100) : null;
+};
+// Line-item amounts KEEP their sign — a credit / unused-time / discount row is a
+// negative amount (e.g. -61.41 on a proration invoice) and must not clamp to 0.
+const toSignedNum = (v: unknown): number | null => {
+  const n = typeof v === "number" ? v : Number(v);
+  return Number.isFinite(n) ? Math.round(n * 100) / 100 : null;
 };
 
 /** Normalise a bill's currency code to an uppercase ISO-ish token (default INR). */
@@ -66,10 +73,10 @@ export function sanitizeExtractedBill(ai: ExtractedBill) {
       .map((l) => ({
         description: (l?.description ?? "").toString().trim(),
         qty:         toNum(l?.qty),
-        unit_price:  toNum(l?.unit_price),
-        amount:      toNum(l?.amount) ?? 0,
+        unit_price:  toSignedNum(l?.unit_price),
+        amount:      toSignedNum(l?.amount) ?? 0,
       }))
-      .filter((l) => l.description || l.amount > 0),
+      .filter((l) => l.description || l.amount !== 0),
     category_guess: (ai.category_guess ?? "").toString().trim() || null,
   };
 }

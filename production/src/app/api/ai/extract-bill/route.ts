@@ -47,6 +47,8 @@ const PROMPT =
   "RULES: Keep amounts in the bill's OWN currency (do NOT convert). Keep decimals (e.g. 265.50). " +
   "Never invent a value — use null (or [] for line_items) if the bill does not clearly show it. " +
   "A single foreign 'GST - India' / 'VAT' line goes in igst. " +
+  "CREDIT lines are NEGATIVE: a refund / 'unused time' / proration credit / discount row must have a NEGATIVE amount (and negative unit_price), e.g. -61.41 — never 0. " +
+  "The line_items amounts must sum to the pre-tax subtotal (total minus tax), so keep signs correct. " +
   "vendor_name is the SELLER, never the reseller/buyer.";
 
 async function extractWithGemini(apiKey: string, model: string, mimeType: string, base64: string): Promise<ExtractedBill | null> {

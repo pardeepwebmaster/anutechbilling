@@ -166,9 +166,9 @@ export const APP_NAV: NavSection[] = [
     roles: ["owner", "manager"],
     items: [
       { id: "vendors",         href: "/accounting/vendors",        label: "Vendors",         icon: "users" },
-      { id: "bills",           href: "/accounting/bills",          label: "Vendor Bills",    icon: "receipt", hint: "Bills for products you RESELL — Google / Microsoft / Zoho. These are COGS (cost of goods sold)." },
+      { id: "bills",           href: "/accounting/bills",          label: "Vendor Bills",    icon: "receipt", hint: "Ask: do you RESELL this to a customer? YES → here. Supplier bills for products you resell — Google Workspace / M365 / Zoho licenses. This is COGS. (Office / overhead bills → Expenses.)" },
       { id: "bill-payments",   href: "/accounting/bill-payments",  label: "Payments Made",   icon: "rupee" },
-      { id: "expenses",        href: "/accounting/expenses",       label: "Expenses",        icon: "rupee", hint: "Running-the-business costs — rent, salaries, stationery, your OWN software (not for resale). Operating expenses." },
+      { id: "expenses",        href: "/accounting/expenses",       label: "Expenses",        icon: "rupee", hint: "Ask: do you RESELL this? NO → here. Costs to run the business — rent, salaries, internet, stationery, your OWN software (e.g. Anthropic / M365), bank charges. This is OPEX. (Bills for products you resell → Vendor Bills.)" },
       { id: "reimbursements",  href: "/accounting/reimbursements", label: "Reimbursements",  icon: "refresh" },
       { id: "purchase-orders", href: "/purchase-orders",           label: "Purchase Orders", icon: "cart" },
     ],

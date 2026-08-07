@@ -131,6 +131,13 @@ export default function ExpensesPage() {
         </Button>
       </div>
 
+      {/* How it works — payment handling, so nobody double-enters the pay-out */}
+      <Card className="mb-5 p-3 md:p-4 border-amber/40 bg-amber-soft/25">
+        <p className="text-[13px] text-ink-2 leading-relaxed">
+          <b className="text-ink">How it works:</b> record the cost <b>once</b> here — it hits your P&amp;L. When you actually pay the vendor, that money-out is <b>reconciled in Banking</b> against this expense — don&apos;t enter it again as a second expense. Paying by <b>cash</b>? pick a petty-cash account and it&apos;s deducted from cash-in-hand automatically.
+        </p>
+      </Card>
+
       {/* KPI strip */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 md:gap-4 mb-6">
         <KPI label="Entries (this month)" value={totals ? String(totals.count) : "—"} />

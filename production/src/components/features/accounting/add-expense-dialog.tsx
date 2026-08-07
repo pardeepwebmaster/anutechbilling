@@ -323,75 +323,6 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
         </DialogHeader>
 
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
-          {!isEdit && (
-            <div className="rounded-lg border border-dashed border-amber/50 bg-amber-soft/20 p-3">
-              <div className="flex items-center justify-between gap-3 flex-wrap">
-                <div className="flex items-center gap-2 min-w-0">
-                  <Icon name="sparkles" size={18} className="text-amber-ink shrink-0" />
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium text-ink">Bill upload karo — AI khud bhar dega</p>
-                    <p className="text-[11px] text-ink-3">Photo/PDF — stationery, software, rent, koi bhi expense bill</p>
-                  </div>
-                </div>
-                <Button type="button" variant="primary" size="sm" icon="upload" loading={reading} onClick={() => fileRef.current?.click()}>
-                  {reading ? "Reading…" : "Upload bill"}
-                </Button>
-                <input
-                  ref={fileRef}
-                  type="file"
-                  accept="image/*,application/pdf"
-                  className="hidden"
-                  onChange={(e) => { const f = e.target.files?.[0]; if (f) handleBillFile(f); e.target.value = ""; }}
-                />
-              </div>
-              {aiNote && <p className="mt-2 flex items-start gap-1.5 text-[11px] text-emerald"><Icon name="check_circle" size={12} className="mt-0.5 shrink-0" /> {aiNote}</p>}
-              {aiError && <p className="mt-2 flex items-start gap-1.5 text-[11px] text-rose"><Icon name="alert" size={12} className="mt-0.5 shrink-0" /> {aiError}</p>}
-
-              {/* Confirmation gate — AI read something; the operator must confirm
-                  it's correct before it fills the form. Nothing auto-applies. */}
-              {pending && (() => {
-                const fmt = (n: number) => pending.currency !== "INR" ? (formatForeignAmount(pending.currency, n) ?? `${pending.currency} ${n}`) : rupee(n);
-                return (
-                  <div className="mt-3 rounded-md border border-amber/40 bg-paper p-3">
-                    <p className="text-[12px] font-medium text-ink mb-2">
-                      AI ne ye padha — sahi hai? Confirm karo tabhi bharega.
-                    </p>
-                    <div className="space-y-1 text-[12px] text-ink-2">
-                      <div className="flex justify-between gap-2"><span className="text-ink-3">Vendor</span><span className="text-ink text-right">{pending.vendorName || "—"}</span></div>
-                      <div className="flex justify-between gap-2"><span className="text-ink-3">Bill date</span><span className="text-right">{pending.billDate || "—"}</span></div>
-                      <div className="flex justify-between gap-2"><span className="text-ink-3">Type</span><span className="text-right">{pending.billType === "gst" ? "GST invoice" : "Kaccha (no GST)"}</span></div>
-                      <div className="flex justify-between gap-2"><span className="text-ink-3">Total{pending.currency !== "INR" ? ` (${pending.currency})` : ""}</span><span className="font-mono text-ink text-right">{pending.total != null ? fmt(pending.total) : "—"}{pending.gst > 0 ? ` · GST ${fmt(pending.gst)}` : ""}</span></div>
-                    </div>
-                    {pending.items.length > 0 && (
-                      <div className="mt-2 border-t border-hairline pt-2">
-                        <p className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold mb-1">{pending.items.length} item{pending.items.length > 1 ? "s" : ""}</p>
-                        <ul className="space-y-0.5 max-h-28 overflow-y-auto">
-                          {pending.items.map((it, i) => (
-                            <li key={i} className="flex justify-between gap-2 text-[11px]">
-                              <span className="text-ink-2 truncate">{it.description || "—"}{it.qty ? ` × ${it.qty}` : ""}</span>
-                              <span className="font-mono text-ink-3 shrink-0">{it.amount ? fmt(Number(it.amount)) : "—"}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      <Button type="button" variant="primary" size="sm" icon="check" onClick={applyExtract}>Haan, sahi hai — bhar do</Button>
-                      <Button type="button" variant="default" size="sm" onClick={discardExtract}>Galat — main khud bharunga</Button>
-                    </div>
-                    <p className="mt-2 text-[10px] text-ink-3">Kaise bhi karo, 📎 &ldquo;{attachFile?.name}&rdquo; bill expense ke saath attach ho jayega.</p>
-                  </div>
-                );
-              })()}
-
-              {/* File kept but read not pending (confirmed or entering manually). */}
-              {attachFile && !pending && (
-                <p className="mt-2 flex items-center gap-1.5 text-[11px] text-ink-2">
-                  <Icon name="file" size={12} /> {attachFile.name} — expense ke saath attach hoga
-                </p>
-              )}
-            </div>
-          )}
           {/* Who you paid — first */}
           <FormField label="Vendor / payee (optional)" htmlFor="vendor_name">
             <div className="relative">
@@ -476,6 +407,78 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
                   : "Recorded & income-tax deductible — but no input GST credit (that needs a GST tax invoice)."}
               </p>
             </div>
+
+            {/* AI bill reader — only when there IS a bill (GST / kaccha). Upload a
+                photo/PDF → AI reads it → you confirm before it fills the form. */}
+            {billType !== "none" && (
+              <div className="rounded-md border border-dashed border-amber/50 bg-amber-soft/15 p-2.5">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Icon name="sparkles" size={16} className="text-amber-ink shrink-0" />
+                    <div className="min-w-0">
+                      <p className="text-[12px] font-medium text-ink">Bill upload karo — AI khud bhar dega</p>
+                      <p className="text-[10px] text-ink-3">Photo/PDF — AI fields + items nikaal dega, aap confirm karke Save karo</p>
+                    </div>
+                  </div>
+                  <Button type="button" variant="primary" size="sm" icon="upload" loading={reading} onClick={() => fileRef.current?.click()}>
+                    {reading ? "Reading…" : "Upload bill"}
+                  </Button>
+                  <input
+                    ref={fileRef}
+                    type="file"
+                    accept="image/*,application/pdf"
+                    className="hidden"
+                    onChange={(e) => { const f = e.target.files?.[0]; if (f) handleBillFile(f); e.target.value = ""; }}
+                  />
+                </div>
+                {aiNote && <p className="mt-2 flex items-start gap-1.5 text-[11px] text-emerald"><Icon name="check_circle" size={12} className="mt-0.5 shrink-0" /> {aiNote}</p>}
+                {aiError && <p className="mt-2 flex items-start gap-1.5 text-[11px] text-rose"><Icon name="alert" size={12} className="mt-0.5 shrink-0" /> {aiError}</p>}
+
+                {/* Confirmation gate — AI read something; the operator must confirm
+                    it's correct before it fills the form. Nothing auto-applies. */}
+                {pending && (() => {
+                  const fmt = (n: number) => pending.currency !== "INR" ? (formatForeignAmount(pending.currency, n) ?? `${pending.currency} ${n}`) : rupee(n);
+                  return (
+                    <div className="mt-2.5 rounded-md border border-amber/40 bg-paper p-3">
+                      <p className="text-[12px] font-medium text-ink mb-2">
+                        AI ne ye padha — sahi hai? Confirm karo tabhi bharega.
+                      </p>
+                      <div className="space-y-1 text-[12px] text-ink-2">
+                        <div className="flex justify-between gap-2"><span className="text-ink-3">Vendor</span><span className="text-ink text-right">{pending.vendorName || "—"}</span></div>
+                        <div className="flex justify-between gap-2"><span className="text-ink-3">Bill date</span><span className="text-right">{pending.billDate || "—"}</span></div>
+                        <div className="flex justify-between gap-2"><span className="text-ink-3">Type</span><span className="text-right">{pending.billType === "gst" ? "GST invoice" : "Kaccha (no GST)"}</span></div>
+                        <div className="flex justify-between gap-2"><span className="text-ink-3">Total{pending.currency !== "INR" ? ` (${pending.currency})` : ""}</span><span className="font-mono text-ink text-right">{pending.total != null ? fmt(pending.total) : "—"}{pending.gst > 0 ? ` · GST ${fmt(pending.gst)}` : ""}</span></div>
+                      </div>
+                      {pending.items.length > 0 && (
+                        <div className="mt-2 border-t border-hairline pt-2">
+                          <p className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold mb-1">{pending.items.length} item{pending.items.length > 1 ? "s" : ""}</p>
+                          <ul className="space-y-0.5 max-h-28 overflow-y-auto">
+                            {pending.items.map((it, i) => (
+                              <li key={i} className="flex justify-between gap-2 text-[11px]">
+                                <span className="text-ink-2 truncate">{it.description || "—"}{it.qty ? ` × ${it.qty}` : ""}</span>
+                                <span className="font-mono text-ink-3 shrink-0">{it.amount ? fmt(Number(it.amount)) : "—"}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <Button type="button" variant="primary" size="sm" icon="check" onClick={applyExtract}>Haan, sahi hai — bhar do</Button>
+                        <Button type="button" variant="default" size="sm" onClick={discardExtract}>Galat — main khud bharunga</Button>
+                      </div>
+                      <p className="mt-2 text-[10px] text-ink-3">Kaise bhi karo, 📎 &ldquo;{attachFile?.name}&rdquo; bill expense ke saath attach ho jayega.</p>
+                    </div>
+                  );
+                })()}
+
+                {/* File kept but read not pending (confirmed or entering manually). */}
+                {attachFile && !pending && (
+                  <p className="mt-2 flex items-center gap-1.5 text-[11px] text-ink-2">
+                    <Icon name="file" size={12} /> {attachFile.name} — expense ke saath attach hoga
+                  </p>
+                )}
+              </div>
+            )}
 
             {/* Line items — what's on the bill (auto-filled from the AI scan).
                 Hidden for payroll/statutory postings, which have no items. */}

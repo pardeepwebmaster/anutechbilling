@@ -268,6 +268,11 @@ export function QuoteBuilder() {
   const [bulkOpen, setBulkOpen] = React.useState(false);
   const [viewDomains, setViewDomains] = React.useState<{ name: string; domains: Array<{ domain: string; seats: number }> } | null>(null);
   const [previewOpen, setPreviewOpen] = React.useState(false);
+  // Optional domain captured on the quote — Google Workspace / Zoho / M365
+  // subscriptions are keyed to it. Saved as quotes.domain; record_payment then
+  // stamps it onto the auto-created subscription + customer. Prefilled from the
+  // picked customer's saved domain, editable for prospects / corrections.
+  const [domain, setDomain] = React.useState("");
   // Quote ID is allocated at SAVE time via the central numbering RPC.
   // null = unassigned (shown as placeholder in header until save).
   const [quoteId, setQuoteId] = React.useState<string | null>(null);
@@ -435,6 +440,9 @@ export function QuoteBuilder() {
 
   // Derived customer fields
   const customer = customers?.find((c) => c.id === customerId);
+  // Prefill the optional domain from the picked customer's saved domain (still
+  // editable afterward, and free-form for a prospect with no customer row yet).
+  React.useEffect(() => { setDomain(customer?.domain ?? ""); }, [customer?.domain]);
   // Invoice mode: pre-fill the payment terms from the customer's default (0164).
   // Fires when a customer with a saved term is selected; a manual Terms change
   // still wins (this only re-runs if the selected customer's term changes).
@@ -657,6 +665,8 @@ export function QuoteBuilder() {
         customer_id:   isLeadMode ? null : (customerId || null),
         customer_name: resolvedCustomerName,
         lead_id:       isLeadMode ? leadId : null,
+        // Optional — flows to the subscription/customer via record_payment.
+        domain:        domain.trim() || null,
         line_items:    lineItems,
         subtotal,
         total_cost:    totalCost,
@@ -984,13 +994,12 @@ export function QuoteBuilder() {
               )}
 
               <div className="grid grid-cols-2 gap-3">
-                <FormField label="Company website" htmlFor="domain">
+                <FormField label="Domain (optional)" htmlFor="domain">
                   <Input
                     id="domain"
-                    value={customer?.domain ?? ""}
-                    readOnly
-                    className="bg-paper-2 cursor-default"
-                    placeholder="—"
+                    value={domain}
+                    onChange={(e) => setDomain(e.target.value)}
+                    placeholder="acme.in — for Google Workspace / M365 / Zoho"
                   />
                 </FormField>
                 <FormField label="GSTIN" htmlFor="gstin">

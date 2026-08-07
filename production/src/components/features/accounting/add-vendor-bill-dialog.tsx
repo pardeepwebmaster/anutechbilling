@@ -86,6 +86,7 @@ export function AddVendorBillDialog({ onClose }: { onClose: () => void }) {
   // into the INR P&L. rate = ₹ per 1 unit of `currency` (1 for INR).
   const [currency, setCurrency] = React.useState("INR");
   const [fxRate, setFxRate]     = React.useState("");        // string for the input; "" until entered
+  const [fxError, setFxError]   = React.useState<string | null>(null);
   const isForeign = currency !== "INR";
   const rate = isForeign ? Number(fxRate || 0) : 1;
 
@@ -199,9 +200,10 @@ export function AddVendorBillDialog({ onClose }: { onClose: () => void }) {
   async function onSubmit(values: FormData) {
     // Foreign bill must have an exchange rate before it can hit the ₹ books.
     if (isForeign && rate <= 0) {
-      setAiError(`Is bill ki currency ${currency} hai — pehle exchange rate (₹ per 1 ${currency}) daalo.`);
+      setFxError(`Enter today's exchange rate (₹ per 1 ${currency}) to save — the ₹ books need it.`);
       return;
     }
+    setFxError(null);
     // Convert the bill's own-currency amounts to ₹ for the books (rate = 1 for INR).
     const inr = (n: number) => Math.round(n * rate);
 
@@ -448,14 +450,18 @@ export function AddVendorBillDialog({ onClose }: { onClose: () => void }) {
           {/* Amounts grid */}
           <div className="p-3 rounded-lg border border-hairline bg-paper-2/30">
             {isForeign && (
-              <div className="mb-3 flex flex-wrap items-end gap-3 rounded-md bg-amber-soft/40 p-2.5">
-                <div className="text-[11px] text-amber-ink leading-snug max-w-[55%]">
-                  Bill is in <b>{currency}</b>. Enter today's rate — the ₹ books use the converted amounts.
+              <div className="mb-3 rounded-md bg-amber-soft/40 p-2.5">
+                <div className="flex flex-wrap items-end gap-3">
+                  <div className="text-[11px] text-amber-ink leading-snug max-w-[55%]">
+                    Bill is in <b>{currency}</b>. Enter today's rate — the ₹ books use the converted amounts.
+                  </div>
+                  <FormField label={`Exchange rate (₹ per 1 ${currency})`} required>
+                    <Input type="number" min={0} step="any" placeholder="e.g. 83.50"
+                      value={fxRate}
+                      error={fxError ?? undefined}
+                      onChange={(e) => { setFxRate(e.target.value); if (fxError) setFxError(null); }} />
+                  </FormField>
                 </div>
-                <FormField label={`Exchange rate (₹ per 1 ${currency})`}>
-                  <Input type="number" min={0} step="any" placeholder="e.g. 83.50"
-                    value={fxRate} onChange={(e) => setFxRate(e.target.value)} />
-                </FormField>
               </div>
             )}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">

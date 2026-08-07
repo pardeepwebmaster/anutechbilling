@@ -27,6 +27,7 @@ import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { daysElapsedInPeriod, prorateSalary } from "@/lib/payroll/proration";
+import { nationalHolidaysForYear } from "@/lib/payroll/holidays-india";
 import { computeEsi, isEsiEligible, ESI_WAGE_CEILING } from "@/lib/payroll/esi";
 import { computePf, PF_WAGE_CEILING } from "@/lib/payroll/pf";
 import { useBankAccounts } from "@/lib/queries/bank";
@@ -583,6 +584,7 @@ export function PayrollTab() {
     const todayUTC = new Date(todayISO() + "T00:00:00Z");
     const rangeEnd = todayUTC < monthEnd ? todayUTC : monthEnd;
     const holidaySet = new Set((holQ.data ?? []).map((h) => h.holiday_date));
+    nationalHolidaysForYear(yy).forEach((d) => holidaySet.add(d));
     const presentByEmp = new Map<string, Set<string>>();
     for (const a of attQ.data ?? []) {
       if (!a.check_in) continue;
@@ -1073,12 +1075,13 @@ function PaySalaryDialog({ employee, period, onClose }: { employee: Employee; pe
   const advTooMuch = advN > 0 && selectedAdv ? advN > selectedAdv.outstanding : false;
   const valid = grossN > 0 && net >= 0 && Boolean(accountId) && !advTooMuch && (advN === 0 || Boolean(advId));
 
-  // Auto-fill LOP amount from days. Always a FULL day's value (monthly ÷ 30),
-  // independent of any mid-month proration on the pay field.
+  // Auto-fill LOP amount from days. A day is valued at monthly ÷ actual days in
+  // the month, so full attendance reconciles to exactly the full salary and
+  // Sundays/holidays (never counted as LOP days) stay paid at the right value.
   function onLopDays(v: string) {
     setLopDays(v);
     const d = Number(v) || 0;
-    setLopAmt(String(Math.round((employee.monthly_gross / 30) * d)));
+    setLopAmt(String(Math.round((employee.monthly_gross / payPeriod.daysInMonth) * d)));
   }
 
   // Suggested LOP from attendance + unpaid leave. Non-working days (Sunday
@@ -1092,7 +1095,9 @@ function PaySalaryDialog({ employee, period, onClose }: { employee: Employee; pe
     const rangeEnd = todayUTC < monthEnd ? todayUTC : monthEnd;
     const rangeStart = employee.joining_date && employee.joining_date > `${period}-01`
       ? new Date(employee.joining_date + "T00:00:00Z") : monthStart;
+    // Company holidays + auto national gazetted holidays (26 Jan / 15 Aug / 2 Oct).
     const holidaySet = new Set((holQ.data ?? []).map((h) => h.holiday_date));
+    nationalHolidaysForYear(yy).forEach((d) => holidaySet.add(d));
     let expected = 0;
     for (const d = new Date(rangeStart); d <= rangeEnd; d.setUTCDate(d.getUTCDate() + 1)) {
       const iso = d.toISOString().slice(0, 10);
@@ -1485,6 +1490,7 @@ function LeaveDialog({ employees, onClose }: { employees: Employee[]; onClose: (
   const autoWorkingDays = React.useMemo(() => {
     if (from > to) return 0;
     const holidaySet = new Set((holQ.data ?? []).map((h) => h.holiday_date));
+    [Number(from.slice(0, 4)), Number(to.slice(0, 4))].forEach((y) => nationalHolidaysForYear(y).forEach((d) => holidaySet.add(d)));
     let n = 0;
     for (const d = new Date(from + "T00:00:00Z"); d <= new Date(to + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() + 1)) {
       const iso = d.toISOString().slice(0, 10);

@@ -7,12 +7,11 @@
  *   - GeminiCard: next-best-actions
  *   - RenewalBucket × 3 (Urgent rose / Upcoming amber / Future emerald)
  *
- * Risk model (same deterministic algorithm as prototype):
+ * Risk model — REAL signals only (see renewalRisk):
  *   - Seat utilisation (used/seats)
- *   - Plan tier (starter = +20)
- *   - Mock "last admin login" (derived from id hash)
- *   - Mock support tickets (derived from id hash)
- *   - Mock NPS (derived from id hash)
+ *   - Unpaid balance on the current term
+ *   - Plan tier (starter churns a little more)
+ *   (Fabricated login/tickets/NPS signals were removed — misleading on a money screen.)
  */
 "use client";
 
@@ -49,81 +48,56 @@ interface RiskResult {
   badgeKind: "danger" | "warning" | "success";
   label: string;
   reasons: string[];
-  lastLoginDays: number;
-  tickets: number;
-  nps: number;
 }
 
 /**
- * Deterministic churn-risk score (0–100) for a subscription.
- * Production would pull live signals (analytics, NPS, payment history).
- * For now: derive from subscription characteristics so the same record
- * always renders the same risk level.
+ * Renewal-risk score (0–100) for a subscription, from REAL data only.
+ *
+ * Was previously inflated with fabricated signals (admin-login / support-tickets /
+ * NPS derived from an id hash) that looked like real churn intelligence to the
+ * owner — removed, because showing invented reasons on a money screen is
+ * misleading. This now scores on what we actually know: how many seats are
+ * unused, whether there's an unpaid balance, and the plan tier. When live
+ * product-usage / NPS signals exist, add them here.
  */
 function renewalRisk(sub: Subscription): RiskResult {
   let score = 0;
   const reasons: string[] = [];
 
-  // Signal 1: Seat utilisation
+  // Signal 1: Seat utilisation — unused seats are the strongest real churn tell.
   const utilisation = sub.used / Math.max(1, sub.seats);
   if (utilisation < 0.7) {
-    score += 35;
+    score += 40;
     reasons.push(`Low seat usage (${Math.round(utilisation * 100)}%)`);
   } else if (utilisation < 0.85) {
-    score += 15;
+    score += 20;
     reasons.push(`Moderate seat usage (${Math.round(utilisation * 100)}%)`);
   }
 
-  // Signal 2: Plan tier
+  // Signal 2: Unpaid balance on the current term — a customer already behind on
+  // payment is far more likely to lapse at renewal.
+  if (sub.outstanding_amount > 0) {
+    score += 35;
+    reasons.push(`Unpaid balance (${rupee(sub.outstanding_amount, { compact: true })})`);
+  }
+
+  // Signal 3: Plan tier — lower tiers churn a little more.
   const plan = sub.plan.toLowerCase();
   if (plan.includes("starter")) {
-    score += 20;
+    score += 15;
     reasons.push("Lower-tier plan (Starter)");
-  } else if (plan.includes("std") && !plan.includes("plus")) {
-    score += 5;
-  }
-
-  // Signal 3: Mock last admin login (derived from id hash for determinism)
-  const idHash = sub.id.split("").reduce((a, c) => a + c.charCodeAt(0), 0) % 100;
-  const lastLoginDays = (idHash * 7) % 60; // 0–60 days
-  if (lastLoginDays > 30) {
-    score += 25;
-    reasons.push(`No admin login for ${lastLoginDays} days`);
-  } else if (lastLoginDays > 14) {
-    score += 10;
-    reasons.push(`Last admin login ${lastLoginDays}d ago`);
-  }
-
-  // Signal 4: Mock support tickets
-  const tickets = (idHash * 3) % 8;
-  if (tickets >= 5) {
-    score += 20;
-    reasons.push(`${tickets} support tickets in last 30 days`);
-  } else if (tickets >= 3) {
-    score += 8;
-    reasons.push(`${tickets} support tickets recently`);
-  }
-
-  // Signal 5: Mock NPS (0–9)
-  const nps = 9 - (idHash % 10);
-  if (nps <= 4) {
-    score += 25;
-    reasons.push(`Low NPS score (${nps}/10)`);
-  } else if (nps <= 6) {
-    score += 10;
-    reasons.push(`Neutral NPS (${nps}/10)`);
   }
 
   score = Math.min(100, score);
 
   const level: RiskResult["level"] =
-    score >= 60 ? "high" : score >= 30 ? "medium" : "low";
+    score >= 55 ? "high" : score >= 25 ? "medium" : "low";
   const badgeKind: RiskResult["badgeKind"] =
     level === "high" ? "danger" : level === "medium" ? "warning" : "success";
   const label =
     level === "high" ? "HIGH RISK" : level === "medium" ? "Medium" : "Healthy";
 
-  return { score, level, badgeKind, label, reasons, lastLoginDays, tickets, nps };
+  return { score, level, badgeKind, label, reasons };
 }
 
 // ─── Vendor logo pill ─────────────────────────────────────────────────────────

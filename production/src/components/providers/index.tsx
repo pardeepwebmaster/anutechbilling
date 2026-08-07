@@ -6,13 +6,16 @@
 
 import { ThemeProvider } from "./theme-provider";
 import { QueryProvider } from "./query-provider";
+import { ConfirmProvider } from "./confirm-provider";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
 export function Providers({ children }: { children: React.ReactNode }) {
   return (
     <ThemeProvider>
       <QueryProvider>
-        <TooltipProvider delayDuration={200}>{children}</TooltipProvider>
+        <ConfirmProvider>
+          <TooltipProvider delayDuration={200}>{children}</TooltipProvider>
+        </ConfirmProvider>
       </QueryProvider>
     </ThemeProvider>
   );

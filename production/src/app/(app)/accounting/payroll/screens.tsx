@@ -17,6 +17,7 @@ import { Badge } from "@/components/ui/badge";
 import { Icon } from "@/components/ui/icon";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/shared/empty-state";
+import { FAB } from "@/components/ui/fab";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "@/components/ui/dialog";
@@ -42,6 +43,7 @@ import {
 import type { CurrentUserInfo } from "@/lib/hooks/useCurrentUser";
 import { EmployeeDetailDrawer } from "@/components/features/payroll/employee-detail-drawer";
 import { OfferLetterDialog } from "@/components/features/payroll/offer-letter-dialog";
+import { useConfirm } from "@/components/providers/confirm-provider";
 
 function todayISO(): string {
   return new Date(Date.now() + 5.5 * 60 * 60 * 1000).toISOString().slice(0, 10);
@@ -65,6 +67,7 @@ export function HrPageShell({ title, sub, children }: { title: string; sub: stri
   return (
     <div className="p-4 md:p-6 lg:p-8 max-w-[1800px] mx-auto">
       <div className="mb-5">
+        <p className="text-xs uppercase tracking-wider text-ink-3 font-semibold mb-1">Payroll</p>
         <h1 className="font-serif text-3xl md:text-4xl tracking-tight">{title}</h1>
         <p className="text-sm text-ink-3 mt-1">{sub}</p>
       </div>
@@ -103,13 +106,19 @@ export function EmployeesTab() {
   const q = useEmployees();
   const leaveQ = useLeaveEntries();
   const del = useDeleteEmployee();
+  const confirm = useConfirm();
   const [edit, setEdit] = React.useState<Employee | null | "new">(null);
   const [viewEmp, setViewEmp] = React.useState<Employee | null>(null);
   const [offerEmp, setOfferEmp] = React.useState<Employee | null>(null);
   const rows = q.data ?? [];
 
-  const confirmDelete = (e: Employee) => {
-    if (window.confirm(`Remove ${e.name}? This deletes the employee and their attendance/leave records. (Blocked if they have salary payments — deactivate those instead.)`)) {
+  const confirmDelete = async (e: Employee) => {
+    if (await confirm({
+      title: `Remove ${e.name}?`,
+      body: "This deletes the employee and their attendance/leave records. (Blocked if they have salary payments — deactivate those instead.)",
+      confirmLabel: "Remove",
+      danger: true,
+    })) {
       del.mutate(e.id);
     }
   };
@@ -131,51 +140,90 @@ export function EmployeesTab() {
       ) : rows.length === 0 ? (
         <Card className="py-2"><EmptyState icon="users" title="No employees yet" body="Add the people you pay a salary to." action={<Button variant="primary" icon="plus" onClick={() => setEdit("new")}>Add employee</Button>} /></Card>
       ) : (
-        <Card className="overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="bg-paper-2/50 text-[10px] uppercase tracking-wider text-ink-3 font-semibold">
-              <tr>
-                <th className="text-left px-4 py-3">Employee</th>
-                <th className="text-right px-4 py-3">Monthly salary</th>
-                <th className="text-left px-4 py-3">Joined</th>
-                <th className="text-right px-4 py-3">Paid leave left (FY)</th>
-                <th className="text-left px-4 py-3">Status</th>
-                <th className="text-right px-4 py-3">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-hairline">
-              {rows.map((e) => (
-                <tr key={e.id} className="hover:bg-paper-2/40">
-                  <td className="px-4 py-3 font-medium">
+        <>
+          {/* Desktop table */}
+          <Card className="hidden md:block overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="bg-paper-2/50 text-[10px] uppercase tracking-wider text-ink-3 font-semibold">
+                <tr>
+                  <th className="text-left px-4 py-3">Employee</th>
+                  <th className="text-right px-4 py-3">Monthly salary</th>
+                  <th className="text-left px-4 py-3">Joined</th>
+                  <th className="text-right px-4 py-3">Paid leave left (FY)</th>
+                  <th className="text-left px-4 py-3">Status</th>
+                  <th className="text-right px-4 py-3">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-hairline">
+                {rows.map((e) => (
+                  <tr key={e.id} className="hover:bg-paper-2/40">
+                    <td className="px-4 py-3 font-medium">
+                      <button
+                        type="button"
+                        onClick={() => setViewEmp(e)}
+                        className="text-ink hover:text-amber-ink hover:underline text-left"
+                        title="Open full profile & documents"
+                      >
+                        {e.name}
+                      </button>
+                    </td>
+                    <td className={cn("px-4 py-3 text-right font-mono font-semibold tabular-nums", e.monthly_gross > 0 ? "text-ink" : "text-amber-ink")}>{rupee(e.monthly_gross)}</td>
+                    <td className="px-4 py-3 text-ink-2">{e.joining_date ? formatDate(e.joining_date) : "—"}</td>
+                    <td className="px-4 py-3 text-right font-mono">{Math.max(0, e.leave_allowance - paidLeaveTaken(e.id))} / {e.leave_allowance}</td>
+                    <td className="px-4 py-3"><Badge kind={e.is_active ? "success" : "muted"} dot>{e.is_active ? "Active" : "Inactive"}</Badge></td>
+                    <td className="px-4 py-3 text-right">
+                      <div className="inline-flex items-center gap-1 justify-end">
+                        <Button variant="ghost" size="sm" icon="file" onClick={() => setOfferEmp(e)}>Offer letter</Button>
+                        <Button variant="ghost" size="sm" onClick={() => setEdit(e)}>Edit</Button>
+                        <Button variant="ghost" size="sm" icon="trash" aria-label={`Delete ${e.name}`}
+                          className="!text-rose hover:!bg-rose/10"
+                          loading={del.isPending}
+                          onClick={() => confirmDelete(e)} />
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </Card>
+
+          {/* Mobile cards */}
+          <ul className="md:hidden space-y-2">
+            {rows.map((e) => (
+              <li key={e.id}>
+                <Card className="p-4">
+                  <div className="flex items-start justify-between gap-2 mb-1">
                     <button
                       type="button"
                       onClick={() => setViewEmp(e)}
-                      className="text-ink hover:text-amber-ink hover:underline text-left"
+                      className="font-medium text-ink leading-tight text-left hover:text-amber-ink"
                       title="Open full profile & documents"
                     >
                       {e.name}
                     </button>
-                  </td>
-                  <td className={cn("px-4 py-3 text-right font-mono font-semibold tabular-nums", e.monthly_gross > 0 ? "text-ink" : "text-amber-ink")}>{rupee(e.monthly_gross)}</td>
-                  <td className="px-4 py-3 text-ink-2">{e.joining_date ? formatDate(e.joining_date) : "—"}</td>
-                  <td className="px-4 py-3 text-right font-mono">{Math.max(0, e.leave_allowance - paidLeaveTaken(e.id))} / {e.leave_allowance}</td>
-                  <td className="px-4 py-3"><Badge kind={e.is_active ? "success" : "muted"} dot>{e.is_active ? "Active" : "Inactive"}</Badge></td>
-                  <td className="px-4 py-3 text-right">
-                    <div className="inline-flex items-center gap-1 justify-end">
-                      <Button variant="ghost" size="sm" icon="file" onClick={() => setOfferEmp(e)}>Offer letter</Button>
+                    <div className={cn("font-serif text-xl leading-none", e.monthly_gross > 0 ? "text-ink" : "text-amber-ink")}>{rupee(e.monthly_gross)}</div>
+                  </div>
+                  <div className="text-[11px] text-ink-3 mb-2">
+                    {e.joining_date ? `Joined ${formatDate(e.joining_date)}` : "Not joined yet"} · Paid leave {Math.max(0, e.leave_allowance - paidLeaveTaken(e.id))}/{e.leave_allowance}
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <Badge kind={e.is_active ? "success" : "muted"} dot>{e.is_active ? "Active" : "Inactive"}</Badge>
+                    <div className="flex items-center gap-1">
+                      <Button variant="ghost" size="sm" icon="file" aria-label={`Offer letter for ${e.name}`} onClick={() => setOfferEmp(e)} />
                       <Button variant="ghost" size="sm" onClick={() => setEdit(e)}>Edit</Button>
                       <Button variant="ghost" size="sm" icon="trash" aria-label={`Delete ${e.name}`}
                         className="!text-rose hover:!bg-rose/10"
                         loading={del.isPending}
                         onClick={() => confirmDelete(e)} />
                     </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </Card>
+                  </div>
+                </Card>
+              </li>
+            ))}
+          </ul>
+        </>
       )}
+      <FAB icon="plus" label="Add employee" onClick={() => setEdit("new")} ariaLabel="Add employee" />
       {edit !== null && <EmployeeDialog employee={edit === "new" ? null : edit} onClose={() => setEdit(null)} />}
       {offerEmp && <OfferLetterDialog employee={offerEmp} onClose={() => setOfferEmp(null)} />}
       <EmployeeDetailDrawer
@@ -374,6 +422,7 @@ export function PayrollTab() {
   const [payFor, setPayFor] = React.useState<Employee | null>(null);
   const [calendarFor, setCalendarFor] = React.useState<Employee | null>(null);
   const undoSalary = useDeleteSalaryPayment();
+  const confirm = useConfirm();
 
   const employees = (empQ.data ?? []).filter((e) => e.is_active);
   const paidByEmp = new Map((payQ.data ?? []).map((p) => [p.employee_id, p]));
@@ -382,12 +431,17 @@ export function PayrollTab() {
 
   return (
     <>
+      {/* Payroll-this-month KPI — money reads first */}
+      <Card className="mb-4 p-4">
+        <div className="text-[11px] uppercase tracking-wider text-ink-3 font-semibold">Payroll this month</div>
+        <div className="font-serif text-2xl text-ink leading-tight mt-1">{rupee(totalNet)}</div>
+      </Card>
+
       <Card className="mb-4 p-3 md:p-4">
         <div className="flex flex-wrap items-center gap-3">
           <label className="text-xs text-ink-3 font-semibold uppercase tracking-wide">Month</label>
           <input type="month" value={period} onChange={(e) => setPeriod(e.target.value)}
             className="px-3 py-1.5 text-sm rounded-md border border-hairline bg-paper" />
-          <div className="ml-auto text-sm text-ink-2">Payroll this month: <b className="text-ink">{rupee(totalNet)}</b></div>
         </div>
       </Card>
 
@@ -396,35 +450,105 @@ export function PayrollTab() {
       ) : employees.length === 0 ? (
         <Card className="py-2"><EmptyState icon="users" title="No active employees" body="Add employees first, then run payroll." /></Card>
       ) : (
-        <Card className="overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="bg-paper-2/50 text-[10px] uppercase tracking-wider text-ink-3 font-semibold">
-              <tr>
-                <th className="text-left px-4 py-3">Employee</th>
-                <th className="text-right px-4 py-3">Monthly salary</th>
-                <th className="text-right px-4 py-3">Net</th>
-                <th className="text-right px-4 py-3">Action</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-hairline">
-              {employees.map((e) => {
-                const p = paidByEmp.get(e.id);
-                return (
-                  <tr key={e.id} className="hover:bg-paper-2/40">
-                    <td className="px-4 py-3 font-medium text-ink">{e.name}</td>
-                    <td className="px-4 py-3 text-right font-mono text-ink-2">{rupee(e.monthly_gross)}</td>
-                    <td className="px-4 py-3 text-right font-mono">{p ? rupee(p.net) : <span className="text-ink-3">—</span>}</td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center justify-end gap-2">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          icon="calendar"
-                          title={`See ${e.name}'s full-year payroll`}
-                          onClick={() => setCalendarFor(e)}
-                        />
-                      {p ? (
+        <>
+          {/* Desktop table */}
+          <Card className="hidden md:block overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="bg-paper-2/50 text-[10px] uppercase tracking-wider text-ink-3 font-semibold">
+                <tr>
+                  <th className="text-left px-4 py-3">Employee</th>
+                  <th className="text-right px-4 py-3">Monthly salary</th>
+                  <th className="text-right px-4 py-3">Net</th>
+                  <th className="text-right px-4 py-3">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-hairline">
+                {employees.map((e) => {
+                  const p = paidByEmp.get(e.id);
+                  return (
+                    <tr key={e.id} className="hover:bg-paper-2/40">
+                      <td className="px-4 py-3 font-medium text-ink">{e.name}</td>
+                      <td className="px-4 py-3 text-right font-mono text-ink-2">{rupee(e.monthly_gross)}</td>
+                      <td className="px-4 py-3 text-right font-mono">{p ? rupee(p.net) : <span className="text-ink-3">—</span>}</td>
+                      <td className="px-4 py-3">
                         <div className="flex items-center justify-end gap-2">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            icon="calendar"
+                            title={`See ${e.name}'s full-year payroll`}
+                            onClick={() => setCalendarFor(e)}
+                          />
+                        {p ? (
+                          <div className="flex items-center justify-end gap-2">
+                            {p.paid_status === "paid" ? (
+                              <Badge kind="success" dot>Paid</Badge>
+                            ) : p.paid_status === "partial" ? (
+                              <Badge kind="warning" dot title={`Partly paid — ${rupee(p.net - p.paid_amount)} still owed. Reconcile another bank line to clear the balance.`}>
+                                Partial · {rupee(p.paid_amount)}/{rupee(p.net)}
+                              </Badge>
+                            ) : (
+                              <Badge kind="warning" dot title="Payroll run — awaiting the bank debit to be reconciled">Awaiting reconcile</Badge>
+                            )}
+                            <PayslipButton employee={e} payment={p} me={meQ.data ?? null} paidVia={p.bank_account_id ? acctName.get(p.bank_account_id) ?? null : null} />
+                            {p.paid_amount === 0 && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                icon="trash"
+                                loading={undoSalary.isPending}
+                                title="Undo this salary — reverses the expense so you can pay it again"
+                                onClick={async () => {
+                                  if (await confirm({
+                                    title: `Undo ${e.name}'s salary for this month?`,
+                                    body: "This removes the salary + its booked expense so you can pay it again. (Blocked only once it's reconciled to a bank line — un-reconcile that first.)",
+                                    confirmLabel: "Undo",
+                                    danger: true,
+                                  })) {
+                                    undoSalary.mutate(p.id);
+                                  }
+                                }}
+                              >
+                                Undo
+                              </Button>
+                            )}
+                          </div>
+                        ) : (
+                          <Button variant="primary" size="sm" onClick={() => setPayFor(e)}>Pay salary</Button>
+                        )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </Card>
+
+          {/* Mobile cards */}
+          <ul className="md:hidden space-y-2">
+            {employees.map((e) => {
+              const p = paidByEmp.get(e.id);
+              return (
+                <li key={e.id}>
+                  <Card className="p-4">
+                    <div className="flex items-start justify-between gap-2 mb-1">
+                      <button
+                        type="button"
+                        onClick={() => setCalendarFor(e)}
+                        className="font-medium text-ink leading-tight text-left hover:text-amber-ink"
+                        title={`See ${e.name}'s full-year payroll`}
+                      >
+                        {e.name}
+                      </button>
+                      <div className="font-serif text-xl text-ink leading-none">{p ? rupee(p.net) : rupee(e.monthly_gross)}</div>
+                    </div>
+                    <div className="text-[11px] text-ink-3 mb-2">
+                      {p ? `Net pay · monthly salary ${rupee(e.monthly_gross)}` : `Monthly salary · not run yet`}
+                    </div>
+                    <div className="flex items-center justify-between gap-2">
+                      {p ? (
+                        <>
                           {p.paid_status === "paid" ? (
                             <Badge kind="success" dot>Paid</Badge>
                           ) : p.paid_status === "partial" ? (
@@ -434,35 +558,44 @@ export function PayrollTab() {
                           ) : (
                             <Badge kind="warning" dot title="Payroll run — awaiting the bank debit to be reconciled">Awaiting reconcile</Badge>
                           )}
-                          <PayslipButton employee={e} payment={p} me={meQ.data ?? null} paidVia={p.bank_account_id ? acctName.get(p.bank_account_id) ?? null : null} />
-                          {p.paid_amount === 0 && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              icon="trash"
-                              loading={undoSalary.isPending}
-                              title="Undo this salary — reverses the expense so you can pay it again"
-                              onClick={() => {
-                                if (window.confirm(`Undo ${e.name}'s salary for this month?\n\nThis removes the salary + its booked expense so you can pay it again. (Blocked only once it's reconciled to a bank line — un-reconcile that first.)`)) {
-                                  undoSalary.mutate(p.id);
-                                }
-                              }}
-                            >
-                              Undo
-                            </Button>
-                          )}
-                        </div>
+                          <div className="flex items-center gap-1">
+                            <PayslipButton employee={e} payment={p} me={meQ.data ?? null} paidVia={p.bank_account_id ? acctName.get(p.bank_account_id) ?? null : null} />
+                            {p.paid_amount === 0 && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                icon="trash"
+                                loading={undoSalary.isPending}
+                                title="Undo this salary — reverses the expense so you can pay it again"
+                                onClick={async () => {
+                                  if (await confirm({
+                                    title: `Undo ${e.name}'s salary for this month?`,
+                                    body: "This removes the salary + its booked expense so you can pay it again. (Blocked only once it's reconciled to a bank line — un-reconcile that first.)",
+                                    confirmLabel: "Undo",
+                                    danger: true,
+                                  })) {
+                                    undoSalary.mutate(p.id);
+                                  }
+                                }}
+                              >
+                                Undo
+                              </Button>
+                            )}
+                          </div>
+                        </>
                       ) : (
-                        <Button variant="primary" size="sm" onClick={() => setPayFor(e)}>Pay salary</Button>
+                        <>
+                          <span className="text-[11px] text-ink-3">Awaiting payroll run</span>
+                          <Button variant="primary" size="sm" onClick={() => setPayFor(e)}>Pay salary</Button>
+                        </>
                       )}
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </Card>
+                    </div>
+                  </Card>
+                </li>
+              );
+            })}
+          </ul>
+        </>
       )}
       {payFor && <PaySalaryDialog employee={payFor} period={period} onClose={() => setPayFor(null)} />}
       {calendarFor && (
@@ -915,6 +1048,7 @@ export function LeaveTab() {
   const empQ = useEmployees();
   const leaveQ = useLeaveEntries();
   const del = useDeleteLeaveEntry();
+  const confirm = useConfirm();
   const [addOpen, setAddOpen] = React.useState(false);
   const empName = new Map((empQ.data ?? []).map((e) => [e.id, e.name]));
   const rows = leaveQ.data ?? [];
@@ -930,34 +1064,61 @@ export function LeaveTab() {
       ) : rows.length === 0 ? (
         <Card className="py-2"><EmptyState icon="clock" title="No leave recorded" body="Record leave — unpaid leave becomes loss-of-pay in payroll." /></Card>
       ) : (
-        <Card className="overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="bg-paper-2/50 text-[10px] uppercase tracking-wider text-ink-3 font-semibold">
-              <tr>
-                <th className="text-left px-4 py-3">Employee</th>
-                <th className="text-left px-4 py-3">Dates</th>
-                <th className="text-right px-4 py-3">Days</th>
-                <th className="text-left px-4 py-3">Type</th>
-                <th className="text-right px-4 py-3"></th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-hairline">
-              {rows.map((l) => (
-                <tr key={l.id} className="hover:bg-paper-2/40">
-                  <td className="px-4 py-3 font-medium text-ink">{empName.get(l.employee_id) ?? "—"}</td>
-                  <td className="px-4 py-3 text-ink-2">{formatDate(l.from_date)}{l.to_date !== l.from_date ? ` – ${formatDate(l.to_date)}` : ""}</td>
-                  <td className="px-4 py-3 text-right font-mono">{l.days}</td>
-                  <td className="px-4 py-3">
-                    <Badge kind={l.type === "unpaid" ? "warning" : "info"}>{LEAVE_TYPE_LABEL[l.type]}</Badge>
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <Button variant="ghost" size="sm" onClick={() => { if (window.confirm("Remove this leave entry?")) del.mutate(l.id); }}>Remove</Button>
-                  </td>
+        <>
+          {/* Desktop table */}
+          <Card className="hidden md:block overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="bg-paper-2/50 text-[10px] uppercase tracking-wider text-ink-3 font-semibold">
+                <tr>
+                  <th className="text-left px-4 py-3">Employee</th>
+                  <th className="text-left px-4 py-3">Dates</th>
+                  <th className="text-right px-4 py-3">Days</th>
+                  <th className="text-left px-4 py-3">Type</th>
+                  <th className="text-right px-4 py-3"></th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </Card>
+              </thead>
+              <tbody className="divide-y divide-hairline">
+                {rows.map((l) => (
+                  <tr key={l.id} className="hover:bg-paper-2/40">
+                    <td className="px-4 py-3 font-medium text-ink">{empName.get(l.employee_id) ?? "—"}</td>
+                    <td className="px-4 py-3 text-ink-2">{formatDate(l.from_date)}{l.to_date !== l.from_date ? ` – ${formatDate(l.to_date)}` : ""}</td>
+                    <td className="px-4 py-3 text-right font-mono">{l.days}</td>
+                    <td className="px-4 py-3">
+                      <Badge kind={l.type === "unpaid" ? "warning" : "info"}>{LEAVE_TYPE_LABEL[l.type]}</Badge>
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <Button variant="ghost" size="sm" onClick={async () => { if (await confirm({ title: "Remove this leave entry?", confirmLabel: "Remove", danger: true })) del.mutate(l.id); }}>Remove</Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </Card>
+
+          {/* Mobile cards */}
+          <ul className="md:hidden space-y-2">
+            {rows.map((l) => (
+              <li key={l.id}>
+                <Card className="p-4">
+                  <div className="flex items-start justify-between gap-2 mb-1">
+                    <div className="font-medium text-ink leading-tight">{empName.get(l.employee_id) ?? "—"}</div>
+                    <div className="font-serif text-xl text-ink leading-none">{l.days}<span className="ml-1 text-sm text-ink-3">day{l.days === 1 ? "" : "s"}</span></div>
+                  </div>
+                  <div className="text-[11px] text-ink-3 mb-2">
+                    {formatDate(l.from_date)}{l.to_date !== l.from_date ? ` – ${formatDate(l.to_date)}` : ""}
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <Badge kind={l.type === "unpaid" ? "warning" : "info"}>{LEAVE_TYPE_LABEL[l.type]}</Badge>
+                    <Button variant="ghost" size="sm" onClick={async () => { if (await confirm({ title: "Remove this leave entry?", confirmLabel: "Remove", danger: true })) del.mutate(l.id); }}>Remove</Button>
+                  </div>
+                </Card>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+      {(empQ.data ?? []).length > 0 && (
+        <FAB icon="plus" label="Record leave" onClick={() => setAddOpen(true)} ariaLabel="Record leave" />
       )}
       {addOpen && <LeaveDialog employees={empQ.data ?? []} onClose={() => setAddOpen(false)} />}
     </>
@@ -968,6 +1129,7 @@ function HolidaysCard() {
   const holQ = useHolidays();
   const create = useCreateHoliday();
   const del = useDeleteHoliday();
+  const confirm = useConfirm();
   const [date, setDate] = React.useState("");
   const [name, setName] = React.useState("");
   const rows = holQ.data ?? [];
@@ -1005,7 +1167,7 @@ function HolidaysCard() {
               <span className="text-ink-3">{formatDate(h.holiday_date)}</span>
               <button
                 type="button"
-                onClick={() => { if (window.confirm("Remove this holiday?")) del.mutate(h.id); }}
+                onClick={async () => { if (await confirm({ title: "Remove this holiday?", confirmLabel: "Remove", danger: true })) del.mutate(h.id); }}
                 className="text-ink-3 hover:text-rose"
                 aria-label="Remove holiday"
               >×</button>

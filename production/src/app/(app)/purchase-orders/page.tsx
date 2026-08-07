@@ -121,13 +121,12 @@ export default function PurchaseOrdersPage() {
       {/* Header */}
       <div className="flex items-end justify-between gap-3 flex-wrap mb-6">
         <div>
-          <p className="text-xs uppercase tracking-wider text-ink-3 font-semibold mb-1">Procurement</p>
+          <p className="text-xs uppercase tracking-wider text-ink-3 font-semibold mb-1">Purchases</p>
           <h1 className="font-serif text-3xl md:text-4xl leading-tight">Purchase Orders</h1>
           <p className="text-sm text-ink-3 mt-1">What you owe Google/Microsoft/Zoho for active customer subs</p>
         </div>
         <div className="flex gap-2 flex-wrap">
           <Button icon="refresh" onClick={() => refetch()}>Refresh</Button>
-          <Button icon="download">Export</Button>
         </div>
       </div>
 

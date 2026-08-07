@@ -100,11 +100,29 @@ export default async function QuoteAcceptPage({ params, searchParams }: Props) {
     id: l.id, name: l.name, qty: l.qty, rate: l.rate, commitment: l.commitment,
   }));
 
+  // Offer "Pay online" only when the reseller has Razorpay wired AND the quote
+  // is in ₹ (Razorpay charges INR; a foreign-currency total would mismatch).
+  // The pay route re-checks everything authoritatively — this only gates the UI.
+  const { data: rzSecret } = await supabase
+    .from("tenant_secrets")
+    .select("razorpay_key_id, razorpay_key_secret")
+    .eq("tenant_id", quote.tenant_id)
+    .maybeSingle();
+  const rzConfigured =
+    Boolean(rzSecret?.razorpay_key_id && rzSecret?.razorpay_key_secret) ||
+    Boolean(
+      (process.env.RAZORPAY_KEY_ID || process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID) &&
+      process.env.RAZORPAY_KEY_SECRET,
+    );
+  const quoteIsForeign = !!quote.currency && quote.currency.toUpperCase() !== "INR";
+  const payOnline = rzConfigured && !quoteIsForeign;
+
   return (
     <QuoteAcceptView
       quote={publicQuote}
       lineItems={lineItems}
       token={searchParams.t ?? ""}
+      payOnline={payOnline}
       tenantName={tenant?.name ?? "Reseller"}
       tenantGstin={tenant?.gstin ?? null}
       tenantEmail={tenant?.email ?? null}

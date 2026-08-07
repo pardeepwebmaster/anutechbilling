@@ -17,6 +17,7 @@ import { Icon } from "@/components/ui/icon";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/shared/empty-state";
 import { FAB } from "@/components/ui/fab";
+import { useConfirm } from "@/components/providers/confirm-provider";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "@/components/ui/dialog";
@@ -42,6 +43,7 @@ export default function ReimbursementsPage() {
   const [addOpen, setAddOpen] = React.useState(false);
   const [settleFor, setSettleFor] = React.useState<Reimbursement | null>(null);
   const del = useDeleteReimbursement();
+  const confirm = useConfirm();
 
   const pending = (rows ?? []).filter((r) => r.status === "pending");
   const settled = (rows ?? []).filter((r) => r.status === "settled");
@@ -52,29 +54,34 @@ export default function ReimbursementsPage() {
   for (const r of pending) byPerson.set(r.person_name, (byPerson.get(r.person_name) ?? 0) + r.amount);
   const owedByPerson = [...byPerson.entries()].sort((a, b) => b[1] - a[1]);
 
-  const confirmDelete = (r: Reimbursement) => {
-    if (window.confirm(`Remove this reimbursement (${rupee(r.amount)} · ${r.person_name})?\n\nThe booked expense is removed too (only if it isn't reconciled to a bank line).`)) {
+  const confirmDelete = async (r: Reimbursement) => {
+    if (await confirm({
+      title: `Remove this reimbursement (${rupee(r.amount)} · ${r.person_name})?`,
+      body: "The booked expense is removed too (only if it isn't reconciled to a bank line).",
+      confirmLabel: "Remove",
+      danger: true,
+    })) {
       del.mutate(r.id);
     }
   };
 
   return (
-    <div className="p-4 md:p-6 lg:p-8 max-w-[1400px] mx-auto">
+    <div className="p-4 md:p-6 lg:p-8 max-w-[1800px] mx-auto">
       <div className="flex items-end justify-between gap-3 flex-wrap mb-4">
         <div>
-          <p className="text-xs uppercase tracking-wider text-ink-3 font-semibold mb-1">Accounting</p>
+          <p className="text-xs uppercase tracking-wider text-ink-3 font-semibold mb-1">Purchases</p>
           <h1 className="font-serif text-3xl md:text-4xl tracking-tight">Reimbursements</h1>
           <p className="text-sm text-ink-3 mt-1">
-            Employee (ya kisi) ne apne paise se company ka kharcha kiya? Yahan record karo — kharcha book ho jayega aur kisko kitna dena hai wo track hoga.
+            Someone paid a company expense from their own pocket? Record it here — the expense gets booked and we track how much you owe each person.
           </p>
         </div>
-        <Button variant="primary" icon="plus" onClick={() => setAddOpen(true)}>Add reimbursement</Button>
+        <Button variant="primary" icon="plus" className="hidden md:inline-flex" onClick={() => setAddOpen(true)}>Add reimbursement</Button>
       </div>
 
       {/* How it works — one-liner for a layman */}
       <Card className="mb-5 p-3 md:p-4 border-amber/40 bg-amber-soft/25">
         <p className="text-[13px] text-ink-2 leading-relaxed">
-          <b className="text-ink">Kaise:</b> kharcha ek baar yahan record hota hai (P&amp;L me chala jaata hai). Jab us vyakti ko wapas paisa do, <b>Settle</b> dabao — wo bank transfer aap Banking me reconcile karoge, wo <i>dobara kharcha</i> nahi hai.
+          <b className="text-ink">How it works:</b> the expense is recorded once here (it hits the P&amp;L). When you pay that person back, hit <b>Settle</b> — you reconcile that bank transfer in Banking; it&apos;s <i>not</i> a second expense.
         </p>
       </Card>
 
@@ -83,13 +90,13 @@ export default function ReimbursementsPage() {
         <Card className="mb-5 p-4">
           <div className="flex flex-wrap items-center gap-x-8 gap-y-3">
             <div>
-              <p className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold">Total dena baaki</p>
+              <p className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold">Total owed</p>
               <p className="font-serif text-2xl text-rose">{rupee(owed)}</p>
             </div>
             <div className="flex-1 min-w-[200px]">
-              <p className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold mb-1">Kisko kitna</p>
+              <p className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold mb-1">Owed per person</p>
               {owedByPerson.length === 0 ? (
-                <p className="text-sm text-ink-3">Sab settle ho gaya 🎉</p>
+                <p className="text-sm text-ink-3">All settled 🎉</p>
               ) : (
                 <div className="flex flex-wrap gap-2">
                   {owedByPerson.map(([name, amt]) => (
@@ -112,14 +119,14 @@ export default function ReimbursementsPage() {
           <EmptyState
             icon="rupee"
             title="No reimbursements yet"
-            body="Jab company ka kharcha kisi ke personal card / cash se ho, yahan add karo."
+            body="When a company expense is paid from someone's personal card or cash, add it here."
             action={<Button variant="primary" icon="plus" onClick={() => setAddOpen(true)}>Add the first one</Button>}
           />
         </Card>
       ) : (
         <div className="space-y-6">
           {pending.length > 0 && (
-            <ReimbList title={`Pending · dena baaki (${pending.length})`} rows={pending}
+            <ReimbList title={`Pending · owed (${pending.length})`} rows={pending}
               onSettle={setSettleFor} onDelete={confirmDelete} />
           )}
           {settled.length > 0 && (
@@ -148,33 +155,66 @@ function ReimbList({
       <Card className="overflow-hidden">
         <ul className="divide-y divide-hairline">
           {rows.map((r) => (
-            <li key={r.id} className="flex items-center gap-3 px-4 py-3">
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium text-ink truncate flex items-center gap-1.5">
-                  <span className="truncate">{r.person_name}</span>
-                  {r.employee_id && <Badge kind="info" size="sm">Employee</Badge>}
-                  <span className="text-ink-3 font-normal truncate">· {r.purpose}</span>
-                </p>
-                <p className="text-[11px] text-ink-3 truncate">
+            <li key={r.id}>
+              {/* Desktop / tablet — single row */}
+              <div className="hidden md:flex items-center gap-3 px-4 py-3">
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-ink truncate flex items-center gap-1.5">
+                    <span className="truncate">{r.person_name}</span>
+                    {r.employee_id && <Badge kind="info" size="sm">Employee</Badge>}
+                    <span className="text-ink-3 font-normal truncate">· {r.purpose}</span>
+                  </p>
+                  <p className="text-[11px] text-ink-3 truncate">
+                    {r.category} · {formatDate(r.incurred_on)}{r.paid_via ? ` · ${r.paid_via}` : ""}
+                    {settled && r.settled_on ? ` · settled ${formatDate(r.settled_on)}` : ""}
+                  </p>
+                </div>
+                {r.receipt_path && <ReceiptLink path={r.receipt_path} />}
+                <div className="text-right shrink-0">
+                  <p className={`font-mono text-sm font-semibold ${settled ? "text-ink-3" : "text-rose"}`}>{rupee(r.amount)}</p>
+                </div>
+                {settled ? (
+                  <Badge kind="success" size="sm" dot>Settled</Badge>
+                ) : (
+                  <Button size="sm" variant="primary" onClick={() => onSettle(r)}>Settle</Button>
+                )}
+                <Button
+                  size="sm" variant="ghost" icon="trash"
+                  className="!text-rose hover:!bg-rose/10"
+                  aria-label="Delete"
+                  onClick={() => onDelete(r)}
+                />
+              </div>
+
+              {/* Mobile — stacked card: person + amount on top, purpose + actions below */}
+              <div className="md:hidden px-4 py-3">
+                <div className="flex items-start justify-between gap-2">
+                  <p className="min-w-0 text-sm font-medium text-ink flex items-center gap-1.5">
+                    <span className="truncate">{r.person_name}</span>
+                    {r.employee_id && <Badge kind="info" size="sm">Employee</Badge>}
+                  </p>
+                  <p className={`font-mono text-sm font-semibold shrink-0 ${settled ? "text-ink-3" : "text-rose"}`}>{rupee(r.amount)}</p>
+                </div>
+                <p className="mt-1 text-[13px] text-ink-2">{r.purpose}</p>
+                <p className="mt-0.5 text-[11px] text-ink-3">
                   {r.category} · {formatDate(r.incurred_on)}{r.paid_via ? ` · ${r.paid_via}` : ""}
                   {settled && r.settled_on ? ` · settled ${formatDate(r.settled_on)}` : ""}
                 </p>
+                <div className="mt-2.5 flex items-center gap-2">
+                  {settled ? (
+                    <Badge kind="success" size="sm" dot>Settled</Badge>
+                  ) : (
+                    <Button size="sm" variant="primary" onClick={() => onSettle(r)}>Settle</Button>
+                  )}
+                  {r.receipt_path && <ReceiptLink path={r.receipt_path} />}
+                  <Button
+                    size="sm" variant="ghost" icon="trash"
+                    className="!text-rose hover:!bg-rose/10 ml-auto"
+                    aria-label="Delete"
+                    onClick={() => onDelete(r)}
+                  />
+                </div>
               </div>
-              {r.receipt_path && <ReceiptLink path={r.receipt_path} />}
-              <div className="text-right shrink-0">
-                <p className={`font-mono text-sm font-semibold ${settled ? "text-ink-3" : "text-rose"}`}>{rupee(r.amount)}</p>
-              </div>
-              {settled ? (
-                <Badge kind="success" size="sm" dot>Settled</Badge>
-              ) : (
-                <Button size="sm" variant="primary" onClick={() => onSettle(r)}>Settle</Button>
-              )}
-              <Button
-                size="sm" variant="ghost" icon="trash"
-                className="!text-rose hover:!bg-rose/10"
-                aria-label="Delete"
-                onClick={() => onDelete(r)}
-              />
             </li>
           ))}
         </ul>
@@ -243,7 +283,7 @@ function AddReimbursementDialog({ onClose }: { onClose: () => void }) {
       <DialogContent className="md:!max-w-md">
         <DialogHeader>
           <DialogTitle>Add reimbursement</DialogTitle>
-          <DialogDescription>Employee (ya kisi) ne apne paise se company ka kharcha kiya — yahan record karo.</DialogDescription>
+          <DialogDescription>Someone paid a company expense from their own pocket — record it here.</DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -315,7 +355,7 @@ function AddReimbursementDialog({ onClose }: { onClose: () => void }) {
           <FormField label="Receipt / bill (optional)">
             <label className="flex items-center gap-2 rounded-md border border-dashed border-hairline px-3 py-2 text-sm text-ink-2 cursor-pointer hover:border-hairline-strong">
               <Icon name="upload" size={14} className="text-ink-3" />
-              <span className="truncate">{receipt ? receipt.name : "Photo ya PDF attach karo"}</span>
+              <span className="truncate">{receipt ? receipt.name : "Attach a photo or PDF"}</span>
               <input
                 type="file"
                 accept="image/*,application/pdf"
@@ -324,7 +364,7 @@ function AddReimbursementDialog({ onClose }: { onClose: () => void }) {
               />
             </label>
           </FormField>
-          <p className="text-[11px] text-ink-3">Save karte hi ye kharcha P&amp;L me book ho jayega aur {person.trim() || "us vyakti"} ko dena baaki dikh jayega.</p>
+          <p className="text-[11px] text-ink-3">On save, this expense is booked to the P&amp;L and shown as owed to {person.trim() || "that person"}.</p>
         </div>
         <DialogFooter>
           <Button type="button" variant="default" onClick={onClose}>Cancel</Button>
@@ -355,7 +395,7 @@ function SettleDialog({ reimb, onClose }: { reimb: Reimbursement; onClose: () =>
         <DialogHeader>
           <DialogTitle>Settle · {reimb.person_name}</DialogTitle>
           <DialogDescription>
-            {reimb.person_name} ko <b className="text-ink">{rupee(reimb.amount)}</b> wapas de diya? Ye sirf "chuka diya" mark karta hai — bank transfer ko Banking me reconcile kar dena (dobara kharcha nahi banega).
+            Paid <b className="text-ink">{rupee(reimb.amount)}</b> back to {reimb.person_name}? This only marks it settled — reconcile the bank transfer in Banking (it won&apos;t create a second expense).
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">

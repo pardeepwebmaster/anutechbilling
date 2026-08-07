@@ -247,6 +247,7 @@ export default function SaasMetricsPage() {
     <div className="p-4 md:p-6 lg:p-8 max-w-[1240px] mx-auto">
       {/* Header */}
       <div className="mb-6">
+        <p className="text-xs uppercase tracking-wider text-ink-3 font-semibold mb-1">Accounting</p>
         <h1 className="font-serif text-3xl md:text-4xl tracking-tight">SaaS Metrics</h1>
         <p className="text-sm text-ink-3 mt-1 max-w-2xl">
           Your recurring revenue business at a glance.
@@ -374,22 +375,22 @@ export default function SaasMetricsPage() {
               </div>
               <ul className="text-sm text-ink-2 space-y-1.5 list-disc pl-5 leading-relaxed">
                 <li>
-                  Aapka business <b>₹{(data.mrr / 1000).toFixed(0)}K/month</b> recurring revenue generate karta hai
+                  Your business generates <b>₹{(data.mrr / 1000).toFixed(0)}K/month</b> in recurring revenue
                   ({data.activeCustomers} customers, average <b>{rupee(data.arpc)}/customer/month</b>).
                 </li>
                 {data.netMRRChange30d > 0 && (
                   <li className="text-emerald">
-                    Last 30 days mein <b>+{rupee(data.netMRRChange30d)}</b> net MRR growth — positive momentum.
+                    <b>+{rupee(data.netMRRChange30d)}</b> net MRR growth in the last 30 days — positive momentum.
                   </li>
                 )}
                 {data.netMRRChange30d < 0 && (
                   <li className="text-rose">
-                    Last 30 days mein <b>{rupee(Math.abs(data.netMRRChange30d))}</b> net MRR DECLINE — churn investigate karo.
+                    <b>{rupee(Math.abs(data.netMRRChange30d))}</b> net MRR decline in the last 30 days — investigate churn.
                   </li>
                 )}
                 {data.monthlyChurnRate > 5 && (
                   <li className="text-amber-ink">
-                    Monthly churn {data.monthlyChurnRate.toFixed(1)}% hai — SaaS benchmark below 3%/mo hai. Renewal automation review karo.
+                    Monthly churn is {data.monthlyChurnRate.toFixed(1)}% — the SaaS benchmark is below 3%/mo. Review your renewal automation.
                   </li>
                 )}
                 {data.monthlyChurnRate <= 3 && data.activeCustomers > 0 && (

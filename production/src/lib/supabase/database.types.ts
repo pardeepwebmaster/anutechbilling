@@ -511,6 +511,9 @@ type CustomerRow = {
   // Migration 0168 — optional parent account (customer_groups). Links companies
   // routed by one common reseller/coordinator; does NOT affect this customer's own invoicing.
   group_id: string | null;
+  // Migration 0172 — Zoho-style archive flag. false = inactive/archived (hidden
+  // from the default list; all money records retained). Reversible.
+  is_active: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -551,6 +554,7 @@ type CustomerInsert = {
   gstin_verification?: GstinVerification | null;
   linked_tenant_id?: string | null;
   group_id?: string | null;
+  is_active?: boolean;
 }
 type CustomerUpdate = Partial<CustomerInsert>;
 
@@ -806,6 +810,9 @@ export type QuoteLineItem = {
   bulk?: boolean;
   /** Per-domain breakdown for a bulk line. `qty` must equal the sum of these seats. */
   domains?: Array<{ domain: string; seats: number }>;
+  /** Optional domain this subscription is provisioned against (Google Workspace /
+   *  M365 / Zoho). Per-line because a quote can hold products for different domains. */
+  domain?: string | null;
 };
 
 type QuoteRow = {
@@ -1074,6 +1081,7 @@ type PaymentRow = {
   recorded_by:        string | null;
   receipt_voucher_no: string | null;
   bank_account_id:    string | null;
+  receipt_file_path:  string | null;
   created_at:         string;
 }
 type PaymentInsert = {
@@ -1092,6 +1100,7 @@ type PaymentInsert = {
   recorded_by?:  string | null;
   receipt_voucher_no?: string | null;
   bank_account_id?: string | null;
+  receipt_file_path?: string | null;
 }
 type PaymentUpdate = Partial<PaymentInsert>;
 
@@ -2593,6 +2602,12 @@ export type Database = {
       delete_customer: {
         Args: { p_customer_id: string };
         Returns: { deleted: boolean; customer_id: string };
+      };
+      /** Revert an accidentally-accepted quote back to 'sent' (0173). Refuses if
+       *  any money has moved (invoice / received payment). */
+      reopen_quote: {
+        Args: { p_quote_id: string };
+        Returns: undefined;
       };
       /**
        * Atomic convert-to-lead for an inbound email (0079). Creates a lead from

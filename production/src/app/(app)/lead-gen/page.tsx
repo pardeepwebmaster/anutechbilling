@@ -23,6 +23,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Button, IconButton } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
+import { FAB } from "@/components/ui/fab";
 import {
   Dialog,
   DialogContent,
@@ -267,14 +268,21 @@ export default function LeadGenPage() {
     setCaptureHost(window.location.host);
   }, []);
 
-  // Last-7-days leads
-  const cutoff = new Date(Date.now() - 7 * 86_400_000);
+  // Last-7-days leads, plus the 7 days before that for a REAL week-over-week delta
+  const now       = Date.now();
+  const cutoff    = new Date(now - 7 * 86_400_000);
+  const prevStart = new Date(now - 14 * 86_400_000);
   const recentLeads = (leads ?? []).filter(
     (l) => new Date(l.created_at) >= cutoff,
   );
+  const prevWeekLeads = (leads ?? []).filter((l) => {
+    const t = new Date(l.created_at);
+    return t >= prevStart && t < cutoff;
+  }).length;
 
   // KPI calculations
   const mtdLeads    = recentLeads.length;
+  const weekDelta   = mtdLeads - prevWeekLeads; // real w/w change
   const total       = captureChannels.reduce((s, x) => s + x.count, 0);
   const avgConv     = Math.round(
     captureChannels.reduce((s, x) => s + x.count * x.conv, 0) / Math.max(1, total),
@@ -282,7 +290,7 @@ export default function LeadGenPage() {
   const topSource   = captureChannels[0]; // already sorted by count desc (may be undefined)
 
   return (
-    <div className="mx-auto max-w-[1800px] px-8 pb-20 pt-7">
+    <div className="mx-auto max-w-[1800px] px-4 md:px-8 pb-20 pt-7">
       {/* ── Page header ── */}
       <div className="mb-6 flex items-start justify-between gap-4">
         <div>
@@ -304,14 +312,6 @@ export default function LeadGenPage() {
             Share form
           </Button>
           <Button
-            variant="default"
-            size="sm"
-            onClick={() => toast.info("Upload CSV file to import leads")}
-          >
-            <Icon name="download" size={14} />
-            Import CSV
-          </Button>
-          <Button
             variant="primary"
             size="sm"
             onClick={() => setAddOpen(true)}
@@ -327,8 +327,12 @@ export default function LeadGenPage() {
         <KPI
           label="Leads · Last 7 days"
           value={mtdLeads}
-          trend="+8 vs last week"
-          trendKind="up"
+          trend={
+            prevWeekLeads === 0
+              ? "vs 0 last week"
+              : `${weekDelta >= 0 ? "+" : ""}${weekDelta} vs last week`
+          }
+          trendKind={weekDelta > 0 ? "up" : weekDelta < 0 ? "down" : "neutral"}
           icon="inbox"
         />
         <KPI
@@ -347,12 +351,11 @@ export default function LeadGenPage() {
           icon={topSource?.icon ?? "inbox"}
         />
         <KPI
-          label="Avg response"
-          value="2.4"
-          unit="h"
-          trend="−1.1h vs last mo"
-          trendKind="up"
-          icon="clock"
+          label="Total leads"
+          value={(leads ?? []).length}
+          trend="all time · all sources"
+          trendKind="neutral"
+          icon="users"
         />
       </div>
 
@@ -534,7 +537,9 @@ export default function LeadGenPage() {
             compact
           />
         ) : (
-          <div className="overflow-x-auto">
+          <>
+          {/* Desktop / tablet — table */}
+          <div className="hidden md:block overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-hairline bg-muted/30">
@@ -587,6 +592,35 @@ export default function LeadGenPage() {
               </tbody>
             </table>
           </div>
+
+          {/* Mobile — card list mirroring the table columns */}
+          <ul className="md:hidden divide-y divide-hairline">
+            {recentLeads.slice(0, 10).map((lead) => (
+              <li key={lead.id}>
+                <button
+                  type="button"
+                  onClick={() => router.push(`/leads?lead=${lead.id}` as never)}
+                  className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-muted/20 transition-colors"
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="font-semibold text-ink truncate">{lead.company}</p>
+                    <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                      <SourceIcon source={lead.source} />
+                      <span className="text-xs text-ink-3 truncate">· {lead.contact_name ?? "—"}</span>
+                    </div>
+                    <p className="mt-1 text-[11px] text-ink-3">
+                      {formatDate(lead.created_at, "relative")}
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 flex-col items-end gap-1.5">
+                    <StageBadge stage={lead.stage} />
+                    <Icon name="arrow_right" size={14} className="text-ink-3" />
+                  </div>
+                </button>
+              </li>
+            ))}
+          </ul>
+          </>
         )}
       </Card>
 
@@ -643,6 +677,9 @@ export default function LeadGenPage() {
 
       {/* ── Add Lead modal (same one used in Lead Pipeline) ── */}
       <AddLeadForm open={addOpen} onOpenChange={setAddOpen} />
+
+      {/* Mobile FAB — primary list action */}
+      <FAB icon="plus" label="Add lead" onClick={() => setAddOpen(true)} ariaLabel="Add lead" />
     </div>
   );
 }

@@ -13,7 +13,7 @@ import { ItemForm } from "@/components/features/items/item-form";
 import { FAB } from "@/components/ui/fab";
 import { GeminiCard } from "@/components/shared/gemini-card";
 import { EmptyState } from "@/components/shared/empty-state";
-import { KPI } from "@/components/shared/kpi";
+import { StatStrip } from "@/components/shared/stat-strip";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button, IconButton } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -28,6 +28,7 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
+import { useConfirm } from "@/components/providers/confirm-provider";
 import { rupee } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
@@ -47,10 +48,55 @@ const KIND_TABS: TabBarItem[] = [
   { id: "addon", label: "Add-ons",    dot: "indigo" },
 ];
 
+/** Compact rounded-pill filter chip — used for the vendor + type filter rows.
+ *  No overflow container (unlike TabBar), so it never spawns a stray scrollbar. */
+function FilterChip({
+  label, count, active, dot, onClick,
+}: {
+  label: string;
+  count?: number;
+  active: boolean;
+  dot?: "emerald" | "amber" | "rose" | "indigo" | "slate";
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={active}
+      onClick={onClick}
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium whitespace-nowrap transition-colors",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber",
+        active
+          ? "border-amber bg-amber-soft text-amber-ink"
+          : "border-hairline text-ink-3 hover:text-ink hover:bg-paper-2",
+      )}
+    >
+      {dot && (
+        <span
+          className={cn(
+            "w-1.5 h-1.5 rounded-full shrink-0",
+            dot === "emerald" && "bg-emerald",
+            dot === "amber" && "bg-amber",
+            dot === "rose" && "bg-rose",
+            dot === "indigo" && "bg-indigo",
+            dot === "slate" && "bg-slate",
+          )}
+        />
+      )}
+      <span>{label}</span>
+      {count !== undefined && (
+        <span className={cn("tabular-nums", active ? "text-amber-ink" : "text-ink-3")}>{count}</span>
+      )}
+    </button>
+  );
+}
+
 export default function ItemsPage() {
   const { data: items, isLoading, error, refetch } = useItems({ includeInactive: true });
   const deleteItem = useDeleteItem();
   const loadDefaults = useLoadDefaultCatalog();
+  const confirm = useConfirm();
 
   const [catalogType, setCatalogType] = React.useState<"subscription" | "one_time">("subscription");
   const [vendor, setVendor] = React.useState("all");
@@ -115,7 +161,7 @@ export default function ItemsPage() {
       {/* Header */}
       <div className="flex items-end justify-between gap-3 flex-wrap">
         <div>
-          <p className="text-xs uppercase tracking-wider text-ink-3 font-semibold mb-1">Workspace</p>
+          <p className="text-xs uppercase tracking-wider text-ink-3 font-semibold mb-1">Catalog</p>
           <h1 className="font-serif text-3xl md:text-4xl leading-tight">
             {catalogType === "subscription" ? "Subscription Catalog" : "Items Catalog"}
           </h1>
@@ -156,44 +202,38 @@ export default function ItemsPage() {
           isLoading={isLoading}
           onAdd={() => { setOneTimeEditing(null); setOneTimeOpen(true); }}
           onEdit={(it) => { setOneTimeEditing(it); setOneTimeOpen(true); }}
-          onDeactivate={(it) => { if (confirm(`Deactivate ${it.name}?`)) deleteItem.mutate(it.id); }}
+          onDeactivate={async (it) => { if (await confirm({ title: `Deactivate ${it.name}?`, danger: true, confirmLabel: "Deactivate" })) deleteItem.mutate(it.id); }}
         />
       ) : (
       <>
 
-      {/* KPIs */}
-      {!isLoading && items && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <KPI label="Total items"     value={items.length}                            trend={`${active.length} active`} />
-          <KPI label="Vendors"         value={Object.keys(counts).filter(k => k !== "all").length} trend="catalogs" />
-          <KPI label="Avg margin"      value={avgMargin}      unit="%"                  trend={avgMargin >= 18 ? "Healthy" : avgMargin >= 14 ? "OK" : "Squeeze"}
-               trendKind={avgMargin >= 18 ? "up" : avgMargin >= 14 ? "neutral" : "down"} icon="rupee" />
-          <KPI label="Avg margin (₹/seat)" value={rupee(totalMrr)}                      trend="per item" />
-        </div>
+      {/* Compact money-first stats — replaces the tall KPI grid so the list sits higher */}
+      {!isLoading && items && items.length > 0 && (
+        <StatStrip
+          items={[
+            { label: "Items", value: subItems.length },
+            { label: "Active", value: active.length, tone: "emerald" },
+            { label: "Avg margin", value: `${avgMargin}%`, tone: avgMargin >= 18 ? "emerald" : avgMargin >= 14 ? "default" : "rose" },
+            { label: "Avg margin ₹/seat", value: rupee(totalMrr) },
+          ]}
+        />
       )}
 
-      {/* Public buy pages — quick-link card */}
+      {/* Filters — vendor + type as compact labelled chip rows (clear which is which) */}
       {!isLoading && items && items.length > 0 && (
-        <PublicBuyPagesCard items={items} />
-      )}
-
-      {/* AI suggestion */}
-      {!isLoading && items && items.length > 0 && (
-        <GeminiCard title="Catalog intelligence" compact>
-          <b>{(items ?? []).filter((i) => i.margin_pct < 14).length} items with margin below 14%.</b>{" "}
-          Negotiate better wholesale rates with vendors or consider deprioritizing these products.
-        </GeminiCard>
-      )}
-
-      {/* From your distributor — only shows when this tenant has a parent
-          (i.e. it's a sub-reseller of another tenant). Slice 1 — migration 0041. */}
-      <PartnerCatalogSection />
-
-      {/* Tabs — vendor + kind (main / add-on) */}
-      {!isLoading && items && items.length > 0 && (
-        <div className="space-y-2">
-          <TabBar value={vendor} onChange={setVendor} items={tabsWithCounts} />
-          <TabBar value={kind}   onChange={setKind}   items={kindTabsWithCounts} />
+        <div className="space-y-2.5">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="w-14 shrink-0 text-[10px] uppercase tracking-wider text-ink-3 font-semibold">Vendor</span>
+            {tabsWithCounts.map((t) => (
+              <FilterChip key={t.id} active={vendor === t.id} onClick={() => setVendor(t.id)} label={t.label} count={t.count} dot={t.dot} />
+            ))}
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="w-14 shrink-0 text-[10px] uppercase tracking-wider text-ink-3 font-semibold">Type</span>
+            {kindTabsWithCounts.map((t) => (
+              <FilterChip key={t.id} active={kind === t.id} onClick={() => setKind(t.id)} label={t.label} count={t.count} dot={t.dot} />
+            ))}
+          </div>
         </div>
       )}
 
@@ -253,8 +293,8 @@ export default function ItemsPage() {
         <EmptyState
           icon="search"
           title="No items match"
-          body={search ? `No results for "${search}".` : `No items in ${vendor}.`}
-          action={<Button icon="x" onClick={() => { setVendor("all"); setSearch(""); }}>Clear filters</Button>}
+          body={search ? `No results for "${search}".` : `No ${kind !== "all" ? `${kind === "main" ? "main plans" : "add-ons"} ` : ""}items in ${vendor === "all" ? "this catalog" : vendor}.`}
+          action={<Button icon="x" onClick={() => { setVendor("all"); setKind("all"); setSearch(""); }}>Clear filters</Button>}
         />
       )}
 
@@ -390,8 +430,8 @@ export default function ItemsPage() {
                           {it.is_active && (
                             <DropdownMenuItem
                               destructive
-                              onClick={() => {
-                                if (confirm(`Deactivate ${it.name}?`)) {
+                              onClick={async () => {
+                                if (await confirm({ title: `Deactivate ${it.name}?`, danger: true, confirmLabel: "Deactivate" })) {
                                   deleteItem.mutate(it.id);
                                 }
                               }}
@@ -409,6 +449,26 @@ export default function ItemsPage() {
           </table>
         </Card>
       )}
+
+      {/* ── Secondary reference — kept BELOW the list so the catalog stays primary ── */}
+      {!isLoading && items && items.length > 0 && (
+        <div className="pt-4 mt-2 border-t border-hairline space-y-4">
+          {(() => {
+            const lowMargin = (items ?? []).filter((i) => i.margin_pct < 14).length;
+            return (
+              <GeminiCard title="Catalog intelligence" compact>
+                <b>{lowMargin} {lowMargin === 1 ? "item has" : "items have"} margin below 14%.</b>{" "}
+                Negotiate better wholesale rates with vendors or consider deprioritizing these products.
+              </GeminiCard>
+            );
+          })()}
+          <PublicBuyPagesCard items={items} />
+        </div>
+      )}
+
+      {/* From your distributor — only shows when this tenant has a parent
+          (i.e. it's a sub-reseller of another tenant). Slice 1 — migration 0041. */}
+      <PartnerCatalogSection />
 
       </>
       )}
@@ -757,7 +817,7 @@ function PartnerCatalogSection() {
         </div>
       ) : !catalog || catalog.length === 0 ? (
         <p className="text-xs text-ink-3 italic">
-          Distributor ne abhi koi SKU partner-visible nahi rakhi. Unhe poochho ki kuch items "Make visible to my sub-resellers" mark karein.
+          Your distributor hasn't made any SKUs partner-visible yet. Ask them to mark a few items &ldquo;Make visible to my sub-resellers&rdquo;.
         </p>
       ) : (
         <ul className="divide-y divide-hairline border border-hairline rounded-md overflow-hidden">
@@ -863,8 +923,8 @@ function DuplicateConfirmDialog(props: {
           You already have "{existing.name}"
         </h3>
         <p className="text-xs text-ink-3 mb-4 leading-relaxed">
-          Aapke catalog me ek SKU pehle se hai jo distributor ki SKU se match karti hai
-          ({existing.vendor} · {existing.kind}). Kya karna chahte ho?
+          Your catalog already has a SKU that matches the distributor's
+          ({existing.vendor} · {existing.kind}). What would you like to do?
         </p>
 
         <div className="rounded-md bg-paper-2 p-3 text-xs space-y-1.5 mb-4">

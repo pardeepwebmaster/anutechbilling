@@ -49,8 +49,11 @@ interface AddLineItemDialogProps {
 const customSchema = z.object({
   name: z.string().min(2, "Name required"),
   qty: z.coerce.number().int().min(1),
-  rate: z.coerce.number().int().min(0),
-  cost: z.coerce.number().int().min(0),
+  // Rate/cost are entered in the quote's BILLING currency (₹ domestic, or the
+  // foreign currency for a USD quote). Non-int allowed so USD cents work; we
+  // round to canonical ₹ integers on save (books always stay ₹).
+  rate: z.coerce.number().min(0),
+  cost: z.coerce.number().min(0),
 });
 type CustomData = z.infer<typeof customSchema>;
 
@@ -61,6 +64,11 @@ export function AddLineItemDialog({ open, onOpenChange, onAdd, currency, exchang
   // Use the item's real foreign price only when billing USD AND the quote is on
   // the "international" basis. On the "india" basis we always convert the ₹ price.
   const useIntlUsd = isUsd && pricingBasis === "international";
+  // Custom-line entry currency: a USD quote WITH a usable exchange rate lets the
+  // reseller type the price in USD (converted → canonical ₹ on save). Without a
+  // rate we can't convert, so fall back to ₹ entry.
+  const usdEntry = isUsd && !!fx;
+  const entryCur = usdEntry ? (currency ?? "USD") : "₹";
   const { data: allItems, isLoading } = useItems();
   // Subscription quote line picker — exclude one-time (Items Catalog) products.
   const items = React.useMemo(() => (allItems ?? []).filter((i) => i.item_type !== "one_time"), [allItems]);
@@ -131,12 +139,16 @@ export function AddLineItemDialog({ open, onOpenChange, onAdd, currency, exchang
   };
 
   const addCustom = (data: CustomData) => {
+    // Books are always ₹: a USD entry converts at the exchange rate, a ₹ entry
+    // just rounds to an integer. QuoteLineItem.rate/cost are canonical ₹/seat/year.
+    const rateInr = usdEntry ? Math.round(data.rate * fx!) : Math.round(data.rate);
+    const costInr = usdEntry ? Math.round(data.cost * fx!) : Math.round(data.cost);
     onAdd({
       id: crypto.randomUUID(),
       name: data.name,
       qty: data.qty,
-      rate: data.rate,
-      cost: data.cost,
+      rate: rateInr,
+      cost: costInr,
     });
     onOpenChange(false);
   };
@@ -292,28 +304,38 @@ export function AddLineItemDialog({ open, onOpenChange, onAdd, currency, exchang
                   {...register("qty", { valueAsNumber: true })}
                 />
               </FormField>
-              <FormField label="Rate (₹)" required htmlFor="custom-rate">
+              <FormField label={`Rate (${entryCur})`} required htmlFor="custom-rate">
                 <Input
                   id="custom-rate"
                   type="number"
                   min={0}
-                  prefix="₹"
+                  step={usdEntry ? "0.01" : "1"}
+                  prefix={usdEntry ? "$" : "₹"}
                   error={errors.rate?.message}
                   {...register("rate", { valueAsNumber: true })}
                 />
               </FormField>
-              <FormField label="Cost (₹)" required htmlFor="custom-cost">
+              <FormField label={`Cost (${entryCur})`} required htmlFor="custom-cost">
                 <Input
                   id="custom-cost"
                   type="number"
                   min={0}
-                  prefix="₹"
+                  step={usdEntry ? "0.01" : "1"}
+                  prefix={usdEntry ? "$" : "₹"}
                   helper="Your cost"
                   error={errors.cost?.message}
                   {...register("cost", { valueAsNumber: true })}
                 />
               </FormField>
             </div>
+
+            {/* USD entry: make the ₹-books conversion explicit so it's never a surprise */}
+            {usdEntry && customRate > 0 && (
+              <p className="text-[11px] text-ink-3">
+                Billed in {entryCur} · recorded in books as{" "}
+                <span className="font-medium text-ink-2">{rupee(Math.round(customRate * (fx ?? 1)))}</span>/unit at ₹{fx}/{entryCur}.
+              </p>
+            )}
 
             {/* Margin preview */}
             {customRate > 0 && (
@@ -330,7 +352,7 @@ export function AddLineItemDialog({ open, onOpenChange, onAdd, currency, exchang
                   customMarginPct >= 14 ? "text-amber-ink" :
                   "text-rose"
                 )}>
-                  {rupee(customMargin)} ({customMarginPct}%)
+                  {usdEntry ? formatForeign(customMargin, currency ?? "USD") : rupee(customMargin)} ({customMarginPct}%)
                 </span>
               </div>
             )}

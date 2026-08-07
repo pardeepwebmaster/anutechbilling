@@ -551,6 +551,13 @@ const TESTIMONIALS: Testimonial[] = [
   },
 ];
 
+// Gate the social-proof strip (logos + testimonials) OFF until real, permissioned
+// customer content exists. The names/quotes/₹-savings above are illustrative
+// placeholders — showing fabricated testimonials on a live checkout is a trust +
+// compliance risk (and against our "honest, not flattery" rule). Flip to `true`
+// once Pardeep supplies real, consented logos + testimonials.
+const SHOW_SOCIAL_PROOF = false;
+
 // ──────────────────────────────────────────────────────────────────────
 // Post-purchase timeline — removes ghosting fear
 // ──────────────────────────────────────────────────────────────────────
@@ -954,7 +961,7 @@ function HeroVisual() {
 
         {/* Bottom shimmer — implies "more emails below" without showing fake ones */}
         <div className="px-4 py-2 text-center bg-paper-2/30 border-t border-hairline">
-          <span className="text-[10px] text-ink-3 font-mono">+ 247 more in your inbox</span>
+          <span className="text-[10px] text-ink-3 font-mono">+ more in your inbox</span>
         </div>
       </div>
 
@@ -1335,7 +1342,7 @@ export function BuyWorkspaceClient({
             </h1>
 
             <p className="text-base text-ink-3 leading-relaxed mb-7 max-w-xl">
-              <b className="text-ink">1024 Indian SMEs</b> trust us with their email.
+              <b className="text-ink">Indian SMEs</b> trust us with their email.
               Google Premier Partner since 2014. GST invoice, Hindi support,
               <b className="text-ink"> one person who picks up the phone.</b>
             </p>
@@ -1574,7 +1581,7 @@ export function BuyWorkspaceClient({
               and DOMINANT WhatsApp CTA. Indian SMEs buy from people, not
               brands — putting his face + number + commitment above the fold
               collapses the trust-building journey. */}
-          <div className="hidden lg:flex justify-center items-center pl-6 pr-2">
+          <div className="flex justify-center items-center mt-4 lg:mt-0 lg:pl-6 lg:pr-2">
             <FounderHero waMessage={waMessage} />
           </div>
         </div>
@@ -1652,36 +1659,39 @@ export function BuyWorkspaceClient({
         </div>
       </section>
 
-      {/* ── Customer logo strip ── */}
-      <section className="border-y border-hairline bg-paper-2/30 py-10">
-        <div className="max-w-[1240px] mx-auto px-6">
-          <p className="text-center text-xs uppercase tracking-[0.14em] text-ink-3 mb-6 font-medium">
-            Trusted by 247 Indian businesses — from 5-person studios to 200-person factories
-          </p>
-          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-6 items-center">
-            {CUSTOMER_LOGOS.map((c) => (
-              <LogoChip key={c.name} name={c.name} city={c.city} />
-            ))}
-          </div>
-        </div>
-      </section>
+      {/* ── Customer logo strip + testimonials — gated until real content exists ── */}
+      {SHOW_SOCIAL_PROOF && (
+        <>
+          <section className="border-y border-hairline bg-paper-2/30 py-10">
+            <div className="max-w-[1240px] mx-auto px-6">
+              <p className="text-center text-xs uppercase tracking-[0.14em] text-ink-3 mb-6 font-medium">
+                Trusted by Indian businesses — from 5-person studios to 200-person factories
+              </p>
+              <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-6 items-center">
+                {CUSTOMER_LOGOS.map((c) => (
+                  <LogoChip key={c.name} name={c.name} city={c.city} />
+                ))}
+              </div>
+            </div>
+          </section>
 
-      {/* ── Testimonial cards — replaces star rating with specific case studies ── */}
-      <section className="max-w-[1240px] mx-auto px-6 py-16 md:py-20">
-        <div className="text-center mb-12">
-          <div className="text-[11px] uppercase tracking-[0.12em] font-semibold text-ink-3 mb-3">
-            Real customers · real outcomes
-          </div>
-          <h2 className="font-serif text-3xl md:text-4xl tracking-tight">
-            How others switched
-          </h2>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {TESTIMONIALS.map((t) => (
-            <TestimonialCard key={t.name} testimonial={t} />
-          ))}
-        </div>
-      </section>
+          <section className="max-w-[1240px] mx-auto px-6 py-16 md:py-20">
+            <div className="text-center mb-12">
+              <div className="text-[11px] uppercase tracking-[0.12em] font-semibold text-ink-3 mb-3">
+                Real customers · real outcomes
+              </div>
+              <h2 className="font-serif text-3xl md:text-4xl tracking-tight">
+                How others switched
+              </h2>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              {TESTIMONIALS.map((t) => (
+                <TestimonialCard key={t.name} testimonial={t} />
+              ))}
+            </div>
+          </section>
+        </>
+      )}
 
       {/* ── Pricing section ── */}
       <section id="pricing" className="max-w-[1240px] mx-auto px-6 py-16 md:py-20">

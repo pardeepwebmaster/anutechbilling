@@ -52,11 +52,28 @@ const schema = z.object({
   method:       z.string().min(1, "Method required"),
   reference:    z.string().min(1, "Transaction reference required"),
   notes:        z.string().optional(),
+  // Optional — the customer's domain (Google Workspace / M365 subscriptions need
+  // it). Stamped onto the subscription that record_payment creates.
+  domain:       z.string().optional(),
   // TDS fields — only validated when tdsDeducted is true (handled in submit)
   tdsDeducted:  z.boolean().optional(),
   tdsSection:   z.string().optional(),
   tdsRatePct:   z.coerce.number().min(0).max(100).optional(),
   customerTan:  z.string().optional(),
+}).superRefine((d, ctx) => {
+  // Reference sanity — block junk like "dfg" / "asfdgdfgsdfgds". A real UTR /
+  // txn id / cheque number always has digits; cash/other can be looser.
+  const ref = d.reference.trim();
+  const digital = d.method !== "cash" && d.method !== "other";
+  if (digital && (ref.length < 4 || !/\d/.test(ref))) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["reference"],
+      message: "Enter a real UTR / transaction ID (letters + digits, e.g. 402312345678).",
+    });
+  } else if (!digital && ref.length < 2) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["reference"], message: "Reference too short." });
+  }
 });
 
 type FormData = z.infer<typeof schema>;
@@ -85,6 +102,11 @@ interface RecordPaymentDialogProps {
   /** Customer FK — used to fetch saved TAN + default TDS section/rate so the TDS section
    *  pre-fills correctly. Null for prospect quotes (no customer row yet). */
   customerId?: string | null;
+  /** Show the optional Domain field (subscription quotes only — Google Workspace /
+   *  M365 need the customer domain). Hidden for one-off / direct invoices. */
+  askDomain?: boolean;
+  /** Pre-fill the domain field (e.g. from the customer/lead's known domain). */
+  defaultDomain?: string | null;
 }
 
 export function RecordPaymentDialog({
@@ -97,10 +119,15 @@ export function RecordPaymentDialog({
   isProspect = false,
   invoiceId = null,
   customerId = null,
+  askDomain = false,
+  defaultDomain = null,
 }: RecordPaymentDialogProps) {
   const qc = useQueryClient();
   const [method, setMethod] = React.useState("upi");
   const [bankAccountId, setBankAccountId] = React.useState<string>("");
+  // Optional proof-of-payment file (screenshot / PDF). Uploaded best-effort
+  // AFTER record_payment succeeds, so it never blocks the money.
+  const [receiptFile, setReceiptFile] = React.useState<File | null>(null);
   const { data: bankAccounts } = useBankAccounts();
 
   const remaining = Math.max(0, expectedAmount - alreadyReceived);
@@ -158,6 +185,7 @@ export function RecordPaymentDialog({
     defaultValues: {
       amount:      remaining,
       method:      "upi",
+      domain:      defaultDomain ?? "",
       tdsDeducted: false,
       tdsSection:  "194J",
       tdsRatePct:  10,
@@ -196,6 +224,7 @@ export function RecordPaymentDialog({
       setMethod("upi");
       setBankAccountId("");
       setAmountEdited(false);
+      setReceiptFile(null);
     } else {
       reset({
         amount:      remaining,
@@ -325,6 +354,43 @@ export function RecordPaymentDialog({
           .update({ bank_account_id: bankAccountId })
           .eq("id", r.payment_id);
         if (bankErr) console.error("[record-payment] bank_account tag failed (payment still recorded):", bankErr);
+      }
+
+      // ── 2c. Attach the optional payment-receipt file (best-effort) ───────
+      // Uploaded AFTER the money is recorded, via the admin server route. A
+      // failed upload only warns — the payment is already saved and the file
+      // can be re-attached later. Skipped on replay (no new row to attach to).
+      if (receiptFile && r.payment_id && !isReplay) {
+        try {
+          const fd = new FormData();
+          fd.append("file", receiptFile);
+          const res = await fetch(`/api/payments/${r.payment_id}/receipt`, { method: "POST", body: fd });
+          if (!res.ok) {
+            const j = await res.json().catch(() => ({}));
+            console.error("[record-payment] receipt upload failed (payment still recorded):", j?.error);
+            toast.warning("Payment saved — the receipt didn't attach. You can add it later from the payment.");
+          }
+        } catch (e) {
+          console.error("[record-payment] receipt upload error (payment still recorded):", e);
+          toast.warning("Payment saved — the receipt didn't attach. You can add it later from the payment.");
+        }
+      }
+
+      // ── 2d. Stamp the optional domain onto the subscription (best-effort). ──
+      // record_payment creates/keeps the subscription (linked by quote_id).
+      // Google Workspace / M365 subscriptions need the customer's domain, so we
+      // capture it optionally here and set it if one was entered and it isn't
+      // already set (never overwrite). Non-money metadata — a failure only logs;
+      // the domain can still be added later on the Subscriptions page. Matches 0
+      // rows harmlessly for one-off / direct-invoice quotes (no subscription).
+      const domainVal = data.domain?.trim();
+      if (domainVal) {
+        const { error: domErr } = await supabase
+          .from("subscriptions")
+          .update({ domain: domainVal })
+          .eq("quote_id", quoteId)
+          .is("domain", null);
+        if (domErr) console.error("[record-payment] domain stamp failed (payment still recorded):", domErr);
       }
 
       // ── 3. TDS receivable — now committed ATOMICALLY inside
@@ -776,6 +842,65 @@ export function RecordPaymentDialog({
               rows={2}
               {...register("notes")}
             />
+          </FormField>
+
+          {/* Domain — optional. Google Workspace / M365 subscriptions are keyed
+              to the customer's domain; capture it here so the subscription is
+              ready to provision. Purely optional — leave blank if not known yet. */}
+          {askDomain && (
+            <FormField label="Customer domain (optional)" htmlFor="domain">
+              <Input
+                id="domain"
+                placeholder="acme.in — needed for Google Workspace / M365 provisioning"
+                {...register("domain")}
+              />
+            </FormField>
+          )}
+
+          {/* Optional proof-of-payment attachment (screenshot / PDF). */}
+          <FormField label="Payment receipt (optional)" htmlFor="receipt">
+            {receiptFile ? (
+              <div className="flex items-center justify-between gap-2 rounded-md border border-hairline bg-paper-2/40 px-3 py-2 text-sm">
+                <span className="flex items-center gap-2 min-w-0">
+                  <Icon name="file" size={14} className="shrink-0 text-ink-3" />
+                  <span className="truncate text-ink">{receiptFile.name}</span>
+                  <span className="shrink-0 text-[11px] text-ink-3">
+                    {(receiptFile.size / 1024).toFixed(0)} KB
+                  </span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setReceiptFile(null)}
+                  className="shrink-0 text-ink-3 hover:text-rose"
+                  aria-label="Remove attachment"
+                >
+                  <Icon name="x" size={15} />
+                </button>
+              </div>
+            ) : (
+              <label
+                htmlFor="receipt"
+                className="flex items-center gap-2 rounded-md border border-dashed border-hairline px-3 py-2 text-sm text-ink-3 cursor-pointer hover:border-amber hover:text-ink transition-colors"
+              >
+                <Icon name="upload" size={14} />
+                Attach a screenshot or PDF
+              </label>
+            )}
+            <input
+              id="receipt"
+              type="file"
+              accept="image/jpeg,image/png,image/webp,application/pdf"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0] ?? null;
+                if (f && f.size > 20 * 1024 * 1024) {
+                  toast.error("File must be under 20 MB");
+                  return;
+                }
+                setReceiptFile(f);
+              }}
+            />
+            <p className="mt-1 text-[11px] text-ink-3">JPG / PNG / WEBP / PDF · up to 20 MB · attached after the payment is saved.</p>
           </FormField>
 
           {newRunningTotal >= expectedAmount && (

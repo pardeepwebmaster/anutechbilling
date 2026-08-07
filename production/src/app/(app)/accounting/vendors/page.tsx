@@ -8,8 +8,10 @@
 
 import * as React from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 
 import { Card } from "@/components/ui/card";
+import { StatStrip } from "@/components/shared/stat-strip";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -27,48 +29,59 @@ import { FormField } from "@/components/ui/label";
 import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
+import { useConfirm } from "@/components/providers/confirm-provider";
 import { useVendors, useUpsertVendor, useDeleteVendor, useBillsByVendor, type Vendor } from "@/lib/queries/vendors";
 import { VENDOR_BILL_CATEGORIES } from "@/lib/queries/vendor-bills";
 import { rupee, formatDate } from "@/lib/utils";
 
 export default function VendorsPage() {
+  const router = useRouter();
   const { data: vendors, isLoading } = useVendors();
   const [search, setSearch] = React.useState("");
   const [addOpen, setAddOpen] = React.useState(false);
   const [editVendor, setEditVendor] = React.useState<Vendor | null>(null);
   const [detailVendor, setDetailVendor] = React.useState<Vendor | null>(null);
   const del = useDeleteVendor();
+  const confirm = useConfirm();
 
   const rows = (vendors ?? []).filter((v) =>
     !search.trim() || v.name.toLowerCase().includes(search.toLowerCase()) || (v.gstin ?? "").toLowerCase().includes(search.toLowerCase()));
   const totalOutstanding = (vendors ?? []).reduce((s, v) => s + v.outstanding, 0);
   const totalBilled = (vendors ?? []).reduce((s, v) => s + v.totalBilled, 0);
 
-  const confirmDelete = (v: Vendor) => {
-    if (window.confirm(`Remove vendor "${v.name}"?\n\nIts ${v.billCount} bill(s) stay — they just lose the vendor link (name is kept).`)) {
+  const confirmDelete = async (v: Vendor) => {
+    if (await confirm({
+      title: `Remove vendor "${v.name}"?`,
+      body: `Its ${v.billCount} bill(s) stay — they just lose the vendor link (name is kept).`,
+      confirmLabel: "Remove",
+      danger: true,
+    })) {
       del.mutate(v.id);
     }
   };
 
   return (
-    <div className="p-4 md:p-6 lg:p-8 max-w-[1400px] mx-auto">
+    <div className="p-4 md:p-6 lg:p-8 max-w-[1800px] mx-auto">
       <div className="flex items-end justify-between gap-3 flex-wrap mb-4">
         <div>
-          <p className="text-xs uppercase tracking-wider text-ink-3 font-semibold mb-1">Accounting</p>
+          <p className="text-xs uppercase tracking-wider text-ink-3 font-semibold mb-1">Purchases</p>
           <h1 className="font-serif text-3xl md:text-4xl tracking-tight">Vendors</h1>
           <p className="text-sm text-ink-3 mt-1">
-            Jinse aap kharidte ho (Google CSP · Microsoft · Zoho · etc.). Har vendor ke bills, kul kharcha aur dena baaki ek jagah.
+            Who you buy from (Google CSP · Microsoft · Zoho · etc.). Every vendor&apos;s bills, total spend, and outstanding balance in one place.
           </p>
         </div>
         <Button variant="primary" icon="plus" className="hidden md:inline-flex" onClick={() => setAddOpen(true)}>Add vendor</Button>
       </div>
 
       {!isLoading && (vendors ?? []).length > 0 && (
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 md:gap-4 mb-5">
-          <KPI label="Vendors" value={String((vendors ?? []).length)} />
-          <KPI label="Total billed" value={rupee(totalBilled, { compact: true })} />
-          <KPI label="Dena baaki" value={rupee(totalOutstanding, { compact: true })} tone={totalOutstanding > 0 ? "rose" : "emerald"} />
-        </div>
+        <StatStrip
+          className="mb-5"
+          items={[
+            { label: "Vendors",      value: (vendors ?? []).length },
+            { label: "Total billed", value: rupee(totalBilled, { compact: true }) },
+            { label: "Outstanding",  value: rupee(totalOutstanding, { compact: true }), tone: totalOutstanding > 0 ? "rose" : "emerald" },
+          ]}
+        />
       )}
 
       {(vendors ?? []).length > 0 && (
@@ -91,36 +104,51 @@ export default function VendorsPage() {
       ) : (
         <>
           {/* Desktop table */}
-          <Card className="hidden md:block overflow-x-auto">
+          <Card flush className="hidden md:block overflow-x-auto">
             <table className="w-full text-sm">
-              <thead className="bg-paper-2/50 text-[10px] uppercase tracking-wider text-ink-3 font-semibold">
+              <thead className="bg-paper-2 border-b border-hairline-strong text-[11px] uppercase tracking-wider text-ink-3 font-semibold">
                 <tr>
-                  <th className="text-left  px-4 py-3">Vendor</th>
-                  <th className="text-left  px-4 py-3">Category</th>
-                  <th className="text-right px-4 py-3">Bills</th>
-                  <th className="text-right px-4 py-3">Total billed</th>
-                  <th className="text-right px-4 py-3">Dena baaki</th>
-                  <th className="text-right px-4 py-3">Actions</th>
+                  <th className="text-left  px-4 py-2.5">Vendor</th>
+                  <th className="text-left  px-4 py-2.5">Category</th>
+                  <th className="text-right px-4 py-2.5">Bills</th>
+                  <th className="text-right px-4 py-2.5">Total billed</th>
+                  <th className="text-right px-4 py-2.5">Outstanding</th>
+                  <th className="text-right px-2 py-2.5"><span className="sr-only">Actions</span></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-hairline">
                 {rows.map((v) => (
-                  <tr key={v.id} className="hover:bg-paper-2/40 cursor-pointer" onClick={() => setDetailVendor(v)}>
-                    <td className="px-4 py-3">
-                      <div className="font-medium text-ink">{v.name}</div>
+                  <tr
+                    key={v.id}
+                    className="group hover:bg-paper-2/50 cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber focus-visible:ring-inset"
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`Open ${v.name}`}
+                    onClick={() => setDetailVendor(v)}
+                    onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setDetailVendor(v); } }}
+                  >
+                    <td className="px-4 py-2.5 align-top">
+                      <div className="font-medium text-ink leading-snug">{v.name}</div>
                       {v.gstin && <div className="text-[11px] text-ink-3 font-mono">{v.gstin}</div>}
+                      {v.contact_email && <div className="text-[11px] text-ink-3 truncate">{v.contact_email}</div>}
                     </td>
-                    <td className="px-4 py-3">{v.default_category ? <Badge kind="muted" size="sm">{v.default_category}</Badge> : <span className="text-ink-3">—</span>}</td>
-                    <td className="px-4 py-3 text-right tabular-nums text-ink-2">{v.billCount || "—"}</td>
-                    <td className="px-4 py-3 text-right tabular-nums">{v.totalBilled > 0 ? rupee(v.totalBilled) : "—"}</td>
-                    <td className="px-4 py-3 text-right tabular-nums">
+                    <td className="px-4 py-2.5 align-top">{v.default_category ? <Badge kind="muted" size="sm">{v.default_category}</Badge> : <span className="text-ink-3">—</span>}</td>
+                    <td className="px-4 py-2.5 text-right tabular-nums text-ink-2 align-top">{v.billCount || "—"}</td>
+                    <td className="px-4 py-2.5 text-right tabular-nums align-top">{v.totalBilled > 0 ? rupee(v.totalBilled) : "—"}</td>
+                    <td className="px-4 py-2.5 text-right tabular-nums align-top">
                       {v.outstanding > 0
                         ? <span className="font-serif text-[15px] font-semibold text-rose">{rupee(v.outstanding)}</span>
                         : <span className="text-emerald">✓</span>}
                     </td>
-                    <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                    <td className="px-2 py-2.5 align-top" onClick={(e) => e.stopPropagation()}>
                       <div className="flex justify-end">
-                        <VendorActions onView={() => setDetailVendor(v)} onEdit={() => setEditVendor(v)} onDelete={() => confirmDelete(v)} />
+                        <VendorActions
+                          onView={() => setDetailVendor(v)}
+                          onEdit={() => setEditVendor(v)}
+                          onDelete={() => confirmDelete(v)}
+                          onUploadBill={() => router.push("/accounting/bills" as never)}
+                          onRecordPayment={() => router.push("/accounting/bills" as never)}
+                        />
                       </div>
                     </td>
                   </tr>
@@ -161,27 +189,22 @@ export default function VendorsPage() {
   );
 }
 
-function KPI({ label, value, tone }: { label: string; value: string; tone?: "rose" | "emerald" }) {
-  const color = tone === "rose" ? "text-rose" : tone === "emerald" ? "text-emerald" : "text-ink";
-  return (
-    <Card className="p-3 md:p-4">
-      <div className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold mb-1">{label}</div>
-      <div className={`font-serif text-xl md:text-2xl ${color} leading-tight`}>{value}</div>
-    </Card>
-  );
-}
-
-function VendorActions({ onView, onEdit, onDelete }: { onView: () => void; onEdit: () => void; onDelete: () => void }) {
+function VendorActions({ onView, onEdit, onDelete, onUploadBill, onRecordPayment }: {
+  onView: () => void; onEdit: () => void; onDelete: () => void;
+  onUploadBill: () => void; onRecordPayment: () => void;
+}) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <button type="button" aria-label="Actions" className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-3 hover:bg-paper-2 hover:text-ink data-[state=open]:bg-paper-2">
+        <button type="button" aria-label="Vendor actions" className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-3 hover:bg-paper-2 hover:text-ink data-[state=open]:bg-paper-2">
           <Icon name="more_h" size={18} />
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="min-w-[11rem]">
-        <DropdownMenuItem className="gap-2.5 py-2 cursor-pointer" onClick={onView}><Icon name="eye" size={15} /> View bills</DropdownMenuItem>
-        <DropdownMenuItem className="gap-2.5 py-2 cursor-pointer" onClick={onEdit}><Icon name="edit" size={15} /> Edit</DropdownMenuItem>
+      <DropdownMenuContent align="end" className="min-w-[12rem]">
+        <DropdownMenuItem className="gap-2.5 py-2 cursor-pointer" onClick={onUploadBill}><Icon name="upload" size={15} /> Upload bill</DropdownMenuItem>
+        <DropdownMenuItem className="gap-2.5 py-2 cursor-pointer" onClick={onRecordPayment}><Icon name="rupee" size={15} /> Record payment</DropdownMenuItem>
+        <DropdownMenuItem className="gap-2.5 py-2 cursor-pointer" onClick={onView}><Icon name="eye" size={15} /> View ledger</DropdownMenuItem>
+        <DropdownMenuItem className="gap-2.5 py-2 cursor-pointer" onClick={onEdit}><Icon name="edit" size={15} /> Edit vendor details</DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem destructive className="gap-2.5 py-2 cursor-pointer" onClick={onDelete}><Icon name="trash" size={15} /> Delete</DropdownMenuItem>
       </DropdownMenuContent>
@@ -215,7 +238,7 @@ function VendorFormDialog({ vendor, onClose }: { vendor?: Vendor; onClose: () =>
       <DialogContent className="md:!max-w-md">
         <DialogHeader>
           <DialogTitle>{vendor ? "Edit vendor" : "Add vendor"}</DialogTitle>
-          <DialogDescription>Supplier ki details — bill add karte waqt ye apne-aap bhar jayengi.</DialogDescription>
+          <DialogDescription>Supplier details — these auto-fill when you add a bill.</DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -264,7 +287,7 @@ function VendorBillsDialog({ vendor, onClose, onEdit }: { vendor: Vendor; onClos
           </DialogTitle>
           <DialogDescription>
             {vendor.billCount} bill{vendor.billCount === 1 ? "" : "s"} · {rupee(vendor.totalBilled)} billed ·{" "}
-            <b className={vendor.outstanding > 0 ? "text-rose" : "text-emerald"}>{vendor.outstanding > 0 ? `${rupee(vendor.outstanding)} baaki` : "sab chukaya"}</b>
+            <b className={vendor.outstanding > 0 ? "text-rose" : "text-emerald"}>{vendor.outstanding > 0 ? `${rupee(vendor.outstanding)} due` : "all paid"}</b>
           </DialogDescription>
         </DialogHeader>
         <div className="max-h-[55vh] overflow-y-auto -mx-1 px-1">

@@ -23,6 +23,9 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
+} from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/shared/empty-state";
@@ -89,6 +92,13 @@ export default function QuoteDetailPage() {
   const [receiptPayment, setReceiptPayment] = React.useState<Payment | null>(null);
   const [sendOpen,    setSendOpen]    = React.useState(false);
   const [whatsOpen,   setWhatsOpen]   = React.useState(false);
+  // In-app confirm dialog — native window.confirm() is suppressed in some
+  // embeds/webviews and silently returns false, which made destructive actions
+  // (Reopen, Delete) look dead. See tasks/page.tsx for the same fix.
+  const [confirm, setConfirm] = React.useState<{
+    title: string; body: string; confirmLabel: string; icon: string; danger?: boolean;
+    onConfirm: () => void;
+  } | null>(null);
 
   // Auto-open a send dialog when the builder redirected here with ?send=
   // (?send=whatsapp or ?send=email). Use a ref to only fire once per
@@ -121,9 +131,14 @@ export default function QuoteDetailPage() {
   const handleDelete = () => {
     if (!quote) return;
     if (deleteBlock) { toast.error(deleteBlock); return; }
-    if (window.confirm(`Permanently delete quote ${quote.id}?\n\nThis cannot be undone.`)) {
-      deleteQuote.mutate(quote, { onSuccess: () => router.push("/quotes" as never) });
-    }
+    setConfirm({
+      title: `Delete quote ${quote.id}?`,
+      body: "This permanently deletes the quote. It cannot be undone.",
+      confirmLabel: "Delete",
+      icon: "trash",
+      danger: true,
+      onConfirm: () => deleteQuote.mutate(quote, { onSuccess: () => router.push("/quotes" as never) }),
+    });
   };
 
   // ────────── Mutations ──────────
@@ -184,6 +199,22 @@ export default function QuoteDetailPage() {
     onError: (e) => toast.error((e as Error).message),
   });
 
+  // Reopen — revert an accidentally-accepted quote back to 'sent'. The RPC
+  // refuses if any money has moved (invoice/payment); the customer + lead stay.
+  const reopenQuote = useMutation({
+    mutationFn: async () => {
+      const supabase = createClient();
+      const { error } = await supabase.rpc("reopen_quote", { p_quote_id: params.id });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["quotes"] });
+      qc.invalidateQueries({ queryKey: ["quotes", params.id] });
+      toast.success("Quote reopened — moved back to Sent");
+    },
+    onError: (e) => toast.error((e as Error).message),
+  });
+
   // Use the central useGenerateInvoice hook — it calls next_document_number RPC
   // (sequential GST-compliant), compute_advance_adjustment RPC (frozen
   // snapshot per Rule 53), and links quote_id correctly. The previous local
@@ -240,11 +271,22 @@ export default function QuoteDetailPage() {
   if (quote.status === "accepted") {
     events.push({ icon: "check_circle", kind: "emerald", title: "Customer accepted", body: "Quote accepted · payment workflow started", time: formatDate(quote.updated_at, "long") });
   }
-  if (quote.payment_status === "received" || quote.payment_status === "invoiced") {
+  // Only record a "Payment received" event when money ACTUALLY landed. A quote
+  // can be 'invoiced' with ₹0 received (invoice raised, awaiting payment) — the
+  // old check keyed on payment_status === 'invoiced' and fell back to `total`,
+  // fabricating a "Payment received · <full total>" with "undefined · ref: null".
+  if (totalReceivedSoFar > 0) {
+    const received = (paymentHistory ?? []).filter((p) => p.status === "received");
+    const latest = received[received.length - 1];
     events.push({
-      icon: "rupee", kind: "emerald", title: `Payment received · ${rupee(quote.payment_amount ?? total)}`,
-      body: `${quote.payment_method?.toUpperCase()} · ref: ${quote.payment_reference}`,
-      time: quote.payment_received_at ? formatDate(quote.payment_received_at, "long") : "Recently",
+      icon: "rupee", kind: "emerald",
+      title: `Payment received · ${rupee(totalReceivedSoFar)}`,
+      body: received.length > 1
+        ? `${received.length} payments received`
+        : latest?.method
+          ? `${latest.method.toUpperCase()}${latest.reference ? ` · ref: ${latest.reference}` : ""}`
+          : "Recorded",
+      time: latest?.received_at ? formatDate(latest.received_at, "long") : "Recently",
     });
   }
   if (quote.payment_status === "invoiced" && quote.invoice_id) {
@@ -415,7 +457,14 @@ export default function QuoteDetailPage() {
           </div>
         )}
 
-        {(quote.status === "sent" || quote.status === "viewed") && (
+        {/* Pre-acceptance row — only while the quote is genuinely still open.
+            Once an invoice exists (payment_status 'invoiced' / invoice_id set),
+            the invoice block below owns the payment action — showing "Mark
+            accepted (no payment yet)" + "Record payment now" here too would be
+            contradictory (deal already invoiced) and duplicate the balance
+            button. */}
+        {(quote.status === "sent" || quote.status === "viewed")
+          && quote.payment_status !== "invoiced" && !quote.invoice_id && (
           <div className="flex items-center justify-between gap-3 flex-wrap">
             <div className="text-sm text-ink-3">
               {daysLeft !== null && daysLeft > 0 && (
@@ -445,9 +494,26 @@ export default function QuoteDetailPage() {
               <span className="font-medium text-amber-ink">Awaiting payment of {rupee(total)}</span>{" "}
               <span className="text-ink-3">from {quote.customer_name}. Record payment when received — partial payments supported.</span>
             </div>
-            <Button variant="primary" icon="rupee" onClick={() => setPaymentOpen(true)}>
-              Record payment
-            </Button>
+            <div className="flex gap-2 flex-wrap">
+              {/* Reopen — undo an accidental accept (only while no money has moved). */}
+              <Button
+                variant="ghost"
+                icon="arrow_left"
+                loading={reopenQuote.isPending}
+                onClick={() => setConfirm({
+                  title: `Reopen quote ${quote.id}?`,
+                  body: "It moves back to Sent so you can edit or re-send. The customer record stays — reverse this only if the accept was a mistake.",
+                  confirmLabel: "Reopen quote",
+                  icon: "arrow_left",
+                  onConfirm: () => reopenQuote.mutate(),
+                })}
+              >
+                Reopen
+              </Button>
+              <Button variant="primary" icon="rupee" onClick={() => setPaymentOpen(true)}>
+                Record payment
+              </Button>
+            </div>
           </div>
         )}
 
@@ -510,28 +576,41 @@ export default function QuoteDetailPage() {
         {quote.payment_status === "invoiced" && quote.invoice_id && (() => {
           const balanceRemaining = Math.max(0, total - totalReceivedSoFar);
           const hasBalance = balanceRemaining > 0;
+          // "Balance" only makes sense once SOME money has landed. With ₹0
+          // received the whole amount is simply "due" and the action is
+          // "Record payment" — not "Record balance payment".
+          const nothingPaid = totalReceivedSoFar <= 0;
           return (
             <div className="flex items-center justify-between gap-3 flex-wrap">
               <div className="text-sm">
-                {hasBalance ? (
+                {!hasBalance ? (
+                  <span className="font-medium text-emerald">
+                    ✓ Complete · Invoice fully paid
+                  </span>
+                ) : nothingPaid ? (
+                  <>
+                    <span className="font-medium text-amber-ink">
+                      Invoice issued · {rupee(total)} due
+                    </span>{" "}
+                    <span className="text-ink-3">
+                      Awaiting payment. Record it when received — no new receipt voucher needed (post-invoice).
+                    </span>
+                  </>
+                ) : (
                   <>
                     <span className="font-medium text-amber-ink">
                       Invoice issued · {rupee(balanceRemaining)} balance due
                     </span>{" "}
                     <span className="text-ink-3">
-                      Customer paid {rupee(totalReceivedSoFar)} of {rupee(total)}. Record balance when received — no new receipt voucher needed (post-invoice).
+                      Customer paid {rupee(totalReceivedSoFar)} of {rupee(total)}. Record the balance when received — no new receipt voucher needed (post-invoice).
                     </span>
                   </>
-                ) : (
-                  <span className="font-medium text-emerald">
-                    ✓ Complete · Invoice fully paid
-                  </span>
                 )}
               </div>
               <div className="flex gap-2">
                 {hasBalance && (
                   <Button variant="primary" icon="rupee" onClick={() => setPaymentOpen(true)}>
-                    Record balance payment
+                    {nothingPaid ? "Record payment" : "Record balance payment"}
                   </Button>
                 )}
                 <Button asChild variant={hasBalance ? "ghost" : "primary"} icon="receipt">
@@ -722,6 +801,8 @@ export default function QuoteDetailPage() {
         isProspect={!!quote.lead_id && !quote.customer_id}
         invoiceId={quote.invoice_id}
         customerId={quote.customer_id}
+        askDomain={!quote.is_one_off}
+        defaultDomain={customer?.domain ?? lead?.domain ?? undefined}
       />
 
       {/* Customer-facing quote preview */}
@@ -828,6 +909,38 @@ export default function QuoteDetailPage() {
           }}
         />
       )}
+
+      {/* Reusable confirm dialog (replaces native window.confirm, which is
+          suppressed in some embeds and silently returns false). */}
+      <Dialog open={!!confirm} onOpenChange={(o) => { if (!o) setConfirm(null); }}>
+        <DialogContent className="max-w-[440px]">
+          {confirm && (
+            <>
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <Icon name={confirm.icon} size={18} className={confirm.danger ? "text-rose" : "text-amber"} />
+                  {confirm.title}
+                </DialogTitle>
+                <DialogDescription>{confirm.body}</DialogDescription>
+              </DialogHeader>
+              <DialogFooter>
+                <Button type="button" variant="ghost" onClick={() => setConfirm(null)}>
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  variant={confirm.danger ? "danger" : "primary"}
+                  icon={confirm.icon}
+                  loading={deleteQuote.isPending || reopenQuote.isPending}
+                  onClick={() => { const fn = confirm.onConfirm; setConfirm(null); fn(); }}
+                >
+                  {confirm.confirmLabel}
+                </Button>
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

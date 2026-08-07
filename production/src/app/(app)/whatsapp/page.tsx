@@ -292,8 +292,9 @@ export default function WhatsAppInboxPage() {
 
       <Card flush className="overflow-hidden">
         <div className="grid grid-cols-1 md:grid-cols-[320px_1fr] h-[calc(100vh-220px)] min-h-[480px]">
-          {/* Conversation rail */}
-          <div className="border-r border-hairline overflow-hidden flex flex-col">
+          {/* Conversation rail — on mobile this is the whole screen until a
+              conversation is opened; on md+ it's always the left pane. */}
+          <div className={`${selected ? "hidden md:flex" : "flex"} border-r border-hairline overflow-hidden flex-col`}>
             <div className="px-3 py-2 border-b border-hairline bg-paper-2/30">
               <p className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold">Conversations</p>
             </div>
@@ -302,9 +303,21 @@ export default function WhatsAppInboxPage() {
             </div>
           </div>
 
-          {/* Thread */}
-          <div className="overflow-hidden">
-            <ThreadPane contactPhone={selected} />
+          {/* Thread — the only pane on mobile once a conversation is picked
+              (with a back button); the right pane on md+. */}
+          <div className={`${selected ? "flex" : "hidden md:flex"} flex-col overflow-hidden min-h-0`}>
+            {selected && (
+              <button
+                type="button"
+                onClick={() => setSelected(null)}
+                className="md:hidden flex items-center gap-1.5 px-3 py-2 border-b border-hairline text-sm text-ink-2 hover:bg-paper-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber focus-visible:ring-inset"
+              >
+                <Icon name="arrow_left" size={14} /> Conversations
+              </button>
+            )}
+            <div className="flex-1 min-h-0 overflow-hidden">
+              <ThreadPane contactPhone={selected} />
+            </div>
           </div>
         </div>
       </Card>

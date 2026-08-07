@@ -309,6 +309,7 @@ export default function GstReportPage() {
     <div className="p-4 md:p-6 lg:p-8 max-w-[1800px] mx-auto">
       {/* Header */}
       <div className="mb-6">
+        <p className="text-xs uppercase tracking-wider text-ink-3 font-semibold mb-1">Accounting</p>
         <h1 className="font-serif text-3xl md:text-4xl tracking-tight">GST Reports</h1>
         <p className="text-sm text-ink-3 mt-1">
           Output GST (collected from customers) − Input GST (paid to vendors) = Net liability.

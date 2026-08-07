@@ -29,10 +29,12 @@ import {
 import { formatDate } from "@/lib/utils";
 import { UploadDocumentDialog } from "@/components/features/documents/upload-document-dialog";
 import { DocViewerDialog } from "@/components/features/documents/doc-viewer-dialog";
+import { useConfirm } from "@/components/providers/confirm-provider";
 
 export default function DocumentsPage() {
   const { data: docs, isLoading, error, refetch } = useDocuments();
   const del = useDeleteDocument();
+  const confirm = useConfirm();
   const [uploadOpen, setUploadOpen] = React.useState(false);
   const [cat, setCat] = React.useState("all");
   const [search, setSearch] = React.useState("");
@@ -64,7 +66,7 @@ export default function DocumentsPage() {
     <div className="p-4 md:p-6 lg:p-8 max-w-[1800px] mx-auto">
       <div className="flex items-end justify-between gap-3 flex-wrap mb-6">
         <div>
-          <p className="text-xs uppercase tracking-wider text-ink-3 font-semibold mb-1">Workspace</p>
+          <p className="text-xs uppercase tracking-wider text-ink-3 font-semibold mb-1">Catalog</p>
           <h1 className="font-serif text-3xl md:text-4xl leading-tight">Documents</h1>
           <p className="text-sm text-ink-3 mt-1">Your company&apos;s document vault — secure, one place, with expiry reminders.</p>
         </div>
@@ -114,7 +116,7 @@ export default function DocumentsPage() {
       ) : (
         <div className="space-y-2">
           {filtered.map((d) => (
-            <DocRow key={d.id} doc={d} onOpen={() => openDoc(d)} onDelete={() => { if (confirm(`Delete "${d.title}"? This removes the file permanently.`)) del.mutate({ id: d.id, file_path: d.file_path }); }} />
+            <DocRow key={d.id} doc={d} onOpen={() => openDoc(d)} onDelete={async () => { if (await confirm({ title: `Delete "${d.title}"?`, body: "This removes the file permanently.", danger: true, confirmLabel: "Delete" })) del.mutate({ id: d.id, file_path: d.file_path }); }} />
           ))}
         </div>
       )}

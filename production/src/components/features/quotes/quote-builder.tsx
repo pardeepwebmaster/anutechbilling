@@ -176,6 +176,12 @@ export function QuoteBuilder() {
   // gets created later when record_payment fires (lead → customer cascade).
   // This unblocks the "no customers yet" dead-end the picker had.
   const [prospectName, setProspectName] = React.useState<string>("");
+  // Customer-entry mode — a clean either/or toggle (was two inputs shown at once,
+  // which read ambiguous). "existing" = pick from the book; "prospect" = type a
+  // new one. The underlying resolution (customer_id vs typed name) is unchanged.
+  const [custMode, setCustMode] = React.useState<"existing" | "prospect">("existing");
+  // Prefill / duplicate / add-new set customerId → snap the toggle to "existing".
+  React.useEffect(() => { if (customerId) setCustMode("existing"); }, [customerId]);
   // Typed-prospect country — lets a NEW international prospect (no lead, no
   // customer record) be detected as an export (zero-rated).
   const [prospectCountry, setProspectCountry] = React.useState<string>("India");
@@ -186,7 +192,9 @@ export function QuoteBuilder() {
   const [validityDays, setValidityDays] = React.useState(30);
   // Invoice payment terms → net days for the due date (Due on Receipt / Net 15/30/45).
   // Drives the displayed due date + is saved so generate_invoice stamps it (0163).
-  const [paymentTermsDays, setPaymentTermsDays] = React.useState(30);
+  // Default 0 = Due on receipt (due date = invoice date); a customer's saved term
+  // or a revised quote's term overrides via the prefill effects below.
+  const [paymentTermsDays, setPaymentTermsDays] = React.useState(0);
   // Document-level terms & conditions (Zoho-style), shown on the quote/invoice PDF.
   const [termsConditions, setTermsConditions] = React.useState("");
   const [taxRate, setTaxRate] = React.useState(18);
@@ -617,6 +625,9 @@ export function QuoteBuilder() {
   const updateStartDate = (id: string, date: string) => {
     setLineItems((s) => s.map((l) => (l.id === id ? { ...l, start_date: date || undefined } : l)));
   };
+  const updateDomain = (id: string, d: string) => {
+    setLineItems((s) => s.map((l) => (l.id === id ? { ...l, domain: d || null } : l)));
+  };
   const updateCommitment = (id: string, commitment: LineCommitment) => {
     setLineItems((s) =>
       s.map((l) => {
@@ -700,6 +711,10 @@ export function QuoteBuilder() {
         customer_id:   isLeadMode ? null : (customerId || null),
         customer_name: resolvedCustomerName,
         lead_id:       isLeadMode ? leadId : null,
+        // Quote-level domain = the first line's domain (the primary subscription).
+        // record_payment stamps this on the subscription it creates today; per-line
+        // domains also live on each line_item for the coming multi-sub fan-out.
+        domain:        (lineItems.find((l) => l.domain?.trim())?.domain ?? "").trim() || null,
         line_items:    lineItems,
         subtotal,
         total_cost:    totalCost,
@@ -821,7 +836,7 @@ export function QuoteBuilder() {
             <h1 className="font-serif text-3xl md:text-4xl leading-tight">
               {isInvoiceMode
                 ? "New invoice"
-                : (quoteId ?? <span className="text-ink-3">Q-…-…-…</span>)}
+                : (quoteId ?? "New quotation")}
             </h1>
             <p className="text-sm text-ink-3 mt-1">
               For <b className="text-ink">{isLeadMode ? leadCompany : (customer?.name ?? prospectName.trim() ?? "—")}</b>
@@ -829,6 +844,9 @@ export function QuoteBuilder() {
                 <span className="ml-1 text-amber-ink">(prospect)</span>
               )}
               {" · Draft"}
+              {lineItems.length > 0 && (
+                <> · <b className="text-ink tabular-nums">{fmtDispC(dispTotal)}</b></>
+              )}
             </p>
           </div>
         </div>
@@ -961,40 +979,58 @@ export function QuoteBuilder() {
           /* ───── Customer Details (existing customer OR new prospect flow) ───── */
           <Card title="Customer Details">
             <div className="space-y-3">
-              <FormField label={isInvoiceMode ? "Customer" : "Existing customer"} htmlFor="customer">
-                {customersLoading ? (
-                  <Skeleton className="h-9" />
-                ) : (
-                  <CustomerCombobox
-                    id="customer"
-                    value={customerId}
-                    onChange={(v) => {
-                      setCustomerId(v);
-                      // Picking an existing customer clears the prospect name
-                      // so there's a single source of truth.
-                      if (v) setProspectName("");
-                    }}
-                    onCreateNew={() => setAddCustomerOpen(true)}
-                  />
-                )}
-              </FormField>
+              {/* Either/or mode toggle — one input at a time so the active path is
+                  unmistakable. Invoice mode is existing-only (a GST invoice must
+                  carry a real customer, no auto-create-on-payment). */}
+              {!isInvoiceMode && (
+                <div className="inline-flex gap-1 bg-paper-2 rounded-md p-0.5" role="tablist" aria-label="Customer type">
+                  {([["existing", "Existing customer"], ["prospect", "New prospect"]] as const).map(([m, label]) => (
+                    <button
+                      key={m}
+                      type="button"
+                      role="tab"
+                      aria-selected={custMode === m}
+                      onClick={() => {
+                        setCustMode(m);
+                        if (m === "existing") setProspectName("");
+                        else setCustomerId("");
+                      }}
+                      className={cn(
+                        "px-3 py-1 text-xs font-medium rounded transition-colors",
+                        custMode === m ? "bg-paper text-ink shadow-sm" : "text-ink-3 hover:text-ink",
+                      )}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              )}
 
-              {/* Free-text prospect entry — works WITH or WITHOUT existing customers.
-                  Operator can quote a brand-new company without first creating a
-                  customer record. customer_id stays null on this quote; a real
-                  customer auto-creates on first payment (record_payment RPC).
-                  HIDDEN in invoice mode: a GST tax invoice is issued NOW, so it must
-                  carry a real customer (no "auto-create on payment"). */}
-              {/* New-prospect entry — shown only when NO existing customer is
-                  picked, so the two paths are a clear either/or (not both at once).
-                  Clear the customer above (✕) to switch back to a new prospect.
-                  Hidden in invoice mode: a GST invoice must carry a real customer. */}
-              {!isInvoiceMode && !customerId && (
-              <FormField
-                label={customers && customers.length > 0 ? "Or type a new prospect" : "Prospect name"}
-                required
-                htmlFor="prospectName"
-              >
+              {(isInvoiceMode || custMode === "existing") && (
+                <FormField label={isInvoiceMode ? "Customer" : "Existing customer"} htmlFor="customer">
+                  {customersLoading ? (
+                    <Skeleton className="h-9" />
+                  ) : (
+                    <CustomerCombobox
+                      id="customer"
+                      value={customerId}
+                      onChange={(v) => {
+                        setCustomerId(v);
+                        // Picking an existing customer clears the prospect name
+                        // so there's a single source of truth.
+                        if (v) setProspectName("");
+                      }}
+                      onCreateNew={() => setAddCustomerOpen(true)}
+                    />
+                  )}
+                </FormField>
+              )}
+
+              {/* New-prospect entry — quote a brand-new company without creating a
+                  customer record first. customer_id stays null; a real customer
+                  auto-creates on first payment (record_payment RPC). */}
+              {!isInvoiceMode && custMode === "prospect" && (
+              <FormField label="Prospect name" required htmlFor="prospectName">
                 <Input
                   id="prospectName"
                   placeholder="Acme Corp Pvt Ltd"
@@ -1002,96 +1038,86 @@ export function QuoteBuilder() {
                   onChange={(e) => setProspectName(e.target.value)}
                 />
                 <p className="text-[10px] text-ink-3 mt-1">
-                  Use this for new prospects who haven&apos;t made a payment yet.
-                  We&apos;ll auto-create the customer record when they pay.
+                  A new prospect who hasn&apos;t paid yet — we&apos;ll auto-create the customer record when they pay.
                 </p>
               </FormField>
               )}
 
-              {!customerId && (
-                <FormField label="Country" htmlFor="prospectCountry">
-                  <select
-                    id="prospectCountry"
-                    value={prospectCountry}
-                    onChange={(e) => setProspectCountry(e.target.value)}
-                    className="w-full rounded-md border border-hairline bg-paper px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-amber/40"
-                  >
-                    {COUNTRIES.map((ctry) => <option key={ctry} value={ctry}>{ctry}</option>)}
-                  </select>
-                  {isExport && (
-                    <p className="mt-1 text-[11px] text-indigo-ink">
-                      🌍 Export ({prospectCountry}) → zero-rated under LUT, no GST
+              {/* Existing customer → a clean read-only summary of their billing
+                  identity (not fake-editable grey boxes). Prospect → the editable
+                  country + place-of-supply needed to get GST right. */}
+              {customerId ? (
+                <div className="rounded-lg border border-hairline bg-paper-2/40 px-3 py-2.5">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-x-4 gap-y-3">
+                    <div className="min-w-0">
+                      <div className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold mb-0.5">Website</div>
+                      <div className="text-sm text-ink-2 font-mono truncate">{customer?.domain || "—"}</div>
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold mb-0.5">GSTIN</div>
+                      <div className="text-sm text-ink-2 font-mono truncate">{customer?.gstin || "—"}</div>
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold mb-0.5">Place of supply</div>
+                      <div className="text-sm text-ink-2 truncate">{customer?.state || "—"}</div>
+                    </div>
+                  </div>
+                  {customer && (
+                    <p className="text-[11px] mt-2.5 pt-2.5 border-t border-hairline/70 flex items-center gap-1">
+                      {isExport ? (
+                        <span className="text-indigo-ink">🌍 Export ({customer?.country}) → zero-rated under LUT, no GST</span>
+                      ) : interState ? (
+                        <span className="text-amber-ink">⚠ Inter-state → IGST {taxRate}% will apply</span>
+                      ) : (
+                        <span className="text-emerald">✓ Intra-state → CGST + SGST split @ {taxRate}%</span>
+                      )}
                     </p>
                   )}
-                </FormField>
-              )}
-
-              <div className="grid grid-cols-2 gap-3">
-                <FormField label="Company website" htmlFor="domain">
-                  <Input
-                    id="domain"
-                    value={customer?.domain ?? ""}
-                    readOnly
-                    className="bg-paper-2 cursor-default"
-                    placeholder="—"
-                  />
-                </FormField>
-                <FormField label="GSTIN" htmlFor="gstin">
-                  <Input
-                    id="gstin"
-                    value={customer?.gstin ?? ""}
-                    readOnly
-                    className="bg-paper-2 cursor-default font-mono"
-                    placeholder="—"
-                  />
-                </FormField>
-              </div>
-
-              <FormField label="Place of supply" htmlFor="state">
-                {customerId ? (
-                  // Existing customer → their saved state (read-only).
-                  <>
-                    <Input id="state" value={customer?.state ?? ""} readOnly className="bg-paper-2 cursor-default" placeholder="—" />
-                    {customer && (
-                      <p className="text-[11px] mt-1 flex items-center gap-1">
-                        {isExport ? (
-                          <span className="text-indigo-ink">🌍 Export ({customer?.country}) → zero-rated under LUT, no GST</span>
-                        ) : interState ? (
-                          <span className="text-amber-ink">⚠ Inter-state → IGST {taxRate}% will apply</span>
-                        ) : (
-                          <span className="text-emerald">✓ Intra-state → CGST + SGST split</span>
-                        )}
-                      </p>
-                    )}
-                  </>
-                ) : isExport ? (
-                  <Input id="state" value="Export — zero-rated, no GST" readOnly className="bg-paper-2 cursor-default" />
-                ) : (
-                  // Typed India prospect → editable so GST (CGST+SGST vs IGST) is correct.
-                  <>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <FormField label="Country" htmlFor="prospectCountry">
                     <select
-                      id="state"
-                      value={prospectStateCode}
-                      onChange={(e) => setProspectStateCode(e.target.value)}
+                      id="prospectCountry"
+                      value={prospectCountry}
+                      onChange={(e) => setProspectCountry(e.target.value)}
                       className="w-full rounded-md border border-hairline bg-paper px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-amber/40"
                     >
-                      <option value="">Select state (for GST)</option>
-                      {Object.entries(GST_STATE_BY_CODE)
-                        .sort((a, b) => a[1].localeCompare(b[1]))
-                        .map(([code, name]) => <option key={code} value={code}>{name} ({code})</option>)}
+                      {COUNTRIES.map((ctry) => <option key={ctry} value={ctry}>{ctry}</option>)}
                     </select>
-                    <p className="text-[11px] mt-1 flex items-center gap-1">
-                      {!prospectStateCode ? (
+                  </FormField>
+                  <FormField label="Place of supply" htmlFor="state">
+                    {isExport ? (
+                      <Input id="state" value="Export — zero-rated, no GST" readOnly className="bg-paper-2 cursor-default" />
+                    ) : (
+                      <select
+                        id="state"
+                        value={prospectStateCode}
+                        onChange={(e) => setProspectStateCode(e.target.value)}
+                        className="w-full rounded-md border border-hairline bg-paper px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-amber/40"
+                      >
+                        <option value="">Select state (for GST)</option>
+                        {Object.entries(GST_STATE_BY_CODE)
+                          .sort((a, b) => a[1].localeCompare(b[1]))
+                          .map(([code, name]) => <option key={code} value={code}>{name} ({code})</option>)}
+                      </select>
+                    )}
+                  </FormField>
+                  <div className="sm:col-span-2 -mt-1">
+                    <p className="text-[11px] flex items-center gap-1">
+                      {isExport ? (
+                        <span className="text-indigo-ink">🌍 Export ({prospectCountry}) → zero-rated under LUT, no GST</span>
+                      ) : !prospectStateCode ? (
                         <span className="text-ink-3">Pick the customer&apos;s state so GST (CGST+SGST vs IGST) is correct.</span>
                       ) : interState ? (
                         <span className="text-amber-ink">⚠ Inter-state → IGST {taxRate}% will apply</span>
                       ) : (
-                        <span className="text-emerald">✓ Intra-state → CGST + SGST split</span>
+                        <span className="text-emerald">✓ Intra-state → CGST + SGST split @ {taxRate}%</span>
                       )}
                     </p>
-                  </>
-                )}
-              </FormField>
+                  </div>
+                </div>
+              )}
             </div>
           </Card>
         )}
@@ -1270,25 +1296,25 @@ export function QuoteBuilder() {
                   </div>
                   <span className="text-[10px] text-ink-3">
                     {usdPricingBasis === "international"
-                      ? `Har item ka apna ${currency} price (jiska set hai); warna ₹ convert.`
-                      : `Sabka ₹ price rate pe ${currency} me convert.`}
+                      ? `Each item uses its own ${currency} price when set; otherwise the ₹ price is converted.`
+                      : `Every ₹ price is converted to ${currency} at this rate.`}
                   </span>
                 </div>
                 {fxMissing ? (
                   <p className="text-[11px] text-rose font-medium">
-                    ⚠ Exchange rate set karo (₹ per {currency}) — abhi 1 hai, isliye numbers galat aayenge.
-                    {fxLoading ? " Latest rate laa rahe hain…" : " Ya “Latest” dabao."}
+                    ⚠ Set the exchange rate (₹ per {currency}) — it&apos;s 1 right now, so the numbers will be wrong.
+                    {fxLoading ? " Fetching the latest rate…" : " Or tap “Latest”."}
                   </p>
                 ) : isForeign && fxAuto ? (
                   <p className="text-[11px] text-emerald">
                     ✓ Latest rate: <b>₹{exchangeRate}/{currency}</b>
-                    {fxInfo?.asOf ? ` · as of ${fxInfo.asOf}` : ""} (auto — edit karke override kar sakte ho).
-                    Books ₹ me record hongi (GST).
+                    {fxInfo?.asOf ? ` · as of ${fxInfo.asOf}` : ""} (auto — you can edit to override).
+                    Books are recorded in ₹ (GST).
                   </p>
                 ) : isForeign ? (
                   <p className="text-[11px] text-indigo-ink">
-                    Sab amounts ab <b>{currency}</b> me — customer ko yehi dikhega. Books ₹ me record hongi (GST).
-                    Catalog items apna real {currency} price use karenge (Items me set karo); warna ₹ convert hoga.
+                    All amounts are now in <b>{currency}</b> — this is what the customer sees. Books are recorded in ₹ (GST).
+                    Catalog items use their own {currency} price (set it in Items); otherwise the ₹ price is converted.
                   </p>
                 ) : null}
               </div>
@@ -1401,6 +1427,17 @@ export function QuoteBuilder() {
                         className="mt-0.5 w-full px-2 py-1.5 text-sm border border-hairline rounded bg-paper text-ink focus:outline-none focus:ring-2 focus:ring-amber focus:border-amber"
                       />
                     </label>
+                    {!line.bulk && (
+                      <label className="block col-span-2">
+                        <span className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold">Domain (optional)</span>
+                        <input
+                          type="text" value={line.domain ?? ""}
+                          onChange={(e) => updateDomain(line.id, e.target.value)}
+                          placeholder="acme.in — where this subscription is set up"
+                          className="mt-0.5 w-full px-2 py-1.5 text-sm border border-hairline rounded bg-paper text-ink focus:outline-none focus:ring-2 focus:ring-amber focus:border-amber"
+                        />
+                      </label>
+                    )}
                   </div>
                   <div className="text-[11px] text-ink-3 inline-flex items-center gap-1 flex-wrap">
                     <span>Cost {isUsdBill ? "$" : "₹"}</span>
@@ -1517,6 +1554,22 @@ export function QuoteBuilder() {
                             className="text-[11px] px-1.5 py-0.5 border border-hairline rounded bg-paper text-ink focus:outline-none focus:ring-1 focus:ring-amber focus:border-amber"
                           />
                         </div>
+                        {/* Per-line domain — this subscription provisions against it
+                            (Google Workspace / M365 / Zoho). Optional. Bulk lines carry
+                            their own per-domain list instead. */}
+                        {!line.bulk && (
+                          <div className="flex items-center gap-1">
+                            <span className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold">Domain</span>
+                            <input
+                              type="text"
+                              value={line.domain ?? ""}
+                              onChange={(e) => updateDomain(line.id, e.target.value)}
+                              placeholder="acme.in (optional)"
+                              title="Domain this subscription is set up on — optional"
+                              className="text-[11px] px-1.5 py-0.5 w-36 border border-hairline rounded bg-paper text-ink focus:outline-none focus:ring-1 focus:ring-amber focus:border-amber"
+                            />
+                          </div>
+                        )}
                       </div>
                     </td>
                     <td className="p-3 text-xs font-mono text-ink-3">998313</td>

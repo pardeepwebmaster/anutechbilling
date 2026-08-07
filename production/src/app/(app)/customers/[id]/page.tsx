@@ -13,9 +13,8 @@
 import * as React from "react";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { toast } from "sonner";
 
-import { useCustomer, useDeleteCustomer, useCustomerOpenCredit, customerDeleteBlockReason } from "@/lib/queries/customers";
+import { useCustomer, useDeleteCustomer, useSetCustomerActive, useCustomerOpenCredit, customerDeleteBlockReason } from "@/lib/queries/customers";
 import { useCustomerGroups } from "@/lib/queries/customer-groups";
 import { useCustomerSubscriptions } from "@/lib/queries/subscriptions";
 import { useCustomerInvoices, useCustomerQuotes } from "@/lib/queries/invoices";
@@ -41,10 +40,12 @@ import {
 import { AddReferralDialog } from "@/components/features/referrals/add-referral-dialog";
 import { useReferralAgreements } from "@/lib/queries/referral-partners";
 import { InvoiceChooserDialog } from "@/components/features/invoices/invoice-chooser-dialog";
+import { useConfirm } from "@/components/providers/confirm-provider";
 
 export default function CustomerDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
+  const confirm = useConfirm();
 
   const { data: customer, isLoading, error } = useCustomer(params.id);
   const { data: allGroups } = useCustomerGroups();
@@ -57,6 +58,9 @@ export default function CustomerDetailPage() {
 
   const searchParams = useSearchParams();
   const [mainTab, setMainTab] = React.useState<"overview" | "transactions" | "statement">("overview");
+  // Segment filter inside the Transactions tab so quotes / invoices / payments
+  // can each be viewed on their own (not just the combined feed).
+  const [txnFilter, setTxnFilter] = React.useState<"all" | "invoices" | "quotes" | "payments" | "projects">("all");
   const [svcView, setSvcView] = React.useState<"subscription" | "project">("subscription");
   const [projQuoteOpen, setProjQuoteOpen] = React.useState(false);
   const [referralOpen, setReferralOpen] = React.useState(false);
@@ -64,6 +68,7 @@ export default function CustomerDetailPage() {
   const [projInvoiceOpen, setProjInvoiceOpen] = React.useState(false);
   const { data: agreements } = useReferralAgreements(params.id);
   const deleteCustomer = useDeleteCustomer();
+  const setActive = useSetCustomerActive();
 
   // Deep-link: /customers/[id]?edit=1 sends straight to the full-page edit form
   // (used by the "Complete customer" nudge on a project with missing GST info).
@@ -141,17 +146,35 @@ export default function CustomerDetailPage() {
   const ledger = ledgerRaw.map((e) => { runningBal += e.debit - e.credit; return { ...e, balance: runningBal }; });
   const closingBalance = runningBal;
 
-  // Guarded delete — only an "empty" customer (no money history) can be removed.
-  // Client check disables the button; the delete_customer RPC enforces it too
-  // (and additionally checks payments, which aren't loaded here).
+  // Guarded delete — Zoho-Books parity: a customer can be hard-deleted ONLY when
+  // it is truly empty (no subscriptions, payments, invoices, quotes, or projects).
+  // The delete_customer RPC (0174) is the authority; this client twin explains the
+  // block. The Delete button stays CLICKABLE (a disabled button + hover tooltip is
+  // invisible on touch/embeds) — on click it shows a clear dialog offering Archive.
   const deleteBlock = customerDeleteBlockReason({
     subscriptions: allSubs.length,
-    payments: 0,
+    payments: customerPayments.length,
     invoices: allInvoices.length,
+    quotes: allQuotes.length,
+    projects: allProjects.length,
   });
-  const handleDelete = () => {
-    if (deleteBlock) { toast.error(deleteBlock); return; }
-    if (window.confirm(`Permanently delete customer "${c.name}"?\n\nThis cannot be undone.`)) {
+  const handleDelete = async () => {
+    if (deleteBlock) {
+      // Has documents → can't hard-delete. Explain why, and offer Archive (unless
+      // it's already archived, in which case just acknowledge).
+      const alreadyArchived = c.is_active === false;
+      const archived = await confirm({
+        title: `Can't delete "${c.name}"`,
+        body: deleteBlock,
+        confirmLabel: alreadyArchived ? "OK" : "Archive instead",
+        icon: "inbox",
+      });
+      if (archived && !alreadyArchived) {
+        setActive.mutate({ id: c.id, isActive: false });
+      }
+      return;
+    }
+    if (await confirm({ title: `Permanently delete customer "${c.name}"?`, body: "This cannot be undone.", confirmLabel: "Delete", danger: true })) {
       deleteCustomer.mutate(
         { id: c.id, customer_number: c.customer_number },
         { onSuccess: () => router.push("/customers" as never) }
@@ -168,6 +191,23 @@ export default function CustomerDetailPage() {
   const TXN_BADGE: Record<string, "info" | "success" | "danger" | "muted" | "warning"> = {
     Invoice: "info", Payment: "success", Refund: "danger", Quote: "muted", Project: "warning",
   };
+
+  // Transactions segment filter — view invoices / quotes / payments separately.
+  const txnInFilter = (type: string) =>
+    txnFilter === "all" ? true
+    : txnFilter === "invoices" ? type === "Invoice"
+    : txnFilter === "quotes"   ? type === "Quote"
+    : txnFilter === "payments" ? (type === "Payment" || type === "Refund")
+    : txnFilter === "projects" ? type === "Project"
+    : true;
+  const txnSegments = [
+    { id: "all" as const,      label: "All",      n: txns.length },
+    { id: "invoices" as const, label: "Invoices", n: txns.filter((t) => t.type === "Invoice").length },
+    { id: "quotes" as const,   label: "Quotes",   n: txns.filter((t) => t.type === "Quote").length },
+    { id: "payments" as const, label: "Payments", n: txns.filter((t) => t.type === "Payment" || t.type === "Refund").length },
+    { id: "projects" as const, label: "Projects", n: txns.filter((t) => t.type === "Project").length },
+  ].filter((s) => s.id === "all" || s.n > 0);
+  const filteredTxns = txns.filter((t) => txnInFilter(t.type));
 
   return (
     <div className="p-4 md:p-6 lg:p-8 max-w-[1240px] mx-auto">
@@ -204,13 +244,28 @@ export default function CustomerDetailPage() {
           <Button icon="edit" onClick={() => router.push(`/customers/${c.id}/edit` as never)}>Edit</Button>
           <Button icon="receipt" onClick={() => setInvoiceOpen(true)}>Invoice</Button>
           <Button variant="primary" icon="plus" onClick={() => router.push(`/quotes/new?customer=${c.id}` as any)}>New quote</Button>
+          {/* Archive / reactivate — the money-safe alternative to delete. Works
+              even when the customer has invoices/payments (records are kept). */}
+          <Button
+            icon="inbox"
+            variant="ghost"
+            loading={setActive.isPending}
+            onClick={async () => {
+              const next = c.is_active === false;
+              if (next || (await confirm({ title: `Archive "${c.name}"?`, body: "They'll be hidden from your active customers (all invoices/payments are kept). You can reactivate anytime.", confirmLabel: "Archive", icon: "inbox" }))) {
+                setActive.mutate({ id: c.id, isActive: next });
+              }
+            }}
+            title={c.is_active === false ? "Reactivate this customer" : "Archive (hide from active list)"}
+          >
+            {c.is_active === false ? "Reactivate" : "Archive"}
+          </Button>
           <Button
             icon="trash"
             variant="ghost"
             onClick={handleDelete}
             loading={deleteCustomer.isPending}
-            disabled={Boolean(deleteBlock)}
-            title={deleteBlock ?? "Delete this customer"}
+            title={deleteBlock ? "This customer has documents — click to see options" : "Delete this customer"}
             className="!text-rose hover:!bg-rose/10"
           >
             Delete
@@ -227,7 +282,7 @@ export default function CustomerDetailPage() {
           { id: "transactions", label: "Transactions", count: txns.length || undefined },
           { id: "statement",    label: "Statement" },
         ]}
-        className="mb-5"
+        className="mb-5 overflow-y-hidden"
       />
 
       {mainTab === "overview" && (
@@ -328,19 +383,46 @@ export default function CustomerDetailPage() {
         <Card flush>
           <div className="p-4">
             {txns.length > 0 ? (
-              <RecordTable
-                head={["Date", "Type", "Reference", "Amount", "Status"]}
-                rows={txns.map((t) => ({
-                  onClick: t.onClick,
-                  cells: [
-                    formatDate(t.date),
-                    <Badge key="ty" kind={TXN_BADGE[t.type]} dot>{t.type}</Badge>,
-                    <span key="r" className="font-mono text-xs">{t.ref}</span>,
-                    <span key="a" className="tabular-nums font-medium">{rupee(t.amount)}</span>,
-                    <span key="s" className="text-ink-2 capitalize">{t.status}</span>,
-                  ],
-                }))}
-              />
+              <>
+                {/* Segment filter — invoices / quotes / payments each on their own. */}
+                <div className="flex flex-wrap gap-2 mb-4">
+                  {txnSegments.map((s) => (
+                    <button
+                      key={s.id}
+                      type="button"
+                      aria-pressed={txnFilter === s.id}
+                      onClick={() => setTxnFilter(s.id)}
+                      className={cn(
+                        "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors",
+                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber",
+                        txnFilter === s.id
+                          ? "border-amber bg-amber-soft text-amber-ink"
+                          : "border-hairline text-ink-3 hover:text-ink hover:bg-paper-2",
+                      )}
+                    >
+                      {s.label}
+                      <span className={cn("tabular-nums", txnFilter === s.id ? "text-amber-ink" : "text-ink-3")}>{s.n}</span>
+                    </button>
+                  ))}
+                </div>
+                {filteredTxns.length > 0 ? (
+                  <RecordTable
+                    head={["Date", "Type", "Reference", "Amount", "Status"]}
+                    rows={filteredTxns.map((t) => ({
+                      onClick: t.onClick,
+                      cells: [
+                        formatDate(t.date),
+                        <Badge key="ty" kind={TXN_BADGE[t.type]} dot>{t.type}</Badge>,
+                        <span key="r" className="font-mono text-xs">{t.ref}</span>,
+                        <span key="a" className="tabular-nums font-medium">{rupee(t.amount)}</span>,
+                        <span key="s" className="text-ink-2 capitalize">{t.status}</span>,
+                      ],
+                    }))}
+                  />
+                ) : (
+                  <EmptyState icon="receipt" title="Nothing here" body="No records of this type for this customer." compact />
+                )}
+              </>
             ) : (
               <EmptyState icon="receipt" title="No transactions yet" body="Quotes, invoices and payments for this customer will appear here." compact />
             )}

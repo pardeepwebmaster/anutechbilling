@@ -67,7 +67,7 @@ export default function EnquiriesPage() {
       {/* Header */}
       <div className="flex items-end justify-between gap-3 flex-wrap mb-6">
         <div>
-          <p className="text-xs uppercase tracking-wider text-ink-3 font-semibold mb-1">Workspace</p>
+          <p className="text-xs uppercase tracking-wider text-ink-3 font-semibold mb-1">Sales</p>
           <h1 className="font-serif text-3xl md:text-4xl leading-tight">Enquiries</h1>
           <p className="text-sm text-ink-3 mt-1">
             Emails forwarded to your ERP. Genuine enquiries become leads automatically — triage the rest here.
@@ -149,7 +149,11 @@ export default function EnquiriesPage() {
                   <tr
                     key={e.id}
                     onClick={() => setOpenId(e.id)}
-                    className="border-b border-hairline last:border-0 hover:bg-paper-2/40 cursor-pointer"
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`Open enquiry from ${senderLabel(e)}`}
+                    onKeyDown={(ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); setOpenId(e.id); } }}
+                    className="border-b border-hairline last:border-0 hover:bg-paper-2/40 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber focus-visible:ring-inset"
                   >
                     <td className="p-3 text-sm">
                       <div className="font-medium text-ink">{senderLabel(e)}</div>

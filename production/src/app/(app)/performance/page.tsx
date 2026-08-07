@@ -34,7 +34,7 @@ export default function PerformancePage() {
     <div className="mx-auto max-w-[1100px] p-4 md:p-6 lg:p-8 space-y-6">
       <header className="flex items-end justify-between gap-3 flex-wrap">
         <div>
-          <p className="text-xs uppercase tracking-wider text-ink-3 font-semibold mb-1">Team</p>
+          <p className="text-xs uppercase tracking-wider text-ink-3 font-semibold mb-1">Payroll</p>
           <h1 className="font-serif text-3xl md:text-4xl leading-tight">Performance</h1>
           <p className="text-sm text-ink-3 mt-1">
             Ranked by real results — revenue, deals, quotes, on-time tasks. Not screen-time.
@@ -80,7 +80,6 @@ export default function PerformancePage() {
       <p className="text-[11px] text-ink-3">
         Weights: +1 pt / ₹{PERF_WEIGHTS.revenuePerRupees.toLocaleString("en-IN")} collected · deal won +{PERF_WEIGHTS.dealWon} ·
         quote +{PERF_WEIGHTS.quoteSent} · payment +{PERF_WEIGHTS.paymentRecorded} · task on-time +{PERF_WEIGHTS.taskOnTime} · late {PERF_WEIGHTS.taskLate}.
-        Tune them in <span className="font-mono">lib/queries/performance.ts</span>.
       </p>
     </div>
   );

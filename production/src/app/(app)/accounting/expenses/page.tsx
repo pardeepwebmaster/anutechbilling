@@ -23,6 +23,7 @@ import {
 } from "@/lib/queries/expenses";
 import { AddExpenseDialog } from "@/components/features/accounting/add-expense-dialog";
 import { useSalaryPayments } from "@/lib/queries/payroll";
+import { useConfirm } from "@/components/providers/confirm-provider";
 
 type DateRange = { from: string; to: string };
 
@@ -95,6 +96,7 @@ export default function ExpensesPage() {
   const totalsQ = useExpensesTotals(range);
   const del     = useDeleteExpense();
   const salariesQ = useSalaryPayments();
+  const confirm = useConfirm();
 
   // expense_id → its salary payment (for the partial/paid reconcile tag).
   const salByExpense = React.useMemo(
@@ -114,6 +116,7 @@ export default function ExpensesPage() {
       {/* Header */}
       <div className="flex items-end justify-between gap-3 flex-wrap mb-6">
         <div>
+          <p className="text-xs uppercase tracking-wider text-ink-3 font-semibold mb-1">Purchases</p>
           <h1 className="font-serif text-3xl md:text-4xl tracking-tight">Expenses</h1>
           <p className="text-sm text-ink-3 mt-1">
             Operating spend — hosting, salaries, software, office, marketing. These sit below the gross-margin line in your P&L.
@@ -243,8 +246,8 @@ export default function ExpensesPage() {
                         icon="trash"
                         aria-label="Delete expense"
                         className="ml-1"
-                        onClick={() => {
-                          if (confirm(`Delete this expense?`)) del.mutate(e.id);
+                        onClick={async () => {
+                          if (await confirm({ title: `Delete this expense?`, danger: true, confirmLabel: "Delete" })) del.mutate(e.id);
                         }}
                       />
                     </td>
@@ -280,8 +283,8 @@ export default function ExpensesPage() {
                       <IconButton
                         icon="trash"
                         aria-label="Delete expense"
-                        onClick={() => {
-                          if (confirm(`Delete this expense?`)) del.mutate(e.id);
+                        onClick={async () => {
+                          if (await confirm({ title: `Delete this expense?`, danger: true, confirmLabel: "Delete" })) del.mutate(e.id);
                         }}
                       />
                     </div>

@@ -16,7 +16,8 @@ import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/ui/icon";
-import { useCustomer } from "@/lib/queries/customers";
+import { useCustomer, useSetCustomerActive } from "@/lib/queries/customers";
+import { useCustomerGroups } from "@/lib/queries/customer-groups";
 import { useCustomerSubscriptions } from "@/lib/queries/subscriptions";
 import { useCustomerInvoices, useCustomerQuotes } from "@/lib/queries/invoices";
 import { useCustomerProjects } from "@/lib/queries/projects";
@@ -25,9 +26,10 @@ import { Button, IconButton } from "@/components/ui/button";
 import { Avatar } from "@/components/ui/avatar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TabBar, type TabBarItem } from "@/components/ui/tabs";
-import { initials, formatDate, rupee, daysBetween } from "@/lib/utils";
+import { initials, formatDate, rupee, daysBetween, cn } from "@/lib/utils";
 import { InvoiceChooserDialog } from "@/components/features/invoices/invoice-chooser-dialog";
 import { CreateProjectQuoteDialog } from "@/components/features/projects/create-project-quote-dialog";
+import { useConfirm } from "@/components/providers/confirm-provider";
 import {
   deriveCustomerInsights,
   CustomerMetricBar,
@@ -41,6 +43,9 @@ import {
 
 export function CustomerPanel({ customerId, onClose }: { customerId: string; onClose?: () => void }) {
   const router = useRouter();
+  const setActive = useSetCustomerActive();
+  const confirm = useConfirm();
+  const { data: allGroups } = useCustomerGroups();
   const { data: c, isLoading } = useCustomer(customerId);
   const { data: subs } = useCustomerSubscriptions(customerId);
   const { data: invoices } = useCustomerInvoices(customerId);
@@ -98,7 +103,11 @@ export function CustomerPanel({ customerId, onClose }: { customerId: string; onC
         <div className="flex items-center gap-3 min-w-0">
           <Avatar initials={initials(c.name) || "?"} color="amber" size="md" />
           <div className="min-w-0">
-            <h2 className="font-serif text-2xl text-ink leading-tight truncate">{c.display_name || c.name}</h2>
+            <h2 className="font-serif text-2xl text-ink leading-tight truncate">
+              <Link href={`/customers/${c.id}` as never} className="hover:underline decoration-1 underline-offset-2" title="Open full customer profile">
+                {c.display_name || c.name}
+              </Link>
+            </h2>
             <div className="flex items-center gap-2 mt-1 flex-wrap">
               {/* Health is only meaningful for an active paying relationship. For a
                   customer with no active subscription, a score would be noise — show
@@ -109,6 +118,21 @@ export function CustomerPanel({ customerId, onClose }: { customerId: string; onC
               <span className="text-[11px] text-ink-3">{tenureDays === 0 ? "Added today" : `Customer for ${tenure}`}</span>
               {c.domain && <span className="text-[11px] text-ink-3 font-mono truncate">· {c.domain}</span>}
             </div>
+            {/* Parent account (customer group) — highlighted, so the operator
+                instantly sees this customer belongs to a larger account. */}
+            {c.group_id && (() => {
+              const g = (allGroups ?? []).find((x) => x.id === c.group_id);
+              return g ? (
+                <Link
+                  href={`/customers/groups/${g.id}` as never}
+                  className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-amber-soft px-2.5 py-1 text-[11px] font-semibold text-amber-ink hover:bg-amber/20 transition-colors max-w-full"
+                  title={`Part of parent account: ${g.name}`}
+                >
+                  <Icon name="layout" size={12} className="shrink-0" />
+                  <span className="truncate">Parent account: {g.name}</span>
+                </Link>
+              ) : null;
+            })()}
           </div>
         </div>
         <div className="flex items-center gap-1.5 flex-shrink-0">
@@ -119,6 +143,18 @@ export function CustomerPanel({ customerId, onClose }: { customerId: string; onC
           <Button size="sm" variant="default" icon="receipt" onClick={() => setInvoiceOpen(true)}>Invoice</Button>
           <IconButton icon="edit" aria-label="Edit customer" onClick={() => router.push(`/customers/${c.id}/edit` as never)} />
           <IconButton icon="external" aria-label="Open full profile" onClick={() => router.push(`/customers/${c.id}` as never)} />
+          {/* Archive / reactivate — money-safe alternative to delete (records kept). */}
+          <IconButton
+            icon="inbox"
+            aria-label={c.is_active === false ? "Reactivate customer" : "Archive customer"}
+            title={c.is_active === false ? "Reactivate customer" : "Archive (hide from active list)"}
+            onClick={async () => {
+              const next = c.is_active === false;
+              if (next || (await confirm({ title: `Archive "${c.name}"?`, body: "Hidden from your active customers; all invoices/payments are kept. Reactivate anytime.", confirmLabel: "Archive", icon: "inbox" }))) {
+                setActive.mutate({ id: c.id, isActive: next }, { onSuccess: () => { if (!next) onClose?.(); } });
+              }
+            }}
+          />
           {onClose && <IconButton icon="x" aria-label="Close" onClick={onClose} />}
         </div>
       </div>
@@ -174,6 +210,7 @@ export function CustomerPanel({ customerId, onClose }: { customerId: string; onC
                     i.id, formatDate(i.invoice_date), rupee(i.amount),
                     <Badge key="b" kind={i.status === "paid" ? "success" : i.status === "overdue" ? "danger" : "warning"} dot>{i.status}</Badge>,
                   ])}
+                  rowLinks={allInvoices.map((i) => `/invoices?open=${i.id}`)}
                 />
               ) : <PanelEmpty icon="receipt" text="No invoices yet." />
             )}
@@ -193,6 +230,10 @@ export function CustomerPanel({ customerId, onClose }: { customerId: string; onC
                       </Badge>,
                     ]),
                   ]}
+                  rowLinks={[
+                    ...allQuotes.map((q) => `/quotes/${q.id}`),
+                    ...custProjects.map((p) => `/projects/${p.id}`),
+                  ]}
                 />
               ) : <PanelEmpty icon="file" text="No quotes yet." />
             )}
@@ -207,7 +248,13 @@ export function CustomerPanel({ customerId, onClose }: { customerId: string; onC
   );
 }
 
-function SimpleTable({ head, rows }: { head: string[]; rows: React.ReactNode[][] }) {
+function SimpleTable({ head, rows, rowLinks }: {
+  head: string[];
+  rows: React.ReactNode[][];
+  /** Per-row destination; a row with a link becomes clickable (opens the doc). */
+  rowLinks?: (string | undefined)[];
+}) {
+  const router = useRouter();
   return (
     <div className="border border-hairline rounded-md overflow-hidden">
       <table className="w-full text-sm">
@@ -219,11 +266,24 @@ function SimpleTable({ head, rows }: { head: string[]; rows: React.ReactNode[][]
           </tr>
         </thead>
         <tbody className="divide-y divide-hairline">
-          {rows.map((r, i) => (
-            <tr key={i} className="hover:bg-paper-2/30">
-              {r.map((cell, j) => <td key={j} className="px-3 py-2 text-ink-2">{cell}</td>)}
-            </tr>
-          ))}
+          {rows.map((r, i) => {
+            const href = rowLinks?.[i];
+            const go = href ? () => router.push(href as never) : undefined;
+            return (
+              <tr
+                key={i}
+                className={cn("hover:bg-paper-2/30", href && "cursor-pointer")}
+                onClick={go}
+                role={href ? "button" : undefined}
+                tabIndex={href ? 0 : undefined}
+                onKeyDown={href ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go?.(); } } : undefined}
+              >
+                {r.map((cell, j) => (
+                  <td key={j} className={cn("px-3 py-2 text-ink-2", href && j === 0 && "font-medium text-amber hover:underline")}>{cell}</td>
+                ))}
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>

@@ -25,6 +25,7 @@ import {
 } from "@/lib/queries/payroll";
 import { rupee, formatDate } from "@/lib/utils";
 import { DocViewerDialog } from "@/components/features/documents/doc-viewer-dialog";
+import { useConfirm } from "@/components/providers/confirm-provider";
 
 const DOC_LABEL = new Map(EMPLOYEE_DOC_TYPES.map((d) => [d.value, d.label]));
 
@@ -48,6 +49,7 @@ export function EmployeeDetailDrawer({
   const { data: docs, isLoading } = useEmployeeDocuments(open ? employee?.id : null);
   const upload = useUploadEmployeeDocument();
   const del = useDeleteEmployeeDocument();
+  const confirm = useConfirm();
   const [docType, setDocType] = React.useState("aadhaar");
   const [viewing, setViewing] = React.useState<EmployeeDocument | null>(null);
   const fileRef = React.useRef<HTMLInputElement>(null);
@@ -168,7 +170,7 @@ export function EmployeeDetailDrawer({
                         className="!text-rose hover:!bg-rose/10"
                         loading={del.isPending}
                         title="Delete document"
-                        onClick={() => { if (window.confirm(`Delete "${d.file_name}"? This permanently removes the file.`)) del.mutate(d); }}
+                        onClick={async () => { if (await confirm({ title: `Delete "${d.file_name}"?`, body: "This permanently removes the file.", confirmLabel: "Delete", danger: true })) del.mutate(d); }}
                       />
                     </li>
                   ))}

@@ -10,6 +10,7 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import type { Route } from "next";
+import { toast } from "sonner";
 
 import {
   Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFooter,
@@ -68,6 +69,9 @@ export function CreateProjectQuoteDialog({ open, onOpenChange, editProject, pref
   const [interState, setInterState]     = React.useState(false);
   const [lines, setLines]               = React.useState<LineRow[]>([{ name: "", qty: "1", rate: "" }]);
   const [rows, setRows]                 = React.useState<MsRow[]>([{ label: "Advance", amount: "", due: "" }]);
+  // A milestone due date is the invoice due date once that milestone is billed —
+  // it must never fall before today (the invoice date), so the picker floors at today.
+  const todayISO = new Date().toISOString().slice(0, 10);
 
   const prefilledFor = React.useRef<string | null>(null);
   React.useEffect(() => {
@@ -169,6 +173,13 @@ export function CreateProjectQuoteDialog({ open, onOpenChange, editProject, pref
 
   const handleSubmit = async () => {
     if (!canSubmit) return;
+    // Guard: a milestone's due date can't precede today (its invoice date).
+    // Prevents invoices like "Invoice 23 Jul · Due 8 Jul".
+    const badDue = rows.find((r) => r.due && r.due < todayISO && Math.round(Number(r.amount) || 0) > 0);
+    if (badDue) {
+      toast.error(`Due date for "${badDue.label || "milestone"}" can't be before today.`);
+      return;
+    }
     const lineItems: ProjectQuoteLine[] = lines
       .filter((l) => l.name.trim() && lineAmount(l) > 0)
       .map((l) => ({
@@ -374,7 +385,7 @@ export function CreateProjectQuoteDialog({ open, onOpenChange, editProject, pref
                 <div key={i} className="flex items-start gap-2">
                   <Input className="flex-1" placeholder="Label" value={r.label} onChange={(e) => setRow(i, { label: e.target.value })} />
                   <Input className="w-28" inputMode="numeric" prefix="₹" placeholder="0" value={r.amount} onChange={(e) => setRow(i, { amount: e.target.value })} />
-                  <Input className="w-36" type="date" value={r.due} onChange={(e) => setRow(i, { due: e.target.value })} />
+                  <Input className="w-36" type="date" min={todayISO} value={r.due} onChange={(e) => setRow(i, { due: e.target.value })} />
                   <button type="button" aria-label="Remove" onClick={() => removeRow(i)} className="mt-2 text-ink-3 hover:text-rose"><Icon name="x" size={16} /></button>
                 </div>
               ))}

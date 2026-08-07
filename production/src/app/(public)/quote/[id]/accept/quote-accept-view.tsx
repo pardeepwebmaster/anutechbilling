@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { rupee, formatDate } from "@/lib/utils";
 import { isForeignCurrency, formatForeign } from "@/lib/currency";
+import { loadRazorpayCheckout } from "@/lib/razorpay/checkout-client";
 import type { LineCommitment, BillingCycle } from "@/lib/supabase/database.types";
 import {
   cycleInvoicesPerYear, cycleUnitLabel, cycleScheduleLabel, cycleFromLegacyCommitment,
@@ -50,6 +51,8 @@ interface Props {
   quote:         PublicQuote;
   lineItems:     PublicLine[];
   token:         string;
+  /** Reseller has Razorpay wired + this is a ₹ quote → show "Pay online now". */
+  payOnline?:    boolean;
   tenantName:    string;
   tenantGstin:   string | null;
   tenantEmail:   string | null;
@@ -58,10 +61,13 @@ interface Props {
 }
 
 export function QuoteAcceptView({
-  quote, lineItems, token, tenantName, tenantGstin, tenantEmail, tenantPhone, tenantAddress,
+  quote, lineItems, token, payOnline = false, tenantName, tenantGstin, tenantEmail, tenantPhone, tenantAddress,
 }: Props) {
   const [accepting, setAccepting] = React.useState(false);
   const [accepted, setAccepted] = React.useState(quote.status === "accepted");
+  const [paying, setPaying] = React.useState(false);
+  const [paid, setPaid] = React.useState(false);
+  const [confirmOpen, setConfirmOpen] = React.useState(false);
 
   // ── Money, computed CONSISTENTLY in the display currency ──
   // For a foreign quote we work per-unit in the client's currency (₹ ÷ rate,
@@ -105,12 +111,12 @@ export function QuoteAcceptView({
     perInvoice ? `${fmtC(dRound(annual / billingN))}${billingUnit}` : fmtC(annual);
 
   const handleAccept = async () => {
-    if (!confirm(`Accept quote ${quote.id} for ${fmtC(dTotal)}?\n\nWe'll notify ${tenantName} and share payment instructions.`)) return;
     setAccepting(true);
     try {
       const res = await fetch(`/api/public/quote/${quote.id}/accept?t=${encodeURIComponent(token)}`, { method: "POST" });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "Could not accept");
+      setConfirmOpen(false);
       setAccepted(true);
       toast.success("Quote accepted · the reseller has been notified");
     } catch (e) {
@@ -132,18 +138,62 @@ export function QuoteAcceptView({
     window.location.href = `mailto:${tenantEmail}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
   };
 
-  // ──────────── Thank-you screen ────────────
-  if (accepted) {
+  const handlePayOnline = async () => {
+    setPaying(true);
+    try {
+      const res = await fetch(`/api/public/quote/${quote.id}/pay?t=${encodeURIComponent(token)}`, { method: "POST" });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? "Could not start payment");
+
+      // Simulation (no live keys) — the server already recorded the payment.
+      if (json.simulated) {
+        setPaid(true);
+        return;
+      }
+
+      // Live — open Razorpay Checkout. The webhook settles via record_payment
+      // on capture; we just show the "payment received" screen on success.
+      const RazorpayCtor = await loadRazorpayCheckout();
+      const rzp = new RazorpayCtor({
+        key:         json.razorpayKeyId,
+        amount:      json.amount,
+        currency:    json.currency,
+        name:        tenantName,
+        description: `Quote ${quote.id}`,
+        order_id:    json.orderId,
+        prefill:     { name: quote.customer_name ?? undefined },
+        theme:       { color: "#C2410C" },
+        handler:     () => { setPaid(true); },
+        modal:       { ondismiss: () => setPaying(false) },
+      });
+      rzp.on("payment.failed", (r) => {
+        toast.error(r.error?.description ?? "Payment failed — please try again.");
+        setPaying(false);
+      });
+      rzp.open();
+    } catch (e) {
+      toast.error((e as Error).message);
+      setPaying(false);
+    }
+  };
+
+  // ──────────── Thank-you screen (accepted OR paid) ────────────
+  if (accepted || paid) {
     return (
       <div className="min-h-screen bg-paper-2/30 flex items-start justify-center py-10 px-4">
         <div className="max-w-2xl w-full bg-paper rounded-xl shadow-sm border border-hairline p-8 md:p-12 text-center">
           <div className="w-16 h-16 mx-auto mb-5 rounded-full bg-emerald/15 grid place-items-center">
             <Icon name="check_circle" size={32} className="text-emerald" />
           </div>
-          <h1 className="font-serif text-3xl text-ink mb-2">Quote accepted</h1>
+          <h1 className="font-serif text-3xl text-ink mb-2">{paid ? "Payment received" : "Quote accepted"}</h1>
           <p className="text-sm text-ink-3">
-            <b className="text-ink">{tenantName}</b> has been notified and will reach out with
-            payment instructions. Your GST invoice is issued once payment is received.
+            {paid ? (
+              <>Thank you! Your payment to <b className="text-ink">{tenantName}</b> is being confirmed.
+              Your GST invoice will be issued and emailed to you shortly.</>
+            ) : (
+              <><b className="text-ink">{tenantName}</b> has been notified and will reach out with
+              payment instructions. Your GST invoice is issued once payment is received.</>
+            )}
           </p>
           <div className="bg-paper-2 rounded-lg p-4 mt-6 text-sm text-left">
             <div className="flex justify-between mb-1.5">
@@ -349,15 +399,28 @@ export function QuoteAcceptView({
 
           {/* Action zone — hidden in print */}
           <div className="pt-6 mt-6 border-t border-hairline print:hidden space-y-3">
+            {payOnline && (
+              <Button
+                variant="primary"
+                size="lg"
+                icon="rupee"
+                loading={paying}
+                onClick={handlePayOnline}
+                className="w-full justify-center"
+              >
+                Pay online now · {fmtC(dTotal)}
+              </Button>
+            )}
             <Button
-              variant="primary"
+              variant={payOnline ? "default" : "primary"}
               size="lg"
               icon="check_circle"
               loading={accepting}
-              onClick={handleAccept}
+              disabled={paying}
+              onClick={() => setConfirmOpen(true)}
               className="w-full justify-center"
             >
-              Accept this quote · {fmtC(dTotal)}
+              {payOnline ? "Accept & pay later" : `Accept this quote · ${fmtC(dTotal)}`}
             </Button>
             <Button
               variant="ghost"
@@ -368,12 +431,64 @@ export function QuoteAcceptView({
               Request changes
             </Button>
             <p className="text-[11px] text-ink-3 text-center leading-relaxed pt-2">
-              By accepting, you agree to the pricing and billing terms shown above. {tenantName} will
-              share payment instructions and issue your GST invoice once payment is received. No payment is taken on this page.
+              {payOnline
+                ? <>Pay securely via Razorpay (UPI / card / net-banking) — your GST invoice is issued automatically once payment is confirmed. Or accept now and {tenantName} will share payment instructions.</>
+                : <>By accepting, you agree to the pricing and billing terms shown above. {tenantName} will share payment instructions and issue your GST invoice once payment is received. No payment is taken on this page.</>}
             </p>
           </div>
         </div>
       </div>
+
+      {/* Accept confirmation — styled dialog, not a browser confirm() */}
+      {confirmOpen && (
+        <div
+          className="fixed inset-0 z-50 bg-ink/40 flex items-end sm:items-center justify-center p-0 sm:p-4"
+          onClick={() => !accepting && setConfirmOpen(false)}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="accept-confirm-title"
+        >
+          <div
+            className="bg-paper w-full sm:max-w-md rounded-t-2xl sm:rounded-xl shadow-lg border border-hairline p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-3 mb-3">
+              <div className="h-10 w-10 rounded-full bg-emerald/10 text-emerald grid place-items-center shrink-0">
+                <Icon name="check_circle" size={20} />
+              </div>
+              <h3 id="accept-confirm-title" className="font-serif text-xl text-ink leading-tight">
+                Accept this quote?
+              </h3>
+            </div>
+            <p className="text-sm text-ink-2 leading-relaxed">
+              You&apos;re accepting quote <span className="font-mono text-ink">{quote.id}</span> for{" "}
+              <span className="font-semibold text-ink">{fmtC(dTotal)}</span>.
+            </p>
+            <p className="text-[13px] text-ink-3 leading-relaxed mt-2">
+              {tenantName} will be notified and will share payment instructions. No payment is taken now.
+            </p>
+            <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2 mt-6">
+              <Button
+                variant="ghost"
+                onClick={() => setConfirmOpen(false)}
+                disabled={accepting}
+                className="sm:w-auto justify-center"
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                icon="check_circle"
+                loading={accepting}
+                onClick={handleAccept}
+                className="sm:w-auto justify-center"
+              >
+                Confirm &amp; accept
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

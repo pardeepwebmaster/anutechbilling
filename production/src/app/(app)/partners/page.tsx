@@ -72,7 +72,7 @@ export default function PartnersPage() {
     <div className="p-4 md:p-6 lg:p-8 max-w-[1800px] mx-auto space-y-6">
       {/* Header */}
       <div>
-        <p className="text-xs uppercase tracking-wider text-ink-3 font-semibold mb-1">System</p>
+        <p className="text-xs uppercase tracking-wider text-ink-3 font-semibold mb-1">Settings</p>
         <h1 className="font-serif text-3xl md:text-4xl leading-tight">Partners</h1>
         <p className="text-sm text-ink-3 mt-1">
           Your sub-reseller channel · aggregated metrics, no end-customer leak
@@ -84,7 +84,7 @@ export default function PartnersPage() {
         <EmptyState
           icon="link"
           title="Partners is a distributor feature"
-          body="Ye page tab dikhata hai jab tumhare tenant ka tier 'distributor' ho — i.e. tumhare paas sub-reseller children hain. Settings → Company → Reseller tier me jaake tier set kar sakte ho (currently DB-only setting)."
+          body="This page appears once your tenant's tier is 'distributor' — i.e. you have sub-reseller children. Set the tier under Settings → Company → Reseller tier (currently a DB-only setting)."
         />
       )}
 
@@ -123,7 +123,7 @@ export default function PartnersPage() {
             <EmptyState
               icon="users"
               title="No sub-resellers linked yet"
-              body="Jab koi naya tenant tumhe distributor ke roop me link karega (Settings → Reseller tier me parent set karke), wo yahan dikhayega. Ek customer record me linked_tenant_id set karke invoice auto-mirror bhi shuru ho jata hai."
+              body="When another reseller links you as their distributor (Settings → Reseller tier, set parent), they'll appear here. Set linked_tenant_id on a customer record and their invoices auto-mirror as your vendor bills."
             />
           )}
 
@@ -170,8 +170,8 @@ export default function PartnersPage() {
                   <div className="mt-3 pt-3 border-t border-hairline flex items-center gap-2 text-[11px] text-ink-3">
                     <Icon name="info" size={11} />
                     <span>
-                      Privacy: aggregated only. Partner ka individual customer/lead data tumhe nahi dikhega
-                      (RLS-isolated). Invoice issue karke partner ki vendor bill auto-mirror ho jati hai.
+                      Privacy: aggregated only. You never see a partner's individual customer or lead
+                      data (RLS-isolated). Issue an invoice and it auto-mirrors as the partner's vendor bill.
                     </span>
                     <Link
                       href="/customers"

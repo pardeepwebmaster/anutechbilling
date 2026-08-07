@@ -81,6 +81,7 @@ export default function TdsReceivablePage() {
       {/* Header */}
       <div className="flex items-end justify-between gap-3 flex-wrap mb-6">
         <div>
+          <p className="text-xs uppercase tracking-wider text-ink-3 font-semibold mb-1">Accounting</p>
           <h1 className="font-serif text-3xl md:text-4xl tracking-tight">TDS Receivable</h1>
           <p className="text-sm text-ink-3 mt-1 max-w-2xl">
             TDS your B2B customers deducted before paying invoices. Each entry

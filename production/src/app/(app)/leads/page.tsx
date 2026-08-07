@@ -37,7 +37,6 @@ import { LeadsSmartViews, type SmartView } from "@/components/features/leads/lea
 import { MergeLeadsDialog } from "@/components/features/leads/merge-leads-dialog";
 import { computeDuplicates } from "@/lib/leads/duplicates";
 import { isHotLead, isHighValueLead, hotReason } from "@/lib/leads/heat";
-import { useResizableColumns, ResizableHandles } from "@/components/ui/resizable-columns";
 import { SwipeLeadCard } from "@/components/features/leads/swipe-lead-card";
 import { ImportCsvDialog } from "@/components/features/leads/import-csv-dialog";
 import { ShareFormSheet, ENQUIRY_SHARE } from "@/components/features/leads/share-form-sheet";
@@ -72,9 +71,11 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { rupee, formatDate } from "@/lib/utils";
 import { cn } from "@/lib/utils";
+import { useConfirm } from "@/components/providers/confirm-provider";
 import type { Lead } from "@/lib/supabase/database.types";
 import { useBreakpoint } from "@/lib/hooks/useBreakpoint";
 import { FAB } from "@/components/ui/fab";
+import { StatStrip } from "@/components/shared/stat-strip";
 
 // ============================================================
 // Stage config (matches prototype LEAD_STAGES)
@@ -417,11 +418,15 @@ function LeadsPageInner() {
           </h1>
           {!isLoading && leads && (
             isDealsPage ? (
-              <p className="text-sm text-ink-3 mt-1 tabular-nums">
-                <b>{openDeals.length}</b> active deals ·{" "}
-                <b>{rupee(totalValue, { compact: true })}</b> open pipeline ·{" "}
-                <b>{conversion}%</b> won
-              </p>
+              <div className="mt-2">
+                <StatStrip
+                  items={[
+                    { label: "Active deals",  value: openDeals.length },
+                    { label: "Open pipeline", value: rupee(totalValue, { compact: true }), tone: "amber" },
+                    { label: "Won",           value: `${conversion}%`, tone: conversion > 0 ? "emerald" : "default" },
+                  ]}
+                />
+              </div>
             ) : (
               <p className="text-sm text-ink-3 mt-1 tabular-nums">
                 <b>{rawLeads.length}</b> open lead{rawLeads.length === 1 ? "" : "s"} · call them, email them, update status
@@ -1221,6 +1226,7 @@ function LeadDetailSheet({
   const router      = useRouter();
   const updateStage = useUpdateLeadStage();
   const deleteLead  = useDeleteLead();
+  const confirm     = useConfirm();
   const { data: currentUser } = useCurrentUser();
   const logActivity = useLogLeadActivity();
   const { data: activities = [] } = useLeadActivities(lead?.id);
@@ -1243,10 +1249,13 @@ function LeadDetailSheet({
   const openTasks = tasksForLead.filter((t) => t.status === "pending" || t.status === "snoozed");
   const doneTasks = tasksForLead.filter((t) => t.status === "done");
 
-  const handleDelete = () => {
-    const confirmed = window.confirm(
-      `Permanently delete lead "${lead.company}"?\n\nThis cannot be undone.`,
-    );
+  const handleDelete = async () => {
+    const confirmed = await confirm({
+      title: `Permanently delete lead "${lead.company}"?`,
+      body: "This cannot be undone.",
+      confirmLabel: "Delete",
+      danger: true,
+    });
     if (!confirmed) return;
     deleteLead.mutate(lead.id, {
       onSuccess: () => onClose(),
@@ -2218,8 +2227,8 @@ function daysSince(iso: string): number {
 }
 
 const LEADLIST_COL_ORDER = ["select", "company", "stage", "contact", "plan", "value", "lastupdate", "actions"];
-const LEADLIST_COL_DEFAULTS: Record<string, number> = {
-  select: 44, company: 240, stage: 130, contact: 220, plan: 170, value: 120, lastupdate: 100, actions: 150,
+const LEADLIST_COL_WIDTHS: Record<string, string> = {
+  select: "4%", company: "20%", stage: "11%", contact: "19%", plan: "14%", value: "10%", lastupdate: "9%", actions: "13%",
 };
 
 function LeadListView({
@@ -2282,7 +2291,6 @@ function LeadListView({
   // Bulk-select state — desktop power-table only. A Set of lead IDs makes
   // toggle / has() / size O(1). Resets on the leads array changing
   // identity (e.g. after a refetch) to avoid keeping stale IDs.
-  const { colW, startResize, totalWidth: leadTableW } = useResizableColumns("ros_leadlist_colw", LEADLIST_COL_DEFAULTS);
   const [selectedIds, setSelectedIds] = React.useState<Set<string>>(new Set());
   const toggleId = (id: string) => {
     setSelectedIds((prev) => {
@@ -2426,12 +2434,11 @@ function LeadListView({
         stays put and the h-scrollbar is always on screen. The md+ fixed-height page
         wrapper is what makes flex-1 resolve to a real cap. */}
     <div className="hidden md:block w-full max-w-full border border-hairline rounded-md overflow-auto bg-paper flex-1 min-h-0">
-      {/* Every column is drag-resizable — grab the full-height divider between
-          two columns and drag. Container scrolls if the table grows past it. */}
-      <div className="relative" style={{ width: leadTableW }}>
+      {/* Fluid percentage columns — the table fills the container width with no
+          horizontal scrollbar at desktop widths. */}
       <table className="w-full table-fixed">
         <colgroup>
-          {LEADLIST_COL_ORDER.map((id) => <col key={id} style={{ width: colW[id] }} />)}
+          {LEADLIST_COL_ORDER.map((id) => <col key={id} style={{ width: LEADLIST_COL_WIDTHS[id] }} />)}
         </colgroup>
         <thead className="bg-paper-2 border-b border-hairline">
           <tr>
@@ -2636,8 +2643,6 @@ function LeadListView({
           })}
         </tbody>
       </table>
-      <ResizableHandles colW={colW} order={LEADLIST_COL_ORDER} startResize={startResize} />
-      </div>
       {sorted.length === 0 && (
         <div className="p-8 text-center text-sm text-ink-3 italic">No leads match.</div>
       )}

@@ -21,6 +21,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Icon } from "@/components/ui/icon";
+import { FAB } from "@/components/ui/fab";
 import { EmptyState } from "@/components/shared/empty-state";
 import { KPI } from "@/components/shared/kpi";
 import { formatDate, rupee } from "@/lib/utils";
@@ -32,6 +33,7 @@ import {
 } from "@/lib/queries/coupons";
 import CreateCouponDialog        from "@/components/features/coupons/create-coupon-dialog";
 import CouponRedemptionsDialog   from "@/components/features/coupons/coupon-redemptions-dialog";
+import { useConfirm }            from "@/components/providers/confirm-provider";
 import type { CouponRow }        from "@/lib/supabase/database.types";
 
 function couponStateTone(c: CouponRow): {
@@ -62,6 +64,7 @@ export default function CouponsPage() {
   const { data: allRedemptions } = useAllRedemptions();
   const toggle = useToggleCoupon();
   const del    = useDeleteCoupon();
+  const confirm = useConfirm();
 
   const [createOpen,           setCreateOpen]         = React.useState(false);
   const [viewingRedemptions,   setViewingRedemptions] = React.useState<string | null>(null);
@@ -82,7 +85,12 @@ export default function CouponsPage() {
   }
 
   async function onDelete(c: CouponRow) {
-    if (!confirm(`Delete coupon "${c.code}"? This cannot be undone. (${c.redemption_count} redemption${c.redemption_count === 1 ? "" : "s"} on record.)`)) {
+    if (!(await confirm({
+      title: `Delete coupon "${c.code}"?`,
+      body: `This cannot be undone. (${c.redemption_count} redemption${c.redemption_count === 1 ? "" : "s"} on record.)`,
+      danger: true,
+      confirmLabel: "Delete",
+    }))) {
       return;
     }
     try {
@@ -155,7 +163,9 @@ export default function CouponsPage() {
       )}
 
       {!isLoading && !error && coupons && coupons.length > 0 && (
-        <Card flush>
+        <>
+          {/* Desktop table */}
+          <Card flush className="hidden md:block">
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead className="bg-paper-2 border-b border-hairline">
@@ -246,7 +256,65 @@ export default function CouponsPage() {
               </tbody>
             </table>
           </div>
-        </Card>
+          </Card>
+
+          {/* Mobile card list */}
+          <ul className="md:hidden space-y-2">
+            {coupons.map((c) => {
+              const state = couponStateTone(c);
+              return (
+                <li key={c.code}>
+                  <Card className="p-3">
+                    <div className="flex items-start justify-between gap-2 mb-1.5">
+                      <button
+                        type="button"
+                        onClick={() => copyToClipboard(c.code)}
+                        className="font-mono text-sm font-semibold text-amber-ink hover:underline inline-flex items-center gap-1"
+                        title="Click to copy"
+                      >
+                        {c.code}
+                        <Icon name="copy" size={11} />
+                      </button>
+                      <Badge kind={state.kind} dot>{state.label}</Badge>
+                    </div>
+                    <div className="flex items-center justify-between text-xs mb-2">
+                      <span className="text-ink font-medium">{discountLabel(c)}</span>
+                      <button
+                        type="button"
+                        onClick={() => setViewingRedemptions(c.code)}
+                        className="tabular-nums text-ink-2 hover:text-amber-ink hover:underline"
+                        title="View redemption log"
+                      >
+                        {c.redemption_count}
+                        {c.max_redemptions != null && <span className="text-ink-3"> / {c.max_redemptions}</span>}
+                        {" uses"}
+                      </button>
+                    </div>
+                    <div className="text-[11px] text-ink-3 tabular-nums mb-2">
+                      {c.min_seats}+ seats
+                      {c.max_seats != null ? ` · max ${c.max_seats}` : ""}
+                      {" · "}
+                      {c.valid_until ? `expires ${formatDate(c.valid_until)}` : "no expiry"}
+                    </div>
+                    <div className="flex items-center gap-1 pt-1 border-t border-hairline">
+                      <Button variant="ghost" size="sm" onClick={() => onToggle(c)} disabled={toggle.isPending}>
+                        {c.is_active ? "Disable" : "Enable"}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        icon="trash"
+                        onClick={() => onDelete(c)}
+                        disabled={del.isPending}
+                        className="text-rose hover:text-rose ml-auto"
+                      />
+                    </div>
+                  </Card>
+                </li>
+              );
+            })}
+          </ul>
+        </>
       )}
 
       {!isLoading && coupons && coupons.length > 0 && (
@@ -267,6 +335,8 @@ export default function CouponsPage() {
           code={viewingRedemptions}
         />
       )}
+
+      <FAB icon="plus" label="Coupon" onClick={() => setCreateOpen(true)} ariaLabel="New coupon" />
     </div>
   );
 }

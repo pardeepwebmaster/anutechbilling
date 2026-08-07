@@ -43,6 +43,7 @@ import {
 import { useBankAccounts } from "@/lib/queries/bank";
 import { AddVendorBillDialog } from "@/components/features/accounting/add-vendor-bill-dialog";
 import { DocViewerDialog } from "@/components/features/documents/doc-viewer-dialog";
+import { useConfirm } from "@/components/providers/confirm-provider";
 
 /** Current financial year (Apr 1 → today), IST-safe, in YYYY-MM-DD. Defaulting
  *  to the FY (not just this month) so a freshly-added bill dated in an earlier
@@ -74,6 +75,7 @@ export default function VendorBillsPage() {
   });
   const totalsQ = useVendorBillsTotals(range);
   const del     = useDeleteVendorBill();
+  const confirm = useConfirm();
 
   const bills    = billsQ.data ?? [];
   const isLoading = billsQ.isLoading;
@@ -84,6 +86,7 @@ export default function VendorBillsPage() {
       {/* ── Header ─────────────────────────────────────────────── */}
       <div className="flex items-end justify-between gap-3 flex-wrap mb-6">
         <div>
+          <p className="text-xs uppercase tracking-wider text-ink-3 font-semibold mb-1">Purchases</p>
           <h1 className="font-serif text-3xl md:text-4xl tracking-tight">Vendor Bills</h1>
           <p className="text-sm text-ink-3 mt-1">
             Bills you receive from Google CSP, Microsoft Partner, Zoho Partner — your COGS source.
@@ -158,27 +161,37 @@ export default function VendorBillsPage() {
       ) : (
         <>
           {/* Desktop table */}
-          <Card className="hidden md:block overflow-hidden">
+          <Card flush className="hidden md:block overflow-x-auto">
             <table className="w-full text-sm">
-              <thead className="bg-paper-2/50 text-[10px] uppercase tracking-wider text-ink-3 font-semibold">
+              <thead className="bg-paper-2 border-b border-hairline-strong text-[11px] uppercase tracking-wider text-ink-3 font-semibold">
                 <tr>
-                  <th className="text-left  px-4 py-3">Vendor</th>
-                  <th className="text-left  px-4 py-3">Category</th>
-                  <th className="text-left  px-4 py-3">Bill #</th>
-                  <th className="text-left  px-4 py-3">Bill date</th>
-                  <th className="text-right px-4 py-3">Pre-GST</th>
-                  <th className="text-right px-4 py-3">GST</th>
-                  <th className="text-right px-4 py-3">Total</th>
-                  <th className="text-left  px-4 py-3">Status</th>
-                  <th className="text-right px-4 py-3">Actions</th>
+                  <th className="text-left  px-4 py-2.5">Vendor</th>
+                  <th className="text-left  px-3 py-2.5">Category</th>
+                  <th className="text-left  px-3 py-2.5">Bill #</th>
+                  <th className="text-left  px-3 py-2.5">Bill date</th>
+                  <th className="text-left  px-3 py-2.5">Due date</th>
+                  <th className="text-right px-3 py-2.5">Pre-GST</th>
+                  <th className="text-right px-3 py-2.5">GST</th>
+                  <th className="text-right px-3 py-2.5">Total</th>
+                  <th className="text-left  px-3 py-2.5">Status</th>
+                  <th className="text-right px-2 py-2.5"><span className="sr-only">Actions</span></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-hairline">
                 {bills.map((b) => {
                   const gst = (b.cgst ?? 0) + (b.sgst ?? 0) + (b.igst ?? 0);
+                  // GST head breakdown for ITC clarity (inter-state IGST vs intra CGST+SGST).
+                  const gstTitle = b.igst > 0
+                    ? `IGST ${rupee(b.igst)}`
+                    : (b.cgst > 0 || b.sgst > 0)
+                      ? `CGST ${rupee(b.cgst)} + SGST ${rupee(b.sgst)}`
+                      : "No GST";
+                  // Payment-due aging (unpaid only).
+                  const dueDays = b.due_date ? Math.ceil((new Date(`${b.due_date}T00:00:00`).getTime() - Date.now()) / 86400000) : null;
+                  const showAging = b.status !== "paid" && dueDays !== null && (dueDays < 0 || dueDays <= 15);
                   return (
-                    <tr key={b.id} className="hover:bg-paper-2/40">
-                      <td className="px-4 py-3">
+                    <tr key={b.id} className="border-b border-hairline last:border-0 hover:bg-paper-2/50 transition-colors">
+                      <td className="px-4 py-2.5 align-top">
                         <div className="font-medium text-ink inline-flex items-center gap-2 flex-wrap">
                           {b.vendor_name}
                           {b.source_tenant_invoice_id && (
@@ -191,24 +204,34 @@ export default function VendorBillsPage() {
                           <div className="text-[11px] text-ink-3 font-mono">{b.vendor_gstin}</div>
                         )}
                       </td>
-                      <td className="px-4 py-3 text-ink-2">{b.category}</td>
-                      <td className="px-4 py-3 font-mono text-ink-2">{b.bill_no || "—"}</td>
-                      <td className="px-4 py-3 text-ink-2">{formatDate(b.bill_date)}</td>
-                      <td className="px-4 py-3 text-right text-ink-2 font-mono">{rupee(b.subtotal)}</td>
-                      <td className="px-4 py-3 text-right text-emerald font-mono">{gst > 0 ? rupee(gst) : "—"}</td>
-                      <td className="px-4 py-3 text-right font-semibold text-ink font-mono">{rupee(b.total)}</td>
-                      <td className="px-4 py-3">
+                      <td className="px-3 py-2.5 align-top">{b.category ? <Badge kind="muted" size="sm">{b.category}</Badge> : <span className="text-ink-3">—</span>}</td>
+                      <td className="px-3 py-2.5 font-mono text-ink-2 align-top whitespace-nowrap">{b.bill_no || "—"}</td>
+                      <td className="px-3 py-2.5 text-ink-2 align-top whitespace-nowrap">{formatDate(b.bill_date)}</td>
+                      <td className="px-3 py-2.5 align-top whitespace-nowrap">
+                        <div className="text-ink-2">{b.due_date ? formatDate(b.due_date) : "—"}</div>
+                        {showAging && (
+                          <div className="mt-0.5">
+                            <Badge kind={dueDays! < 0 ? "danger" : dueDays! <= 7 ? "warning" : "muted"} dot>
+                              {dueDays! < 0 ? `Overdue ${Math.abs(dueDays!)}d` : dueDays === 0 ? "Due today" : `Due in ${dueDays}d`}
+                            </Badge>
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-3 py-2.5 text-right text-ink-2 font-mono align-top tabular-nums">{rupee(b.subtotal)}</td>
+                      <td className="px-3 py-2.5 text-right text-emerald font-mono align-top tabular-nums cursor-help" title={gstTitle}>{gst > 0 ? rupee(gst) : "—"}</td>
+                      <td className="px-3 py-2.5 text-right font-semibold text-ink font-mono align-top tabular-nums">{rupee(b.total)}</td>
+                      <td className="px-3 py-2.5 align-top">
                         <Badge color={STATUS_COLOR[b.status] ?? "slate"}>{b.status}</Badge>
                         {b.status !== "paid" && (b.total - (b.paid_amount ?? 0)) > 0 && (b.paid_amount ?? 0) > 0 && (
                           <div className="text-[10px] text-rose tabular-nums mt-0.5">{rupee(b.total - (b.paid_amount ?? 0))} due</div>
                         )}
                       </td>
-                      <td className="px-4 py-3 text-right">
+                      <td className="px-2 py-2.5 text-right align-top">
                         <div className="flex justify-end">
                           <BillActions
                             bill={b}
                             onPay={() => setPayBill(b)}
-                            onDelete={() => { if (confirm(`Delete bill ${b.bill_no || b.id}?`)) del.mutate(b.id); }}
+                            onDelete={async () => { if (await confirm({ title: `Delete bill ${b.bill_no || b.id}?`, danger: true, confirmLabel: "Delete" })) del.mutate(b.id); }}
                           />
                         </div>
                       </td>
@@ -244,7 +267,7 @@ export default function VendorBillsPage() {
                       <BillActions
                         bill={b}
                         onPay={() => setPayBill(b)}
-                        onDelete={() => { if (confirm(`Delete bill ${b.bill_no || b.id}?`)) del.mutate(b.id); }}
+                        onDelete={async () => { if (await confirm({ title: `Delete bill ${b.bill_no || b.id}?`, danger: true, confirmLabel: "Delete" })) del.mutate(b.id); }}
                       />
                     </div>
                   </Card>
@@ -355,7 +378,7 @@ function PayBillDialog({ bill, onClose }: { bill: VendorBill; onClose: () => voi
         <DialogHeader>
           <DialogTitle>Pay · {bill.vendor_name}</DialogTitle>
           <DialogDescription>
-            Outstanding: <b className="text-ink">{rupee(outstanding)}</b> of {rupee(bill.total)}. Ye paisa chune bank account se niklega (Banking me reconcile bhi ho jayega).
+            Outstanding: <b className="text-ink">{rupee(outstanding)}</b> of {rupee(bill.total)}. This money leaves the chosen bank account (and gets reconciled in Banking).
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">

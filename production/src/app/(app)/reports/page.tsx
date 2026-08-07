@@ -14,14 +14,12 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { useSubscriptions } from "@/lib/queries/subscriptions";
 import { useCustomers } from "@/lib/queries/customers";
-import { toast } from "sonner";
 import { KPI } from "@/components/shared/kpi";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Icon } from "@/components/ui/icon";
 import { rupee } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 import {
@@ -238,7 +236,7 @@ export default function ReportsPage() {
   ].filter((s) => s.value > 0);
 
   return (
-    <div className="mx-auto max-w-[1800px] px-8 pb-20 pt-7">
+    <div className="mx-auto max-w-[1800px] px-4 md:px-8 pb-20 pt-7">
       {/* ── Page header ── */}
       <div className="mb-6 flex items-start justify-between gap-4">
         <div>
@@ -250,24 +248,14 @@ export default function ReportsPage() {
             Live business insights · auto-refreshed every 5 minutes
           </p>
         </div>
-        <div className="flex shrink-0 items-center gap-2">
-          <Button
-            variant="default"
-            size="sm"
-            onClick={() => toast.info("Date range picker coming soon")}
-          >
-            <Icon name="calendar" size={14} />
-            This month
-          </Button>
-          <Button
-            variant="default"
-            size="sm"
-            onClick={() => toast.info("PDF export coming soon")}
-          >
-            <Icon name="download" size={14} />
-            Export PDF
-          </Button>
-        </div>
+        {/* Deeper drill-down. (Date-range + PDF export intentionally omitted until
+            implemented — no dead "coming soon" buttons in the primary slot.) */}
+        <Link
+          href={"/reports/profit" as never}
+          className="shrink-0 self-center inline-flex items-center gap-1 rounded-md border border-hairline bg-paper px-3 py-1.5 text-sm text-ink-2 hover:bg-paper-2 hover:text-ink transition-colors"
+        >
+          Profit by product <span aria-hidden>→</span>
+        </Link>
       </div>
 
       {/* ── KPIs ── */}

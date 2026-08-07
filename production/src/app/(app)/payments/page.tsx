@@ -6,7 +6,19 @@
 
 import * as React from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
+import { getDocumentSignedUrl } from "@/lib/queries/documents";
+
+/** Open a payment's attached receipt (private bucket → short-lived signed URL). */
+async function openReceipt(path: string) {
+  try {
+    const url = await getDocumentSignedUrl(path);
+    window.open(url, "_blank", "noopener,noreferrer");
+  } catch {
+    toast.error("Could not open the receipt");
+  }
+}
 
 import {
   usePayments,
@@ -33,7 +45,6 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
-import { useResizableColumns, ResizableHandles } from "@/components/ui/resizable-columns";
 import { TabBar, type TabBarItem } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Icon } from "@/components/ui/icon";
@@ -45,7 +56,8 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
-import { rupee, formatDate, bankLabel } from "@/lib/utils";
+import { rupee, formatDate, bankLabel, cleanDisplayName } from "@/lib/utils";
+import { useConfirm } from "@/components/providers/confirm-provider";
 
 const STATUS_TABS: TabBarItem[] = [
   { id: "all",       label: "All" },
@@ -62,16 +74,16 @@ const METHOD_META: Record<string, { label: string; icon: string }> = {
   other:         { label: "Other",      icon: "info" },
 };
 
-// Resizable table columns (left→right) + default widths.
-const PAY_COL_ORDER = ["date", "customer", "quote", "amount", "method", "reference", "status", "action"];
-const PAY_COL_DEFAULTS: Record<string, number> = {
-  date: 120, customer: 190, quote: 110, amount: 130, method: 160, reference: 150, status: 130, action: 90,
+// Table columns (left→right) + fluid percentage widths. A dedicated LINKED DOCS
+// column keeps the source quote / invoice / receipt out of the Status badge.
+const PAY_COL_ORDER = ["date", "customer", "amount", "method", "reference", "linked", "status", "action"];
+const PAY_COL_WIDTHS: Record<string, string> = {
+  date: "10%", customer: "19%", amount: "12%", method: "13%", reference: "12%", linked: "16%", status: "10%", action: "8%",
 };
 
 export default function PaymentsPage() {
   const [tab, setTab]       = React.useState<"all" | "received" | "refunded">("all");
   const [view, setView]     = React.useState<"all" | "subscription" | "project">("all");
-  const { colW, startResize, totalWidth: payTableW } = useResizableColumns("ros_pay_colw", PAY_COL_DEFAULTS);
   const [search, setSearch] = React.useState("");
   // Payment currently open in the "edit details" sheet (null = closed).
   const [editPayment, setEditPayment] = React.useState<Payment | null>(null);
@@ -83,6 +95,7 @@ export default function PaymentsPage() {
   const { data: customers } = useCustomers();
   const { data: bankAccounts } = useBankAccounts();
   const { data: me } = useCurrentUser();
+  const confirm = useConfirm();
 
   // Lookup: bankAccountId → short label (for the "received in" hint on a row)
   const bankNameById = React.useMemo(() => {
@@ -208,6 +221,7 @@ export default function PaymentsPage() {
 
       {/* All / Subscription / Project payments toggle (mirrors the Invoices page) */}
       <TabBar
+        className="overflow-y-hidden"
         value={view}
         onChange={(v) => setView(v as "all" | "subscription" | "project")}
         items={[
@@ -314,8 +328,8 @@ export default function PaymentsPage() {
                           `Please complete the payment at your earliest convenience to keep your service uninterrupted.\n\n— Anutech Digital`;
                         window.location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
                       }}
-                      onSuspend={() => {
-                        if (confirm(`Pause subscription for ${o.customer_name}?\n\nThis pauses your service tracking. You'll need to suspend the actual licenses via Google CSP / M365 admin separately.`)) {
+                      onSuspend={async () => {
+                        if (await confirm({ title: `Pause subscription for ${o.customer_name}?`, body: "This pauses your service tracking. You'll need to suspend the actual licenses via Google CSP / M365 admin separately.", confirmLabel: "Pause" })) {
                           suspendSub.mutate(o.subscription_id);
                         }
                       }}
@@ -341,45 +355,40 @@ export default function PaymentsPage() {
         );
       })()}
 
-      {/* Partial payments hint */}
-      {!isLoading && partialQuotes.length > 0 && (
-        <GeminiCard
-          title="Partial payments outstanding"
-          actions={
-            <Button asChild size="sm" variant="primary" icon="external">
-              <Link href={`/quotes/${partialQuotes[0].id}` as any}>
-                Open first one
-              </Link>
-            </Button>
-          }
-          compact
-        >
-          <b>{partialQuotes.length} quote{partialQuotes.length === 1 ? "" : "s"}</b> received
-          a partial payment but isn't fully paid yet. Follow up with the customer to collect
-          the remaining amount.
-        </GeminiCard>
-      )}
-
-      {/* Awaiting invoice nudge */}
-      {!isLoading && awaitingInvoiceQuotes.length > 0 && (
-        <GeminiCard
-          title="Generate pending invoices"
-          actions={
-            <Button asChild size="sm" variant="primary" icon="receipt">
-              <Link href={`/quotes/${awaitingInvoiceQuotes[0].id}` as any}>Open first one</Link>
-            </Button>
-          }
-          compact
-        >
-          <b>{awaitingInvoiceQuotes.length} quote{awaitingInvoiceQuotes.length === 1 ? "" : "s"}</b>{" "}
-          fully paid but GST invoice not generated (₹{awaitingInvoiceTotal.toLocaleString("en-IN")} worth).
+      {/* Action needed — the two "close the loop" worklists (collect balance +
+          generate the paid-but-uninvoiced GST invoices) merged into ONE compact
+          card so they don't push the payment table down as two stacked bands. */}
+      {!isLoading && (partialQuotes.length > 0 || awaitingInvoiceQuotes.length > 0) && (
+        <GeminiCard title="Action needed to close the loop" compact>
+          <ul className="space-y-2">
+            {partialQuotes.length > 0 && (
+              <li className="flex items-center justify-between gap-3">
+                <span className="min-w-0">
+                  <b>{partialQuotes.length} partial payment{partialQuotes.length === 1 ? "" : "s"}</b> — collect the remaining balance from the customer.
+                </span>
+                <Button asChild size="sm" variant="default" icon="external" className="shrink-0">
+                  <Link href={`/quotes/${partialQuotes[0].id}` as any}>Open</Link>
+                </Button>
+              </li>
+            )}
+            {awaitingInvoiceQuotes.length > 0 && (
+              <li className="flex items-center justify-between gap-3">
+                <span className="min-w-0">
+                  <b>{awaitingInvoiceQuotes.length} fully paid</b>, GST invoice not generated yet (₹{awaitingInvoiceTotal.toLocaleString("en-IN")} worth).
+                </span>
+                <Button asChild size="sm" variant="default" icon="receipt" className="shrink-0">
+                  <Link href={`/quotes/${awaitingInvoiceQuotes[0].id}` as any}>Generate</Link>
+                </Button>
+              </li>
+            )}
+          </ul>
         </GeminiCard>
       )}
 
       {/* Tabs + Search */}
       {!isLoading && payments && (
         <>
-          <TabBar value={tab} onChange={(v) => setTab(v as typeof tab)} items={tabsWithCounts} />
+          <TabBar className="overflow-y-hidden" value={tab} onChange={(v) => setTab(v as typeof tab)} items={tabsWithCounts} />
           <div className="flex justify-between items-center gap-3 flex-wrap">
             <div className="text-xs text-ink-3">
               Showing {filtered.length} of {payments.length} payments · {rupee(totalCollected)} collected all-time
@@ -463,7 +472,7 @@ export default function PaymentsPage() {
                   <div className="flex items-start justify-between gap-3 mb-1.5">
                     <div className="min-w-0 flex-1">
                       <p className="font-medium text-ink truncate">
-                        {customer?.name ?? ctx?.customerName ?? "—"}
+                        {cleanDisplayName(customer?.name ?? ctx?.customerName ?? "—")}
                       </p>
                       <p className="font-mono text-[11px] text-ink-3 mt-0.5">{p.quote_id}</p>
                     </div>
@@ -489,14 +498,27 @@ export default function PaymentsPage() {
                     </Badge>
                   </div>
                 </Link>
-                {p.status === "received" && (
-                  <button
-                    type="button"
-                    onClick={() => setEditPayment(p)}
-                    className="flex w-full items-center justify-center gap-1.5 border-t border-hairline/60 py-2 text-xs font-medium text-ink-2 active:bg-paper-2"
-                  >
-                    <Icon name="edit" size={12} /> Edit details
-                  </button>
+                {(p.status === "received" || p.receipt_file_path) && (
+                <div className="flex border-t border-hairline/60">
+                  {p.status === "received" && (
+                    <button
+                      type="button"
+                      onClick={() => setEditPayment(p)}
+                      className="flex flex-1 items-center justify-center gap-1.5 py-2 text-xs font-medium text-ink-2 active:bg-paper-2"
+                    >
+                      <Icon name="edit" size={12} /> Edit details
+                    </button>
+                  )}
+                  {p.receipt_file_path && (
+                    <button
+                      type="button"
+                      onClick={() => openReceipt(p.receipt_file_path!)}
+                      className="flex flex-1 items-center justify-center gap-1.5 py-2 text-xs font-medium text-ink-2 active:bg-paper-2 border-l border-hairline/60"
+                    >
+                      <Icon name="external" size={12} /> View receipt
+                    </button>
+                  )}
+                </div>
                 )}
               </li>
             );
@@ -504,46 +526,43 @@ export default function PaymentsPage() {
         </ul>
       )}
 
-      {/* Desktop table — drag the full-height divider between any two columns to resize. */}
+      {/* Desktop table — fluid % columns so it always fits the viewport (no horizontal scroll). */}
       {!isLoading && !error && filtered.length > 0 && (
-        <Card flush className="hidden md:block overflow-x-auto">
-          <div className="relative" style={{ width: payTableW }}>
-            <table className="w-full table-fixed">
-              <colgroup>
-                {PAY_COL_ORDER.map((id) => <col key={id} style={{ width: colW[id] }} />)}
-              </colgroup>
-              <thead className="bg-paper-2 border-b border-hairline">
-                <tr>
-                  <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Date</th>
-                  <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Customer</th>
-                  <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Quote</th>
-                  <th className="text-right p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Amount</th>
-                  <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Method</th>
-                  <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Reference</th>
-                  <th className="text-left p-3 text-xs font-semibold text-ink-3 uppercase tracking-wider">Status</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((p) => {
-                  const ctx = quoteById.get(p.quote_id);
-                  const customer = ctx?.customerId ? customerById.get(ctx.customerId) : undefined;
-                  return (
-                    <PaymentRowView
-                      key={p.id}
-                      p={p}
-                      ctx={ctx}
-                      customer={customer}
-                      me={me}
-                      bankLabel={p.bank_account_id ? bankNameById.get(p.bank_account_id) : undefined}
-                      onEdit={() => setEditPayment(p)}
-                    />
-                  );
-                })}
-              </tbody>
-            </table>
-            <ResizableHandles colW={colW} order={PAY_COL_ORDER} startResize={startResize} />
-          </div>
+        <Card flush className="hidden md:block">
+          <table className="w-full table-fixed">
+            <colgroup>
+              {PAY_COL_ORDER.map((id) => <col key={id} style={{ width: PAY_COL_WIDTHS[id] }} />)}
+            </colgroup>
+            <thead className="bg-paper-2 border-b border-hairline-strong">
+              <tr>
+                <th className="text-left px-3 py-2.5 text-[11px] font-semibold text-ink-3 uppercase tracking-wider">Date</th>
+                <th className="text-left px-3 py-2.5 text-[11px] font-semibold text-ink-3 uppercase tracking-wider">Customer</th>
+                <th className="text-right px-3 py-2.5 text-[11px] font-semibold text-ink-3 uppercase tracking-wider">Amount</th>
+                <th className="text-left px-3 py-2.5 text-[11px] font-semibold text-ink-3 uppercase tracking-wider">Method</th>
+                <th className="text-left px-3 py-2.5 text-[11px] font-semibold text-ink-3 uppercase tracking-wider">Reference</th>
+                <th className="text-left px-3 py-2.5 text-[11px] font-semibold text-ink-3 uppercase tracking-wider">Linked docs</th>
+                <th className="text-left px-3 py-2.5 text-[11px] font-semibold text-ink-3 uppercase tracking-wider">Status</th>
+                <th className="px-2 py-2.5 text-right"><span className="sr-only">Actions</span></th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((p) => {
+                const ctx = quoteById.get(p.quote_id);
+                const customer = ctx?.customerId ? customerById.get(ctx.customerId) : undefined;
+                return (
+                  <PaymentRowView
+                    key={p.id}
+                    p={p}
+                    ctx={ctx}
+                    customer={customer}
+                    me={me}
+                    bankLabel={p.bank_account_id ? bankNameById.get(p.bank_account_id) : undefined}
+                    onEdit={() => setEditPayment(p)}
+                  />
+                );
+              })}
+            </tbody>
+          </table>
         </Card>
       )}
 
@@ -578,9 +597,9 @@ export default function PaymentsPage() {
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0 flex-1">
                     {p.customer_id ? (
-                      <Link href={`/customers/${p.customer_id}` as never} className="font-medium text-ink hover:text-amber-ink hover:underline block truncate">{p.customer_name}</Link>
+                      <Link href={`/customers/${p.customer_id}` as never} className="font-medium text-ink hover:text-amber-ink hover:underline block truncate">{cleanDisplayName(p.customer_name)}</Link>
                     ) : (
-                      <span className="font-medium text-ink block truncate">{p.customer_name}</span>
+                      <span className="font-medium text-ink block truncate">{cleanDisplayName(p.customer_name)}</span>
                     )}
                     <Link href={`/projects/${p.project_id}` as never} className="text-[11px] text-ink-2 hover:text-amber-ink hover:underline block truncate">{p.project_title}</Link>
                     <p className="text-[11px] text-ink-3 mt-0.5 capitalize">
@@ -608,9 +627,9 @@ export default function PaymentsPage() {
                   <tr key={p.id} className="hover:bg-paper-2/40">
                     <td className="px-4 py-2.5">
                       {p.customer_id ? (
-                        <Link href={`/customers/${p.customer_id}` as never} className="font-medium text-ink hover:text-amber-ink hover:underline">{p.customer_name}</Link>
+                        <Link href={`/customers/${p.customer_id}` as never} className="font-medium text-ink hover:text-amber-ink hover:underline">{cleanDisplayName(p.customer_name)}</Link>
                       ) : (
-                        <span className="font-medium text-ink">{p.customer_name}</span>
+                        <span className="font-medium text-ink">{cleanDisplayName(p.customer_name)}</span>
                       )}
                       <span className="text-ink-3"> · </span>
                       <Link href={`/projects/${p.project_id}` as never} className="text-ink-2 hover:text-amber-ink hover:underline">{p.project_title}</Link>
@@ -737,18 +756,24 @@ function PaymentRowView({
   bankLabel?: string;
   onEdit: () => void;
 }) {
+  const router = useRouter();
   const methodInfo = METHOD_META[p.method];
   const [receiptOpen, setReceiptOpen] = React.useState(false);
   const del = useDeletePayment();
+  const confirm = useConfirm();
 
   // Delete = correct a wrong entry. Explains the reversal, then reverses via RPC
   // (guards block if a GST invoice was issued / it's bank-reconciled).
-  const handleDelete = () => {
-    const msg = `Delete this ${rupee(p.amount)} payment on ${p.quote_id}?\n\n`
-      + `This reverses it: the quote's paid amount + the subscription's outstanding are recalculated. `
+  const handleDelete = async () => {
+    const body = `This reverses it: the quote's paid amount + the subscription's outstanding are recalculated. `
       + `If it's the only payment, the subscription + auto-created purchase order from this sale are removed too (the customer is kept).\n\n`
       + `Blocked if a GST invoice was already generated, or it's reconciled to a bank line — handle those first.`;
-    if (window.confirm(msg)) del.mutate(p.id);
+    if (await confirm({
+      title: `Delete this ${rupee(p.amount)} payment on ${p.quote_id}?`,
+      body,
+      confirmLabel: "Delete",
+      danger: true,
+    })) del.mutate(p.id);
   };
 
   // Inter-state if customer's state-code differs from tenant's. Default = intra-state.
@@ -758,26 +783,29 @@ function PaymentRowView({
     customer.state_code !== me.tenantStateCode,
   );
 
+  const customerName = cleanDisplayName(ctx?.customerName ?? "—");
   return (
-    <tr className="border-b border-hairline last:border-0 hover:bg-paper-2/40">
-      <td className="p-3 text-xs text-ink-2 whitespace-nowrap truncate">{formatDate(p.received_at)}</td>
-      <td className="p-3 text-sm font-medium text-ink truncate" title={ctx?.customerName ?? undefined}>{ctx?.customerName ?? "—"}</td>
-      <td className="p-3" title={p.quote_id}>
-        <Link
-          href={`/quotes/${p.quote_id}` as any}
-          className="inline-flex items-center rounded-md bg-paper-2 px-1.5 py-0.5 font-mono text-[11px] font-semibold text-ink hover:text-amber-ink"
-        >
-          #{p.quote_id.split("-").pop()}
-        </Link>
-        {ctx?.paymentStatus === "partial" && (
-          <div className="text-[10px] text-indigo mt-0.5">partial — open quote to see full history</div>
+    <tr
+      className="group border-b border-hairline last:border-0 hover:bg-paper-2/50 cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber focus-visible:ring-inset"
+      role="button"
+      tabIndex={0}
+      aria-label={`Open quote ${p.quote_id}`}
+      onClick={() => router.push(`/quotes/${p.quote_id}` as any)}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); router.push(`/quotes/${p.quote_id}` as any); } }}
+    >
+      <td className="px-3 py-2.5 text-xs text-ink-2 whitespace-nowrap align-top">{formatDate(p.received_at)}</td>
+      <td className="px-3 py-2.5 text-sm font-medium align-top" onClick={(e) => e.stopPropagation()}>
+        {ctx?.customerId ? (
+          <Link href={`/customers/${ctx.customerId}` as never} className="text-ink hover:text-amber-ink hover:underline break-words leading-snug">{customerName}</Link>
+        ) : (
+          <span className="text-ink break-words leading-snug">{customerName}</span>
         )}
       </td>
       {/* Amount — cash in, the happiest number; give it weight. */}
-      <td className="p-3 text-right tabular-nums">
+      <td className="px-3 py-2.5 text-right tabular-nums align-top">
         <span className="font-serif text-[15px] font-semibold text-emerald">{rupee(p.amount)}</span>
       </td>
-      <td className="p-3">
+      <td className="px-3 py-2.5 align-top">
         {methodInfo ? (
           <span className="inline-flex items-center gap-1.5 text-xs">
             <Icon name={methodInfo.icon} size={11} className="text-ink-3" />
@@ -792,23 +820,32 @@ function PaymentRowView({
           </div>
         )}
       </td>
-      <td className="p-3 font-mono text-xs text-ink-2 truncate" title={p.reference ?? undefined}>{p.reference ?? "—"}</td>
-      <td className="p-3">
+      <td className="px-3 py-2.5 font-mono text-xs text-ink-2 break-all align-top" title={p.reference ?? undefined}>{p.reference ?? "—"}</td>
+      {/* LINKED DOCS — source quote + GST invoice + receipt voucher as clickable
+          chips, so the Status column stays a clean single badge. */}
+      <td className="px-3 py-2.5 align-top" onClick={(e) => e.stopPropagation()}>
+        <div className="flex flex-col gap-1 items-start">
+          <Link href={`/quotes/${p.quote_id}` as any} className="inline-flex items-center rounded-md bg-paper-2 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-ink hover:text-amber-ink" title={p.quote_id}>
+            {p.quote_id}
+          </Link>
+          {ctx?.invoiceId && (
+            <Link href={`/invoices?open=${ctx.invoiceId}` as any} className="font-mono text-[10px] text-indigo-ink hover:underline" title="Open GST invoice">{ctx.invoiceId}</Link>
+          )}
+          {p.receipt_voucher_no && (
+            me
+              ? <button type="button" onClick={() => setReceiptOpen(true)} className="font-mono text-[10px] text-ink-3 hover:text-amber-ink hover:underline" title="Open receipt voucher">{p.receipt_voucher_no}</button>
+              : <span className="font-mono text-[10px] text-ink-3">{p.receipt_voucher_no}</span>
+          )}
+        </div>
+      </td>
+      <td className="px-3 py-2.5 align-top">
         {p.status === "received" ? (
           <Badge kind="success" dot>received</Badge>
         ) : (
           <Badge kind="danger" dot>refunded</Badge>
         )}
-        {ctx?.invoiceId && (
-          <div className="text-[10px] text-ink-3 font-mono mt-0.5">{ctx.invoiceId}</div>
-        )}
-        {p.receipt_voucher_no && (
-          <div className="text-[10px] text-ink-3 font-mono mt-0.5" title="Receipt voucher number">
-            {p.receipt_voucher_no}
-          </div>
-        )}
       </td>
-      <td className="p-3 text-right">
+      <td className="px-2 py-2.5 text-right align-top" onClick={(e) => e.stopPropagation()}>
         <div className="flex justify-end">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -835,6 +872,11 @@ function PaymentRowView({
               {p.status === "received" && me && (
                 <DropdownMenuItem className="gap-2.5 py-2 cursor-pointer" onClick={() => setReceiptOpen(true)}>
                   <Icon name="file" size={16} /> Receipt voucher
+                </DropdownMenuItem>
+              )}
+              {p.receipt_file_path && (
+                <DropdownMenuItem className="gap-2.5 py-2 cursor-pointer" onClick={() => openReceipt(p.receipt_file_path!)}>
+                  <Icon name="external" size={16} /> View attached receipt
                 </DropdownMenuItem>
               )}
               <DropdownMenuSeparator />

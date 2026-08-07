@@ -99,6 +99,7 @@ async function main() {
       list_rate: workspaceRate,
       commitment: "annual_yearly",
       discount_pct: 0,
+      domain: "acme-workspace-test.example.com", // per-line domain (0172 addendum) — should land on THIS subscription only
     },
   ];
   const subtotal = lineItems.reduce((s, l) => s + l.qty * l.rate, 0);
@@ -137,11 +138,11 @@ async function main() {
   // 4. Assert: 3 subscriptions, correct vendors, 3 purchase_orders.
   const { data: subs, error: subsErr } = await supabase
     .from("subscriptions")
-    .select("id, plan, vendor, mrr, seats, outstanding_amount")
+    .select("id, plan, vendor, mrr, seats, outstanding_amount, domain")
     .eq("quote_id", quoteId);
   if (subsErr) throw subsErr;
   console.log(`\nSubscriptions created: ${subs.length}`);
-  subs.forEach((s) => console.log(`  - ${s.plan} | vendor=${s.vendor} | mrr=${s.mrr} | seats=${s.seats} | outstanding=${s.outstanding_amount}`));
+  subs.forEach((s) => console.log(`  - ${s.plan} | vendor=${s.vendor} | mrr=${s.mrr} | seats=${s.seats} | outstanding=${s.outstanding_amount} | domain=${s.domain}`));
 
   const { data: pos, error: posErr } = await supabase
     .from("purchase_orders")

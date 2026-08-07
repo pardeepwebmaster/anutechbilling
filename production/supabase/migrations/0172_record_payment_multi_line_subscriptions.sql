@@ -351,10 +351,17 @@ begin
             v_po_vendor := v_vendor; v_po_sub_id := v_new_sub_id;
           else
             v_seats := coalesce((v_first_line->>'qty')::int, 0);
-            if v_domain is null and v_customer_id is not null then
-              select domain into v_domain from public.customers where id = v_customer_id;
+            -- 0172: prefer THIS line's own domain (the quote builder now lets
+            -- staff type a distinct domain per product line) over the
+            -- whole-quote/customer fallback below, which was the only source
+            -- before per-line domains existed.
+            v_sub_domain := nullif(lower(trim(v_first_line->>'domain')), '');
+            if v_sub_domain is null then
+              if v_domain is null and v_customer_id is not null then
+                select domain into v_domain from public.customers where id = v_customer_id;
+              end if;
+              v_sub_domain := v_domain;
             end if;
-            v_sub_domain := v_domain;
             if v_sub_domain is not null and lower(v_sub_domain) = any(v_used_domains) then
               v_sub_domain := null;
             end if;

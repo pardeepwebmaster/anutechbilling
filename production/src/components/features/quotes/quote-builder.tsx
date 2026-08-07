@@ -268,11 +268,6 @@ export function QuoteBuilder() {
   const [bulkOpen, setBulkOpen] = React.useState(false);
   const [viewDomains, setViewDomains] = React.useState<{ name: string; domains: Array<{ domain: string; seats: number }> } | null>(null);
   const [previewOpen, setPreviewOpen] = React.useState(false);
-  // Optional domain captured on the quote — Google Workspace / Zoho / M365
-  // subscriptions are keyed to it. Saved as quotes.domain; record_payment then
-  // stamps it onto the auto-created subscription + customer. Prefilled from the
-  // picked customer's saved domain, editable for prospects / corrections.
-  const [domain, setDomain] = React.useState("");
   // Quote ID is allocated at SAVE time via the central numbering RPC.
   // null = unassigned (shown as placeholder in header until save).
   const [quoteId, setQuoteId] = React.useState<string | null>(null);
@@ -440,9 +435,6 @@ export function QuoteBuilder() {
 
   // Derived customer fields
   const customer = customers?.find((c) => c.id === customerId);
-  // Prefill the optional domain from the picked customer's saved domain (still
-  // editable afterward, and free-form for a prospect with no customer row yet).
-  React.useEffect(() => { setDomain(customer?.domain ?? ""); }, [customer?.domain]);
   // Invoice mode: pre-fill the payment terms from the customer's default (0164).
   // Fires when a customer with a saved term is selected; a manual Terms change
   // still wins (this only re-runs if the selected customer's term changes).
@@ -582,6 +574,9 @@ export function QuoteBuilder() {
   const updateStartDate = (id: string, date: string) => {
     setLineItems((s) => s.map((l) => (l.id === id ? { ...l, start_date: date || undefined } : l)));
   };
+  const updateDomain = (id: string, d: string) => {
+    setLineItems((s) => s.map((l) => (l.id === id ? { ...l, domain: d || null } : l)));
+  };
   const updateCommitment = (id: string, commitment: LineCommitment) => {
     setLineItems((s) =>
       s.map((l) => {
@@ -665,8 +660,10 @@ export function QuoteBuilder() {
         customer_id:   isLeadMode ? null : (customerId || null),
         customer_name: resolvedCustomerName,
         lead_id:       isLeadMode ? leadId : null,
-        // Optional — flows to the subscription/customer via record_payment.
-        domain:        domain.trim() || null,
+        // Quote-level domain = the first line's domain (the primary subscription).
+        // record_payment stamps this on the subscription it creates today; per-line
+        // domains also live on each line_item for the coming multi-sub fan-out.
+        domain:        (lineItems.find((l) => l.domain?.trim())?.domain ?? "").trim() || null,
         line_items:    lineItems,
         subtotal,
         total_cost:    totalCost,
@@ -1368,6 +1365,17 @@ export function QuoteBuilder() {
                         className="mt-0.5 w-full px-2 py-1.5 text-sm border border-hairline rounded bg-paper text-ink focus:outline-none focus:ring-2 focus:ring-amber focus:border-amber"
                       />
                     </label>
+                    {!line.bulk && (
+                      <label className="block col-span-2">
+                        <span className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold">Domain (optional)</span>
+                        <input
+                          type="text" value={line.domain ?? ""}
+                          onChange={(e) => updateDomain(line.id, e.target.value)}
+                          placeholder="acme.in — where this subscription is set up"
+                          className="mt-0.5 w-full px-2 py-1.5 text-sm border border-hairline rounded bg-paper text-ink focus:outline-none focus:ring-2 focus:ring-amber focus:border-amber"
+                        />
+                      </label>
+                    )}
                   </div>
                   <div className="text-[11px] text-ink-3 inline-flex items-center gap-1 flex-wrap">
                     <span>Cost {isUsdBill ? "$" : "₹"}</span>
@@ -1484,6 +1492,22 @@ export function QuoteBuilder() {
                             className="text-[11px] px-1.5 py-0.5 border border-hairline rounded bg-paper text-ink focus:outline-none focus:ring-1 focus:ring-amber focus:border-amber"
                           />
                         </div>
+                        {/* Per-line domain — this subscription provisions against it
+                            (Google Workspace / M365 / Zoho). Optional. Bulk lines carry
+                            their own per-domain list instead. */}
+                        {!line.bulk && (
+                          <div className="flex items-center gap-1">
+                            <span className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold">Domain</span>
+                            <input
+                              type="text"
+                              value={line.domain ?? ""}
+                              onChange={(e) => updateDomain(line.id, e.target.value)}
+                              placeholder="acme.in (optional)"
+                              title="Domain this subscription is set up on — optional"
+                              className="text-[11px] px-1.5 py-0.5 w-36 border border-hairline rounded bg-paper text-ink focus:outline-none focus:ring-1 focus:ring-amber focus:border-amber"
+                            />
+                          </div>
+                        )}
                       </div>
                     </td>
                     <td className="p-3 text-xs font-mono text-ink-3">998313</td>
@@ -1563,16 +1587,6 @@ export function QuoteBuilder() {
           <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-6 p-4 border-t border-hairline">
             {/* Notes (left) */}
             <div>
-              {/* Subscription domain — sits with the product because Google
-                  Workspace / M365 / Zoho licences are provisioned against it.
-                  Optional; saved on the quote and flows to the subscription. */}
-              <label className="text-xs font-medium text-ink-2 block mb-1.5">Domain (optional)</label>
-              <Input
-                value={domain}
-                onChange={(e) => setDomain(e.target.value)}
-                placeholder="acme.in — where Google Workspace / M365 / Zoho licences are set up"
-                className="mb-4"
-              />
               <label className="text-xs font-medium text-ink-2 block mb-1.5">Notes for customer</label>
               <Textarea
                 value={notes}

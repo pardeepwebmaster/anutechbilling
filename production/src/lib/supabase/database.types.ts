@@ -810,6 +810,9 @@ export type QuoteLineItem = {
   bulk?: boolean;
   /** Per-domain breakdown for a bulk line. `qty` must equal the sum of these seats. */
   domains?: Array<{ domain: string; seats: number }>;
+  /** Optional domain this subscription is provisioned against (Google Workspace /
+   *  M365 / Zoho). Per-line because a quote can hold products for different domains. */
+  domain?: string | null;
 };
 
 type QuoteRow = {

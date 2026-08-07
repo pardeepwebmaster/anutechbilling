@@ -33,7 +33,7 @@ import {
 import { useConfirm } from "@/components/providers/confirm-provider";
 import { useVendors, useUpsertVendor, useDeleteVendor, useBillsByVendor, type Vendor } from "@/lib/queries/vendors";
 import { VENDOR_BILL_CATEGORIES } from "@/lib/queries/vendor-bills";
-import { rupee, formatDate, GST_STATE_BY_CODE, gstStateFromGstin } from "@/lib/utils";
+import { rupee, formatDate, GST_STATE_BY_CODE, gstStateFromGstin, foreignAmount } from "@/lib/utils";
 import GstinVerifyCard from "@/components/features/gstin/gstin-verify-card";
 
 export default function VendorsPage() {
@@ -361,7 +361,11 @@ function VendorBillsDialog({ vendor, onClose, onEdit }: { vendor: Vendor; onClos
                       <p className="text-[11px] text-ink-3">{formatDate(b.bill_date)}</p>
                     </div>
                     <div className="text-right shrink-0">
-                      <p className="font-mono text-sm font-semibold text-ink">{rupee(b.total)}</p>
+                      {(() => { const fx = foreignAmount(b.currency, b.total, b.fx_rate); return fx ? (
+                        <p className="font-mono text-sm font-semibold text-ink">{fx} <span className="text-[10px] font-normal text-ink-3">({rupee(b.total)})</span></p>
+                      ) : (
+                        <p className="font-mono text-sm font-semibold text-ink">{rupee(b.total)}</p>
+                      ); })()}
                       <p className={`text-[10px] ${out > 0 ? "text-rose" : "text-emerald"}`}>{out > 0 ? `${rupee(out)} due` : "paid"}</p>
                     </div>
                   </li>

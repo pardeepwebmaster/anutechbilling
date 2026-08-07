@@ -246,6 +246,21 @@ export function validateGstin(gstin: string):
  *  - 97/99 are administrative (Other Territory / Centre)
  * Kept here as the single lookup table for the whole app.
  */
+/**
+ * Format a foreign (non-INR) vendor-bill amount in the supplier's own currency,
+ * derived from the ₹ figure + the stored exchange rate. Returns null for
+ * domestic (INR) bills or when there's no usable rate — callers show only ₹ then.
+ * @example foreignAmount("USD", 24293, 91.5) // "$265.50"
+ */
+export function foreignAmount(currency: string | null | undefined, inr: number, fxRate: number | null | undefined): string | null {
+  const cur = (currency || "INR").toUpperCase();
+  if (cur === "INR" || !fxRate || fxRate <= 0) return null;
+  const amt = inr / fxRate;
+  const sym: Record<string, string> = { USD: "$", GBP: "£", EUR: "€", AUD: "A$", CAD: "C$", SGD: "S$", JPY: "¥" };
+  const prefix = sym[cur] ?? `${cur} `;
+  return prefix + amt.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
 export const GST_STATE_BY_CODE: Record<string, string> = {
   "01": "Jammu and Kashmir",
   "02": "Himachal Pradesh",

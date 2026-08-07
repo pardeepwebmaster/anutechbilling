@@ -31,7 +31,7 @@ import { FormField } from "@/components/ui/label";
 import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
-import { rupee, formatDate } from "@/lib/utils";
+import { rupee, formatDate, foreignAmount } from "@/lib/utils";
 import {
   useVendorBills,
   useVendorBillsTotals,
@@ -231,7 +231,10 @@ export default function VendorBillsPage() {
                       </td>
                       <td className="px-3 py-2.5 text-right text-ink-2 font-mono align-top tabular-nums">{rupee(b.subtotal)}</td>
                       <td className="px-3 py-2.5 text-right text-emerald font-mono align-top tabular-nums cursor-help" title={gstTitle}>{gst > 0 ? rupee(gst) : "—"}</td>
-                      <td className="px-3 py-2.5 text-right font-semibold text-ink font-mono align-top tabular-nums">{rupee(b.total)}</td>
+                      <td className="px-3 py-2.5 text-right font-semibold text-ink font-mono align-top tabular-nums">
+                        {rupee(b.total)}
+                        {(() => { const fx = foreignAmount(b.currency, b.total, b.fx_rate); return fx ? <div className="text-[10px] font-normal text-ink-3">{fx}</div> : null; })()}
+                      </td>
                       <td className="px-3 py-2.5 align-top">
                         <Badge color={STATUS_COLOR[b.status] ?? "slate"}>{b.status}</Badge>
                         {b.status !== "paid" && (b.total - (b.paid_amount ?? 0)) > 0 && (b.paid_amount ?? 0) > 0 && (
@@ -302,6 +305,7 @@ export default function VendorBillsPage() {
                     <div className="flex items-end justify-between">
                       <div>
                         <div className="font-serif text-xl text-ink leading-none">{rupee(b.total)}</div>
+                        {(() => { const fx = foreignAmount(b.currency, b.total, b.fx_rate); return fx ? <div className="text-[11px] text-ink-3 mt-1">{fx} @ ₹{b.fx_rate}/{b.currency}</div> : null; })()}
                         {gst > 0 && (
                           <div className="text-[11px] text-emerald mt-1">+{rupee(gst)} input GST</div>
                         )}

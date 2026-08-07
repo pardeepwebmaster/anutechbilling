@@ -244,6 +244,8 @@ export function AddVendorBillDialog({ onClose }: { onClose: () => void }) {
       bill_date:    values.bill_date,
       due_date:     values.due_date     || null,
       category:     values.category,
+      currency,
+      fx_rate:      rate,
       subtotal:     inr(values.subtotal),
       cgst:         inr(values.cgst),
       sgst:         inr(values.sgst),

@@ -1230,6 +1230,8 @@ export type VendorBillRow = {
   due_date:         string | null;
   category:         string;                  // 'COGS-Workspace' | 'COGS-M365' | 'COGS-Zoho' | 'COGS-Other'
   line_items:       VendorBillLine[];
+  currency:         string;                  // migration 0177 — 'INR' | 'USD' | … (INR = domestic)
+  fx_rate:          number;                  // ₹ per 1 unit of currency (1 for INR); foreign amt = total / fx_rate
   subtotal:         number;
   cgst:             number;
   sgst:             number;
@@ -1276,6 +1278,8 @@ type VendorBillInsert = {
   due_date?:        string | null;
   category?:        string;
   line_items?:      VendorBillLine[];
+  currency?:        string;
+  fx_rate?:         number;
   subtotal?:        number;
   cgst?:            number;
   sgst?:            number;

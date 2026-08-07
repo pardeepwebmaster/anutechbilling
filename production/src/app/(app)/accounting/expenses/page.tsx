@@ -87,6 +87,7 @@ export default function ExpensesPage() {
   // as selected out of the box.
   const [range, setRange]     = React.useState(RANGE_PRESETS[0].range());
   const [catFilter, setCatFilter] = React.useState("");
+  const [payeeFilter, setPayeeFilter] = React.useState("");
   const [addOpen, setAddOpen] = React.useState(false);
   const [editing, setEditing] = React.useState<Expense | null>(null);
 
@@ -102,12 +103,30 @@ export default function ExpensesPage() {
     [salariesQ.data],
   );
 
-  const rows      = q.data ?? [];
+  const allRows   = q.data ?? [];
   const isLoading = q.isLoading;
   const totals    = totalsQ.data;
 
   // Build category list from totals.byCategory keys for the filter dropdown.
   const categoryOptions = totals ? Object.keys(totals.byCategory).sort() : [];
+
+  // Distinct vendors/payees in the current range → drives the payee filter, so
+  // you can see everything paid to one supplier (e.g. Anthropic) with its total
+  // + input GST in one place.
+  const payeeOptions = React.useMemo(
+    () => Array.from(new Set(allRows.map((e) => (e.vendor_name ?? "").trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b)),
+    [allRows],
+  );
+
+  // Rows after the client-side payee filter (category is applied in the query).
+  const rows = payeeFilter ? allRows.filter((e) => (e.vendor_name ?? "") === payeeFilter) : allRows;
+
+  // Totals for whatever is currently filtered — count, amount, and input GST.
+  const filtered = React.useMemo(() => rows.reduce(
+    (acc, e) => { acc.amount += e.amount ?? 0; acc.gst += e.gst_paid ?? 0; return acc; },
+    { amount: 0, gst: 0 },
+  ), [rows]);
+  const isFiltered = Boolean(payeeFilter || catFilter);
 
   return (
     <div className="p-4 md:p-6 lg:p-8 max-w-[1800px] mx-auto">
@@ -189,10 +208,34 @@ export default function ExpensesPage() {
               <option key={c} value={c}>{c}</option>
             ))}
           </select>
+          <select value={payeeFilter}
+            onChange={(e) => setPayeeFilter(e.target.value)}
+            className="px-3 py-1.5 text-sm rounded-md border border-hairline bg-paper max-w-[200px]">
+            <option value="">All vendors / payees</option>
+            {payeeOptions.map((p) => (
+              <option key={p} value={p}>{p}</option>
+            ))}
+          </select>
+          {isFiltered && (
+            <button type="button" onClick={() => { setCatFilter(""); setPayeeFilter(""); }}
+              className="text-xs text-amber-ink hover:underline">Clear</button>
+          )}
           <div className="ml-auto text-xs text-ink-3">
             Showing {rows.length} {rows.length === 1 ? "entry" : "entries"}
           </div>
         </div>
+        {/* Filtered summary — total paid + input GST for the current filter
+            (e.g. everything paid to one vendor). */}
+        {isFiltered && rows.length > 0 && (
+          <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1 rounded-md bg-paper-2/50 px-3 py-2 text-sm">
+            <span className="text-ink-3">
+              {payeeFilter || catFilter}{payeeFilter && catFilter ? ` · ${catFilter}` : ""}
+            </span>
+            <span className="text-ink-2"><b className="text-ink font-mono tabular-nums">{rupee(filtered.amount)}</b> paid</span>
+            <span className="text-emerald"><b className="font-mono tabular-nums">{rupee(filtered.gst)}</b> input GST</span>
+            <span className="text-ink-3">{rows.length} {rows.length === 1 ? "payment" : "payments"}</span>
+          </div>
+        )}
       </Card>
 
       {/* List */}

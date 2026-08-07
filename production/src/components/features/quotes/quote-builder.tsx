@@ -998,90 +998,81 @@ export function QuoteBuilder() {
               </FormField>
               )}
 
-              {!customerId && (
-                <FormField label="Country" htmlFor="prospectCountry">
-                  <select
-                    id="prospectCountry"
-                    value={prospectCountry}
-                    onChange={(e) => setProspectCountry(e.target.value)}
-                    className="w-full rounded-md border border-hairline bg-paper px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-amber/40"
-                  >
-                    {COUNTRIES.map((ctry) => <option key={ctry} value={ctry}>{ctry}</option>)}
-                  </select>
-                  {isExport && (
-                    <p className="mt-1 text-[11px] text-indigo-ink">
-                      🌍 Export ({prospectCountry}) → zero-rated under LUT, no GST
+              {/* Existing customer → a clean read-only summary of their billing
+                  identity (not fake-editable grey boxes). Prospect → the editable
+                  country + place-of-supply needed to get GST right. */}
+              {customerId ? (
+                <div className="rounded-lg border border-hairline bg-paper-2/40 px-3 py-2.5">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-x-4 gap-y-3">
+                    <div className="min-w-0">
+                      <div className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold mb-0.5">Website</div>
+                      <div className="text-sm text-ink-2 font-mono truncate">{customer?.domain || "—"}</div>
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold mb-0.5">GSTIN</div>
+                      <div className="text-sm text-ink-2 font-mono truncate">{customer?.gstin || "—"}</div>
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold mb-0.5">Place of supply</div>
+                      <div className="text-sm text-ink-2 truncate">{customer?.state || "—"}</div>
+                    </div>
+                  </div>
+                  {customer && (
+                    <p className="text-[11px] mt-2.5 pt-2.5 border-t border-hairline/70 flex items-center gap-1">
+                      {isExport ? (
+                        <span className="text-indigo-ink">🌍 Export ({customer?.country}) → zero-rated under LUT, no GST</span>
+                      ) : interState ? (
+                        <span className="text-amber-ink">⚠ Inter-state → IGST {taxRate}% will apply</span>
+                      ) : (
+                        <span className="text-emerald">✓ Intra-state → CGST + SGST split @ {taxRate}%</span>
+                      )}
                     </p>
                   )}
-                </FormField>
-              )}
-
-              <div className="grid grid-cols-2 gap-3">
-                <FormField label="Company website" htmlFor="company-website">
-                  <Input
-                    id="company-website"
-                    value={customer?.domain ?? ""}
-                    readOnly
-                    className="bg-paper-2 cursor-default"
-                    placeholder="—"
-                  />
-                </FormField>
-                <FormField label="GSTIN" htmlFor="gstin">
-                  <Input
-                    id="gstin"
-                    value={customer?.gstin ?? ""}
-                    readOnly
-                    className="bg-paper-2 cursor-default font-mono"
-                    placeholder="—"
-                  />
-                </FormField>
-              </div>
-
-              <FormField label="Place of supply" htmlFor="state">
-                {customerId ? (
-                  // Existing customer → their saved state (read-only).
-                  <>
-                    <Input id="state" value={customer?.state ?? ""} readOnly className="bg-paper-2 cursor-default" placeholder="—" />
-                    {customer && (
-                      <p className="text-[11px] mt-1 flex items-center gap-1">
-                        {isExport ? (
-                          <span className="text-indigo-ink">🌍 Export ({customer?.country}) → zero-rated under LUT, no GST</span>
-                        ) : interState ? (
-                          <span className="text-amber-ink">⚠ Inter-state → IGST {taxRate}% will apply</span>
-                        ) : (
-                          <span className="text-emerald">✓ Intra-state → CGST + SGST split</span>
-                        )}
-                      </p>
-                    )}
-                  </>
-                ) : isExport ? (
-                  <Input id="state" value="Export — zero-rated, no GST" readOnly className="bg-paper-2 cursor-default" />
-                ) : (
-                  // Typed India prospect → editable so GST (CGST+SGST vs IGST) is correct.
-                  <>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <FormField label="Country" htmlFor="prospectCountry">
                     <select
-                      id="state"
-                      value={prospectStateCode}
-                      onChange={(e) => setProspectStateCode(e.target.value)}
+                      id="prospectCountry"
+                      value={prospectCountry}
+                      onChange={(e) => setProspectCountry(e.target.value)}
                       className="w-full rounded-md border border-hairline bg-paper px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-amber/40"
                     >
-                      <option value="">Select state (for GST)</option>
-                      {Object.entries(GST_STATE_BY_CODE)
-                        .sort((a, b) => a[1].localeCompare(b[1]))
-                        .map(([code, name]) => <option key={code} value={code}>{name} ({code})</option>)}
+                      {COUNTRIES.map((ctry) => <option key={ctry} value={ctry}>{ctry}</option>)}
                     </select>
-                    <p className="text-[11px] mt-1 flex items-center gap-1">
-                      {!prospectStateCode ? (
+                  </FormField>
+                  <FormField label="Place of supply" htmlFor="state">
+                    {isExport ? (
+                      <Input id="state" value="Export — zero-rated, no GST" readOnly className="bg-paper-2 cursor-default" />
+                    ) : (
+                      <select
+                        id="state"
+                        value={prospectStateCode}
+                        onChange={(e) => setProspectStateCode(e.target.value)}
+                        className="w-full rounded-md border border-hairline bg-paper px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-amber/40"
+                      >
+                        <option value="">Select state (for GST)</option>
+                        {Object.entries(GST_STATE_BY_CODE)
+                          .sort((a, b) => a[1].localeCompare(b[1]))
+                          .map(([code, name]) => <option key={code} value={code}>{name} ({code})</option>)}
+                      </select>
+                    )}
+                  </FormField>
+                  <div className="sm:col-span-2 -mt-1">
+                    <p className="text-[11px] flex items-center gap-1">
+                      {isExport ? (
+                        <span className="text-indigo-ink">🌍 Export ({prospectCountry}) → zero-rated under LUT, no GST</span>
+                      ) : !prospectStateCode ? (
                         <span className="text-ink-3">Pick the customer&apos;s state so GST (CGST+SGST vs IGST) is correct.</span>
                       ) : interState ? (
                         <span className="text-amber-ink">⚠ Inter-state → IGST {taxRate}% will apply</span>
                       ) : (
-                        <span className="text-emerald">✓ Intra-state → CGST + SGST split</span>
+                        <span className="text-emerald">✓ Intra-state → CGST + SGST split @ {taxRate}%</span>
                       )}
                     </p>
-                  </>
-                )}
-              </FormField>
+                  </div>
+                </div>
+              )}
             </div>
           </Card>
         )}

@@ -169,6 +169,12 @@ export function QuoteBuilder() {
   // gets created later when record_payment fires (lead → customer cascade).
   // This unblocks the "no customers yet" dead-end the picker had.
   const [prospectName, setProspectName] = React.useState<string>("");
+  // Customer-entry mode — a clean either/or toggle (was two inputs shown at once,
+  // which read ambiguous). "existing" = pick from the book; "prospect" = type a
+  // new one. The underlying resolution (customer_id vs typed name) is unchanged.
+  const [custMode, setCustMode] = React.useState<"existing" | "prospect">("existing");
+  // Prefill / duplicate / add-new set customerId → snap the toggle to "existing".
+  React.useEffect(() => { if (customerId) setCustMode("existing"); }, [customerId]);
   // Typed-prospect country — lets a NEW international prospect (no lead, no
   // customer record) be detected as an export (zero-rated).
   const [prospectCountry, setProspectCountry] = React.useState<string>("India");
@@ -785,7 +791,7 @@ export function QuoteBuilder() {
             <h1 className="font-serif text-3xl md:text-4xl leading-tight">
               {isInvoiceMode
                 ? "New invoice"
-                : (quoteId ?? <span className="text-ink-3">Q-…-…-…</span>)}
+                : (quoteId ?? "New quotation")}
             </h1>
             <p className="text-sm text-ink-3 mt-1">
               For <b className="text-ink">{isLeadMode ? leadCompany : (customer?.name ?? prospectName.trim() ?? "—")}</b>
@@ -793,6 +799,9 @@ export function QuoteBuilder() {
                 <span className="ml-1 text-amber-ink">(prospect)</span>
               )}
               {" · Draft"}
+              {lineItems.length > 0 && (
+                <> · <b className="text-ink tabular-nums">{fmtDispC(dispTotal)}</b></>
+              )}
             </p>
           </div>
         </div>
@@ -925,40 +934,58 @@ export function QuoteBuilder() {
           /* ───── Customer Details (existing customer OR new prospect flow) ───── */
           <Card title="Customer Details">
             <div className="space-y-3">
-              <FormField label={isInvoiceMode ? "Customer" : "Existing customer"} htmlFor="customer">
-                {customersLoading ? (
-                  <Skeleton className="h-9" />
-                ) : (
-                  <CustomerCombobox
-                    id="customer"
-                    value={customerId}
-                    onChange={(v) => {
-                      setCustomerId(v);
-                      // Picking an existing customer clears the prospect name
-                      // so there's a single source of truth.
-                      if (v) setProspectName("");
-                    }}
-                    onCreateNew={() => setAddCustomerOpen(true)}
-                  />
-                )}
-              </FormField>
+              {/* Either/or mode toggle — one input at a time so the active path is
+                  unmistakable. Invoice mode is existing-only (a GST invoice must
+                  carry a real customer, no auto-create-on-payment). */}
+              {!isInvoiceMode && (
+                <div className="inline-flex gap-1 bg-paper-2 rounded-md p-0.5" role="tablist" aria-label="Customer type">
+                  {([["existing", "Existing customer"], ["prospect", "New prospect"]] as const).map(([m, label]) => (
+                    <button
+                      key={m}
+                      type="button"
+                      role="tab"
+                      aria-selected={custMode === m}
+                      onClick={() => {
+                        setCustMode(m);
+                        if (m === "existing") setProspectName("");
+                        else setCustomerId("");
+                      }}
+                      className={cn(
+                        "px-3 py-1 text-xs font-medium rounded transition-colors",
+                        custMode === m ? "bg-paper text-ink shadow-sm" : "text-ink-3 hover:text-ink",
+                      )}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              )}
 
-              {/* Free-text prospect entry — works WITH or WITHOUT existing customers.
-                  Operator can quote a brand-new company without first creating a
-                  customer record. customer_id stays null on this quote; a real
-                  customer auto-creates on first payment (record_payment RPC).
-                  HIDDEN in invoice mode: a GST tax invoice is issued NOW, so it must
-                  carry a real customer (no "auto-create on payment"). */}
-              {/* New-prospect entry — shown only when NO existing customer is
-                  picked, so the two paths are a clear either/or (not both at once).
-                  Clear the customer above (✕) to switch back to a new prospect.
-                  Hidden in invoice mode: a GST invoice must carry a real customer. */}
-              {!isInvoiceMode && !customerId && (
-              <FormField
-                label={customers && customers.length > 0 ? "Or type a new prospect" : "Prospect name"}
-                required
-                htmlFor="prospectName"
-              >
+              {(isInvoiceMode || custMode === "existing") && (
+                <FormField label={isInvoiceMode ? "Customer" : "Existing customer"} htmlFor="customer">
+                  {customersLoading ? (
+                    <Skeleton className="h-9" />
+                  ) : (
+                    <CustomerCombobox
+                      id="customer"
+                      value={customerId}
+                      onChange={(v) => {
+                        setCustomerId(v);
+                        // Picking an existing customer clears the prospect name
+                        // so there's a single source of truth.
+                        if (v) setProspectName("");
+                      }}
+                      onCreateNew={() => setAddCustomerOpen(true)}
+                    />
+                  )}
+                </FormField>
+              )}
+
+              {/* New-prospect entry — quote a brand-new company without creating a
+                  customer record first. customer_id stays null; a real customer
+                  auto-creates on first payment (record_payment RPC). */}
+              {!isInvoiceMode && custMode === "prospect" && (
+              <FormField label="Prospect name" required htmlFor="prospectName">
                 <Input
                   id="prospectName"
                   placeholder="Acme Corp Pvt Ltd"
@@ -966,8 +993,7 @@ export function QuoteBuilder() {
                   onChange={(e) => setProspectName(e.target.value)}
                 />
                 <p className="text-[10px] text-ink-3 mt-1">
-                  Use this for new prospects who haven&apos;t made a payment yet.
-                  We&apos;ll auto-create the customer record when they pay.
+                  A new prospect who hasn&apos;t paid yet — we&apos;ll auto-create the customer record when they pay.
                 </p>
               </FormField>
               )}

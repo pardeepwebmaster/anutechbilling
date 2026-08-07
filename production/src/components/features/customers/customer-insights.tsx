@@ -215,7 +215,7 @@ export type CustomerEvent = { date: string; icon: string; color: string; title: 
 export function buildCustomerActivity(subs: Subscription[], invoices: Invoice[], quotes: Quote[]): CustomerEvent[] {
   const events: CustomerEvent[] = [];
   for (const s of subs) {
-    if (s.start_date) events.push({ date: s.start_date, icon: "refresh", color: "text-emerald", title: "Subscription started", sub: `${s.plan} · ${s.seats} seats` });
+    if (s.start_date) events.push({ date: s.start_date, icon: "refresh", color: "text-emerald", title: "Subscription started", sub: `${s.plan}${s.domain ? ` · ${s.domain}` : ""} · ${s.seats} seats` });
   }
   for (const q of quotes) {
     if (q.created_date) events.push({ date: q.created_date, icon: "file", color: "text-indigo", title: `Quote ${q.id} ${q.status}`, sub: q.plan ?? undefined });

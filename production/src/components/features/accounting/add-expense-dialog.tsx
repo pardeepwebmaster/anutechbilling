@@ -253,8 +253,39 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
               {aiError && <p className="mt-2 flex items-start gap-1.5 text-[11px] text-rose"><Icon name="alert" size={12} className="mt-0.5 shrink-0" /> {aiError}</p>}
             </div>
           )}
-          {/* ── What & who ─────────────────────────────────────────── */}
-          <section className="space-y-3">
+          {/* Who you paid — first */}
+          <FormField label="Vendor / payee (optional)" htmlFor="vendor_name">
+            <div className="relative">
+              <Input
+                id="vendor_name"
+                autoComplete="off"
+                placeholder="e.g. Anthropic / Airtel / Office Landlord"
+                {...register("vendor_name", { onChange: () => { setVendorId(null); setVendorOpen(true); } })}
+                onFocus={() => setVendorOpen(true)}
+                onBlur={() => setTimeout(() => setVendorOpen(false), 130)}
+              />
+              {vendorOpen && (vendors ?? []).length > 0 && (() => {
+                const query = (watch("vendor_name") || "").trim().toLowerCase();
+                const matches = (vendors ?? []).filter((v) => !query || v.name.toLowerCase().includes(query)).slice(0, 8);
+                if (matches.length === 0) return null;
+                return (
+                  <div className="absolute z-20 mt-1 w-full max-h-52 overflow-y-auto rounded-md border border-hairline bg-paper shadow-lg">
+                    {matches.map((v) => (
+                      <button key={v.id} type="button"
+                        onMouseDown={(e) => { e.preventDefault(); setValue("vendor_name", v.name); setVendorId(v.id); setVendorOpen(false); }}
+                        className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-paper-2">
+                        <span className="text-ink truncate">{v.name}</span>
+                        {v.gstin && <span className="text-[10px] text-ink-3 font-mono shrink-0">{v.gstin}</span>}
+                      </button>
+                    ))}
+                  </div>
+                );
+              })()}
+            </div>
+          </FormField>
+
+          {/* ── Expense details — category/date + bill & amount, one card ── */}
+          <section className="rounded-lg border border-hairline bg-paper-2/30 p-3 space-y-3">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <FormField label="Category" required htmlFor="category">
                 <Select value={watch("category")} onValueChange={(v) => setValue("category", v)}>
@@ -280,39 +311,7 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
               </p>
             )}
 
-            <FormField label="Vendor / payee (optional)" htmlFor="vendor_name">
-              <div className="relative">
-                <Input
-                  id="vendor_name"
-                  autoComplete="off"
-                  placeholder="e.g. Anthropic / Airtel / Office Landlord"
-                  {...register("vendor_name", { onChange: () => { setVendorId(null); setVendorOpen(true); } })}
-                  onFocus={() => setVendorOpen(true)}
-                  onBlur={() => setTimeout(() => setVendorOpen(false), 130)}
-                />
-                {vendorOpen && (vendors ?? []).length > 0 && (() => {
-                  const query = (watch("vendor_name") || "").trim().toLowerCase();
-                  const matches = (vendors ?? []).filter((v) => !query || v.name.toLowerCase().includes(query)).slice(0, 8);
-                  if (matches.length === 0) return null;
-                  return (
-                    <div className="absolute z-20 mt-1 w-full max-h-52 overflow-y-auto rounded-md border border-hairline bg-paper shadow-lg">
-                      {matches.map((v) => (
-                        <button key={v.id} type="button"
-                          onMouseDown={(e) => { e.preventDefault(); setValue("vendor_name", v.name); setVendorId(v.id); setVendorOpen(false); }}
-                          className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-paper-2">
-                          <span className="text-ink truncate">{v.name}</span>
-                          {v.gstin && <span className="text-[10px] text-ink-3 font-mono shrink-0">{v.gstin}</span>}
-                        </button>
-                      ))}
-                    </div>
-                  );
-                })()}
-              </div>
-            </FormField>
-          </section>
-
-          {/* ── Bill & amount ──────────────────────────────────────── */}
-          <section className="rounded-lg border border-hairline bg-paper-2/30 p-3 space-y-3">
+            <div className="border-t border-hairline pt-3 space-y-3">
             <p className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold">Bill &amp; amount</p>
 
             {/* Bill type — segmented; drives GST input-credit + vendor-master */}
@@ -376,6 +375,7 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
             {isGstBill && !isForeign && (
               <p className="text-[10px] text-ink-3">GST is the input tax credit portion of the amount above — claimable in your GST return.</p>
             )}
+            </div>
           </section>
 
           <FormField label="Payment method" htmlFor="payment_method">

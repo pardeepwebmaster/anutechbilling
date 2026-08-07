@@ -679,7 +679,27 @@ export function PayrollTab() {
                       <td className="px-4 py-3 text-right font-mono text-ink-2">
                         {p ? rupee(p.gross) : e.monthly_gross > 0 ? rupee(e.monthly_gross) : <span className="text-ink-3">—</span>}
                       </td>
-                      <td className="px-4 py-3 text-right font-mono">{p ? rupee(p.net) : <span className="text-ink-3">—</span>}</td>
+                      <td className="px-4 py-3 text-right font-mono">
+                        {p ? (() => {
+                          const a = attendanceFor(e);
+                          const noLopButLowPresent = p.lop_days === 0 && a.expected > 0 && a.present < a.expected;
+                          return (
+                            <>
+                              <div>{rupee(p.net)}</div>
+                              {p.lop_days > 0 ? (
+                                <div className="text-[10px] font-sans text-ink-3 mt-0.5" title={`${p.lop_days} day(s) of loss-of-pay deducted from gross for absences.`}>
+                                  {p.lop_days}d LOP deducted
+                                </div>
+                              ) : noLopButLowPresent ? (
+                                <div className="text-[10px] font-sans text-amber-ink mt-0.5"
+                                  title={`Paid for all working days — no loss-of-pay deducted, though attendance shows only ${a.present}/${a.expected} present. Likely attendance wasn't marked at the kiosk, they were on paid leave, or treated as present. To dock absent days: ⋯ → Edit salary → apply LOP.`}>
+                                  Full pay · no LOP
+                                </div>
+                              ) : null}
+                            </>
+                          );
+                        })() : <span className="text-ink-3">—</span>}
+                      </td>
                       <td className="px-4 py-3 text-right">
                         {(() => {
                           const a = attendanceFor(e);
@@ -760,7 +780,11 @@ export function PayrollTab() {
                     </div>
                     <div className="text-[11px] text-ink-3 mb-2">
                       {p ? `Net pay · gross ${rupee(p.gross)}` : `Monthly salary · not run yet`}
-                      {(() => { const a = attendanceFor(e); return ` · Present ${a.present}/${a.expected} this mo`; })()}
+                      {(() => {
+                        const a = attendanceFor(e);
+                        const reason = p ? (p.lop_days > 0 ? ` · ${p.lop_days}d LOP` : (a.expected > 0 && a.present < a.expected ? " · full pay, no LOP" : "")) : "";
+                        return ` · Present ${a.present}/${a.expected}${reason}`;
+                      })()}
                     </div>
                     <div className="flex items-center justify-between gap-2">
                       {p ? (

@@ -377,20 +377,40 @@ export function RecordPaymentDialog({
       }
 
       // ── 2d. Stamp the optional domain onto the subscription (best-effort). ──
-      // record_payment creates/keeps the subscription (linked by quote_id).
-      // Google Workspace / M365 subscriptions need the customer's domain, so we
-      // capture it optionally here and set it if one was entered and it isn't
-      // already set (never overwrite). Non-money metadata — a failure only logs;
-      // the domain can still be added later on the Subscriptions page. Matches 0
-      // rows harmlessly for one-off / direct-invoice quotes (no subscription).
+      // record_payment creates/keeps the subscription(s) (linked by quote_id).
+      // Google Workspace / M365 / Zoho subscriptions need the customer's domain,
+      // so we capture it optionally here and set it if one was entered and it
+      // isn't already set (never overwrite). Non-money metadata — a failure
+      // only logs; the domain can still be added later on the Subscriptions
+      // page. Matches 0 rows harmlessly for one-off / direct-invoice quotes.
+      //
+      // A quote can now hold MULTIPLE subscriptions (support/hosting/etc.
+      // alongside Workspace/M365/Zoho — record_payment 0172 fans out one
+      // subscription per line item). A blind "any subscription on this quote
+      // with no domain yet" update would risk stamping a Workspace domain
+      // onto an unrelated hosting/support subscription, and if 2+ rows
+      // qualified in one UPDATE, the same-quote-domain uniqueness rule would
+      // reject the write outright. So: look up the single domain-relevant
+      // (Workspace/M365/Zoho) subscription first, then update it by id.
       const domainVal = data.domain?.trim();
       if (domainVal) {
-        const { error: domErr } = await supabase
+        const { data: domainSub, error: findErr } = await supabase
           .from("subscriptions")
-          .update({ domain: domainVal })
+          .select("id")
           .eq("quote_id", quoteId)
-          .is("domain", null);
-        if (domErr) console.error("[record-payment] domain stamp failed (payment still recorded):", domErr);
+          .in("vendor", ["google", "microsoft", "zoho"])
+          .is("domain", null)
+          .limit(1)
+          .maybeSingle();
+        if (findErr) {
+          console.error("[record-payment] domain stamp lookup failed (payment still recorded):", findErr);
+        } else if (domainSub) {
+          const { error: domErr } = await supabase
+            .from("subscriptions")
+            .update({ domain: domainVal })
+            .eq("id", domainSub.id);
+          if (domErr) console.error("[record-payment] domain stamp failed (payment still recorded):", domErr);
+        }
       }
 
       // ── 3. TDS receivable — now committed ATOMICALLY inside

@@ -24,8 +24,12 @@ import { EmptyState } from "@/components/shared/empty-state";
 import { rupee, formatDate, toTitleCase } from "@/lib/utils";
 import { useEmployees, useSalaryPayments, useEmployeeSalaryHistory, type SalaryPayment } from "@/lib/queries/payroll";
 
-function nowPeriod(): string {
-  return new Date(Date.now() + 5.5 * 60 * 60 * 1000).toISOString().slice(0, 7);
+/** Previous month (YYYY-MM) — the register shows the month that was just paid. */
+function prevPeriod(): string {
+  const d = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
+  d.setUTCDate(1);
+  d.setUTCMonth(d.getUTCMonth() - 1);
+  return d.toISOString().slice(0, 7);
 }
 function monthLabel(period: string): string {
   const [y, m] = period.split("-").map(Number);
@@ -101,7 +105,7 @@ function TotalsRow({ label, rows, leadSpan }: { label: string; rows: SalaryPayme
 // ── All employees for one month ──────────────────────────────────────────────
 function MonthRegister() {
   const router = useRouter();
-  const [period, setPeriod] = React.useState(nowPeriod());
+  const [period, setPeriod] = React.useState(prevPeriod());
   const empQ = useEmployees();
   const payQ = useSalaryPayments(period);
 

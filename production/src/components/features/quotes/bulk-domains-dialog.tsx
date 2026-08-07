@@ -46,7 +46,8 @@ function parseLine(line: string): string[] {
 export function BulkDomainsDialog({ open, onOpenChange, catalog, customerId, onAdd }: Props) {
   const [itemId, setItemId] = React.useState("");
   const [rate, setRate] = React.useState(0);          // ₹/seat/year
-  const [tab, setTab] = React.useState<"csv" | "pick">("csv");
+  const [tab, setTab] = React.useState<"manual" | "csv" | "pick">("manual");
+  const [manual, setManual] = React.useState<DomainSeat[]>([{ domain: "", seats: 1 }]);
   const [csvDomains, setCsvDomains] = React.useState<DomainSeat[]>([]);
   const [csvName, setCsvName] = React.useState<string | null>(null);
   const [saved, setSaved] = React.useState<Array<{ domain: string; seats: number; on: boolean }>>([]);
@@ -54,7 +55,8 @@ export function BulkDomainsDialog({ open, onOpenChange, catalog, customerId, onA
 
   React.useEffect(() => {
     if (!open) {
-      setItemId(""); setRate(0); setTab("csv"); setCsvDomains([]); setCsvName(null); setSaved([]);
+      setItemId(""); setRate(0); setTab("manual"); setManual([{ domain: "", seats: 1 }]);
+      setCsvDomains([]); setCsvName(null); setSaved([]);
       if (fileRef.current) fileRef.current.value = "";
       return;
     }
@@ -105,9 +107,10 @@ export function BulkDomainsDialog({ open, onOpenChange, catalog, customerId, onA
 
   // The domains the bulk line will use, from the active tab.
   const domains: DomainSeat[] = React.useMemo(() => {
+    if (tab === "manual") return dedupeDomains(manual.filter((m) => m.domain.trim().length > 0));
     if (tab === "csv") return csvDomains;
     return dedupeDomains(saved.filter((s) => s.on).map((s) => ({ domain: s.domain, seats: s.seats })));
-  }, [tab, csvDomains, saved]);
+  }, [tab, manual, csvDomains, saved]);
 
   const totalSeats = domains.reduce((s, d) => s + d.seats, 0);
   const lineNet = rate * totalSeats; // ex-GST annual; GST added at quote level
@@ -157,11 +160,51 @@ export function BulkDomainsDialog({ open, onOpenChange, catalog, customerId, onA
 
           {/* Tabs */}
           <div className="flex items-center gap-1 border-b border-hairline">
+            <TabBtn active={tab === "manual"} onClick={() => setTab("manual")}>Type domains</TabBtn>
             <TabBtn active={tab === "csv"} onClick={() => setTab("csv")}>Upload CSV</TabBtn>
             <TabBtn active={tab === "pick"} onClick={() => setTab("pick")} disabled={!customerId}>
               Customer&apos;s domains{customerId ? "" : " (select customer first)"}
             </TabBtn>
           </div>
+
+          {tab === "manual" && (
+            <div className="space-y-2">
+              <div className="max-h-[240px] overflow-y-auto rounded-md border border-hairline divide-y divide-hairline">
+                {manual.map((row, idx) => (
+                  <div key={idx} className="flex items-center gap-2 px-2 py-1.5">
+                    <Input
+                      className="flex-1 h-8 text-sm font-mono"
+                      placeholder="domain.in"
+                      value={row.domain}
+                      onChange={(e) => setManual((arr) => arr.map((x, i) => i === idx ? { ...x, domain: e.target.value } : x))}
+                    />
+                    <Input
+                      type="number" min={1}
+                      aria-label="Seats for this domain"
+                      className="w-20 h-8 text-sm tabular-nums"
+                      value={row.seats}
+                      onChange={(e) => setManual((arr) => arr.map((x, i) => i === idx ? { ...x, seats: Math.max(0, Number(e.target.value) || 0) } : x))}
+                    />
+                    <span className="text-[10px] text-ink-3 w-8 shrink-0">seats</span>
+                    <button
+                      type="button" aria-label="Remove domain"
+                      onClick={() => setManual((arr) => arr.length > 1 ? arr.filter((_, i) => i !== idx) : [{ domain: "", seats: 1 }])}
+                      className="text-ink-3 hover:text-rose p-1 shrink-0"
+                    >
+                      <Icon name="trash" size={14} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <Button type="button" size="sm" variant="default" icon="plus"
+                onClick={() => setManual((arr) => [...arr, { domain: "", seats: 1 }])}>
+                Add domain
+              </Button>
+              <p className="text-[11px] text-ink-3">
+                Each domain has its own seat count — that seat count is what carries to its subscription on payment.
+              </p>
+            </div>
+          )}
 
           {tab === "csv" && (
             <div className="space-y-2">

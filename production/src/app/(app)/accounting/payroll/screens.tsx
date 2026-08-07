@@ -1145,13 +1145,13 @@ function PaySalaryDialog({ employee, period, onClose }: { employee: Employee; pe
 
   return (
     <Dialog open onOpenChange={(v) => { if (!v) onClose(); }}>
-      <DialogContent className="md:!max-w-lg">
+      <DialogContent className="md:!max-w-xl">
         <DialogHeader>
           <DialogTitle>Pay salary — {employee.name}</DialogTitle>
           <DialogDescription>Period {period}. This books the salary + deductions now; the net pay clears your bank once you reconcile the debit in Banking.</DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-1">
+        <div className="space-y-3">
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-medium text-ink-2 mb-1">Salary to pay (₹)</label>

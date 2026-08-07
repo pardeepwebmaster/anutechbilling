@@ -509,6 +509,30 @@ export function PayrollTab() {
   const undoSalary = useDeleteSalaryPayment();
   const confirm = useConfirm();
 
+  // Edit an UN-reconciled run: reverse it (tested delete_salary_payment RPC —
+  // itself blocked server-side once reconciled) then reopen the pay form to
+  // re-enter it. Only offered while paid_amount === 0 (not yet bank-matched).
+  const editSalary = async (e: Employee, p: SalaryPayment) => {
+    if (await confirm({
+      title: `Edit ${e.name}'s salary for this month?`,
+      body: "This reverses the current run (and its booked expense) and reopens the pay form so you can correct it. Only possible before it's reconciled to a bank line.",
+      confirmLabel: "Edit",
+    })) {
+      try { await undoSalary.mutateAsync(p.id); setPayFor(e); }
+      catch { /* the mutation surfaces its own error toast */ }
+    }
+  };
+  const undoSalaryFor = async (e: Employee, p: SalaryPayment) => {
+    if (await confirm({
+      title: `Undo ${e.name}'s salary for this month?`,
+      body: "This removes the salary + its booked expense so you can pay it again. (Blocked once it's reconciled to a bank line — un-reconcile that first.)",
+      confirmLabel: "Undo",
+      danger: true,
+    })) {
+      undoSalary.mutate(p.id);
+    }
+  };
+
   const employees = (empQ.data ?? []).filter((e) => e.is_active);
   const paidByEmp = new Map((payQ.data ?? []).map((p) => [p.employee_id, p]));
   const totalNet = (payQ.data ?? []).reduce((s, p) => s + p.net, 0);
@@ -576,26 +600,28 @@ export function PayrollTab() {
                               <Badge kind="warning" dot title="Payroll run — awaiting the bank debit to be reconciled">Awaiting reconcile</Badge>
                             )}
                             <PayslipButton employee={e} payment={p} me={meQ.data ?? null} paidVia={p.bank_account_id ? acctName.get(p.bank_account_id) ?? null : null} />
-                            {p.paid_amount === 0 && (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                icon="trash"
-                                loading={undoSalary.isPending}
-                                title="Undo this salary — reverses the expense so you can pay it again"
-                                onClick={async () => {
-                                  if (await confirm({
-                                    title: `Undo ${e.name}'s salary for this month?`,
-                                    body: "This removes the salary + its booked expense so you can pay it again. (Blocked only once it's reconciled to a bank line — un-reconcile that first.)",
-                                    confirmLabel: "Undo",
-                                    danger: true,
-                                  })) {
-                                    undoSalary.mutate(p.id);
-                                  }
-                                }}
-                              >
-                                Undo
-                              </Button>
+                            {p.paid_amount === 0 ? (
+                              <>
+                                <Button
+                                  variant="ghost" size="sm" icon="edit"
+                                  title="Edit this salary — reverses the run and reopens the pay form so you can correct it"
+                                  onClick={() => editSalary(e, p)}
+                                >
+                                  Edit
+                                </Button>
+                                <Button
+                                  variant="ghost" size="sm" icon="trash"
+                                  loading={undoSalary.isPending}
+                                  title="Undo this salary — reverses the expense so you can pay it again"
+                                  onClick={() => undoSalaryFor(e, p)}
+                                >
+                                  Undo
+                                </Button>
+                              </>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 text-[11px] text-ink-3" title="Reconciled to a bank line. To edit or undo, first un-reconcile that bank line in Accounting → Banking.">
+                                <Icon name="lock" size={13} /> Locked
+                              </span>
                             )}
                           </div>
                         ) : (
@@ -645,26 +671,19 @@ export function PayrollTab() {
                           )}
                           <div className="flex items-center gap-1">
                             <PayslipButton employee={e} payment={p} me={meQ.data ?? null} paidVia={p.bank_account_id ? acctName.get(p.bank_account_id) ?? null : null} />
-                            {p.paid_amount === 0 && (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                icon="trash"
-                                loading={undoSalary.isPending}
-                                title="Undo this salary — reverses the expense so you can pay it again"
-                                onClick={async () => {
-                                  if (await confirm({
-                                    title: `Undo ${e.name}'s salary for this month?`,
-                                    body: "This removes the salary + its booked expense so you can pay it again. (Blocked only once it's reconciled to a bank line — un-reconcile that first.)",
-                                    confirmLabel: "Undo",
-                                    danger: true,
-                                  })) {
-                                    undoSalary.mutate(p.id);
-                                  }
-                                }}
-                              >
-                                Undo
-                              </Button>
+                            {p.paid_amount === 0 ? (
+                              <>
+                                <Button variant="ghost" size="sm" icon="edit" aria-label={`Edit ${e.name}'s salary`}
+                                  title="Edit — reverses the run and reopens the pay form" onClick={() => editSalary(e, p)} />
+                                <Button variant="ghost" size="sm" icon="trash" aria-label={`Undo ${e.name}'s salary`}
+                                  loading={undoSalary.isPending}
+                                  title="Undo this salary — reverses the expense so you can pay it again"
+                                  onClick={() => undoSalaryFor(e, p)} />
+                              </>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 text-[11px] text-ink-3" title="Reconciled to a bank line. To edit or undo, first un-reconcile that bank line in Accounting → Banking.">
+                                <Icon name="lock" size={13} /> Locked
+                              </span>
                             )}
                           </div>
                         </>

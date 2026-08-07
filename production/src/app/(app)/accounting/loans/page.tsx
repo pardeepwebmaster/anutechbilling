@@ -782,6 +782,7 @@ function DisburseDialog({ onClose, initialKind }: { onClose: () => void; initial
       : kind === "salary_advance"
         ? "Advance pay, recovered later — usually deducted from salary."
         : "A personal loan, repaid back in cash / bank / salary deduction.";
+  const kindNoun = kind === "salary_advance" ? "salary advance" : kind === "expense_advance" ? "expense advance" : "loan";
 
   return (
     <Dialog open onOpenChange={(v) => { if (!v) onClose(); }}>
@@ -793,13 +794,28 @@ function DisburseDialog({ onClose, initialKind }: { onClose: () => void; initial
 
         <div className="space-y-3">
           <div>
-            <label className="block text-xs font-medium text-ink-2 mb-1">Type</label>
-            <select value={kind} onChange={(e) => setKind(e.target.value as EmployeeLoanKind)} className={selectCls}>
-              <option value="loan">Loan (repaid back)</option>
-              <option value="salary_advance">Salary advance (recovered from pay)</option>
-              <option value="expense_advance">Expense advance (to spend on company work)</option>
-            </select>
-            <p className="mt-1 text-[11px] text-ink-3">{kindHint}</p>
+            <label className="block text-xs font-medium text-ink-2 mb-1.5">What are you giving?</label>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              {([
+                { k: "loan", label: "Loan", desc: "Repaid back" },
+                { k: "salary_advance", label: "Salary advance", desc: "Recovered from pay" },
+                { k: "expense_advance", label: "Expense advance", desc: "Spent on company work" },
+              ] as const).map((opt) => (
+                <button
+                  key={opt.k}
+                  type="button"
+                  onClick={() => setKind(opt.k)}
+                  className={cn(
+                    "rounded-lg border px-3 py-2 text-left transition-colors",
+                    kind === opt.k ? "border-amber bg-amber-soft" : "border-hairline hover:bg-paper-2",
+                  )}
+                >
+                  <div className={cn("text-sm font-medium", kind === opt.k ? "text-amber-ink" : "text-ink")}>{opt.label}</div>
+                  <div className="text-[10px] text-ink-3 mt-0.5">{opt.desc}</div>
+                </button>
+              ))}
+            </div>
+            <p className="mt-1.5 text-[11px] text-ink-3">{kindHint}</p>
           </div>
           <div className="relative">
             <label className="block text-xs font-medium text-ink-2 mb-1">Employee</label>
@@ -809,7 +825,6 @@ function DisburseDialog({ onClose, initialKind }: { onClose: () => void; initial
               onFocus={() => setNameOpen(true)}
               onBlur={() => setTimeout(() => setNameOpen(false), 130)}
               placeholder={employees.length ? "Search employees…" : "Type a name"}
-              autoFocus
             />
             {nameOpen && employees.length > 0 && (() => {
               const q = name.trim().toLowerCase();
@@ -868,7 +883,7 @@ function DisburseDialog({ onClose, initialKind }: { onClose: () => void; initial
             disabled={!name.trim() || !(amt > 0) || !accountId}
             onClick={submit}
           >
-            Give {amt > 0 ? rupee(amt) : "loan"}
+            Give {kindNoun}{amt > 0 ? ` · ${rupee(amt)}` : ""}
           </Button>
         </DialogFooter>
       </DialogContent>

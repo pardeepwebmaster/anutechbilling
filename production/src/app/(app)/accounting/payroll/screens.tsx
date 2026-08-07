@@ -1104,6 +1104,14 @@ function PaySalaryDialog({ employee, period, onClose }: { employee: Employee; pe
     onLopDays(String(lopSuggestion.lopDays));
   }
 
+  // Money guard — attendance shows possible loss-of-pay that hasn't been
+  // deducted, or the month isn't over yet, but full salary is about to go out.
+  const suggestedLopUnapplied = lopSuggestion.lopDays > 0 && lopN === 0;
+  const [pyGuard, pmGuard] = period.split("-").map(Number);
+  const lastDayOfPeriod = new Date(pyGuard, pmGuard, 0).getUTCDate();
+  const todayIso = todayISO();
+  const monthIncomplete = period >= todayIso.slice(0, 7) && Number(todayIso.slice(8, 10)) < lastDayOfPeriod;
+
   async function submit() {
     if (!valid) return;
     await pay.mutateAsync({
@@ -1148,6 +1156,29 @@ function PaySalaryDialog({ employee, period, onClose }: { employee: Employee; pe
             </div>
             <p className="text-[11px] text-ink-3">One-time bonus/incentive for this month — added to net pay + the Salaries expense, shown separately on the payslip.</p>
           </div>
+
+          {(suggestedLopUnapplied || monthIncomplete) && (
+            <div className="rounded-md border border-amber/40 bg-amber-soft/40 px-3 py-2.5 flex items-start gap-2">
+              <Icon name="alert" size={14} className="mt-0.5 shrink-0 text-amber-ink" />
+              <div className="space-y-1.5 text-[12px] text-amber-ink">
+                {suggestedLopUnapplied && (
+                  <p>
+                    Attendance shows only <b>{lopSuggestion.present} present</b> day(s) this month
+                    {lopSuggestion.absent > 0 ? <> and <b>{lopSuggestion.absent} absent</b></> : null} — about
+                    {" "}<b>{lopSuggestion.lopDays} day(s) of loss-of-pay</b> aren&apos;t deducted, so you&apos;re set to pay the <b>full</b> salary.
+                  </p>
+                )}
+                {monthIncomplete && (
+                  <p>{periodLabel(period)} isn&apos;t over yet — you&apos;re paying before the month ends, so attendance may still change.</p>
+                )}
+                {suggestedLopUnapplied && (
+                  <Button size="sm" variant="primary" onClick={applyLopSuggestion}>
+                    Apply {lopSuggestion.lopDays}d LOP from attendance
+                  </Button>
+                )}
+              </div>
+            </div>
+          )}
 
           <div className="rounded-md border border-hairline p-3 space-y-3">
             <div className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold">Deductions</div>

@@ -33,7 +33,8 @@ import {
 import { useConfirm } from "@/components/providers/confirm-provider";
 import { useVendors, useUpsertVendor, useDeleteVendor, useBillsByVendor, type Vendor } from "@/lib/queries/vendors";
 import { VENDOR_BILL_CATEGORIES } from "@/lib/queries/vendor-bills";
-import { rupee, formatDate, GST_STATE_BY_CODE } from "@/lib/utils";
+import { rupee, formatDate, GST_STATE_BY_CODE, gstStateFromGstin } from "@/lib/utils";
+import GstinVerifyCard from "@/components/features/gstin/gstin-verify-card";
 
 export default function VendorsPage() {
   const router = useRouter();
@@ -229,6 +230,25 @@ function VendorFormDialog({ vendor, onClose }: { vendor?: Vendor; onClose: () =>
 
   const STATE_NAMES = React.useMemo(() => Object.values(GST_STATE_BY_CODE).sort(), []);
 
+  // Typing a GSTIN instantly fills the State from its first two digits (the
+  // GST state code) — offline, no API. Only auto-fills when State is still
+  // blank so a manual pick is never overwritten.
+  const onGstinChange = (raw: string) => {
+    setGstin(raw);
+    const { name: stName } = gstStateFromGstin(raw);
+    if (stName) setState((prev) => (prev ? prev : stName));
+  };
+
+  // "Fill form from GST" — push verified GSTN details into the vendor fields.
+  const fillFromGst = (v: import("@/lib/supabase/database.types").GstinVerification) => {
+    if (v.legal_name) setName(v.legal_name);
+    if (v.address) setAddress(v.address);
+    if (v.principal_address?.city) setCity(v.principal_address.city);
+    const stName = (v.state_code && GST_STATE_BY_CODE[v.state_code]) || v.principal_address?.state || null;
+    if (stName) setState(stName);
+    if (v.principal_address?.pin_code) setPincode(v.principal_address.pin_code);
+  };
+
   const submit = async () => {
     if (!name.trim()) return;
     try {
@@ -255,20 +275,17 @@ function VendorFormDialog({ vendor, onClose }: { vendor?: Vendor; onClose: () =>
               <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Google Cloud India" autoFocus />
             </FormField>
             <FormField label="GSTIN (optional)">
-              <Input value={gstin} onChange={(e) => setGstin(e.target.value)} placeholder="27ABCDE1234F1Z5" />
+              <Input value={gstin} onChange={(e) => onGstinChange(e.target.value)} placeholder="e.g. 27ABCDE1234F1Z5" />
             </FormField>
           </div>
-          <FormField label="Default category">
-            <Select value={category || "none"} onValueChange={(v) => setCategory(v === "none" ? "" : v)}>
-              <SelectTrigger><SelectValue placeholder="—" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">— none —</SelectItem>
-                {VENDOR_BILL_CATEGORIES.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </FormField>
+          <GstinVerifyCard gstin={gstin} noPersist onFillForm={fillFromGst} />
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <FormField label="Contact name"><Input value={contactName} onChange={(e) => setContactName(e.target.value)} placeholder="e.g. Rahul Sharma" /></FormField>
+            <FormField label="Email"><Input value={contactEmail} onChange={(e) => setContactEmail(e.target.value)} placeholder="e.g. name@vendor.com" /></FormField>
+            <FormField label="Phone"><Input value={contactPhone} onChange={(e) => setContactPhone(e.target.value)} placeholder="e.g. +91 98765 43210" /></FormField>
+          </div>
           <FormField label="Address (optional)">
-            <Textarea rows={2} value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Building, street, area…" />
+            <Textarea rows={2} value={address} onChange={(e) => setAddress(e.target.value)} placeholder="e.g. 4th Floor, Tower B, Cyber City" />
           </FormField>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <FormField label="City">
@@ -284,15 +301,19 @@ function VendorFormDialog({ vendor, onClose }: { vendor?: Vendor; onClose: () =>
               </Select>
             </FormField>
             <FormField label="PIN code">
-              <Input value={pincode} onChange={(e) => setPincode(e.target.value.replace(/\D/g, "").slice(0, 6))} inputMode="numeric" placeholder="400001" />
+              <Input value={pincode} onChange={(e) => setPincode(e.target.value.replace(/\D/g, "").slice(0, 6))} inputMode="numeric" placeholder="e.g. 400001" />
             </FormField>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <FormField label="Contact name"><Input value={contactName} onChange={(e) => setContactName(e.target.value)} /></FormField>
-            <FormField label="Email"><Input value={contactEmail} onChange={(e) => setContactEmail(e.target.value)} /></FormField>
-            <FormField label="Phone"><Input value={contactPhone} onChange={(e) => setContactPhone(e.target.value)} /></FormField>
-          </div>
-          <FormField label="Notes (optional)"><Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Reseller portal, account manager…" /></FormField>
+          <FormField label="Default category">
+            <Select value={category || "none"} onValueChange={(v) => setCategory(v === "none" ? "" : v)}>
+              <SelectTrigger><SelectValue placeholder="—" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">— none —</SelectItem>
+                {VENDOR_BILL_CATEGORIES.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </FormField>
+          <FormField label="Notes (optional)"><Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="e.g. Reseller portal, account manager" /></FormField>
         </div>
         <DialogFooter>
           <Button type="button" variant="default" onClick={onClose}>Cancel</Button>

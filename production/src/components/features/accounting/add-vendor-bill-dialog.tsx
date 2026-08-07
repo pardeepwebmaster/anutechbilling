@@ -427,16 +427,16 @@ export function AddVendorBillDialog({ onClose }: { onClose: () => void }) {
                 </div>
                 {lines.map((l, i) => (
                   <div key={i} className="grid grid-cols-12 gap-2 items-center">
-                    <Input className="col-span-12 sm:col-span-6" placeholder="e.g. Team plan - Premium"
+                    <Input wrapperClassName="col-span-12 sm:col-span-5" placeholder="e.g. Team plan - Premium"
                       value={l.description} onChange={(e) => setLine(i, { description: e.target.value })} />
-                    <Input className="col-span-3 sm:col-span-2" type="number" min={0} step="any" placeholder="Qty"
+                    <Input wrapperClassName="col-span-3 sm:col-span-2" className="text-right" type="number" min={0} step="any" placeholder="Qty"
                       value={l.qty} onChange={(e) => setLine(i, { qty: e.target.value })} />
-                    <Input className="col-span-4 sm:col-span-2" type="number" min={0} step="any" placeholder="Unit"
+                    <Input wrapperClassName="col-span-3 sm:col-span-2" className="text-right" type="number" min={0} step="any" placeholder="Unit"
                       value={l.unit_price} onChange={(e) => setLine(i, { unit_price: e.target.value })} />
-                    <Input className="col-span-4 sm:col-span-2" type="number" min={0} step="any" placeholder="Amount"
+                    <Input wrapperClassName="col-span-3 sm:col-span-2" className="text-right" type="number" min={0} step="any" placeholder="Amount"
                       value={l.amount} onChange={(e) => setLine(i, { amount: e.target.value })} />
                     <button type="button" onClick={() => removeLine(i)} aria-label="Remove item"
-                      className="col-span-1 justify-self-center text-ink-3 hover:text-rose">
+                      className="col-span-3 sm:col-span-1 justify-self-center text-ink-3 hover:text-rose">
                       <Icon name="x" size={14} />
                     </button>
                   </div>

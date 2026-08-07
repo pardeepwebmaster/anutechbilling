@@ -608,6 +608,13 @@ export function PayrollTab() {
           <label className="text-xs text-ink-3 font-semibold uppercase tracking-wide">Month</label>
           <input type="month" value={period} onChange={(e) => setPeriod(e.target.value)}
             className="px-3 py-1.5 text-sm rounded-md border border-hairline bg-paper" />
+          <Button
+            variant="outline" size="sm" icon="rupee" className="ml-auto"
+            title="Give an advance against salary — tracked as owed back and auto-recovered from a future payslip"
+            onClick={() => router.push("/accounting/loans?give=salary_advance" as never)}
+          >
+            Give salary advance
+          </Button>
         </div>
       </Card>
 

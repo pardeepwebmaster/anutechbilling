@@ -10,6 +10,7 @@
 "use client";
 
 import * as React from "react";
+import { useSearchParams } from "next/navigation";
 
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -62,7 +63,10 @@ const METHOD_LABEL: Record<LoanRepaymentMethod, string> = {
 
 export default function EmployeeLoansPage() {
   const q = useEmployeeLoans();
+  const params = useSearchParams();
   const [disburseOpen, setDisburseOpen] = React.useState(false);
+  const [giveKind, setGiveKind] = React.useState<EmployeeLoanKind | null>(null);
+  const giveOpenedRef = React.useRef(false);
   const [repayFor, setRepayFor] = React.useState<EmployeeLoan | null>(null);
   const [settleFor, setSettleFor] = React.useState<EmployeeLoan | null>(null);
   const [purposeFor, setPurposeFor] = React.useState<EmployeeLoan | null>(null);
@@ -76,6 +80,19 @@ export default function EmployeeLoansPage() {
   const confirm = useConfirm();
   const pendingClaimsQ = useExpenseClaims("pending");
   const pendingClaims = pendingClaimsQ.data ?? [];
+
+  // Deep-link: /accounting/loans?give=salary_advance opens the give dialog
+  // pre-set to that kind (used by the Payroll "Give salary advance" button).
+  React.useEffect(() => {
+    if (giveOpenedRef.current) return;
+    const g = params.get("give");
+    if (g === "loan" || g === "salary_advance" || g === "expense_advance") {
+      giveOpenedRef.current = true;
+      setGiveKind(g);
+      setDisburseOpen(true);
+      if (g !== "loan") setTypeFilter(g);
+    }
+  }, [params]);
 
   const confirmDelete = async (l: EmployeeLoan) => {
     if (await confirm({
@@ -283,7 +300,7 @@ export default function EmployeeLoansPage() {
       )}
 
       <FAB icon="plus" label="Loan" onClick={() => setDisburseOpen(true)} ariaLabel="Give loan" />
-      {disburseOpen && <DisburseDialog onClose={() => setDisburseOpen(false)} />}
+      {disburseOpen && <DisburseDialog initialKind={giveKind ?? undefined} onClose={() => { setDisburseOpen(false); setGiveKind(null); }} />}
       {repayFor && <RepaymentDialog loan={repayFor} onClose={() => setRepayFor(null)} />}
       {settleFor && <SettleDialog loan={settleFor} onClose={() => setSettleFor(null)} />}
       {purposeFor && <EditPurposeDialog loan={purposeFor} onClose={() => setPurposeFor(null)} />}
@@ -728,7 +745,7 @@ function KPI({ label, value, tone }: { label: string; value: string; tone?: "amb
 
 const selectCls = "w-full rounded-md border border-hairline bg-paper px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-amber";
 
-function DisburseDialog({ onClose }: { onClose: () => void }) {
+function DisburseDialog({ onClose, initialKind }: { onClose: () => void; initialKind?: EmployeeLoanKind }) {
   const accountsQ = useBankAccounts();
   const disburse  = useDisburseLoan();
   const empQ      = useEmployees();
@@ -740,7 +757,7 @@ function DisburseDialog({ onClose }: { onClose: () => void }) {
   const [amount, setAmount]     = React.useState("");
   const [date, setDate]         = React.useState(todayISO());
   const [accountId, setAccountId] = React.useState("");
-  const [kind, setKind]         = React.useState<EmployeeLoanKind>("loan");
+  const [kind, setKind]         = React.useState<EmployeeLoanKind>(initialKind ?? "loan");
   const [notes, setNotes]       = React.useState("");
 
   React.useEffect(() => {

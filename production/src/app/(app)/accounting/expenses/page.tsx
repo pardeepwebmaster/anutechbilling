@@ -66,10 +66,6 @@ function istNow() {
   return { y: ist.getUTCFullYear(), m: ist.getUTCMonth() + 1, d: ist.getUTCDate() };
 }
 
-function thisMonthRange(): DateRange {
-  const { y, m, d } = istNow();
-  return { from: iso(y, m, 1), to: iso(y, m, d) };
-}
 
 // Quick presets (Indian FY = Apr 1 → Mar 31).
 const RANGE_PRESETS: { id: string; label: string; range: () => DateRange }[] = [
@@ -87,7 +83,9 @@ const RANGE_PRESETS: { id: string; label: string; range: () => DateRange }[] = [
 ];
 
 export default function ExpensesPage() {
-  const [range, setRange]     = React.useState(thisMonthRange());
+  // Default to the "This month" preset itself (not 1st→today) so the chip shows
+  // as selected out of the box.
+  const [range, setRange]     = React.useState(RANGE_PRESETS[0].range());
   const [catFilter, setCatFilter] = React.useState("");
   const [addOpen, setAddOpen] = React.useState(false);
   const [editing, setEditing] = React.useState<Expense | null>(null);

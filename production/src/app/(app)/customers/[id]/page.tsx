@@ -152,7 +152,10 @@ export default function CustomerDetailPage() {
   const handleDelete = () => {
     if (deleteBlock) { toast.error(deleteBlock); return; }
     if (window.confirm(`Permanently delete customer "${c.name}"?\n\nThis cannot be undone.`)) {
-      deleteCustomer.mutate(c.id, { onSuccess: () => router.push("/customers" as never) });
+      deleteCustomer.mutate(
+        { id: c.id, customer_number: c.customer_number },
+        { onSuccess: () => router.push("/customers" as never) }
+      );
     }
   };
 

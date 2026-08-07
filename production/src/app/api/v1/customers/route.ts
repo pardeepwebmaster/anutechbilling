@@ -11,7 +11,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { authenticateApiKey } from "@/lib/api-keys/auth";
 import { createAdminClient } from "@/lib/supabase/server";
 import { mapCustomer, mapCustomerListItem, parsePagination, paginationMeta } from "@/lib/api/v1-mappers";
-import { unauthorized, notFound } from "@/lib/api/v1-response";
+import { unauthorized, notFound, badRequest } from "@/lib/api/v1-response";
 import type { Customer as CustomerRow } from "@/lib/supabase/database.types";
 
 export const runtime = "nodejs";
@@ -75,4 +75,48 @@ export async function GET(req: NextRequest) {
     customers: rows.map((c) => mapCustomerListItem(c, active.has(c.id))),
     ...paginationMeta(count ?? 0, page, perPage),
   });
+}
+
+/**
+ * POST /api/v1/customers   { name, email }
+ *
+ * Identity-only create-or-link, used by Customer Panel to keep a Billing
+ * contact in sync for (a) an admin's manual "Also create Billing account"
+ * checkbox and (b) a real self-service purchase. Deliberately creates a bare
+ * contact — no invoice, no subscription. Idempotent by email within the
+ * tenant: a second call for the same person links to the existing row
+ * instead of creating a duplicate.
+ */
+export async function POST(req: NextRequest) {
+  const auth = await authenticateApiKey(req);
+  if (!auth) return unauthorized();
+
+  const body = await req.json().catch(() => null) as { name?: string; email?: string } | null;
+  const name = body?.name?.trim();
+  const email = body?.email?.trim();
+  if (!name || !email) return badRequest("name and email are required");
+
+  const admin = createAdminClient();
+
+  const { data: existing } = await admin
+    .from("customers").select("*")
+    .eq("tenant_id", auth.tenantId)
+    .ilike("contact_email", email)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (existing) {
+    const customer = existing as CustomerRow;
+    const active = await activeCustomerIds(admin, auth.tenantId, [customer.id]);
+    return NextResponse.json({ created: false, ...mapCustomer(customer, active.has(customer.id)) });
+  }
+
+  const { data: created, error } = await admin
+    .from("customers")
+    .insert({ tenant_id: auth.tenantId, name, contact_email: email })
+    .select("*")
+    .single();
+  if (error || !created) return badRequest("Could not create customer");
+
+  return NextResponse.json({ created: true, ...mapCustomer(created as CustomerRow, false) });
 }

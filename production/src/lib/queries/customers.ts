@@ -124,11 +124,24 @@ export function useDeleteCustomer() {
   const qc = useQueryClient();
 
   return useMutation({
-    mutationFn: async (id: string) => {
+    mutationFn: async (customer: { id: string; customer_number?: string | null }) => {
       const supabase = createClient();
-      const { error } = await supabase.rpc("delete_customer", { p_customer_id: id });
+      const { error } = await supabase.rpc("delete_customer", { p_customer_id: customer.id });
       if (error) throw error;
-      return id;
+
+      // Best-effort — tell Customer Panel to drop its now-stale link to this
+      // customer. Never blocks/fails the delete itself if this fails.
+      try {
+        await fetch("/api/customers/notify-deleted", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ billingCustomerId: customer.customer_number || customer.id }),
+        });
+      } catch {
+        /* best-effort — the customer is deleted from Billing regardless */
+      }
+
+      return customer.id;
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["customers"] });

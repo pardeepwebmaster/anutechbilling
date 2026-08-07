@@ -42,6 +42,18 @@ import { quoteAcceptUrl } from "@/lib/quotes/accept-link";
 import { timingSafeEqualStr } from "@/lib/crypto/timing-safe";
 import type { QuoteLineItem } from "@/lib/supabase/database.types";
 
+// Stage 3/4 — domain/hosting subscriptions (Customer Panel's products,
+// tracked here since migration 0169). DOMAIN_HOSTING_RENEWAL_LIVE gates
+// whether the suspend step actually calls Customer Panel to execute a real
+// DirectAdmin suspension, or just logs what it WOULD do. Defaults to
+// shadow-only (unset/false) — flip only after a real observation period.
+// Reminder emails for these vendors still send either way (email has no
+// infrastructure side effect, so there's nothing risky to shadow there);
+// only the suspend action — the one with a real infra consequence — is
+// gated.
+const DOMAIN_HOSTING_VENDORS = new Set(["domain", "hosting"]);
+const DOMAIN_HOSTING_RENEWAL_LIVE = process.env.DOMAIN_HOSTING_RENEWAL_LIVE === "true";
+
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
@@ -122,7 +134,7 @@ async function handle(req: Request): Promise<NextResponse<CronResult | { error: 
     .from("subscriptions")
     .select(`
       id, tenant_id, customer_id, customer_name, plan, vendor, seats, mrr,
-      renewal_date, status, renewal_state, reminder_count, renewal_quote_id
+      renewal_date, status, renewal_state, reminder_count, renewal_quote_id, domain
     `)
     .eq("status", "active")
     .eq("auto_renew", true)
@@ -169,6 +181,58 @@ async function handle(req: Request): Promise<NextResponse<CronResult | { error: 
 
       // ── Suspend path ─────────────────────────────────────────────
       if (decision.shouldSuspend) {
+        const isDomainHosting = DOMAIN_HOSTING_VENDORS.has(sub.vendor);
+
+        if (isDomainHosting && !DOMAIN_HOSTING_RENEWAL_LIVE) {
+          // Shadow mode: log what would happen, touch nothing real.
+          await supabase.from("renewal_email_log").insert({
+            tenant_id:       sub.tenant_id,
+            subscription_id: sub.id,
+            cadence_step:    "suspended",
+            recipient_email: customer?.contact_email ?? "(unknown)",
+            subject:         "(shadow mode)",
+            status:          "skipped",
+            error_message:   `SHADOW MODE — would suspend ${sub.vendor} "${sub.plan}" (domain=${sub.domain ?? "?"}). DOMAIN_HOSTING_RENEWAL_LIVE is not set.`,
+          });
+          detail.emailStatus = "(shadow: would suspend)";
+          result.details.push(detail);
+          continue;
+        }
+
+        // vendor='hosting' with a saved external_ref (DirectAdmin username,
+        // migration 0171): actually execute the suspend via Customer
+        // Panel's existing hosting/actions endpoint — best-effort, a
+        // failure here still leaves the local status update below so the
+        // cron's own bookkeeping doesn't get stuck retrying forever.
+        // vendor='domain' has nothing TO execute (a registrar has no
+        // "suspend" — the domain simply lapses if not renewed).
+        if ((sub.vendor as string) === "hosting") {
+          // external_ref isn't in the typed select above (generated types
+          // are stale re: migration 0171 — see that file's note), fetched
+          // separately here since it's only needed for this one branch.
+          const { data: refRow } = await supabase
+            .from("subscriptions")
+            .select("external_ref" as never)
+            .eq("id", sub.id)
+            .single();
+          const externalRef = (refRow as unknown as { external_ref: string | null } | null)?.external_ref;
+
+          const cpUrl = process.env.CUSTOMER_PANEL_API_URL;
+          const cpKey = process.env.CUSTOMER_PANEL_COMMAND_API_KEY;
+          if (externalRef && cpUrl && cpKey) {
+            try {
+              await fetch(`${cpUrl.replace(/\/$/, "")}/api/admin/hosting/actions`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json", "X-Integration-Key": cpKey },
+                body: JSON.stringify({ action: "suspend", username: externalRef }),
+                signal: AbortSignal.timeout(8000),
+              });
+            } catch (execErr) {
+              console.error(`[cron/renewals] hosting suspend execution failed for ${sub.id}:`, (execErr as Error).message);
+            }
+          }
+        }
+
         await supabase
           .from("subscriptions")
           .update({

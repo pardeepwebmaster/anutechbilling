@@ -45,6 +45,7 @@ export function AddCustomerForm({ open, onOpenChange, customer, onCreated }: Add
     register, setValue, watch, errors, isSubmitting, isPending, isEdit,
     contactPersonFields, appendContactPerson, removeContactPerson,
     verification, setVerification, watchedGstin,
+    provisionCustomerPanel, setProvisionCustomerPanel,
     isForeign, foreignStates, countryReg, onCountryChange, submit,
   } = useCustomerForm({
     customer,
@@ -336,6 +337,18 @@ export function AddCustomerForm({ open, onOpenChange, customer, onCreated }: Add
               <Input id="ship_country" placeholder="Country" {...register("shipping.country")} />
             </FormField>
           </div>
+
+          {!isEdit && (
+            <label className="flex items-center gap-2 text-sm text-ink-2">
+              <input
+                type="checkbox"
+                className="h-4 w-4 rounded border-hairline"
+                checked={provisionCustomerPanel}
+                onChange={(e) => setProvisionCustomerPanel(e.target.checked)}
+              />
+              Also create Customer Panel account for this customer
+            </label>
+          )}
 
           </div>  {/* close scrollable form body */}
 

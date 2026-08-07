@@ -79,6 +79,7 @@ export function CustomerFormPage({ customer }: CustomerFormPageProps) {
     register, setValue, watch, errors, isSubmitting, isPending, isEdit,
     contactPersonFields, appendContactPerson, removeContactPerson,
     verification, setVerification, watchedGstin,
+    provisionCustomerPanel, setProvisionCustomerPanel,
     isForeign, foreignStates, countryReg, onCountryChange, submit,
   } = useCustomerForm({
     customer,
@@ -577,9 +578,22 @@ export function CustomerFormPage({ customer }: CustomerFormPageProps) {
         </section>
 
         {/* ── Footer actions (always reachable; header also has them on ≥sm) ── */}
-        <div className="flex items-center justify-end gap-2 mt-8 pt-5 border-t border-hairline">
-          <Button type="button" variant="ghost" onClick={cancel}>Cancel</Button>
-          {saveButton}
+        <div className="flex items-center justify-between gap-2 mt-8 pt-5 border-t border-hairline">
+          {!isEdit ? (
+            <label className="flex items-center gap-2 text-sm text-ink-2">
+              <input
+                type="checkbox"
+                className="h-4 w-4 rounded border-hairline"
+                checked={provisionCustomerPanel}
+                onChange={(e) => setProvisionCustomerPanel(e.target.checked)}
+              />
+              Also create Customer Panel account for this customer
+            </label>
+          ) : <span />}
+          <div className="flex items-center gap-2">
+            <Button type="button" variant="ghost" onClick={cancel}>Cancel</Button>
+            {saveButton}
+          </div>
         </div>
       </form>
 

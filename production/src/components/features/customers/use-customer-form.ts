@@ -18,6 +18,7 @@ import * as React from "react";
 import { useForm, useFieldArray } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import { toast } from "sonner";
 
 import { useCreateCustomer, useUpdateCustomer } from "@/lib/queries/customers";
 import { validateGstin, gstStateFromGstin } from "@/lib/utils";
@@ -130,6 +131,10 @@ export function useCustomerForm({ customer, onSaved, open = true }: UseCustomerF
   // Hold the live verification result so we persist it with the save (no extra
   // round-trip).
   const [verification, setVerification] = React.useState<GstinVerification | null>(null);
+  // Create-only opt-in: also provision a Customer Panel login for this
+  // customer once created. Not a customer field — an action flag for this
+  // submission, so it lives here rather than in customerSchema.
+  const [provisionCustomerPanel, setProvisionCustomerPanel] = React.useState(false);
 
   const form = useForm<CustomerFormData>({
     resolver: zodResolver(customerSchema),
@@ -145,6 +150,7 @@ export function useCustomerForm({ customer, onSaved, open = true }: UseCustomerF
     if (!open) {
       reset({ country: "India", customer_type: "business" });
       setVerification(null);
+      setProvisionCustomerPanel(false);
       return;
     }
     if (customer) {
@@ -287,7 +293,23 @@ export function useCustomerForm({ customer, onSaved, open = true }: UseCustomerF
       onSaved?.(customer.id);
     } else {
       const created = await createCustomer.mutateAsync(payload);
-      if (created?.id) onSaved?.(created.id);
+      if (created?.id) {
+        onSaved?.(created.id);
+        if (provisionCustomerPanel) {
+          try {
+            const res = await fetch(`/api/customers/${created.id}/provision-customer-panel`, { method: "POST" });
+            const body = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(body.error || "Could not create Customer Panel account");
+            toast.success(
+              body.created
+                ? "Customer Panel account created — setup email sent"
+                : "Linked to an existing Customer Panel account"
+            );
+          } catch (e) {
+            toast.error((e as Error).message || "Could not create Customer Panel account");
+          }
+        }
+      }
     }
   };
 
@@ -321,6 +343,8 @@ export function useCustomerForm({ customer, onSaved, open = true }: UseCustomerF
     removeContactPerson,
     verification,
     setVerification,
+    provisionCustomerPanel,
+    setProvisionCustomerPanel,
     watchedGstin,
     isForeign,
     foreignStates,

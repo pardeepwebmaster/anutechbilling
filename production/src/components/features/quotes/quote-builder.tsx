@@ -98,6 +98,13 @@ export function QuoteBuilder() {
   const urlPhone    = searchParams.get("phone");
   // Duplicate / revise an existing quote ("edit & resend" workflow)
   const duplicateOf       = searchParams.get("duplicate");
+  // Edit an existing DRAFT quote in place (?edit=<id>) — distinct from
+  // duplicate above: duplicate copies into a brand-new id, this reuses the
+  // same id so saving updates the existing row instead of creating another
+  // one (useCreateQuote already falls back to UPDATE when the id collides —
+  // see its comment — so no new mutation was needed for this).
+  const editOf            = searchParams.get("edit");
+  const { data: editQuote } = useQuote(editOf ?? undefined);
   const urlCustomer       = searchParams.get("customer");  // Customer 360 → "Add service"
   // Invoice mode (?invoice=1): the same builder, but on save it generates a GST
   // invoice immediately (a "direct invoice") instead of just saving a quote.
@@ -418,6 +425,44 @@ export function QuoteBuilder() {
 
     toast.success(`Revising ${sourceQuote.id} — edit anything, then Save & send`);
   }, [duplicateOf, sourceQuote]);
+
+  // ── Pre-fill for real in-place edit (?edit=<id>) — only drafts are
+  // editable; a sent/accepted quote is a document that's already gone out
+  // and shouldn't silently change under the customer. ──
+  const editedRef = React.useRef(false);
+  React.useEffect(() => {
+    if (editedRef.current) return;
+    if (!editOf || !editQuote) return;
+    editedRef.current = true;
+
+    if (editQuote.status !== "draft") {
+      toast.error(`${editQuote.id} is ${editQuote.status}, not a draft — opening as read-only view instead.`);
+      router.replace(`/quotes/${editQuote.id}` as never);
+      return;
+    }
+
+    setQuoteId(editQuote.id);
+    if (editQuote.customer_id) setCustomerId(editQuote.customer_id);
+    if (Array.isArray(editQuote.line_items)) {
+      setLineItems(editQuote.line_items as QuoteLineItem[]);
+    }
+    if (editQuote.tax_rate           != null) setTaxRate(editQuote.tax_rate);
+    if (editQuote.billing_cycle)               setBillingCycle(editQuote.billing_cycle);
+    if (editQuote.payment_terms_days != null) setPaymentTermsDays(editQuote.payment_terms_days);
+    if (editQuote.terms_conditions)            setTermsConditions(editQuote.terms_conditions);
+    if (editQuote.notes)                       setNotes(editQuote.notes);
+    if (editQuote.currency)                    setCurrency(editQuote.currency);
+    if (editQuote.exchange_rate      != null) setExchangeRate(editQuote.exchange_rate);
+    if (!editQuote.customer_id && editQuote.customer_name) setProspectName(editQuote.customer_name);
+    if (editQuote.prospect_state_code)         setProspectStateCode(editQuote.prospect_state_code);
+    if (editQuote.prospect_country)            setProspectCountry(editQuote.prospect_country);
+    if (editQuote.expires_date) {
+      const days = Math.round((new Date(editQuote.expires_date).getTime() - Date.now()) / (24 * 60 * 60 * 1000));
+      if (days > 0) setValidityDays(days);
+    }
+
+    toast.success(`Editing ${editQuote.id}`);
+  }, [editOf, editQuote, router]);
 
   // ── Pre-fill the customer from ?customer=<id> (Customer 360 → "Add service") ──
   // Mirrors the ?lead= path but for an EXISTING customer (cross-sell / new service).

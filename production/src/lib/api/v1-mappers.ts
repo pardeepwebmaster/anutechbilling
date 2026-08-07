@@ -80,6 +80,10 @@ export function mapSubscription(s: SubscriptionRow) {
     renewal_date: s.renewal_date,
     amount:       (s.mrr ?? 0) * 12, // annualised (mrr is ₹/month)
     currency:     CURRENCY,
+    // Additive field (existing consumers ignore unknown keys) — lets
+    // Customer Panel's "My Services" tab exclude domain/hosting, which
+    // already have their own dedicated tabs there.
+    vendor:       s.vendor,
   };
 }
 

@@ -259,7 +259,7 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="md:!max-w-lg">
+      <DialogContent className="md:!max-w-2xl">
         <DialogHeader>
           <DialogTitle>{isEdit ? "Edit expense" : "Add expense"}</DialogTitle>
           <DialogDescription>
@@ -391,10 +391,11 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
               ) : (
                 <div className="space-y-2">
                   <div className="hidden sm:grid grid-cols-12 gap-2 text-[10px] uppercase tracking-wider text-ink-3">
-                    <span className="col-span-6">Description</span>
+                    <span className="col-span-5">Description</span>
                     <span className="col-span-2 text-right">Qty</span>
                     <span className="col-span-2 text-right">Unit price</span>
                     <span className="col-span-2 text-right">Amount</span>
+                    <span className="col-span-1" />
                   </div>
                   {lines.map((l, i) => (
                     <div key={i} className="grid grid-cols-12 gap-2 items-center">

@@ -424,10 +424,11 @@ export function AddVendorBillDialog({ onClose }: { onClose: () => void }) {
             ) : (
               <div className="space-y-2">
                 <div className="hidden sm:grid grid-cols-12 gap-2 text-[10px] uppercase tracking-wider text-ink-3">
-                  <span className="col-span-6">Description</span>
+                  <span className="col-span-5">Description</span>
                   <span className="col-span-2 text-right">Qty</span>
                   <span className="col-span-2 text-right">Unit price</span>
                   <span className="col-span-2 text-right">Amount</span>
+                  <span className="col-span-1" />
                 </div>
                 {lines.map((l, i) => (
                   <div key={i} className="grid grid-cols-12 gap-2 items-center">

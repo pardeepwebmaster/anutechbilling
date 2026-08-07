@@ -89,7 +89,7 @@ export default function VendorBillsPage() {
       <div className="flex items-end justify-between gap-3 flex-wrap mb-6">
         <div>
           <p className="text-xs uppercase tracking-wider text-ink-3 font-semibold mb-1">Purchases</p>
-          <h1 className="font-serif text-3xl md:text-4xl tracking-tight">Vendor Bills</h1>
+          <h1 className="font-serif text-3xl md:text-4xl tracking-tight">COGS Bills</h1>
           <p className="text-sm text-ink-3 mt-1">
             Bills for products you <b>resell</b> — Google CSP, Microsoft Partner, Zoho — your COGS source.
             <span className="block mt-0.5 text-[12px] text-ink-3">Office/overhead bills (stationery, your own software, rent) go in <b>Expenses</b> instead.</span>

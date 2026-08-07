@@ -270,7 +270,7 @@ export function AddVendorBillDialog({ onClose }: { onClose: () => void }) {
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="md:!max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Add Vendor Bill</DialogTitle>
+          <DialogTitle>Add COGS Bill</DialogTitle>
           <DialogDescription>
             Record a bill received from a supplier — Google CSP, Microsoft Partner, Zoho Partner, etc.
           </DialogDescription>

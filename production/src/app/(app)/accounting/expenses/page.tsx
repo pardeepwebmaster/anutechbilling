@@ -119,7 +119,8 @@ export default function ExpensesPage() {
           <p className="text-xs uppercase tracking-wider text-ink-3 font-semibold mb-1">Purchases</p>
           <h1 className="font-serif text-3xl md:text-4xl tracking-tight">Expenses</h1>
           <p className="text-sm text-ink-3 mt-1">
-            Operating spend — hosting, salaries, software, office, marketing. These sit below the gross-margin line in your P&L.
+            Operating spend — rent, salaries, stationery, your own software, marketing. These sit below the gross-margin line in your P&L.
+            <span className="block mt-0.5 text-[12px] text-ink-3">Bills for products you <b>resell</b> (Google/Microsoft/Zoho) go in <b>Vendor Bills</b> instead — those are COGS.</span>
           </p>
         </div>
         <Button

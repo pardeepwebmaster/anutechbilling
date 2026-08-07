@@ -34,6 +34,10 @@ export const EXPENSE_CATEGORIES = [
   "Bank Charges",
   "Internet & Phone",
   "Utilities",
+  "Office Supplies",
+  "Equipment",
+  "Repairs & Maintenance",
+  "Insurance",
   "Other",
 ] as const;
 

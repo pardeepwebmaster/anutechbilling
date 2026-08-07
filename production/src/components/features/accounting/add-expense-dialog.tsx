@@ -26,6 +26,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
+import { Icon } from "@/components/ui/icon";
 import {
   useCreateExpense,
   useUpdateExpense,
@@ -55,6 +56,51 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
   const { data: bankAccounts } = useBankAccounts();
   const cashAccounts = (bankAccounts ?? []).filter((a) => a.account_type === "cash");
   const [pettyCashAccountId, setPettyCashAccountId] = React.useState<string>("");
+
+  // ── AI bill reader — upload a stationery/software/rent invoice → Gemini
+  //    extracts the fields → we PRE-FILL (operator verifies before saving).
+  const fileRef = React.useRef<HTMLInputElement>(null);
+  const [reading, setReading] = React.useState(false);
+  const [aiNote, setAiNote]   = React.useState<string | null>(null);
+  const [aiError, setAiError] = React.useState<string | null>(null);
+
+  async function handleBillFile(file: File) {
+    setAiError(null); setAiNote(null);
+    if (file.size > 8 * 1024 * 1024) { setAiError("File is too big (max 8 MB) — try a smaller photo."); return; }
+    setReading(true);
+    try {
+      const base64 = await new Promise<string>((resolve, reject) => {
+        const r = new FileReader();
+        r.onload  = () => resolve((r.result as string).split(",")[1] ?? "");
+        r.onerror = () => reject(new Error("read failed"));
+        r.readAsDataURL(file);
+      });
+      const res = await fetch("/api/ai/extract-bill", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ fileBase64: base64, mimeType: file.type }),
+      });
+      const json = await res.json();
+      if (!res.ok) { setAiError(json.error ?? "Couldn't read the bill."); return; }
+      const f = json.fields as Record<string, unknown>;
+      if (f.vendor_name) setValue("vendor_name", String(f.vendor_name));
+      if (f.bill_date)   setValue("expense_date", String(f.bill_date));
+      const cur = String(f.currency ?? "INR");
+      const gst = Number(f.cgst ?? 0) + Number(f.sgst ?? 0) + Number(f.igst ?? 0);
+      if (cur === "INR") {
+        if (f.total != null) setValue("amount", Math.round(Number(f.total)));
+        setValue("gst_paid", Math.round(gst));
+        setAiNote("AI ne bhar diya — sahi category chuno aur amounts bill se milaa ke Save karo.");
+      } else {
+        // Foreign bill: books are ₹, so don't push a raw foreign number into amount.
+        setAiNote(`Bill ${cur} me hai — vendor & date bhar diye. ₹ amount + GST khud daalo (aaj ke rate se).`);
+      }
+    } catch {
+      setAiError("Upload failed — try again, ya fields haath se bhar do.");
+    } finally {
+      setReading(false);
+    }
+  }
 
   const {
     register, handleSubmit, watch, setValue,
@@ -124,6 +170,31 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
         </DialogHeader>
 
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+          {!isEdit && (
+            <div className="rounded-lg border border-dashed border-amber/50 bg-amber-soft/20 p-3">
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <div className="flex items-center gap-2 min-w-0">
+                  <Icon name="sparkles" size={18} className="text-amber-ink shrink-0" />
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-ink">Bill upload karo — AI khud bhar dega</p>
+                    <p className="text-[11px] text-ink-3">Photo/PDF — stationery, software, rent, koi bhi expense bill</p>
+                  </div>
+                </div>
+                <Button type="button" variant="primary" size="sm" icon="upload" loading={reading} onClick={() => fileRef.current?.click()}>
+                  {reading ? "Reading…" : "Upload bill"}
+                </Button>
+                <input
+                  ref={fileRef}
+                  type="file"
+                  accept="image/*,application/pdf"
+                  className="hidden"
+                  onChange={(e) => { const f = e.target.files?.[0]; if (f) handleBillFile(f); e.target.value = ""; }}
+                />
+              </div>
+              {aiNote && <p className="mt-2 flex items-start gap-1.5 text-[11px] text-emerald"><Icon name="check_circle" size={12} className="mt-0.5 shrink-0" /> {aiNote}</p>}
+              {aiError && <p className="mt-2 flex items-start gap-1.5 text-[11px] text-rose"><Icon name="alert" size={12} className="mt-0.5 shrink-0" /> {aiError}</p>}
+            </div>
+          )}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <FormField label="Category" required htmlFor="category">
               <Select value={watch("category")} onValueChange={(v) => setValue("category", v)}>

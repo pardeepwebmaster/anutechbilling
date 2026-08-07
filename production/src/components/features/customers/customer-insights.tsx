@@ -443,6 +443,11 @@ export function SubscriptionList({ subs }: { subs: Subscription[] }) {
                 {term && <Badge kind="muted" size="sm">{term}</Badge>}
               </div>
               <div className="text-[11px] text-ink-3 mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5">
+                {s.domain && (
+                  <span className="inline-flex items-center gap-1 font-mono text-amber-ink" title="Domain this subscription is provisioned on">
+                    <Icon name="globe" size={11} /> {s.domain}
+                  </span>
+                )}
                 <span>{s.used ?? 0}/{s.seats} seats</span>
                 {s.start_date && s.renewal_date ? (
                   <span>{formatDate(s.start_date)} → {formatDate(s.renewal_date)}</span>

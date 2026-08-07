@@ -533,6 +533,7 @@ export function PayrollTab() {
   const [payFor, setPayFor] = React.useState<Employee | null>(null);
   const [editFor, setEditFor] = React.useState<Employee | null>(null);
   const [calendarFor, setCalendarFor] = React.useState<Employee | null>(null);
+  const [attendanceEmp, setAttendanceEmp] = React.useState<Employee | null>(null);
   const undoSalary = useDeleteSalaryPayment();
   const confirm = useConfirm();
 
@@ -655,7 +656,7 @@ export function PayrollTab() {
                           return (
                             <button
                               type="button"
-                              onClick={() => router.push(`/accounting/attendance?employee=${e.id}&month=${period}` as never)}
+                              onClick={() => setAttendanceEmp(e)}
                               className="font-mono tabular-nums hover:text-amber-ink hover:underline"
                               title={`${a.present} present of ${a.expected} working day(s) this month (Sundays + holidays excluded). Click to open the attendance register.`}
                             >
@@ -797,6 +798,7 @@ export function PayrollTab() {
       )}
       {payFor && <PaySalaryDialog employee={payFor} period={period} onClose={() => setPayFor(null)} />}
       {editFor && <EmployeeDialog employee={editFor} onClose={() => setEditFor(null)} />}
+      {attendanceEmp && <AttendanceRegisterDialog employee={attendanceEmp} initialPeriod={period} onClose={() => setAttendanceEmp(null)} />}
       {calendarFor && (
         <EmployeePayrollYearDialog
           employee={calendarFor}
@@ -1747,6 +1749,35 @@ function AttendanceRegister({ period, employees, attendance }: { period: string;
         </table>
       </div>
     </Card>
+  );
+}
+
+/** One employee's monthly attendance register in a pop-up — opened from the
+ *  Run-payroll "Present (mo)" cell. Reuses the same muster grid. */
+function AttendanceRegisterDialog({ employee, initialPeriod, onClose }: {
+  employee: Employee; initialPeriod: string; onClose: () => void;
+}) {
+  const [period, setPeriod] = React.useState(initialPeriod);
+  const attQ = useAttendance(period);
+  return (
+    <Dialog open onOpenChange={(v) => { if (!v) onClose(); }}>
+      <DialogContent className="md:!max-w-3xl">
+        <DialogHeader>
+          <DialogTitle>Attendance register — {toTitleCase(employee.name)}</DialogTitle>
+          <DialogDescription>
+            {[employee.designation?.trim() || null, "present days by date · P = present, – = absent"].filter(Boolean).join(" · ")}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="mb-1 flex items-center gap-2">
+          <label className="text-xs text-ink-3 font-semibold uppercase tracking-wide">Month</label>
+          <input type="month" value={period} onChange={(e) => setPeriod(e.target.value)}
+            className="px-3 py-1.5 text-sm rounded-md border border-hairline bg-paper" />
+        </div>
+        {attQ.isLoading
+          ? <Skeleton className="h-16 w-full" />
+          : <AttendanceRegister period={period} employees={[employee]} attendance={attQ.data ?? []} />}
+      </DialogContent>
+    </Dialog>
   );
 }
 

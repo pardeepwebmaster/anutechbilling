@@ -15,6 +15,7 @@ import { StatStrip } from "@/components/shared/stat-strip";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Icon } from "@/components/ui/icon";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/shared/empty-state";
@@ -32,7 +33,7 @@ import {
 import { useConfirm } from "@/components/providers/confirm-provider";
 import { useVendors, useUpsertVendor, useDeleteVendor, useBillsByVendor, type Vendor } from "@/lib/queries/vendors";
 import { VENDOR_BILL_CATEGORIES } from "@/lib/queries/vendor-bills";
-import { rupee, formatDate } from "@/lib/utils";
+import { rupee, formatDate, GST_STATE_BY_CODE } from "@/lib/utils";
 
 export default function VendorsPage() {
   const router = useRouter();
@@ -220,14 +221,22 @@ function VendorFormDialog({ vendor, onClose }: { vendor?: Vendor; onClose: () =>
   const [contactName, setContactName] = React.useState(vendor?.contact_name ?? "");
   const [contactEmail, setContactEmail] = React.useState(vendor?.contact_email ?? "");
   const [contactPhone, setContactPhone] = React.useState(vendor?.contact_phone ?? "");
+  const [address, setAddress] = React.useState(vendor?.address ?? "");
+  const [city, setCity] = React.useState(vendor?.city ?? "");
+  const [state, setState] = React.useState(vendor?.state ?? "");
+  const [pincode, setPincode] = React.useState(vendor?.pincode ?? "");
   const [notes, setNotes] = React.useState(vendor?.notes ?? "");
+
+  const STATE_NAMES = React.useMemo(() => Object.values(GST_STATE_BY_CODE).sort(), []);
 
   const submit = async () => {
     if (!name.trim()) return;
     try {
       await save.mutateAsync({
         id: vendor?.id, name: name.trim(), gstin: gstin || null, defaultCategory: category || null,
-        contactName: contactName || null, contactEmail: contactEmail || null, contactPhone: contactPhone || null, notes: notes || null,
+        contactName: contactName || null, contactEmail: contactEmail || null, contactPhone: contactPhone || null,
+        address: address || null, city: city || null, state: state || null, pincode: pincode || null,
+        notes: notes || null,
       });
       onClose();
     } catch { /* hook toasts */ }
@@ -258,6 +267,26 @@ function VendorFormDialog({ vendor, onClose }: { vendor?: Vendor; onClose: () =>
               </SelectContent>
             </Select>
           </FormField>
+          <FormField label="Address (optional)">
+            <Textarea rows={2} value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Building, street, area…" />
+          </FormField>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <FormField label="City">
+              <Input value={city} onChange={(e) => setCity(e.target.value)} placeholder="e.g. Mumbai" />
+            </FormField>
+            <FormField label="State (place of supply)">
+              <Select value={state || "none"} onValueChange={(v) => setState(v === "none" ? "" : v)}>
+                <SelectTrigger><SelectValue placeholder="—" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">— none —</SelectItem>
+                  {STATE_NAMES.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </FormField>
+            <FormField label="PIN code">
+              <Input value={pincode} onChange={(e) => setPincode(e.target.value.replace(/\D/g, "").slice(0, 6))} inputMode="numeric" placeholder="400001" />
+            </FormField>
+          </div>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <FormField label="Contact name"><Input value={contactName} onChange={(e) => setContactName(e.target.value)} /></FormField>
             <FormField label="Email"><Input value={contactEmail} onChange={(e) => setContactEmail(e.target.value)} /></FormField>
@@ -288,6 +317,11 @@ function VendorBillsDialog({ vendor, onClose, onEdit }: { vendor: Vendor; onClos
           <DialogDescription>
             {vendor.billCount} bill{vendor.billCount === 1 ? "" : "s"} · {rupee(vendor.totalBilled)} billed ·{" "}
             <b className={vendor.outstanding > 0 ? "text-rose" : "text-emerald"}>{vendor.outstanding > 0 ? `${rupee(vendor.outstanding)} due` : "all paid"}</b>
+            {[vendor.address, vendor.city, vendor.state, vendor.pincode].some(Boolean) && (
+              <span className="mt-1 block text-[12px] not-italic text-ink-3">
+                📍 {[vendor.address, vendor.city, vendor.state, vendor.pincode].filter(Boolean).join(", ")}
+              </span>
+            )}
           </DialogDescription>
         </DialogHeader>
         <div className="max-h-[55vh] overflow-y-auto -mx-1 px-1">

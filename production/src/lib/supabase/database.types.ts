@@ -1254,6 +1254,10 @@ export type VendorRow = {
   contact_email:    string | null;
   contact_phone:    string | null;
   default_category: string | null;
+  address:          string | null;
+  city:             string | null;
+  state:            string | null;
+  pincode:          string | null;
   notes:            string | null;
   created_at:       string;
   updated_at:       string;

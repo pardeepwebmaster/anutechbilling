@@ -27,7 +27,7 @@ import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { daysElapsedInPeriod, prorateSalary } from "@/lib/payroll/proration";
-import { nationalHolidaysForYear, FIXED_NATIONAL_HOLIDAYS } from "@/lib/payroll/holidays-india";
+import { nationalHolidaysForYear, FIXED_NATIONAL_HOLIDAYS, indiaPublicHolidaysForYear } from "@/lib/payroll/holidays-india";
 import { computeEsi, isEsiEligible, ESI_WAGE_CEILING } from "@/lib/payroll/esi";
 import { computePf, PF_WAGE_CEILING } from "@/lib/payroll/pf";
 import { useBankAccounts } from "@/lib/queries/bank";
@@ -1422,19 +1422,39 @@ function HolidaysCard() {
   const confirm = useConfirm();
   const [date, setDate] = React.useState("");
   const [name, setName] = React.useState("");
+  const [seeding, setSeeding] = React.useState(false);
   const rows = holQ.data ?? [];
   const add = async () => {
     if (!date || !name.trim()) return;
     await create.mutateAsync({ holiday_date: date, name: name.trim() });
     setDate(""); setName("");
   };
+  // Pre-load the date-certain public holidays for this year + next; skips any
+  // already present. Variable-date festivals are added by hand above.
+  const loadPublic = async () => {
+    const existing = new Set(rows.map((r) => r.holiday_date));
+    const y = new Date(Date.now() + 5.5 * 60 * 60 * 1000).getUTCFullYear();
+    const toAdd = [y, y + 1].flatMap(indiaPublicHolidaysForYear).filter((h) => !existing.has(h.date));
+    if (toAdd.length === 0) { toast("India public holidays are already added."); return; }
+    setSeeding(true);
+    try {
+      for (const h of toAdd) await create.mutateAsync({ holiday_date: h.date, name: h.name });
+      toast.success(`Added ${toAdd.length} public holidays (${y}–${y + 1}).`);
+    } finally { setSeeding(false); }
+  };
   return (
     <Card className="mb-4 p-4">
-      <div className="mb-3">
-        <div className="text-sm font-semibold text-ink">Company holidays</div>
-        <div className="text-[11px] text-ink-3">
-          Treated as non-working days in payroll — an absence on these dates is <b>not</b> docked as loss-of-pay (Sundays are already off).
+      <div className="mb-3 flex items-start justify-between gap-2">
+        <div>
+          <div className="text-sm font-semibold text-ink">Holidays</div>
+          <div className="text-[11px] text-ink-3">
+            Treated as non-working days in payroll — an absence on these dates is <b>not</b> docked as loss-of-pay (Sundays are already off).
+          </div>
         </div>
+        <Button size="sm" variant="outline" icon="download" loading={seeding} onClick={loadPublic}
+          title="Add India's fixed-date public holidays (Republic Day, Independence Day, Gandhi Jayanti, Ambedkar Jayanti, Christmas) for this year + next. Add festivals like Holi/Diwali/Eid by hand — their dates change yearly.">
+          Load India public holidays
+        </Button>
       </div>
       <div className="flex flex-wrap items-end gap-2 mb-3">
         <div>

@@ -64,29 +64,42 @@ export function useBillsByVendor(vendorId: string | null | undefined) {
 }
 
 /**
- * Find-or-create a vendor by name (case-insensitive) and return its id. Used
- * when saving a bill so every bill links to the master — no orphan text names,
- * and typing a new supplier auto-adds it to Vendors. Backfills a missing
- * gstin/category onto an existing vendor.
+ * Find-or-create a vendor and return its id. Used when saving a bill so every
+ * bill links to the master — no orphan text names, and a new supplier is
+ * auto-added to Vendors.
+ *
+ * Dedup identity: **GSTIN first, then name.** GSTIN is the stable tax identity,
+ * so multiple invoices from the same supplier map to ONE vendor even when the
+ * printed/OCR'd name varies slightly ("Anthropic, PBC" vs "Anthropic PBC").
+ * Only when there's no GSTIN do we fall back to a case-insensitive name match.
+ * Backfills a missing gstin/category onto the matched vendor.
  */
 export async function ensureVendor(input: { name: string; gstin?: string | null; defaultCategory?: string | null }): Promise<string | null> {
   const name = input.name.trim();
   if (!name) return null;
+  const gstin = input.gstin?.trim().toUpperCase() || null;
   const supabase = createClient();
   const { data: authData } = await supabase.auth.getUser();
   if (!authData?.user) return null;
   const { data: me } = await supabase.from("users").select("tenant_id").eq("id", authData.user.id).single();
   if (!me) return null;
 
-  const findExisting = async () => {
+  const findByGstin = async () => {
+    if (!gstin) return null;
+    const { data } = await supabase.from("vendors").select("id, gstin, default_category").ilike("gstin", gstin).limit(1);
+    return data?.[0] ?? null;
+  };
+  const findByName = async () => {
     const { data } = await supabase.from("vendors").select("id, gstin, default_category").ilike("name", name).limit(1);
     return data?.[0] ?? null;
   };
+  // GSTIN match wins; name match is the fallback for GSTIN-less suppliers.
+  const findExisting = async () => (await findByGstin()) ?? (await findByName());
 
   const existing = await findExisting();
   if (existing) {
     const patch: { gstin?: string; default_category?: string } = {};
-    if (!existing.gstin && input.gstin) patch.gstin = input.gstin;
+    if (!existing.gstin && gstin) patch.gstin = gstin;
     if (!existing.default_category && input.defaultCategory) patch.default_category = input.defaultCategory;
     if (Object.keys(patch).length) await supabase.from("vendors").update(patch).eq("id", existing.id);
     return existing.id;
@@ -94,7 +107,7 @@ export async function ensureVendor(input: { name: string; gstin?: string | null;
 
   const { data: created, error } = await supabase
     .from("vendors")
-    .insert({ tenant_id: me.tenant_id, name, gstin: input.gstin || null, default_category: input.defaultCategory || null })
+    .insert({ tenant_id: me.tenant_id, name, gstin, default_category: input.defaultCategory || null })
     .select("id").single();
   if (error) {
     // Likely a concurrent insert hit the unique index — re-find and use it.

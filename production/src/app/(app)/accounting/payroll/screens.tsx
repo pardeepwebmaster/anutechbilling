@@ -21,7 +21,10 @@ import { FAB } from "@/components/ui/fab";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "@/components/ui/dialog";
-import { rupee, formatDate, cn } from "@/lib/utils";
+import { rupee, formatDate, cn, toTitleCase } from "@/lib/utils";
+import {
+  DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
 import { computeEsi, isEsiEligible, ESI_WAGE_CEILING } from "@/lib/payroll/esi";
 import { computePf, PF_WAGE_CEILING } from "@/lib/payroll/pf";
 import { useBankAccounts } from "@/lib/queries/bank";
@@ -146,80 +149,93 @@ export function EmployeesTab() {
             <table className="w-full text-sm">
               <thead className="bg-paper-2/50 text-[10px] uppercase tracking-wider text-ink-3 font-semibold">
                 <tr>
-                  <th className="text-left px-4 py-3">Employee</th>
-                  <th className="text-right px-4 py-3">Monthly salary</th>
-                  <th className="text-left px-4 py-3">Joined</th>
-                  <th className="text-right px-4 py-3">Paid leave left (FY)</th>
-                  <th className="text-left px-4 py-3">Status</th>
-                  <th className="text-right px-4 py-3">Actions</th>
+                  <th className="text-left px-4 py-3 whitespace-nowrap">Employee</th>
+                  <th className="text-right px-4 py-3 whitespace-nowrap">Monthly salary</th>
+                  <th className="text-left px-4 py-3 whitespace-nowrap">Joined</th>
+                  <th className="text-right px-4 py-3 whitespace-nowrap">Paid leave left (FY)</th>
+                  <th className="text-left px-4 py-3 whitespace-nowrap">Status</th>
+                  <th className="text-right px-4 py-3 whitespace-nowrap">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-hairline">
-                {rows.map((e) => (
-                  <tr key={e.id} className="hover:bg-paper-2/40">
-                    <td className="px-4 py-3 font-medium">
-                      <button
-                        type="button"
-                        onClick={() => setViewEmp(e)}
-                        className="text-ink hover:text-amber-ink hover:underline text-left"
-                        title="Open full profile & documents"
-                      >
-                        {e.name}
-                      </button>
-                    </td>
-                    <td className={cn("px-4 py-3 text-right font-mono font-semibold tabular-nums", e.monthly_gross > 0 ? "text-ink" : "text-amber-ink")}>{rupee(e.monthly_gross)}</td>
-                    <td className="px-4 py-3 text-ink-2">{e.joining_date ? formatDate(e.joining_date) : "—"}</td>
-                    <td className="px-4 py-3 text-right font-mono">{Math.max(0, e.leave_allowance - paidLeaveTaken(e.id))} / {e.leave_allowance}</td>
-                    <td className="px-4 py-3"><Badge kind={e.is_active ? "success" : "muted"} dot>{e.is_active ? "Active" : "Inactive"}</Badge></td>
-                    <td className="px-4 py-3 text-right">
-                      <div className="inline-flex items-center gap-1 justify-end">
-                        <Button variant="ghost" size="sm" icon="file" onClick={() => setOfferEmp(e)}>Offer letter</Button>
-                        <Button variant="ghost" size="sm" onClick={() => setEdit(e)}>Edit</Button>
-                        <Button variant="ghost" size="sm" icon="trash" aria-label={`Delete ${e.name}`}
-                          className="!text-rose hover:!bg-rose/10"
-                          loading={del.isPending}
-                          onClick={() => confirmDelete(e)} />
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                {rows.map((e) => {
+                  const left = Math.max(0, e.leave_allowance - paidLeaveTaken(e.id));
+                  const leaveTitle = `${left} of ${e.leave_allowance} paid-leave day(s) left this financial year. New joiners get a prorated allowance for their first year, so their total can be below the standard.`;
+                  return (
+                    <tr
+                      key={e.id}
+                      className="group cursor-pointer hover:bg-paper-2/40 transition-colors"
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`Open ${toTitleCase(e.name)}'s profile`}
+                      onClick={() => setViewEmp(e)}
+                      onKeyDown={(ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); setViewEmp(e); } }}
+                    >
+                      <td className="px-4 py-3">
+                        <div className="font-medium text-ink group-hover:text-amber-ink transition-colors">{toTitleCase(e.name)}</div>
+                        {e.designation && <div className="text-[11px] text-ink-3 mt-0.5">{e.designation}</div>}
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        {e.monthly_gross > 0 ? (
+                          <span className="font-mono font-semibold tabular-nums text-ink">{rupee(e.monthly_gross)}</span>
+                        ) : (
+                          <span title="No salary set yet — add it before running payroll.">
+                            <Badge kind="warning" size="sm">Salary pending</Badge>
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-ink-2 whitespace-nowrap">{e.joining_date ? formatDate(e.joining_date) : "—"}</td>
+                      <td className="px-4 py-3 text-right font-mono tabular-nums" title={leaveTitle}>
+                        <span className={cn(left === 0 && e.leave_allowance > 0 && "text-amber-ink")}>{left}</span>
+                        <span className="text-ink-3"> / {e.leave_allowance}</span>
+                      </td>
+                      <td className="px-4 py-3"><Badge kind={e.is_active ? "success" : "muted"} dot>{e.is_active ? "Active" : "Inactive"}</Badge></td>
+                      <td className="px-4 py-3 text-right" onClick={(ev) => ev.stopPropagation()}>
+                        <EmployeeRowMenu e={e} onView={setViewEmp} onOffer={setOfferEmp} onEdit={setEdit} onDelete={confirmDelete} />
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </Card>
 
           {/* Mobile cards */}
           <ul className="md:hidden space-y-2">
-            {rows.map((e) => (
-              <li key={e.id}>
-                <Card className="p-4">
-                  <div className="flex items-start justify-between gap-2 mb-1">
-                    <button
-                      type="button"
-                      onClick={() => setViewEmp(e)}
-                      className="font-medium text-ink leading-tight text-left hover:text-amber-ink"
-                      title="Open full profile & documents"
-                    >
-                      {e.name}
-                    </button>
-                    <div className={cn("font-serif text-xl leading-none", e.monthly_gross > 0 ? "text-ink" : "text-amber-ink")}>{rupee(e.monthly_gross)}</div>
-                  </div>
-                  <div className="text-[11px] text-ink-3 mb-2">
-                    {e.joining_date ? `Joined ${formatDate(e.joining_date)}` : "Not joined yet"} · Paid leave {Math.max(0, e.leave_allowance - paidLeaveTaken(e.id))}/{e.leave_allowance}
-                  </div>
-                  <div className="flex items-center justify-between gap-2">
-                    <Badge kind={e.is_active ? "success" : "muted"} dot>{e.is_active ? "Active" : "Inactive"}</Badge>
-                    <div className="flex items-center gap-1">
-                      <Button variant="ghost" size="sm" icon="file" aria-label={`Offer letter for ${e.name}`} onClick={() => setOfferEmp(e)} />
-                      <Button variant="ghost" size="sm" onClick={() => setEdit(e)}>Edit</Button>
-                      <Button variant="ghost" size="sm" icon="trash" aria-label={`Delete ${e.name}`}
-                        className="!text-rose hover:!bg-rose/10"
-                        loading={del.isPending}
-                        onClick={() => confirmDelete(e)} />
+            {rows.map((e) => {
+              const left = Math.max(0, e.leave_allowance - paidLeaveTaken(e.id));
+              return (
+                <li key={e.id}>
+                  <Card
+                    className="p-4 cursor-pointer hover:bg-paper-2/40 transition-colors"
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`Open ${toTitleCase(e.name)}'s profile`}
+                    onClick={() => setViewEmp(e)}
+                    onKeyDown={(ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); setViewEmp(e); } }}
+                  >
+                    <div className="flex items-start justify-between gap-2 mb-1">
+                      <div className="min-w-0">
+                        <div className="font-medium text-ink leading-tight">{toTitleCase(e.name)}</div>
+                        {e.designation && <div className="text-[11px] text-ink-3 mt-0.5">{e.designation}</div>}
+                      </div>
+                      {e.monthly_gross > 0 ? (
+                        <div className="font-serif text-xl leading-none text-ink shrink-0">{rupee(e.monthly_gross)}</div>
+                      ) : (
+                        <Badge kind="warning" size="sm">Salary pending</Badge>
+                      )}
                     </div>
-                  </div>
-                </Card>
-              </li>
-            ))}
+                    <div className="text-[11px] text-ink-3 mb-2">
+                      {e.joining_date ? `Joined ${formatDate(e.joining_date)}` : "Not joined yet"} · Paid leave {left}/{e.leave_allowance}
+                    </div>
+                    <div className="flex items-center justify-between gap-2" onClick={(ev) => ev.stopPropagation()}>
+                      <Badge kind={e.is_active ? "success" : "muted"} dot>{e.is_active ? "Active" : "Inactive"}</Badge>
+                      <EmployeeRowMenu e={e} onView={setViewEmp} onOffer={setOfferEmp} onEdit={setEdit} onDelete={confirmDelete} />
+                    </div>
+                  </Card>
+                </li>
+              );
+            })}
           </ul>
         </>
       )}
@@ -233,6 +249,44 @@ export function EmployeesTab() {
         onEdit={() => { if (viewEmp) { setEdit(viewEmp); setViewEmp(null); } }}
       />
     </>
+  );
+}
+
+/** Row overflow menu — one clean "…" control replacing crowded inline buttons. */
+function EmployeeRowMenu({ e, onView, onOffer, onEdit, onDelete }: {
+  e: Employee;
+  onView: (e: Employee) => void;
+  onOffer: (e: Employee) => void;
+  onEdit: (e: Employee) => void;
+  onDelete: (e: Employee) => void;
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          aria-label={`Actions for ${toTitleCase(e.name)}`}
+          className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-ink-3 hover:bg-paper-2 hover:text-ink data-[state=open]:bg-paper-2"
+        >
+          <Icon name="more_h" size={18} />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="min-w-[13rem]">
+        <DropdownMenuItem className="gap-2.5 py-2 cursor-pointer" onClick={() => onView(e)}>
+          <Icon name="eye" size={15} /> Open profile
+        </DropdownMenuItem>
+        <DropdownMenuItem className="gap-2.5 py-2 cursor-pointer" onClick={() => onOffer(e)}>
+          <Icon name="file" size={15} /> Generate offer letter
+        </DropdownMenuItem>
+        <DropdownMenuItem className="gap-2.5 py-2 cursor-pointer" onClick={() => onEdit(e)}>
+          <Icon name="edit" size={15} /> Edit profile &amp; salary
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem destructive className="gap-2.5 py-2 cursor-pointer" onClick={() => onDelete(e)}>
+          <Icon name="trash" size={15} /> Delete employee
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 

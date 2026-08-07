@@ -387,3 +387,23 @@ export function phoneSuffixOf(raw: string): string | null {
   const m = raw.match(NAME_NUM_SUFFIX);
   return m ? m[1].replace(/\s+/g, " ").trim() : null;
 }
+
+/**
+ * Title-case a person's name for DISPLAY only (never mutate the stored value).
+ * Fixes mixed-casing data (e.g. "HITESH BABU" / "prashant" → "Hitesh Babu" /
+ * "Prashant"). Handles hyphens and apostrophes ("d'souza" → "D'Souza",
+ * "sai-kiran" → "Sai-Kiran"). A token that is ALL-CAPS and short (≤3 chars,
+ * e.g. "HR", "IT") is left as-is so genuine acronyms aren't broken.
+ */
+export function toTitleCase(raw: string): string {
+  const s = (raw ?? "").trim();
+  if (!s) return s;
+  const capWord = (w: string): string => (w ? w.charAt(0).toUpperCase() + w.slice(1).toLowerCase() : w);
+  return s
+    .split(/\s+/)
+    .map((word) => {
+      if (word.length <= 3 && word === word.toUpperCase() && /[A-Z]/.test(word)) return word; // keep HR, IT, CEO
+      return word.split(/([-'])/).map((part) => (part === "-" || part === "'" ? part : capWord(part))).join("");
+    })
+    .join(" ");
+}

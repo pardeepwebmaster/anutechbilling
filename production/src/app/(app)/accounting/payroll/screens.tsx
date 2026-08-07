@@ -27,7 +27,7 @@ import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { daysElapsedInPeriod, prorateSalary } from "@/lib/payroll/proration";
-import { nationalHolidaysForYear } from "@/lib/payroll/holidays-india";
+import { nationalHolidaysForYear, FIXED_NATIONAL_HOLIDAYS } from "@/lib/payroll/holidays-india";
 import { computeEsi, isEsiEligible, ESI_WAGE_CEILING } from "@/lib/payroll/esi";
 import { computePf, PF_WAGE_CEILING } from "@/lib/payroll/pf";
 import { useBankAccounts } from "@/lib/queries/bank";
@@ -1783,32 +1783,63 @@ export function AttendanceTab() {
 
 /** Monthly attendance register (muster): employees × days, P = present. */
 function AttendanceRegister({ period, employees, attendance }: { period: string; employees: Employee[]; attendance: Attendance[] }) {
+  const holQ = useHolidays();
   const [yy, mm] = period.split("-").map(Number);
   if (!yy || !mm) return null;
   const days = new Date(yy, mm, 0).getDate();          // last day of this month
   const today = todayISO();
   const monthLabel = new Date(yy, mm - 1, 1).toLocaleDateString("en-IN", { month: "long", year: "numeric" });
   const dayList = Array.from({ length: days }, (_, i) => i + 1);
+  const dateFor = (d: number) => `${period}-${String(d).padStart(2, "0")}`;
+
+  // Holidays for this month: company (owner-added) + national gazetted (26 Jan / 15 Aug / 2 Oct).
+  const holidayMap = new Map<string, string>();
+  (holQ.data ?? []).forEach((h) => { if (h.holiday_date.slice(0, 7) === period) holidayMap.set(h.holiday_date, h.name); });
+  FIXED_NATIONAL_HOLIDAYS.forEach((h) => { const iso = `${yy}-${h.md}`; if (iso.slice(0, 7) === period) holidayMap.set(iso, h.name); });
+
+  const isSunday = (d: number) => new Date(Date.UTC(yy, mm - 1, d)).getUTCDay() === 0;
+  const dayKind = (d: number): "sunday" | "holiday" | "work" =>
+    isSunday(d) ? "sunday" : holidayMap.has(dateFor(d)) ? "holiday" : "work";
+
+  const sundayCount  = dayList.filter((d) => isSunday(d)).length;
+  const holidayDays  = dayList.filter((d) => !isSunday(d) && holidayMap.has(dateFor(d)));
+  const workingCount = days - sundayCount - holidayDays.length;
 
   // "employeeId|YYYY-MM-DD" → attendance record
   const byKey = new Map<string, Attendance>();
   for (const a of attendance) byKey.set(`${a.employee_id}|${a.work_date}`, a);
-  const dateFor = (d: number) => `${period}-${String(d).padStart(2, "0")}`;
 
   return (
     <Card className="mt-4 overflow-hidden">
-      <div className="flex items-center justify-between border-b border-hairline px-4 py-3">
-        <div className="text-[10px] font-semibold uppercase tracking-wider text-ink-3">Attendance register · {monthLabel}</div>
-        <div className="text-[11px] text-ink-3"><span className="font-semibold text-emerald">P</span> = present · – = absent</div>
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-hairline px-4 py-3">
+        <div className="text-[10px] font-semibold uppercase tracking-wider text-ink-3">
+          Attendance register · {monthLabel} · <span className="text-ink-2">{workingCount} working</span> · {sundayCount} Sundays{holidayDays.length > 0 ? ` · ${holidayDays.length} holiday${holidayDays.length === 1 ? "" : "s"}` : ""}
+        </div>
+        <div className="text-[11px] text-ink-3"><span className="font-semibold text-emerald">P</span> present · – absent · <span className="text-indigo">S</span> Sunday · <span className="text-amber-ink">H</span> holiday</div>
       </div>
       <div className="overflow-x-auto">
         <table className="text-sm">
           <thead className="bg-paper-2/50 text-[10px] text-ink-3">
             <tr>
               <th className="sticky left-0 z-10 bg-paper-2 px-3 py-2 text-left min-w-[130px]">Employee</th>
-              {dayList.map((d) => (
-                <th key={d} className={cn("px-1.5 py-2 text-center font-medium tabular-nums", dateFor(d) === today && "text-amber-ink font-bold")}>{d}</th>
-              ))}
+              {dayList.map((d) => {
+                const kind = dayKind(d);
+                return (
+                  <th
+                    key={d}
+                    title={kind === "holiday" ? holidayMap.get(dateFor(d)) : kind === "sunday" ? "Sunday — weekly off" : undefined}
+                    className={cn(
+                      "px-1.5 py-2 text-center font-medium tabular-nums",
+                      kind === "sunday" && "bg-indigo/10 text-indigo",
+                      kind === "holiday" && "bg-amber-soft text-amber-ink",
+                      dateFor(d) === today && "font-bold underline",
+                    )}
+                  >
+                    {d}
+                    {kind !== "work" && <div className="text-[7px] leading-none font-semibold">{kind === "sunday" ? "S" : "H"}</div>}
+                  </th>
+                );
+              })}
               <th className="px-3 py-2 text-right">Present</th>
             </tr>
           </thead>
@@ -1821,14 +1852,20 @@ function AttendanceRegister({ period, employees, attendance }: { period: string;
                   {dayList.map((d) => {
                     const rec = byKey.get(`${e.id}|${dateFor(d)}`);
                     const isPresent = Boolean(rec?.check_in);
+                    const kind = dayKind(d);
                     const future = dateFor(d) > today;
                     return (
                       <td
                         key={d}
-                        className="px-1.5 py-2 text-center"
-                        title={isPresent ? `In ${fmtTimeIST(rec!.check_in)}${rec!.check_out ? ` · Out ${fmtTimeIST(rec!.check_out)}` : ""}` : undefined}
+                        className={cn("px-1.5 py-2 text-center", kind === "sunday" && "bg-indigo/5", kind === "holiday" && "bg-amber-soft/40")}
+                        title={isPresent ? `In ${fmtTimeIST(rec!.check_in)}${rec!.check_out ? ` · Out ${fmtTimeIST(rec!.check_out)}` : ""}` : kind === "holiday" ? holidayMap.get(dateFor(d)) : undefined}
                       >
-                        {isPresent ? <span className="font-semibold text-emerald">P</span> : future ? <span className="text-ink-3/25">·</span> : <span className="text-ink-3/40">–</span>}
+                        {isPresent
+                          ? <span className="font-semibold text-emerald">P</span>
+                          : kind === "sunday" ? <span className="text-indigo/50 text-[9px]">S</span>
+                          : kind === "holiday" ? <span className="text-amber-ink/60 text-[9px]">H</span>
+                          : future ? <span className="text-ink-3/25">·</span>
+                          : <span className="text-ink-3/40">–</span>}
                       </td>
                     );
                   })}
@@ -1839,6 +1876,12 @@ function AttendanceRegister({ period, employees, attendance }: { period: string;
           </tbody>
         </table>
       </div>
+      {holidayDays.length > 0 && (
+        <div className="border-t border-hairline px-4 py-2 text-[11px] text-ink-3">
+          <span className="font-semibold text-ink-2">Holidays:</span>{" "}
+          {holidayDays.map((d) => `${d} ${monthLabel.split(" ")[0]} — ${holidayMap.get(dateFor(d))}`).join(" · ")}
+        </div>
+      )}
     </Card>
   );
 }

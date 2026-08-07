@@ -122,6 +122,7 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
   // silently push wrong amounts/items into a money entry. null = no pending read.
   type PendingExtract = {
     vendorName?: string;
+    gstin?:      string;
     billDate?:   string;
     currency:    string;
     total?:      number;
@@ -130,6 +131,14 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
     items:       { description: string; qty: string; unit_price: string; amount: string }[];
   };
   const [pending, setPending] = React.useState<PendingExtract | null>(null);
+  // Vendor GSTIN read from the invoice — saved to the Vendors master on save so
+  // the supplier's tax details are captured (the expenses row itself has none).
+  const [aiGstin, setAiGstin] = React.useState<string | null>(null);
+
+  // Open the just-uploaded bill (a local File, not yet stored) in a new tab.
+  const openLocalFile = () => {
+    if (attachFile) window.open(URL.createObjectURL(attachFile), "_blank", "noopener");
+  };
 
   async function handleBillFile(file: File) {
     setAiError(null); setAiNote(null); setPending(null);
@@ -157,6 +166,7 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
       // Hold the read for the operator to CONFIRM — nothing fills the form yet.
       setPending({
         vendorName: f.vendor_name ? String(f.vendor_name) : undefined,
+        gstin:      f.vendor_gstin ? String(f.vendor_gstin).toUpperCase() : undefined,
         billDate:   f.bill_date   ? String(f.bill_date)   : undefined,
         currency:   cur,
         total:      f.total != null ? Number(f.total) : undefined,
@@ -180,6 +190,7 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
   function applyExtract() {
     if (!pending) return;
     if (pending.vendorName) setValue("vendor_name", pending.vendorName);
+    if (pending.gstin) setAiGstin(pending.gstin);
     if (pending.billDate)   setValue("expense_date", pending.billDate);
     setBillType(pending.billType);
     setCurrency(pending.currency);
@@ -235,7 +246,7 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
     // as a free-text name and don't clutter the supplier master.
     // Only a GST invoice adds a NEW payee to the Vendors master + carries GST.
     const vId = payee
-      ? (vendorId ?? (isGstBill ? await ensureVendor({ name: payee, defaultCategory: values.category }) : null))
+      ? (vendorId ?? (isGstBill ? await ensureVendor({ name: payee, gstin: aiGstin ?? undefined, defaultCategory: values.category }) : null))
       : null;
 
     // Foreign bill must have an exchange rate before it hits the ₹ books.
@@ -418,6 +429,7 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
                       </p>
                       <div className="space-y-1 text-[12px] text-ink-2">
                         <div className="flex justify-between gap-2"><span className="text-ink-3">Vendor</span><span className="text-ink text-right">{pending.vendorName || "—"}</span></div>
+                        {pending.gstin && <div className="flex justify-between gap-2"><span className="text-ink-3">GSTIN</span><span className="font-mono text-ink text-right">{pending.gstin}</span></div>}
                         <div className="flex justify-between gap-2"><span className="text-ink-3">Bill date</span><span className="text-right">{pending.billDate || "—"}</span></div>
                         <div className="flex justify-between gap-2"><span className="text-ink-3">Type</span><span className="text-right">{pending.billType === "gst" ? "GST invoice" : "Kaccha (no GST)"}</span></div>
                         <div className="flex justify-between gap-2"><span className="text-ink-3">Total{pending.currency !== "INR" ? ` (${pending.currency})` : ""}</span><span className="font-mono text-ink text-right">{pending.total != null ? fmt(pending.total) : "—"}{pending.gst > 0 ? ` · GST ${fmt(pending.gst)}` : ""}</span></div>
@@ -439,7 +451,13 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
                         <Button type="button" variant="primary" size="sm" icon="check" onClick={applyExtract}>Haan, sahi hai — bhar do</Button>
                         <Button type="button" variant="default" size="sm" onClick={discardExtract}>Galat — main khud bharunga</Button>
                       </div>
-                      <p className="mt-2 text-[10px] text-ink-3">Kaise bhi karo, 📎 &ldquo;{attachFile?.name}&rdquo; bill expense ke saath attach ho jayega.</p>
+                      <p className="mt-2 text-[10px] text-ink-3">
+                        Kaise bhi karo, 📎{" "}
+                        <button type="button" onClick={openLocalFile} className="text-amber-ink underline hover:no-underline">
+                          {attachFile?.name}
+                        </button>{" "}
+                        bill expense ke saath attach ho jayega. (click karke dekho)
+                      </p>
                     </div>
                   );
                 })()}
@@ -447,7 +465,11 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
                 {/* File kept but read not pending (confirmed or entering manually). */}
                 {attachFile && !pending && (
                   <p className="mt-2 flex items-center gap-1.5 text-[11px] text-ink-2">
-                    <Icon name="file" size={12} /> {attachFile.name} — expense ke saath attach hoga
+                    <Icon name="file" size={12} />
+                    <button type="button" onClick={openLocalFile} className="text-amber-ink underline hover:no-underline">
+                      {attachFile.name}
+                    </button>
+                    — expense ke saath attach hoga
                   </p>
                 )}
               </div>

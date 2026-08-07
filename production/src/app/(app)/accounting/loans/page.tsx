@@ -62,6 +62,16 @@ const METHOD_LABEL: Record<LoanRepaymentMethod, string> = {
 };
 
 export default function EmployeeLoansPage() {
+  // useSearchParams (in the inner component) needs a Suspense boundary so the
+  // production build doesn't bail out of static rendering.
+  return (
+    <React.Suspense fallback={null}>
+      <EmployeeLoansInner />
+    </React.Suspense>
+  );
+}
+
+function EmployeeLoansInner() {
   const q = useEmployeeLoans();
   const params = useSearchParams();
   const [disburseOpen, setDisburseOpen] = React.useState(false);

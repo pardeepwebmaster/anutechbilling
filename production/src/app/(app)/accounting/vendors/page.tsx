@@ -33,7 +33,7 @@ import {
 import { useConfirm } from "@/components/providers/confirm-provider";
 import { useVendors, useUpsertVendor, useDeleteVendor, useBillsByVendor, type Vendor } from "@/lib/queries/vendors";
 import { VENDOR_BILL_CATEGORIES } from "@/lib/queries/vendor-bills";
-import { rupee, formatDate, GST_STATE_BY_CODE, gstStateFromGstin, foreignAmount } from "@/lib/utils";
+import { rupee, formatDate, GST_STATE_BY_CODE, gstStateFromGstin, foreignAmount, formatForeignAmount } from "@/lib/utils";
 import GstinVerifyCard from "@/components/features/gstin/gstin-verify-card";
 
 export default function VendorsPage() {
@@ -136,11 +136,19 @@ export default function VendorsPage() {
                     </td>
                     <td className="px-4 py-2.5 align-top">{v.default_category ? <Badge kind="muted" size="sm">{v.default_category}</Badge> : <span className="text-ink-3">—</span>}</td>
                     <td className="px-4 py-2.5 text-right tabular-nums text-ink-2 align-top">{v.billCount || "—"}</td>
-                    <td className="px-4 py-2.5 text-right tabular-nums align-top">{v.totalBilled > 0 ? rupee(v.totalBilled) : "—"}</td>
+                    <td className="px-4 py-2.5 text-right tabular-nums align-top">
+                      {v.totalBilled > 0 ? rupee(v.totalBilled) : "—"}
+                      {v.billCurrency && v.totalBilled > 0 && (
+                        <div className="text-[10px] text-ink-3">{formatForeignAmount(v.billCurrency, v.foreignBilled)}</div>
+                      )}
+                    </td>
                     <td className="px-4 py-2.5 text-right tabular-nums align-top">
                       {v.outstanding > 0
                         ? <span className="font-serif text-[15px] font-semibold text-rose">{rupee(v.outstanding)}</span>
                         : <span className="text-emerald">✓</span>}
+                      {v.billCurrency && v.outstanding > 0 && (
+                        <div className="text-[10px] font-normal text-rose/70">{formatForeignAmount(v.billCurrency, v.foreignOutstanding)}</div>
+                      )}
                     </td>
                     <td className="px-2 py-2.5 align-top" onClick={(e) => e.stopPropagation()}>
                       <div className="flex justify-end">
@@ -174,6 +182,9 @@ export default function VendorsPage() {
                       {v.outstanding > 0
                         ? <span className="font-serif text-lg text-rose">{rupee(v.outstanding, { compact: true })}</span>
                         : <span className="text-emerald text-sm">✓ clear</span>}
+                      {v.billCurrency && v.outstanding > 0 && (
+                        <div className="text-[10px] text-rose/70">{formatForeignAmount(v.billCurrency, v.foreignOutstanding)}</div>
+                      )}
                     </div>
                   </div>
                 </Card>
@@ -336,7 +347,8 @@ function VendorBillsDialog({ vendor, onClose, onEdit }: { vendor: Vendor; onClos
             {vendor.gstin && <span className="font-mono text-[11px] text-ink-3">{vendor.gstin}</span>}
           </DialogTitle>
           <DialogDescription>
-            {vendor.billCount} bill{vendor.billCount === 1 ? "" : "s"} · {rupee(vendor.totalBilled)} billed ·{" "}
+            {vendor.billCount} bill{vendor.billCount === 1 ? "" : "s"} · {rupee(vendor.totalBilled)}
+            {vendor.billCurrency ? ` (${formatForeignAmount(vendor.billCurrency, vendor.foreignBilled)})` : ""} billed ·{" "}
             <b className={vendor.outstanding > 0 ? "text-rose" : "text-emerald"}>{vendor.outstanding > 0 ? `${rupee(vendor.outstanding)} due` : "all paid"}</b>
             {[vendor.address, vendor.city, vendor.state, vendor.pincode].some(Boolean) && (
               <span className="mt-1 block text-[12px] not-italic text-ink-3">

@@ -16,6 +16,11 @@ export type Vendor = VendorRow & {
   totalBilled: number;
   outstanding: number;
   lastBillDate: string | null;
+  /** Common foreign currency across ALL this vendor's bills (e.g. "USD"), or
+   *  null when domestic or mixed — then only ₹ is meaningful. */
+  billCurrency:        string | null;
+  foreignBilled:       number;
+  foreignOutstanding:  number;
 };
 
 export function useVendors() {
@@ -26,22 +31,40 @@ export function useVendors() {
       const { data: vendors, error } = await supabase.from("vendors").select("*").order("name", { ascending: true });
       if (error) throw error;
       const { data: bills, error: bErr } = await supabase
-        .from("vendor_bills").select("vendor_id, total, paid_amount, bill_date");
+        .from("vendor_bills").select("vendor_id, total, paid_amount, bill_date, currency, fx_rate");
       if (bErr) throw bErr;
 
-      const agg = new Map<string, { count: number; total: number; out: number; last: string | null }>();
+      type Agg = { count: number; total: number; out: number; last: string | null;
+                   curs: Set<string>; fBilled: number; fOut: number };
+      const agg = new Map<string, Agg>();
       for (const b of bills ?? []) {
         if (!b.vendor_id) continue;
-        const cur = agg.get(b.vendor_id) ?? { count: 0, total: 0, out: 0, last: null };
+        const cur = agg.get(b.vendor_id) ?? { count: 0, total: 0, out: 0, last: null, curs: new Set<string>(), fBilled: 0, fOut: 0 };
+        const total = b.total ?? 0;
+        const out   = Math.max(0, total - (b.paid_amount ?? 0));
         cur.count += 1;
-        cur.total += b.total ?? 0;
-        cur.out   += Math.max(0, (b.total ?? 0) - (b.paid_amount ?? 0));
+        cur.total += total;
+        cur.out   += out;
         if (b.bill_date && (!cur.last || b.bill_date > cur.last)) cur.last = b.bill_date;
+        // Currency tracking — for a foreign, single-currency vendor we can show
+        // its own-currency totals too. Any INR bill or a second currency ⇒ mixed.
+        const code = ((b as { currency?: string | null }).currency || "INR").toUpperCase();
+        const rate = Number((b as { fx_rate?: number | null }).fx_rate) || 1;
+        cur.curs.add(code);
+        if (code !== "INR" && rate > 0) { cur.fBilled += total / rate; cur.fOut += out / rate; }
         agg.set(b.vendor_id, cur);
       }
       return (vendors ?? []).map((v) => {
-        const a = agg.get(v.id) ?? { count: 0, total: 0, out: 0, last: null };
-        return { ...(v as VendorRow), billCount: a.count, totalBilled: a.total, outstanding: a.out, lastBillDate: a.last };
+        const a = agg.get(v.id) ?? { count: 0, total: 0, out: 0, last: null, curs: new Set<string>(), fBilled: 0, fOut: 0 };
+        // Uniform foreign currency only (exactly one code, and it isn't INR).
+        const billCurrency = a.curs.size === 1 && !a.curs.has("INR") ? [...a.curs][0] : null;
+        return {
+          ...(v as VendorRow),
+          billCount: a.count, totalBilled: a.total, outstanding: a.out, lastBillDate: a.last,
+          billCurrency,
+          foreignBilled:      billCurrency ? Math.round(a.fBilled * 100) / 100 : 0,
+          foreignOutstanding: billCurrency ? Math.round(a.fOut * 100) / 100 : 0,
+        };
       });
     },
     staleTime: 30_000,

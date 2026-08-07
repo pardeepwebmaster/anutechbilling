@@ -32,6 +32,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useConfirm } from "@/components/providers/confirm-provider";
 import { useVendors, useUpsertVendor, useDeleteVendor, useBillsByVendor, type Vendor } from "@/lib/queries/vendors";
+import type { VendorBill } from "@/lib/queries/vendor-bills";
+import { BillDetailDialog } from "@/components/features/accounting/bill-detail-dialog";
 import { VENDOR_BILL_CATEGORIES } from "@/lib/queries/vendor-bills";
 import { rupee, formatDate, GST_STATE_BY_CODE, gstStateFromGstin, foreignAmount, formatForeignAmount } from "@/lib/utils";
 import GstinVerifyCard from "@/components/features/gstin/gstin-verify-card";
@@ -337,8 +339,10 @@ function VendorFormDialog({ vendor, onClose }: { vendor?: Vendor; onClose: () =>
 
 function VendorBillsDialog({ vendor, onClose, onEdit }: { vendor: Vendor; onClose: () => void; onEdit: () => void }) {
   const { data: bills, isLoading } = useBillsByVendor(vendor.id);
+  const [detailBill, setDetailBill] = React.useState<VendorBill | null>(null);
 
   return (
+    <>
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="md:!max-w-lg">
         <DialogHeader>
@@ -367,9 +371,13 @@ function VendorBillsDialog({ vendor, onClose, onEdit }: { vendor: Vendor; onClos
               {(bills ?? []).map((b) => {
                 const out = Math.max(0, (b.total ?? 0) - (b.paid_amount ?? 0));
                 return (
-                  <li key={b.id} className="flex items-center justify-between gap-3 py-2.5">
+                  <li
+                    key={b.id}
+                    onClick={() => setDetailBill(b)}
+                    className="flex items-center justify-between gap-3 py-2.5 -mx-1 px-1 rounded-md cursor-pointer hover:bg-paper-2/60 transition-colors"
+                  >
                     <div className="min-w-0">
-                      <p className="text-sm text-ink truncate">{b.bill_no || b.id} <span className="text-ink-3">· {b.category}</span></p>
+                      <p className="text-sm text-ink truncate">{b.bill_no || b.id} <span className="text-ink-3">· {b.category}</span>{(b.line_items?.length ?? 0) > 0 && <span className="text-ink-3"> · {b.line_items.length} items</span>}</p>
                       <p className="text-[11px] text-ink-3">{formatDate(b.bill_date)}</p>
                     </div>
                     <div className="text-right shrink-0">
@@ -392,5 +400,7 @@ function VendorBillsDialog({ vendor, onClose, onEdit }: { vendor: Vendor; onClos
         </DialogFooter>
       </DialogContent>
     </Dialog>
+    {detailBill && <BillDetailDialog bill={detailBill} onClose={() => setDetailBill(null)} />}
+    </>
   );
 }

@@ -34,6 +34,8 @@ import { useConfirm } from "@/components/providers/confirm-provider";
 import { useVendors, useUpsertVendor, useDeleteVendor, useBillsByVendor, useExpensesByVendor, type Vendor } from "@/lib/queries/vendors";
 import type { VendorBill } from "@/lib/queries/vendor-bills";
 import { BillDetailDialog } from "@/components/features/accounting/bill-detail-dialog";
+import { AddExpenseDialog } from "@/components/features/accounting/add-expense-dialog";
+import type { ExpenseRow } from "@/lib/supabase/database.types";
 import { VENDOR_BILL_CATEGORIES } from "@/lib/queries/vendor-bills";
 import { rupee, formatDate, GST_STATE_BY_CODE, gstStateFromGstin, foreignAmount, formatForeignAmount } from "@/lib/utils";
 import GstinVerifyCard from "@/components/features/gstin/gstin-verify-card";
@@ -341,6 +343,7 @@ function VendorBillsDialog({ vendor, onClose, onEdit }: { vendor: Vendor; onClos
   const { data: bills, isLoading } = useBillsByVendor(vendor.id);
   const { data: vExpenses } = useExpensesByVendor(vendor.id);
   const [detailBill, setDetailBill] = React.useState<VendorBill | null>(null);
+  const [detailExpense, setDetailExpense] = React.useState<ExpenseRow | null>(null);
 
   return (
     <>
@@ -406,18 +409,25 @@ function VendorBillsDialog({ vendor, onClose, onEdit }: { vendor: Vendor; onClos
             <div>
               <p className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold mb-1 px-1">Expenses</p>
               <ul className="divide-y divide-hairline">
-                {(vExpenses ?? []).map((e) => (
-                  <li key={e.id} className="flex items-center justify-between gap-3 py-2.5 px-1">
+                {(vExpenses ?? []).map((e) => {
+                  const fx = foreignAmount(e.currency, e.amount, e.fx_rate);
+                  return (
+                  <li
+                    key={e.id}
+                    onClick={() => setDetailExpense(e)}
+                    className="flex items-center justify-between gap-3 py-2.5 -mx-1 px-1 rounded-md cursor-pointer hover:bg-paper-2/60 transition-colors"
+                  >
                     <div className="min-w-0">
                       <p className="text-sm text-ink truncate">{e.category}{e.description ? <span className="text-ink-3"> · {e.description}</span> : ""}</p>
                       <p className="text-[11px] text-ink-3">{formatDate(e.expense_date)}</p>
                     </div>
                     <div className="text-right shrink-0">
-                      <p className="font-mono text-sm font-semibold text-ink">{rupee(e.amount)}</p>
-                      {e.gst_paid > 0 && <p className="text-[10px] text-emerald">+{rupee(e.gst_paid)} GST</p>}
+                      <p className="font-mono text-sm font-semibold text-ink">{fx ? <>{fx} <span className="text-[10px] font-normal text-ink-3">({rupee(e.amount)})</span></> : rupee(e.amount)}</p>
+                      {e.gst_paid > 0 && (() => { const gfx = foreignAmount(e.currency, e.gst_paid, e.fx_rate); return <p className="text-[10px] text-emerald">+{gfx ?? rupee(e.gst_paid)} GST{gfx ? ` (${rupee(e.gst_paid)})` : ""}</p>; })()}
                     </div>
                   </li>
-                ))}
+                  );
+                })}
               </ul>
             </div>
             )}
@@ -431,6 +441,7 @@ function VendorBillsDialog({ vendor, onClose, onEdit }: { vendor: Vendor; onClos
       </DialogContent>
     </Dialog>
     {detailBill && <BillDetailDialog bill={detailBill} onClose={() => setDetailBill(null)} />}
+    {detailExpense && <AddExpenseDialog expense={detailExpense} onClose={() => setDetailExpense(null)} />}
     </>
   );
 }

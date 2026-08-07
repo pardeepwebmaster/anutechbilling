@@ -31,12 +31,12 @@ describe("rollupVendors", () => {
     expect(g.lastBillDate).toBe("2026-07-10");   // latest across bills + expenses
   });
 
-  it("handles an expense-only vendor (e.g. Anthropic, moved to Expenses)", () => {
+  it("handles an expense-only foreign vendor (e.g. Anthropic, moved to Expenses)", () => {
     const out = rollupVendors(
       vendors, [],
       [
-        { vendor_id: "v2", amount: 24293, expense_date: "2026-07-25" },
-        { vendor_id: "v2", amount: 5304,  expense_date: "2026-07-10" },
+        { vendor_id: "v2", amount: 24293, expense_date: "2026-07-25", currency: "USD", fx_rate: 91.5 },
+        { vendor_id: "v2", amount: 5304,  expense_date: "2026-07-10", currency: "USD", fx_rate: 91.5 },
       ],
     );
     const a = out.find((v) => v.id === "v2")!;
@@ -46,7 +46,8 @@ describe("rollupVendors", () => {
     expect(a.expenseCount).toBe(2);
     expect(a.totalSpend).toBe(29597);
     expect(a.docCount).toBe(2);
-    expect(a.billCurrency).toBeNull();           // no COGS bills → no foreign badge
+    expect(a.billCurrency).toBe("USD");          // uniform foreign across its expenses
+    expect(a.foreignBilled).toBe(323.46);        // 29597 / 91.5
   });
 
   it("keeps foreign-currency rollup on COGS bills", () => {

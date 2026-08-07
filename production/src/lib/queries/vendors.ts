@@ -8,7 +8,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
-import type { VendorRow } from "@/lib/supabase/database.types";
+import type { VendorRow, ExpenseRow } from "@/lib/supabase/database.types";
 import type { VendorBill } from "@/lib/queries/vendor-bills";
 
 export type Vendor = VendorRow & {
@@ -32,7 +32,7 @@ export type Vendor = VendorRow & {
 
 // Minimal shapes the rollup needs (keeps the pure fn independent of full rows).
 type RollupBill    = { vendor_id: string | null; total: number | null; paid_amount: number | null; bill_date: string | null; currency?: string | null; fx_rate?: number | null };
-type RollupExpense = { vendor_id: string | null; amount: number | null; expense_date: string | null };
+type RollupExpense = { vendor_id: string | null; amount: number | null; expense_date: string | null; currency?: string | null; fx_rate?: number | null };
 
 /**
  * Pure rollup — folds COGS bills + operating expenses into each vendor.
@@ -61,8 +61,13 @@ export function rollupVendors(vendors: VendorRow[], bills: RollupBill[], expense
   for (const e of expenses) {
     if (!e.vendor_id) continue;
     const a = agg.get(e.vendor_id) ?? blank();
-    a.expCount += 1; a.expTotal += e.amount ?? 0;
+    const amt = e.amount ?? 0;
+    a.expCount += 1; a.expTotal += amt;
     if (e.expense_date && (!a.last || e.expense_date > a.last)) a.last = e.expense_date;
+    const code = (e.currency || "INR").toUpperCase();
+    const rate = Number(e.fx_rate) || 1;
+    a.curs.add(code);
+    if (code !== "INR" && rate > 0) a.fBilled += amt / rate;   // foreign spend (no outstanding on expenses)
     agg.set(e.vendor_id, a);
   }
 
@@ -93,7 +98,7 @@ export function useVendors() {
         .from("vendor_bills").select("vendor_id, total, paid_amount, bill_date, currency, fx_rate");
       if (bErr) throw bErr;
       const { data: expenses, error: eErr } = await supabase
-        .from("expenses").select("vendor_id, amount, expense_date");
+        .from("expenses").select("vendor_id, amount, expense_date, currency, fx_rate");
       if (eErr) throw eErr;
 
       return rollupVendors((vendors ?? []) as VendorRow[], (bills ?? []) as RollupBill[], (expenses ?? []) as RollupExpense[]);
@@ -102,18 +107,19 @@ export function useVendors() {
   });
 }
 
-/** Expenses invoiced by one vendor (for the vendor detail view). */
+/** Expenses invoiced by one vendor (for the vendor detail view — full rows so
+ *  a row can open the Edit/Detail expense dialog). */
 export function useExpensesByVendor(vendorId: string | null | undefined) {
   return useQuery({
     queryKey: ["expenses", "by-vendor", vendorId],
     enabled: Boolean(vendorId),
-    queryFn: async () => {
+    queryFn: async (): Promise<ExpenseRow[]> => {
       const supabase = createClient();
       const { data, error } = await supabase
-        .from("expenses").select("id, category, amount, gst_paid, expense_date, description")
+        .from("expenses").select("*")
         .eq("vendor_id", vendorId!).order("expense_date", { ascending: false });
       if (error) throw error;
-      return data ?? [];
+      return (data ?? []) as ExpenseRow[];
     },
   });
 }

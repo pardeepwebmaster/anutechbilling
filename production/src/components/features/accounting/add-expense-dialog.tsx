@@ -37,6 +37,8 @@ import {
 import { useBankAccounts } from "@/lib/queries/bank";
 import { useVendors, ensureVendor } from "@/lib/queries/vendors";
 
+const CURRENCY_OPTIONS = ["INR", "USD", "EUR", "GBP", "AED", "SGD", "AUD", "CAD"] as const;
+
 const schema = z.object({
   category:       z.string().min(2),
   vendor_name:    z.string().optional(),
@@ -63,6 +65,14 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
   const { data: vendors } = useVendors();
   const [vendorId, setVendorId] = React.useState<string | null>(expense?.vendor_id ?? null);
   const [vendorOpen, setVendorOpen] = React.useState(false);
+
+  // Currency of the bill. Books are ₹, so a foreign bill needs an exchange rate;
+  // amount/GST are entered in `currency` and converted to ₹ on save (rate=₹/unit).
+  const [currency, setCurrency] = React.useState(expense?.currency ?? "INR");
+  const [fxRate, setFxRate]     = React.useState(expense?.fx_rate && expense.fx_rate !== 1 ? String(expense.fx_rate) : "");
+  const [fxError, setFxError]   = React.useState<string | null>(null);
+  const isForeign = currency !== "INR";
+  const rate = isForeign ? Number(fxRate || 0) : 1;
 
   // ── AI bill reader — upload a stationery/software/rent invoice → Gemini
   //    extracts the fields → we PRE-FILL (operator verifies before saving).
@@ -92,15 +102,17 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
       const f = json.fields as Record<string, unknown>;
       if (f.vendor_name) setValue("vendor_name", String(f.vendor_name));
       if (f.bill_date)   setValue("expense_date", String(f.bill_date));
-      const cur = String(f.currency ?? "INR");
+      const cur = String(f.currency ?? "INR").toUpperCase();
       const gst = Number(f.cgst ?? 0) + Number(f.sgst ?? 0) + Number(f.igst ?? 0);
-      if (cur === "INR") {
-        if (f.total != null) setValue("amount", Math.round(Number(f.total)));
-        setValue("gst_paid", Math.round(gst));
-        setAiNote("AI ne bhar diya — sahi category chuno aur amounts bill se milaa ke Save karo.");
+      setCurrency(cur);
+      // Amounts are entered in the bill's own currency (converted to ₹ on save).
+      if (f.total != null) setValue("amount", Number(f.total));
+      setValue("gst_paid", gst);
+      if (cur !== "INR") {
+        setFxRate("");   // force the operator to enter today's rate
+        setAiNote(`AI ne bhar diya · bill ${cur} me hai — neeche exchange rate (₹/${cur}) daalo, phir Save.`);
       } else {
-        // Foreign bill: books are ₹, so don't push a raw foreign number into amount.
-        setAiNote(`Bill ${cur} me hai — vendor & date bhar diye. ₹ amount + GST khud daalo (aaj ke rate se).`);
+        setAiNote("AI ne bhar diya — sahi category chuno aur amounts bill se milaa ke Save karo.");
       }
     } catch {
       setAiError("Upload failed — try again, ya fields haath se bhar do.");
@@ -119,8 +131,9 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
           expense_date:   expense.expense_date,
           category:       expense.category,
           vendor_name:    expense.vendor_name ?? "",
-          amount:         expense.amount,
-          gst_paid:       expense.gst_paid,
+          // Foreign expense: show amounts in the bill's currency (₹ ÷ rate).
+          amount:         expense.currency !== "INR" && expense.fx_rate ? Math.round((expense.amount / expense.fx_rate) * 100) / 100 : expense.amount,
+          gst_paid:       expense.currency !== "INR" && expense.fx_rate ? Math.round((expense.gst_paid / expense.fx_rate) * 100) / 100 : expense.gst_paid,
           payment_method: expense.payment_method ?? "bank_transfer",
           description:    expense.description ?? "",
         }
@@ -144,6 +157,14 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
       ? (vendorId ?? (isGstBill ? await ensureVendor({ name: payee, defaultCategory: values.category }) : null))
       : null;
 
+    // Foreign bill must have an exchange rate before it hits the ₹ books.
+    if (isForeign && rate <= 0) {
+      setFxError(`Enter today's exchange rate (₹ per 1 ${currency}) to save — the ₹ books need it.`);
+      return;
+    }
+    setFxError(null);
+    const inr = (n: number) => Math.round(n * rate);   // convert entered currency → ₹ (rate 1 for INR)
+
     if (expense) {
       // Edit updates the expense row's fields only. (A linked petty-cash leg,
       // if any, isn't re-adjusted here — edit amount changes cautiously.)
@@ -153,9 +174,11 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
           category:       values.category,
           vendor_name:    payee || null,
           vendor_id:      vId,
+          currency,
+          fx_rate:        rate,
           expense_date:   values.expense_date,
-          amount:         Math.round(values.amount),
-          gst_paid:       Math.round(values.gst_paid),
+          amount:         inr(values.amount),
+          gst_paid:       inr(values.gst_paid),
           payment_method: values.payment_method || null,
           description:    values.description    || null,
         },
@@ -167,9 +190,11 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
       category:       values.category,
       vendor_name:    payee || null,
       vendor_id:      vId,
+      currency,
+      fx_rate:        rate,
       expense_date:   values.expense_date,
-      amount:         Math.round(values.amount),
-      gst_paid:       Math.round(values.gst_paid),
+      amount:         inr(values.amount),
+      gst_paid:       inr(values.gst_paid),
       payment_method: values.payment_method || null,
       description:    values.description    || null,
       // Only tag a petty-cash out-flow when paid by cash from a chosen account.
@@ -281,12 +306,34 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
             <p className="text-[10px] text-ink-3 mt-1">Pick an existing vendor, or type a new one — a new payee is added to your Vendors master only when it&apos;s a GST bill (GST paid entered).</p>
           </FormField>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <FormField label="Amount (₹) incl GST" required htmlFor="amount">
-              <Input id="amount" type="number" min={1} step={1} error={errors.amount?.message} {...register("amount")} />
+          {/* Currency + exchange rate — foreign bills convert to ₹ for the books */}
+          <div className="grid grid-cols-2 gap-3">
+            <FormField label="Currency" htmlFor="currency">
+              <Select value={currency} onValueChange={(v) => { setCurrency(v); if (v === "INR") setFxError(null); }}>
+                <SelectTrigger id="currency"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {CURRENCY_OPTIONS.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                </SelectContent>
+              </Select>
             </FormField>
-            <FormField label="GST paid (₹, if invoiced)" htmlFor="gst_paid">
-              <Input id="gst_paid" type="number" min={0} step={1} {...register("gst_paid")} />
+            {isForeign && (
+              <FormField label={`Exchange rate (₹ per 1 ${currency})`} required htmlFor="fx_rate">
+                <Input id="fx_rate" type="number" min={0} step="any" placeholder="e.g. 83.50"
+                  value={fxRate} error={fxError ?? undefined}
+                  onChange={(e) => { setFxRate(e.target.value); if (fxError) setFxError(null); }} />
+              </FormField>
+            )}
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <FormField label={`Amount (${isForeign ? currency : "₹"}) incl GST`} required htmlFor="amount">
+              <Input id="amount" type="number" min={1} step="any" error={errors.amount?.message} {...register("amount")} />
+              {isForeign && rate > 0 && Number(watch("amount")) > 0 && (
+                <p className="text-[10px] text-emerald mt-1">≈ ₹{Math.round(Number(watch("amount")) * rate).toLocaleString("en-IN")} in books</p>
+              )}
+            </FormField>
+            <FormField label={`GST paid (${isForeign ? currency : "₹"}, if invoiced)`} htmlFor="gst_paid">
+              <Input id="gst_paid" type="number" min={0} step="any" {...register("gst_paid")} />
               <p className="text-[10px] text-ink-3 mt-1">Claimable as input tax credit.</p>
             </FormField>
           </div>

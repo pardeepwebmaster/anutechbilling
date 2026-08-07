@@ -14,7 +14,7 @@ import { Button, IconButton } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/shared/empty-state";
 import { FAB } from "@/components/ui/fab";
-import { rupee, formatDate } from "@/lib/utils";
+import { rupee, formatDate, foreignAmount } from "@/lib/utils";
 import {
   useExpenses,
   useExpensesTotals,
@@ -283,8 +283,14 @@ export default function ExpensesPage() {
                       <span className="block max-w-[280px] truncate" title={e.description ?? undefined}>{e.description ?? "—"}</span>
                     </td>
                     <td className="px-3 py-3 text-ink-3 text-xs whitespace-nowrap">{e.payment_method ?? "—"}</td>
-                    <td className="px-3 py-3 text-right text-emerald font-mono whitespace-nowrap">{e.gst_paid > 0 ? rupee(e.gst_paid) : "—"}</td>
-                    <td className="px-3 py-3 text-right font-semibold text-ink font-mono whitespace-nowrap">{rupee(e.amount)}</td>
+                    <td className="px-3 py-3 text-right text-emerald font-mono whitespace-nowrap">
+                      {e.gst_paid > 0 ? rupee(e.gst_paid) : "—"}
+                      {(() => { const fx = e.gst_paid > 0 ? foreignAmount(e.currency, e.gst_paid, e.fx_rate) : null; return fx ? <div className="text-[10px] font-normal text-emerald/70">{fx}</div> : null; })()}
+                    </td>
+                    <td className="px-3 py-3 text-right font-semibold text-ink font-mono whitespace-nowrap">
+                      {rupee(e.amount)}
+                      {(() => { const fx = foreignAmount(e.currency, e.amount, e.fx_rate); return fx ? <div className="text-[10px] font-normal text-ink-3">{fx}</div> : null; })()}
+                    </td>
                     <td className="px-3 py-3 text-right whitespace-nowrap">
                       <IconButton
                         icon="edit"
@@ -317,6 +323,7 @@ export default function ExpensesPage() {
                       {(() => { const t = reconcileTag(e, salByExpense.get(e.id)); return t ? <ReconcileTag {...t} /> : null; })()}
                     </div>
                     <div className="font-serif text-xl text-ink leading-none">{rupee(e.amount)}</div>
+                    {(() => { const fx = foreignAmount(e.currency, e.amount, e.fx_rate); return fx ? <div className="text-[11px] text-ink-3">{fx} @ ₹{e.fx_rate}/{e.currency}</div> : null; })()}
                   </div>
                   <div className="text-[11px] text-ink-3 mb-1.5">
                     {formatDate(e.expense_date)} · {e.payment_method ?? "—"}
@@ -325,7 +332,7 @@ export default function ExpensesPage() {
                   {e.description && <div className="text-xs text-ink-3 mb-2">{e.description}</div>}
                   <div className="flex items-center justify-between">
                     {e.gst_paid > 0 && (
-                      <span className="text-[11px] text-emerald">+{rupee(e.gst_paid)} input GST</span>
+                      <span className="text-[11px] text-emerald">+{foreignAmount(e.currency, e.gst_paid, e.fx_rate) ?? rupee(e.gst_paid)} input GST</span>
                     )}
                     <div className="ml-auto flex items-center gap-1">
                       <IconButton icon="edit" aria-label="Edit expense" onClick={() => setEditing(e)} />

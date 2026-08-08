@@ -214,27 +214,66 @@ function parseStatement(text: string): { rows: ParsedRow[]; skipped: number; war
 export function ImportStatementDialog({ open, onOpenChange, accountId }: Props) {
   const [csvText, setCsvText] = React.useState("");
   const [parsed, setParsed]   = React.useState<{ rows: ParsedRow[]; skipped: number; warnings: string[] } | null>(null);
+  // "csv" = parsed from pasted/CSV text; "ai" = read from a PDF/photo via Gemini.
+  const [mode, setMode]       = React.useState<"csv" | "ai">("csv");
+  const [reading, setReading] = React.useState(false);
   const importMut = useImportBankTransactions();
 
   React.useEffect(() => {
-    if (!open) { setCsvText(""); setParsed(null); }
+    if (!open) { setCsvText(""); setParsed(null); setMode("csv"); setReading(false); }
   }, [open]);
 
-  // Re-parse whenever the textarea changes (cheap)
+  // Re-parse the textarea (CSV mode only — don't clobber an AI/PDF result).
   React.useEffect(() => {
+    if (mode !== "csv") return;
     if (!csvText.trim()) { setParsed(null); return; }
     setParsed(parseStatement(csvText));
-  }, [csvText]);
+  }, [csvText, mode]);
+
+  // Read a bank-statement PDF/photo with AI → transaction rows (operator reviews).
+  const readPdf = async (file: File) => {
+    setReading(true);
+    setMode("ai");
+    setCsvText("");
+    try {
+      const base64 = await new Promise<string>((resolve, reject) => {
+        const r = new FileReader();
+        r.onload  = () => resolve((r.result as string).split(",")[1] ?? "");
+        r.onerror = () => reject(new Error("read failed"));
+        r.readAsDataURL(file);
+      });
+      const res = await fetch("/api/ai/extract-statement", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ fileBase64: base64, mimeType: file.type }),
+      });
+      const json = await res.json();
+      if (!res.ok) { toast.error(json.error ?? "Couldn't read the statement."); setParsed(null); return; }
+      setParsed({
+        rows: (json.rows ?? []) as ParsedRow[],
+        skipped: json.skipped ?? 0,
+        warnings: (json.rows ?? []).length === 0 ? ["AI ne koi transaction nahi padha — CSV download try karo."] : [],
+      });
+    } catch {
+      toast.error("Upload failed — try again, ya CSV daalo.");
+      setParsed(null);
+    } finally {
+      setReading(false);
+    }
+  };
 
   const onFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    e.target.value = "";
     if (!file) return;
-    if (file.size > 5 * 1024 * 1024) {
-      toast.error("File too large (>5 MB). Paste the CSV instead.");
+    if (file.size > 8 * 1024 * 1024) {
+      toast.error("File too large (>8 MB). Paste the CSV instead.");
       return;
     }
-    const text = await file.text();
-    setCsvText(text);
+    // PDF / image → AI reader; CSV / text → parse in the browser.
+    if (/pdf|image/i.test(file.type)) { await readPdf(file); return; }
+    setMode("csv");
+    setCsvText(await file.text());
   };
 
   const handleImport = async () => {
@@ -259,23 +298,25 @@ export function ImportStatementDialog({ open, onOpenChange, accountId }: Props) 
         <SheetHeader>
           <SheetTitle>Import bank statement</SheetTitle>
           <SheetDescription>
-            Upload a .csv / .xlsx file or paste the statement text below. We&apos;ll
-            auto-detect the columns (Date / Description / Debit / Credit) and
-            import the rows.
+            Upload a <b>PDF</b> statement or a <b>.csv</b> file (or paste the text
+            below). PDF ko AI padh ke rows nikaal deta hai; CSV auto-detect hoti
+            hai (Date / Description / Debit / Credit). Aap import se pehle preview
+            check karo.
           </SheetDescription>
         </SheetHeader>
 
         <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4 space-y-4">
-          {/* File upload */}
+          {/* File upload — PDF/photo (AI) or CSV */}
           <div className="rounded-md border border-dashed border-hairline-strong bg-paper-2/30 p-4">
             <label className="cursor-pointer flex flex-col items-center text-center gap-2">
-              <Icon name="upload" size={20} className="text-ink-3" />
-              <span className="text-sm font-medium">Choose file (CSV or paste)</span>
-              <span className="text-[11px] text-ink-3">.csv up to 5 MB · or paste the table below</span>
+              <Icon name={reading ? "sparkles" : "upload"} size={20} className={reading ? "text-amber-ink animate-pulse" : "text-ink-3"} />
+              <span className="text-sm font-medium">{reading ? "AI padh raha hai…" : "Choose file — PDF / CSV"}</span>
+              <span className="text-[11px] text-ink-3">Bank statement PDF (AI reads it) · ya .csv · up to 8 MB</span>
               <input
                 type="file"
-                accept=".csv,text/csv"
+                accept=".csv,text/csv,application/pdf,image/*"
                 className="hidden"
+                disabled={reading}
                 onChange={onFileChange}
               />
             </label>
@@ -289,7 +330,7 @@ export function ImportStatementDialog({ open, onOpenChange, accountId }: Props) 
               placeholder={"Date,Description,Debit,Credit,Balance\n28/05/2026,UPI/RAZORPAY/...,0,521088,..."}
               className="mt-1 w-full rounded-md border border-hairline bg-paper px-3 py-2 text-xs font-mono text-ink placeholder:text-ink-4 focus:outline-none focus:ring-2 focus:ring-amber resize-y"
               value={csvText}
-              onChange={(e) => setCsvText(e.target.value)}
+              onChange={(e) => { setMode("csv"); setCsvText(e.target.value); }}
             />
           </div>
 
@@ -349,9 +390,9 @@ export function ImportStatementDialog({ open, onOpenChange, accountId }: Props) 
           )}
 
           <div className="rounded-md bg-indigo-50 border border-indigo/20 px-3 py-2 text-[11px] text-indigo-ink">
-            <b>Tip:</b> Most Indian banks let you download a 30-day statement
-            from net banking as CSV. We support HDFC, ICICI, SBI, Axis, Kotak,
-            IndusInd, Yes Bank header formats.
+            <b>Tip:</b> Net banking se statement <b>PDF</b> ya <b>CSV</b> dono chalti hai —
+            PDF ko AI padh leta hai, CSV auto-detect hoti hai (HDFC, ICICI, SBI, Axis,
+            Kotak, IndusInd, Yes Bank). Import se pehle preview zaroor check karo.
           </div>
         </div>
 

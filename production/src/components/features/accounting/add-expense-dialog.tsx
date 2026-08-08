@@ -82,8 +82,13 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
   // How the expense is supported: proper GST tax invoice, a kaccha (informal /
   // non-GST) bill, or no bill at all (petty cash). Only a GST invoice carries
   // input tax credit — and only a GST-invoice vendor joins the Vendors master.
-  const [billType, setBillType] = React.useState<string>(expense?.bill_type ?? "gst");
+  // Default a NEW expense to "No bill" — most day-to-day entries are small
+  // cash spends; a GST invoice is one click away when needed.
+  const [billType, setBillType] = React.useState<string>(expense?.bill_type ?? "none");
   const isGstBill = billType === "gst";
+  // Itemise on demand — simple note by default; line items only when there's a
+  // multi-line bill (or the AI fills them).
+  const [showItems, setShowItems] = React.useState<boolean>((expense?.line_items?.length ?? 0) > 0);
 
   // Payroll / statutory postings (salary, employer ESI/PF, TDS) come from the
   // Payroll module — they have no bill or line items, so we hide the items
@@ -246,6 +251,7 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
     if (pending.total != null) setValue("amount", pending.total);
     setValue("gst_paid", pending.gst);
     setLines(pending.items);
+    if (pending.items.length) setShowItems(true);   // AI found line items → show them
     if (pending.currency !== "INR") {
       setFxRate("");   // force today's rate before it hits the ₹ books
       setAiNote(`Bhar diya · bill ${pending.currency} me hai — neeche exchange rate (₹/${pending.currency}) daalo, phir Save. 📎 bill attach ho jayega.`);
@@ -292,12 +298,15 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
   // items doesn't keep flipping the category. Stops entirely once the operator
   // changes it themselves; they can always override.
   const itemText = lines.map((l) => l.description).filter(Boolean).join(" ");
+  const noteText = watch("description") ?? "";
   const vendorNameWatch = watch("vendor_name") ?? "";
+  // Category source = the note in simple mode, the item rows in itemised mode.
+  const catText = showItems ? itemText : noteText;
   React.useEffect(() => {
     if (categoryTouched || categoryAuto) return;
-    const s = suggestCategory(`${itemText} ${vendorNameWatch}`);
+    const s = suggestCategory(`${catText} ${vendorNameWatch}`);
     if (s) { setValue("category", s); setCategoryAuto(true); }
-  }, [itemText, vendorNameWatch, categoryTouched, categoryAuto, setValue]);
+  }, [catText, vendorNameWatch, categoryTouched, categoryAuto, setValue]);
 
   async function onSubmit(values: FormData) {
     const payee = values.vendor_name?.trim() || "";
@@ -409,7 +418,7 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="md:!max-w-2xl">
+      <DialogContent className="md:!max-w-xl">
         <DialogHeader>
           <DialogTitle>{isEdit ? "Edit expense" : "Add expense"}</DialogTitle>
           <DialogDescription>
@@ -417,260 +426,236 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
           </DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
-          {/* Category — WHAT this expense is. Auto-picked from the item rows +
-              vendor below (one category per bill), editable. */}
-          <FormField label="Category" required htmlFor="category">
-            <Select value={watch("category")} onValueChange={(v) => { setValue("category", v); setCategoryTouched(true); setCategoryAuto(false); }}>
-              <SelectTrigger id="category"><SelectValue placeholder="Select" /></SelectTrigger>
-              <SelectContent>
-                {/* Salaries are booked in Payroll (payslip + statutory) — hide unless editing a legacy one. */}
-                {EXPENSE_CATEGORIES
-                  .filter((c) => c !== "Salaries" || expense?.category === "Salaries")
-                  .map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
-              </SelectContent>
-            </Select>
-            {categoryAuto && !categoryTouched && (
-              <p className="mt-1 flex items-center gap-1 text-[10px] text-amber-ink">
-                <Icon name="sparkles" size={10} /> Text se auto-chuni — galat ho to badal do.
-              </p>
-            )}
-          </FormField>
+        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+          {/* ── STEP 1: What kind of bill? This shapes the whole form. ── */}
+          <div>
+            <p className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold mb-1.5">Is kharche ka bill?</p>
+            <div className="grid grid-cols-3 gap-1.5">
+              {([["none", "No bill / cash"], ["kaccha", "Kaccha bill"], ["gst", "GST invoice"]] as const).map(([val, label]) => (
+                <button
+                  key={val}
+                  type="button"
+                  onClick={() => {
+                    setBillType(val);
+                    if (val !== "gst") { setValue("gst_paid", 0); setVendorId(null); setCurrency("INR"); setFxError(null); }
+                  }}
+                  className={cn(
+                    "rounded-md border px-2 py-2 text-[12px] font-medium transition-colors text-center",
+                    billType === val ? "border-amber bg-amber-soft text-amber-ink" : "border-hairline text-ink-2 hover:bg-paper-2",
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <p className={cn("mt-1.5 text-[10px] leading-snug", isGstBill ? "text-ink-3" : "text-amber-ink")}>
+              {billType === "gst"
+                ? "GST tax invoice — input GST claimable, vendor saved to your Vendors master."
+                : billType === "kaccha"
+                ? "Informal / non-GST bill — deductible, but no input GST credit."
+                : "No bill (petty cash etc.) — deductible, but no input GST credit."}
+            </p>
+          </div>
+
           {!isEdit && (
-            <p className="text-[11px] text-ink-3 leading-relaxed -mt-2">
-              Paying a salary?{" "}
+            <p className="text-[11px] text-ink-3 leading-relaxed">
+              Salary de rahe ho?{" "}
               <button type="button" onClick={() => { onClose(); router.push("/accounting/payroll" as never); }}
-                className="text-amber-ink font-medium underline hover:no-underline">Book it in Payroll &amp; Leave →</button>{" "}
-              so it gets a payslip + statutory handling.
+                className="text-amber-ink font-medium underline hover:no-underline">Payroll &amp; Leave me book karo →</button>{" "}
+              taaki payslip + statutory sahi rahe.
             </p>
           )}
 
-          {/* ── Bill & amount — the document + money (type, who, when, items, total) ── */}
-          <section className="rounded-lg border border-hairline bg-paper-2/30 p-3 space-y-3">
-            <p className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold">Bill &amp; amount</p>
-
-            {/* Bill type — segmented; drives GST input-credit + vendor-master */}
-            <div>
-              <div className="grid grid-cols-3 gap-1.5">
-                {([["gst", "GST invoice"], ["kaccha", "Kaccha bill"], ["none", "No bill"]] as const).map(([val, label]) => (
-                  <button
-                    key={val}
-                    type="button"
-                    onClick={() => { setBillType(val); if (val !== "gst") { setValue("gst_paid", 0); setVendorId(null); } }}
-                    className={cn(
-                      "rounded-md border px-2 py-2 text-[12px] font-medium transition-colors text-center",
-                      billType === val ? "border-amber bg-amber-soft text-amber-ink" : "border-hairline text-ink-2 hover:bg-paper-2",
-                    )}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-              <p className={cn("mt-1.5 text-[10px] leading-snug", isGstBill ? "text-ink-3" : "text-amber-ink")}>
-                {isGstBill
-                  ? "Proper GST tax invoice — input GST is claimable, and the vendor is saved to your Vendors master."
-                  : "Recorded & income-tax deductible — but no input GST credit (that needs a GST tax invoice)."}
-              </p>
-            </div>
-
-            {/* AI bill reader — only when there IS a bill (GST / kaccha). Upload a
-                photo/PDF → AI reads it → you confirm before it fills the form. */}
-            {billType !== "none" && (
-              <div className="rounded-md border border-dashed border-amber/50 bg-amber-soft/15 p-2.5">
-                <div className="flex items-center justify-between gap-2 flex-wrap">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <Icon name="sparkles" size={16} className="text-amber-ink shrink-0" />
-                    <div className="min-w-0">
-                      <p className="text-[12px] font-medium text-ink">Bill upload karo — AI khud bhar dega</p>
-                      <p className="text-[10px] text-ink-3">Photo/PDF — AI fields + items nikaal dega, aap confirm karke Save karo</p>
-                    </div>
+          {/* ── STEP 2: Upload the bill (only when there IS one). AI fills → confirm. ── */}
+          {billType !== "none" && (
+            <div className="rounded-md border border-dashed border-amber/50 bg-amber-soft/15 p-2.5">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <div className="flex items-center gap-2 min-w-0">
+                  <Icon name="sparkles" size={16} className="text-amber-ink shrink-0" />
+                  <div className="min-w-0">
+                    <p className="text-[12px] font-medium text-ink">Bill upload karo — AI khud bhar dega</p>
+                    <p className="text-[10px] text-ink-3">Photo/PDF — AI fields + items nikaal dega, aap confirm karke Save karo</p>
                   </div>
-                  <Button type="button" variant="primary" size="sm" icon="upload" loading={reading} onClick={() => fileRef.current?.click()}>
-                    {reading ? "Reading…" : "Upload bill"}
-                  </Button>
-                  <input
-                    ref={fileRef}
-                    type="file"
-                    accept="image/*,application/pdf"
-                    className="hidden"
-                    onChange={(e) => { const f = e.target.files?.[0]; if (f) handleBillFile(f); e.target.value = ""; }}
-                  />
                 </div>
-                {aiNote && <p className="mt-2 flex items-start gap-1.5 text-[11px] text-emerald"><Icon name="check_circle" size={12} className="mt-0.5 shrink-0" /> {aiNote}</p>}
-                {aiError && <p className="mt-2 flex items-start gap-1.5 text-[11px] text-rose"><Icon name="alert" size={12} className="mt-0.5 shrink-0" /> {aiError}</p>}
+                <Button type="button" variant="primary" size="sm" icon="upload" loading={reading} onClick={() => fileRef.current?.click()}>
+                  {reading ? "Reading…" : "Upload bill"}
+                </Button>
+                <input
+                  ref={fileRef}
+                  type="file"
+                  accept="image/*,application/pdf"
+                  className="hidden"
+                  onChange={(e) => { const f = e.target.files?.[0]; if (f) handleBillFile(f); e.target.value = ""; }}
+                />
+              </div>
+              {aiNote && <p className="mt-2 flex items-start gap-1.5 text-[11px] text-emerald"><Icon name="check_circle" size={12} className="mt-0.5 shrink-0" /> {aiNote}</p>}
+              {aiError && <p className="mt-2 flex items-start gap-1.5 text-[11px] text-rose"><Icon name="alert" size={12} className="mt-0.5 shrink-0" /> {aiError}</p>}
 
-                {/* Confirmation gate — AI read something; the operator must confirm
-                    it's correct before it fills the form. Nothing auto-applies. */}
-                {pending && (() => {
-                  const fmt = (n: number) => pending.currency !== "INR" ? (formatForeignAmount(pending.currency, n) ?? `${pending.currency} ${n}`) : rupee(n);
-                  // Does this bill's vendor already exist? Match GSTIN first, then
-                  // name — so we can flag "existing" right here + show its GSTIN
-                  // (even when the invoice itself didn't print one).
-                  const pg = pending.gstin?.trim().toUpperCase();
-                  const pv = pending.vendorName?.trim().toLowerCase();
-                  const existing = (vendors ?? []).find(
-                    (v) => (pg && (v.gstin ?? "").trim().toUpperCase() === pg) || (pv && v.name.trim().toLowerCase() === pv),
-                  );
-                  const shownGstin = pending.gstin || existing?.gstin || null;
-                  // Already entered? Match by bill no (+ vendor), or vendor+date+
-                  // amount for INR bills without a number.
-                  const dupInReview = findDuplicateExpense(
-                    {
-                      vendorId: existing?.id ?? vendorId,
-                      vendorName: pending.vendorName,
-                      billNo: pending.billNo,
-                      billDate: pending.billDate,
-                      amountInr: pending.currency === "INR" ? (pending.total ?? null) : null,
-                    },
-                    (dupList ?? []) as never,
-                    expense?.id,
-                  );
-                  return (
-                    <div className="mt-2.5 rounded-md border border-amber/40 bg-paper p-3">
-                      <p className="text-[12px] font-medium text-ink mb-2">
-                        AI ne ye padha — sahi hai? Confirm karo tabhi bharega.
-                      </p>
-                      {dupInReview && (
-                        <div className="mb-2 flex items-start gap-1.5 rounded-md bg-rose/10 px-2.5 py-2 text-[11px] text-rose">
-                          <Icon name="alert" size={13} className="mt-0.5 shrink-0" />
-                          <span>
-                            <b>Duplicate lagta hai</b> — ye bill pehle se entered hai
-                            {` (${pending.billNo ? `#${pending.billNo}` : `${formatDate(dupInReview.expense_date)} · ${rupee(dupInReview.amount)}`})`}.
-                            Dobara add karne se P&amp;L + input GST double ho jayega.
-                          </span>
-                        </div>
-                      )}
-                      <div className="space-y-1 text-[12px] text-ink-2">
-                        <div className="flex justify-between gap-2">
-                          <span className="text-ink-3">Vendor</span>
-                          <span className="text-ink text-right flex items-center gap-1.5 justify-end flex-wrap">
-                            {pending.vendorName || "—"}
-                            {existing
-                              ? <span className="inline-flex items-center gap-0.5 rounded-full bg-emerald/10 text-emerald px-1.5 py-0.5 text-[10px] font-medium"><Icon name="check_circle" size={10} /> Existing</span>
-                              : (pending.vendorName && <span className="inline-flex items-center gap-0.5 rounded-full bg-amber-soft text-amber-ink px-1.5 py-0.5 text-[10px] font-medium"><Icon name="plus" size={10} /> New</span>)}
-                          </span>
-                        </div>
-                        {shownGstin && <div className="flex justify-between gap-2"><span className="text-ink-3">GSTIN</span><span className="font-mono text-ink text-right">{shownGstin}</span></div>}
-                        {pending.billNo && <div className="flex justify-between gap-2"><span className="text-ink-3">Bill no.</span><span className="font-mono text-ink text-right">{pending.billNo}</span></div>}
-                        <div className="flex justify-between gap-2"><span className="text-ink-3">Bill date</span><span className="text-right">{pending.billDate || "—"}</span></div>
-                        <div className="flex justify-between gap-2"><span className="text-ink-3">Type</span><span className="text-right">{pending.billType === "gst" ? "GST invoice" : "Kaccha (no GST)"}</span></div>
-                        <div className="flex justify-between gap-2"><span className="text-ink-3">Total{pending.currency !== "INR" ? ` (${pending.currency})` : ""}</span><span className="font-mono text-ink text-right">{pending.total != null ? fmt(pending.total) : "—"}{pending.gst > 0 ? ` · GST ${fmt(pending.gst)}` : ""}</span></div>
+              {/* Confirmation gate — AI read something; confirm before it fills. */}
+              {pending && (() => {
+                const fmt = (n: number) => pending.currency !== "INR" ? (formatForeignAmount(pending.currency, n) ?? `${pending.currency} ${n}`) : rupee(n);
+                const pg = pending.gstin?.trim().toUpperCase();
+                const pv = pending.vendorName?.trim().toLowerCase();
+                const existing = (vendors ?? []).find(
+                  (v) => (pg && (v.gstin ?? "").trim().toUpperCase() === pg) || (pv && v.name.trim().toLowerCase() === pv),
+                );
+                const shownGstin = pending.gstin || existing?.gstin || null;
+                const dupInReview = findDuplicateExpense(
+                  { vendorId: existing?.id ?? vendorId, vendorName: pending.vendorName, billNo: pending.billNo, billDate: pending.billDate, amountInr: pending.currency === "INR" ? (pending.total ?? null) : null },
+                  (dupList ?? []) as never,
+                  expense?.id,
+                );
+                return (
+                  <div className="mt-2.5 rounded-md border border-amber/40 bg-paper p-3">
+                    <p className="text-[12px] font-medium text-ink mb-2">AI ne ye padha — sahi hai? Confirm karo tabhi bharega.</p>
+                    {dupInReview && (
+                      <div className="mb-2 flex items-start gap-1.5 rounded-md bg-rose/10 px-2.5 py-2 text-[11px] text-rose">
+                        <Icon name="alert" size={13} className="mt-0.5 shrink-0" />
+                        <span><b>Duplicate lagta hai</b> — ye bill pehle se entered hai{` (${pending.billNo ? `#${pending.billNo}` : `${formatDate(dupInReview.expense_date)} · ${rupee(dupInReview.amount)}`})`}. Dobara add karne se P&amp;L + input GST double ho jayega.</span>
                       </div>
-                      {pending.items.length > 0 && (
-                        <div className="mt-2 border-t border-hairline pt-2">
-                          <p className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold mb-1">{pending.items.length} item{pending.items.length > 1 ? "s" : ""}</p>
-                          <ul className="space-y-0.5 max-h-28 overflow-y-auto">
-                            {pending.items.map((it, i) => (
-                              <li key={i} className="flex justify-between gap-2 text-[11px]">
-                                <span className="text-ink-2 truncate">{it.description || "—"}{it.qty ? ` × ${it.qty}` : ""}</span>
-                                <span className="font-mono text-ink-3 shrink-0">{it.amount ? fmt(Number(it.amount)) : "—"}</span>
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        <Button type="button" variant="primary" size="sm" icon="check" onClick={applyExtract}>Haan, sahi hai — bhar do</Button>
-                        <Button type="button" variant="default" size="sm" onClick={discardExtract}>Galat — main khud bharunga</Button>
+                    )}
+                    <div className="space-y-1 text-[12px] text-ink-2">
+                      <div className="flex justify-between gap-2">
+                        <span className="text-ink-3">Vendor</span>
+                        <span className="text-ink text-right flex items-center gap-1.5 justify-end flex-wrap">
+                          {pending.vendorName || "—"}
+                          {existing
+                            ? <span className="inline-flex items-center gap-0.5 rounded-full bg-emerald/10 text-emerald px-1.5 py-0.5 text-[10px] font-medium"><Icon name="check_circle" size={10} /> Existing</span>
+                            : (pending.vendorName && <span className="inline-flex items-center gap-0.5 rounded-full bg-amber-soft text-amber-ink px-1.5 py-0.5 text-[10px] font-medium"><Icon name="plus" size={10} /> New</span>)}
+                        </span>
                       </div>
-                      <p className="mt-2 text-[10px] text-ink-3">
-                        Kaise bhi karo, 📎{" "}
-                        <button type="button" onClick={openLocalFile} className="text-amber-ink underline hover:no-underline">
-                          {attachFile?.name}
-                        </button>{" "}
-                        bill expense ke saath attach ho jayega. (click karke dekho)
-                      </p>
+                      {shownGstin && <div className="flex justify-between gap-2"><span className="text-ink-3">GSTIN</span><span className="font-mono text-ink text-right">{shownGstin}</span></div>}
+                      {pending.billNo && <div className="flex justify-between gap-2"><span className="text-ink-3">Bill no.</span><span className="font-mono text-ink text-right">{pending.billNo}</span></div>}
+                      <div className="flex justify-between gap-2"><span className="text-ink-3">Bill date</span><span className="text-right">{pending.billDate || "—"}</span></div>
+                      <div className="flex justify-between gap-2"><span className="text-ink-3">Total{pending.currency !== "INR" ? ` (${pending.currency})` : ""}</span><span className="font-mono text-ink text-right">{pending.total != null ? fmt(pending.total) : "—"}{pending.gst > 0 ? ` · GST ${fmt(pending.gst)}` : ""}</span></div>
                     </div>
-                  );
-                })()}
+                    {pending.items.length > 0 && (
+                      <div className="mt-2 border-t border-hairline pt-2">
+                        <p className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold mb-1">{pending.items.length} item{pending.items.length > 1 ? "s" : ""}</p>
+                        <ul className="space-y-0.5 max-h-28 overflow-y-auto">
+                          {pending.items.map((it, i) => (
+                            <li key={i} className="flex justify-between gap-2 text-[11px]">
+                              <span className="text-ink-2 truncate">{it.description || "—"}{it.qty ? ` × ${it.qty}` : ""}</span>
+                              <span className="font-mono text-ink-3 shrink-0">{it.amount ? fmt(Number(it.amount)) : "—"}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <Button type="button" variant="primary" size="sm" icon="check" onClick={applyExtract}>Haan, sahi hai — bhar do</Button>
+                      <Button type="button" variant="default" size="sm" onClick={discardExtract}>Galat — main khud bharunga</Button>
+                    </div>
+                    <p className="mt-2 text-[10px] text-ink-3">Kaise bhi karo, 📎 <button type="button" onClick={openLocalFile} className="text-amber-ink underline hover:no-underline">{attachFile?.name}</button> bill attach ho jayega. (click karke dekho)</p>
+                  </div>
+                );
+              })()}
 
-                {/* File kept but read not pending (confirmed or entering manually). */}
-                {attachFile && !pending && (
-                  <p className="mt-2 flex items-center gap-1.5 text-[11px] text-ink-2">
-                    <Icon name="file" size={12} />
-                    <button type="button" onClick={openLocalFile} className="text-amber-ink underline hover:no-underline">
-                      {attachFile.name}
-                    </button>
-                    — expense ke saath attach hoga
+              {attachFile && !pending && (
+                <p className="mt-2 flex items-center gap-1.5 text-[11px] text-ink-2">
+                  <Icon name="file" size={12} />
+                  <button type="button" onClick={openLocalFile} className="text-amber-ink underline hover:no-underline">{attachFile.name}</button>
+                  — expense ke saath attach hoga
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* ── STEP 3: Who — vendor / payee. Full (with GSTIN) for GST bills. ── */}
+          <FormField label={isGstBill ? "Vendor (GST invoice)" : "Paid to (optional)"} htmlFor="vendor_name">
+            <div className="relative">
+              <Input
+                id="vendor_name"
+                autoComplete="off"
+                placeholder="e.g. Anthropic / Airtel / Office Landlord"
+                {...register("vendor_name", { onChange: () => { setVendorId(null); setVendorMatch(null); setVendorOpen(true); } })}
+                onFocus={() => setVendorOpen(true)}
+                onBlur={() => setTimeout(() => setVendorOpen(false), 130)}
+              />
+              {vendorOpen && (vendors ?? []).length > 0 && (() => {
+                const query = (watch("vendor_name") || "").trim().toLowerCase();
+                const matches = (vendors ?? []).filter((v) => !query || v.name.toLowerCase().includes(query)).slice(0, 8);
+                if (matches.length === 0) return null;
+                return (
+                  <div className="absolute z-20 mt-1 w-full max-h-52 overflow-y-auto rounded-md border border-hairline bg-paper shadow-lg">
+                    {matches.map((v) => (
+                      <button key={v.id} type="button"
+                        onMouseDown={(e) => { e.preventDefault(); setValue("vendor_name", v.name); setVendorId(v.id); setVendorMatch({ kind: "existing", name: v.name }); setVendorOpen(false); }}
+                        className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-paper-2">
+                        <span className="text-ink truncate">{v.name}</span>
+                        {v.gstin && <span className="text-[10px] text-ink-3 font-mono shrink-0">{v.gstin}</span>}
+                      </button>
+                    ))}
+                  </div>
+                );
+              })()}
+            </div>
+            {vendorMatch && (
+              vendorMatch.kind === "existing" ? (
+                <p className="mt-1 flex items-center gap-1.5 text-[11px] text-emerald">
+                  <Icon name="check_circle" size={12} /> Existing vendor mil gaya{aiGstin ? " (GSTIN se)" : ""} — isi se link hoga.
+                </p>
+              ) : isGstBill ? (
+                <p className="mt-1 flex items-center gap-1.5 text-[11px] text-amber-ink">
+                  <Icon name="plus" size={12} /> Naya vendor &ldquo;{vendorMatch.name}&rdquo;{aiGstin ? ` (GSTIN ${aiGstin})` : ""} — Save par Vendors master me add hoga.
+                </p>
+              ) : (
+                <p className="mt-1 text-[11px] text-ink-3">Naya payee — kaccha/no-bill hone se Vendors master me add nahi hoga.</p>
+              )
+            )}
+          </FormField>
+
+          {/* Bill no — only a GST invoice has a number worth tracking (dedup). */}
+          {isGstBill && (
+            <FormField label="Bill / invoice no. (optional)" htmlFor="bill_no">
+              <Input id="bill_no" placeholder="e.g. INV-2026-0042" value={billNo} onChange={(e) => setBillNo(e.target.value)} />
+            </FormField>
+          )}
+
+          {/* ── STEP 4: What & how much ── */}
+          <section className="rounded-lg border border-hairline bg-paper-2/30 p-3 space-y-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <FormField label="Category" required htmlFor="category">
+                <Select value={watch("category")} onValueChange={(v) => { setValue("category", v); setCategoryTouched(true); setCategoryAuto(false); }}>
+                  <SelectTrigger id="category"><SelectValue placeholder="Select" /></SelectTrigger>
+                  <SelectContent>
+                    {EXPENSE_CATEGORIES
+                      .filter((c) => c !== "Salaries" || expense?.category === "Salaries")
+                      .map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                {categoryAuto && !categoryTouched && (
+                  <p className="mt-1 flex items-center gap-1 text-[10px] text-amber-ink">
+                    <Icon name="sparkles" size={10} /> Auto-chuni — galat ho to badal do.
                   </p>
                 )}
-              </div>
-            )}
+              </FormField>
+              <FormField label="Date" required htmlFor="expense_date">
+                <Input id="expense_date" type="date" error={errors.expense_date?.message} {...register("expense_date")} />
+              </FormField>
+            </div>
 
-            {/* Vendor / payee — sits right below the bill upload, since reading
-                the invoice auto-fills the vendor + its tax/GST details. */}
-            <FormField label="Vendor / payee (optional)" htmlFor="vendor_name">
-              <div className="relative">
-                <Input
-                  id="vendor_name"
-                  autoComplete="off"
-                  placeholder="e.g. Anthropic / Airtel / Office Landlord"
-                  {...register("vendor_name", { onChange: () => { setVendorId(null); setVendorMatch(null); setVendorOpen(true); } })}
-                  onFocus={() => setVendorOpen(true)}
-                  onBlur={() => setTimeout(() => setVendorOpen(false), 130)}
-                />
-                {vendorOpen && (vendors ?? []).length > 0 && (() => {
-                  const query = (watch("vendor_name") || "").trim().toLowerCase();
-                  const matches = (vendors ?? []).filter((v) => !query || v.name.toLowerCase().includes(query)).slice(0, 8);
-                  if (matches.length === 0) return null;
-                  return (
-                    <div className="absolute z-20 mt-1 w-full max-h-52 overflow-y-auto rounded-md border border-hairline bg-paper shadow-lg">
-                      {matches.map((v) => (
-                        <button key={v.id} type="button"
-                          onMouseDown={(e) => { e.preventDefault(); setValue("vendor_name", v.name); setVendorId(v.id); setVendorMatch({ kind: "existing", name: v.name }); setVendorOpen(false); }}
-                          className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-paper-2">
-                          <span className="text-ink truncate">{v.name}</span>
-                          {v.gstin && <span className="text-[10px] text-ink-3 font-mono shrink-0">{v.gstin}</span>}
-                        </button>
-                      ))}
-                    </div>
-                  );
-                })()}
-              </div>
-              {/* GSTIN-based match hint after a bill read. */}
-              {vendorMatch && (
-                vendorMatch.kind === "existing" ? (
-                  <p className="mt-1 flex items-center gap-1.5 text-[11px] text-emerald">
-                    <Icon name="check_circle" size={12} /> Existing vendor mil gaya{aiGstin ? " (GSTIN se)" : ""} — isi se link hoga.
-                  </p>
-                ) : isGstBill ? (
-                  <p className="mt-1 flex items-center gap-1.5 text-[11px] text-amber-ink">
-                    <Icon name="plus" size={12} /> Naya vendor &ldquo;{vendorMatch.name}&rdquo;{aiGstin ? ` (GSTIN ${aiGstin})` : ""} — Save par Vendors master me add hoga.
-                  </p>
-                ) : (
-                  <p className="mt-1 text-[11px] text-ink-3">
-                    Naya payee — kaccha/no-bill hone se Vendors master me add nahi hoga (sirf naam save hoga).
-                  </p>
-                )
-              )}
-            </FormField>
-
-            {/* Bill date — a bill attribute, so it lives here with the bill. */}
-            <FormField label="Bill date" required htmlFor="expense_date">
-              <Input id="expense_date" type="date" error={errors.expense_date?.message} {...register("expense_date")} />
-            </FormField>
-
-            {/* Line items — what's on the bill (auto-filled from the AI scan).
-                Hidden for payroll/statutory postings, which have no items. */}
-            {!isPayroll && (
-            <div className="rounded-md border border-hairline bg-paper/60 p-2.5">
-              <div className="flex items-center justify-between mb-1.5">
-                <p className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold">
-                  Items on this bill{isForeign ? ` · in ${currency}` : ""}
+            {/* What for — a simple note by default; switch to line items for a
+                multi-line bill. Both feed the category + the saved description. */}
+            {!showItems ? (
+              <FormField label="Kis liye? (short note)" htmlFor="description">
+                <Input id="description" placeholder="e.g. Team lunch · cab to client · courier · office snacks" {...register("description")} />
+              </FormField>
+            ) : !isPayroll ? (
+              <div className="rounded-md border border-hairline bg-paper/60 p-2.5">
+                <p className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold mb-1.5">
+                  Line items{isForeign ? ` · in ${currency}` : ""}
                 </p>
-                <Button type="button" variant="ghost" size="sm" icon="plus" onClick={addLine}>Add item</Button>
-              </div>
-              {lines.length === 0 ? (
-                <p className="text-[11px] text-ink-3">Optional — upload a bill to auto-fill, or add rows to itemise (e.g. per-seat plan lines).</p>
-              ) : (
                 <div className="space-y-2">
-                  <div className="hidden sm:grid grid-cols-12 gap-2 text-[10px] uppercase tracking-wider text-ink-3">
-                    <span className="col-span-5">Description</span>
-                    <span className="col-span-2 text-right">Qty</span>
-                    <span className="col-span-2 text-right">Unit price</span>
-                    <span className="col-span-2 text-right">Amount</span>
-                    <span className="col-span-1" />
-                  </div>
+                  {lines.length > 0 && (
+                    <div className="hidden sm:grid grid-cols-12 gap-2 text-[10px] uppercase tracking-wider text-ink-3">
+                      <span className="col-span-5">Description</span>
+                      <span className="col-span-2 text-right">Qty</span>
+                      <span className="col-span-2 text-right">Unit price</span>
+                      <span className="col-span-2 text-right">Amount</span>
+                      <span className="col-span-1" />
+                    </div>
+                  )}
                   {lines.map((l, i) => (
                     <div key={i} className="grid grid-cols-12 gap-2 items-center">
                       <Input wrapperClassName="col-span-12 sm:col-span-5" placeholder="e.g. Team plan - Premium"
@@ -679,8 +664,7 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
                         value={l.qty} onChange={(e) => setLine(i, { qty: e.target.value })} />
                       <Input wrapperClassName="col-span-3 sm:col-span-2" className="text-right" type="number" step="any" placeholder="Unit"
                         value={l.unit_price} onChange={(e) => setLine(i, { unit_price: e.target.value })} />
-                      {/* Amount allows negatives — credit / unused-time lines on a
-                          proration invoice are refunds (e.g. -$61.41). */}
+                      {/* Amount allows negatives — credit / unused-time lines. */}
                       <Input wrapperClassName="col-span-3 sm:col-span-2" className="text-right" type="number" step="any" placeholder="Amount"
                         value={l.amount} onChange={(e) => setLine(i, { amount: e.target.value })} />
                       <button type="button" onClick={() => removeLine(i)} aria-label="Remove item"
@@ -689,51 +673,63 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
                       </button>
                     </div>
                   ))}
+                  <Button type="button" variant="ghost" size="sm" icon="plus" onClick={addLine}>Add item</Button>
                 </div>
-              )}
-            </div>
+              </div>
+            ) : null}
+
+            {/* Toggle simple note ↔ itemised (hidden for payroll postings). */}
+            {!isPayroll && (
+              <button type="button" onClick={() => setShowItems((v) => !v)}
+                className="text-[11px] text-amber-ink hover:underline">
+                {showItems ? "− Simple note pe wapas" : "+ Itemise (bill ke line items daalo)"}
+              </button>
             )}
 
-            {/* Currency + amount + GST */}
-            <div className="grid grid-cols-12 gap-3">
-              <FormField label="Currency" htmlFor="currency" className="col-span-4 sm:col-span-3">
-                <Select value={currency} onValueChange={(v) => { setCurrency(v); if (v === "INR") setFxError(null); }}>
-                  <SelectTrigger id="currency"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {CURRENCY_OPTIONS.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </FormField>
-              <FormField label={`Amount (${isForeign ? currency : "₹"}) incl GST`} required htmlFor="amount"
-                className={cn(isGstBill ? "col-span-8 sm:col-span-5" : "col-span-8 sm:col-span-9")}>
+            {/* Amount + GST (+ currency/FX only for a GST/OIDAR invoice). */}
+            {isGstBill ? (
+              <>
+                <div className="grid grid-cols-12 gap-3">
+                  <FormField label="Currency" htmlFor="currency" className="col-span-4 sm:col-span-3">
+                    <Select value={currency} onValueChange={(v) => { setCurrency(v); if (v === "INR") setFxError(null); }}>
+                      <SelectTrigger id="currency"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {CURRENCY_OPTIONS.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </FormField>
+                  <FormField label={`Amount (${isForeign ? currency : "₹"}) incl GST`} required htmlFor="amount" className="col-span-8 sm:col-span-5">
+                    <Input id="amount" type="number" min={1} step="any" error={errors.amount?.message} {...register("amount")} />
+                  </FormField>
+                  <FormField label={`of which GST (${isForeign ? currency : "₹"})`} htmlFor="gst_paid" className="col-span-12 sm:col-span-4">
+                    <Input id="gst_paid" type="number" min={0} step="any" {...register("gst_paid")} />
+                  </FormField>
+                </div>
+                {isForeign && (
+                  <div className="grid grid-cols-2 gap-3 items-end">
+                    <FormField label={`Exchange rate (₹ per 1 ${currency})`} required htmlFor="fx_rate">
+                      <Input id="fx_rate" type="number" min={0} step="any" placeholder="e.g. 83.50"
+                        value={fxRate} error={fxError ?? undefined}
+                        onChange={(e) => { setFxRate(e.target.value); if (fxError) setFxError(null); }} />
+                    </FormField>
+                    {rate > 0 && Number(watch("amount")) > 0 && (
+                      <p className="text-[12px] text-emerald pb-2">= ₹{Math.round(Number(watch("amount")) * rate).toLocaleString("en-IN")} in books{Number(watch("gst_paid")) > 0 ? ` · ₹${Math.round(Number(watch("gst_paid")) * rate).toLocaleString("en-IN")} GST` : ""}</p>
+                    )}
+                  </div>
+                )}
+                {!isForeign && (
+                  <p className="text-[10px] text-ink-3">GST is the input tax credit portion of the amount above — claimable in your GST return.</p>
+                )}
+              </>
+            ) : (
+              <FormField label="Amount (₹)" required htmlFor="amount">
                 <Input id="amount" type="number" min={1} step="any" error={errors.amount?.message} {...register("amount")} />
               </FormField>
-              {isGstBill && (
-                <FormField label={`of which GST (${isForeign ? currency : "₹"})`} htmlFor="gst_paid" className="col-span-12 sm:col-span-4">
-                  <Input id="gst_paid" type="number" min={0} step="any" {...register("gst_paid")} />
-                </FormField>
-              )}
-            </div>
-
-            {/* Foreign: exchange rate + ₹ preview */}
-            {isForeign && (
-              <div className="grid grid-cols-2 gap-3 items-end">
-                <FormField label={`Exchange rate (₹ per 1 ${currency})`} required htmlFor="fx_rate">
-                  <Input id="fx_rate" type="number" min={0} step="any" placeholder="e.g. 83.50"
-                    value={fxRate} error={fxError ?? undefined}
-                    onChange={(e) => { setFxRate(e.target.value); if (fxError) setFxError(null); }} />
-                </FormField>
-                {rate > 0 && Number(watch("amount")) > 0 && (
-                  <p className="text-[12px] text-emerald pb-2">= ₹{Math.round(Number(watch("amount")) * rate).toLocaleString("en-IN")} in books{Number(watch("gst_paid")) > 0 ? ` · ₹${Math.round(Number(watch("gst_paid")) * rate).toLocaleString("en-IN")} GST` : ""}</p>
-                )}
-              </div>
-            )}
-            {isGstBill && !isForeign && (
-              <p className="text-[10px] text-ink-3">GST is the input tax credit portion of the amount above — claimable in your GST return.</p>
             )}
           </section>
 
-          <FormField label="Payment method" htmlFor="payment_method">
+          {/* ── STEP 5: How it was paid ── */}
+          <FormField label="Paid by" htmlFor="payment_method">
             <Select value={watch("payment_method")} onValueChange={(v) => setValue("payment_method", v)}>
               <SelectTrigger id="payment_method"><SelectValue /></SelectTrigger>
               <SelectContent>
@@ -744,8 +740,6 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
             </Select>
           </FormField>
 
-          {/* Petty-cash link — only when paid by cash and a cash account exists.
-              Picking one deducts this expense from that account's cash-in-hand. */}
           {!isEdit && watch("payment_method") === "cash" && cashAccounts.length > 0 && (
             <FormField label="Paid from petty cash" htmlFor="petty_cash">
               <Select value={pettyCashAccountId || "none"} onValueChange={(v) => setPettyCashAccountId(v === "none" ? "" : v)}>
@@ -757,9 +751,7 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
                   ))}
                 </SelectContent>
               </Select>
-              <p className="text-[10px] text-ink-3 mt-1">
-                Deducts this amount from the petty-cash balance (cash in hand).
-              </p>
+              <p className="text-[10px] text-ink-3 mt-1">Cash-in-hand se ye amount minus ho jayega.</p>
             </FormField>
           )}
 

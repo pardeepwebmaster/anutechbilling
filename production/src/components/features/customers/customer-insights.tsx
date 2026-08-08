@@ -55,11 +55,16 @@ export function deriveCustomerInsights(
   c: Customer,
   subs: Subscription[],
   invoices: Invoice[],
-  /** Accepted/active project sales — used to add project money to Outstanding. */
-  projects: { status: string; receivable: number }[] = [],
+  /** Accepted/active project sales — used to add project money to Outstanding
+   *  (receivable) AND to Lifetime paid (paid = milestone receipts). */
+  projects: { status: string; receivable: number; paid?: number }[] = [],
   /** Existing quotes — so the next-best-action doesn't say "first quote" when
    *  the customer already has drafts/sent quotes sitting there. */
   quotes: { id: string; status: string; created_date?: string | null }[] = [],
+  /** Sum of RECEIVED customer payments (the `payments` table — subscription /
+   *  direct invoices). Project milestone receipts come from projects[].paid;
+   *  the two tables never overlap, so adding them = true cash collected. */
+  receivedPayments = 0,
 ): CustomerInsights {
   const activeSubs = subs.filter((s) => s.status === "active");
   const totalMRR = activeSubs.reduce((s, x) => s + (x.mrr ?? 0), 0);
@@ -90,7 +95,11 @@ export function deriveCustomerInsights(
     .reduce((s, i) => s + Math.max(0, i.net_payable ?? i.amount ?? 0), 0);
   const outstanding = subsOutstanding + projectReceivable + standaloneUnpaid;
 
-  const lifetimePaid = invoices.filter((i) => i.status === "paid").reduce((s, x) => s + (x.amount ?? 0), 0);
+  // Actual cash collected = project milestone receipts + received payments
+  // (subscription/direct). NOT the sum of "paid" invoices — that missed
+  // partial receipts (a part-paid project invoice sits at status='pending').
+  const projectPaid = projects.reduce((s, p) => s + Math.max(0, p.paid ?? 0), 0);
+  const lifetimePaid = projectPaid + Math.max(0, receivedPayments);
   const overdueCount = invoices.filter((i) => i.status === "overdue").length;
 
   const nearestRenewal = activeSubs

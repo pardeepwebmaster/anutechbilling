@@ -128,8 +128,11 @@ export default function CustomerDetailPage() {
   const allInvoices = invoices ?? [];
   const allQuotes = quotes ?? [];
   const allProjects = projects ?? [];
-  const insights = deriveCustomerInsights(c, allSubs, allInvoices, allProjects, allQuotes);
   const customerPayments = (allPayments ?? []).filter((p) => p.customer_id === c.id);
+  const receivedPaymentsTotal = customerPayments
+    .filter((p) => p.status === "received")
+    .reduce((s, p) => s + (p.amount ?? 0), 0);
+  const insights = deriveCustomerInsights(c, allSubs, allInvoices, allProjects, allQuotes, receivedPaymentsTotal);
 
   // Project milestone receipts live in project_payments (not `payments`) — pull
   // them so the customer's Transactions/Statement + a project invoice's status

@@ -48,21 +48,23 @@ export const EXPENSE_CATEGORIES = [
  * always change the picked category. 'Salaries' is intentionally never guessed
  * (those belong in Payroll).
  */
+// Keywords are English + Hinglish/Hindi (Roman) — operators here write notes
+// like "client ke pass jane ke liye" (travel) or "team ke liye khana" (food).
 const CATEGORY_KEYWORDS: [RegExp, (typeof EXPENSE_CATEGORIES)[number]][] = [
-  [/\b(rent|lease)\b/i, "Office Rent"],
-  [/\b(cab|taxi|uber|ola|rapido|flight|air ?fare|train|irctc|hotel|stay|travel|petrol|diesel|fuel|toll|parking|mileage|conveyance)\b/i, "Travel"],
-  [/\b(internet|wi-?fi|broadband|phone|mobile|airtel|jio|vodafone|\bvi\b|bsnl|recharge|data ?pack|sim)\b/i, "Internet & Phone"],
-  [/(electric|power ?bill|water ?bill|utilit|gas ?bill|generator|\bdg\b)/i, "Utilities"],
+  [/\b(rent|lease|kiraya|kiraaya)\b/i, "Office Rent"],
+  [/\b(cab|taxi|uber|ola|rapido|flight|air ?fare|train|irctc|hotel|stay|travel|petrol|diesel|fuel|toll|parking|mileage|conveyance|jaana|jaane|jana|jane|aana|aane|safar|yatra|gaadi|gadi|rickshaw|riksha|\bbus\b|\btel\b)\b/i, "Travel"],
+  [/\b(internet|wi-?fi|broadband|phone|mobile|airtel|jio|vodafone|\bvi\b|bsnl|recharge|data ?pack|\bsim\b|net ?pack)\b/i, "Internet & Phone"],
+  [/(electric|bijli|power ?bill|water ?bill|paani|utilit|gas ?bill|generator|\bdg\b)/i, "Utilities"],
   [/\b(hosting|domain|server|cloud|aws|gcp|azure|vps|cpanel|\bssl\b|render|vercel|netlify)\b/i, "Hosting"],
   [/\b(software|saas|subscription|licen[cs]e|zoom|slack|figma|adobe|github|notion|canva|chatgpt|openai|anthropic|claude|gemini)\b/i, "Software"],
-  [/\b(stationery|stationary|paper|printer ?ink|toner|cartridge|\bpen\b|register|folder|envelope|supplies)\b/i, "Office Supplies"],
-  [/\b(laptop|computer|desktop|monitor|keyboard|mouse|furniture|chair|\btable\b|hardware|equipment|air ?condition|\bac\b|ups\b)\b/i, "Equipment"],
-  [/\b(repair|maintenance|\bamc\b|servicing|service ?charge)\b/i, "Repairs & Maintenance"],
-  [/\b(insurance|premium|policy|mediclaim)\b/i, "Insurance"],
-  [/\b(advertis|\bads?\b|\bppc\b|google ?ads|facebook ?ads|meta ?ads|billboard|hoarding|banner ?ad)\b/i, "Advertising"],
+  [/\b(stationery|stationary|paper|kagaz|kaagaz|printer ?ink|toner|cartridge|\bpen\b|register|copy|folder|envelope|supplies)\b/i, "Office Supplies"],
+  [/\b(laptop|computer|desktop|monitor|keyboard|mouse|furniture|chair|kursi|\btable\b|hardware|equipment|air ?condition|\bac\b|ups\b)\b/i, "Equipment"],
+  [/\b(repair|maintenance|\bamc\b|servicing|service ?charge|marammat|mistri)\b/i, "Repairs & Maintenance"],
+  [/\b(insurance|premium|policy|mediclaim|bima)\b/i, "Insurance"],
+  [/\b(advertis|\bads?\b|\bppc\b|google ?ads|facebook ?ads|meta ?ads|billboard|hoarding|banner ?ad|vigyapan)\b/i, "Advertising"],
   [/\b(marketing|branding|\bseo\b|campaign|newsletter|email ?tool|\bcrm\b)\b/i, "Marketing"],
-  [/\b(lunch|dinner|breakfast|food|snack|tea|coffee|chai|restaurant|swiggy|zomato|catering|refreshment|sweets?|gift|party)\b/i, "Business Promotion"],
-  [/\b(\bca\b|chartered|accountant|audit|lawyer|legal|advocate|consultant|professional ?fee|retainer|notary)\b/i, "Professional Services"],
+  [/\b(lunch|dinner|breakfast|food|snack|tea|coffee|chai|chaay|khana|khaana|khane|nashta|naashta|mithai|bhojan|restaurant|swiggy|zomato|catering|refreshment|sweets?|gift|party)\b/i, "Business Promotion"],
+  [/\b(\bca\b|chartered|accountant|audit|lawyer|legal|advocate|vakil|consultant|professional ?fee|retainer|notary)\b/i, "Professional Services"],
   [/\b(bank ?charge|bank ?fee|processing ?fee|neft|rtgs|imps ?charge|transaction ?fee|convenience ?fee)\b/i, "Bank Charges"],
 ];
 

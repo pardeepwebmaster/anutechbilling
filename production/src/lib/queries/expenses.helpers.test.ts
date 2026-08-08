@@ -13,6 +13,13 @@ describe("suggestCategory", () => {
     expect(suggestCategory("printer toner + paper")).toBe("Office Supplies");
     expect(suggestCategory("electricity bill")).toBe("Utilities");
   });
+  it("understands Hinglish / Hindi notes", () => {
+    expect(suggestCategory("client ke pass jane ke liye")).toBe("Travel");
+    expect(suggestCategory("team ke liye khana")).toBe("Business Promotion");
+    expect(suggestCategory("office ka kiraya")).toBe("Office Rent");
+    expect(suggestCategory("bijli ka bill")).toBe("Utilities");
+    expect(suggestCategory("mobile recharge")).toBe("Internet & Phone");
+  });
   it("returns null when nothing matches (never a wrong guess)", () => {
     expect(suggestCategory("")).toBeNull();
     expect(suggestCategory("miscellaneous thing xyz")).toBeNull();

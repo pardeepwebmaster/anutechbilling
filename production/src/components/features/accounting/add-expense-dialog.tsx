@@ -288,14 +288,16 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
   });
 
   // Auto-pick the category from the item rows + vendor name (one category per
-  // bill). Stops the moment the operator changes the category themselves.
+  // bill). It picks ONCE — the first confident match freezes so adding more
+  // items doesn't keep flipping the category. Stops entirely once the operator
+  // changes it themselves; they can always override.
   const itemText = lines.map((l) => l.description).filter(Boolean).join(" ");
   const vendorNameWatch = watch("vendor_name") ?? "";
   React.useEffect(() => {
-    if (categoryTouched) return;
+    if (categoryTouched || categoryAuto) return;
     const s = suggestCategory(`${itemText} ${vendorNameWatch}`);
     if (s) { setValue("category", s); setCategoryAuto(true); }
-  }, [itemText, vendorNameWatch, categoryTouched, setValue]);
+  }, [itemText, vendorNameWatch, categoryTouched, categoryAuto, setValue]);
 
   async function onSubmit(values: FormData) {
     const payee = values.vendor_name?.trim() || "";

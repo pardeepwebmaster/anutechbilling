@@ -190,7 +190,12 @@ export default function ProjectDetailPage() {
           {milestones.map((m) => {
             const msPays  = payments.filter((p) => p.milestone_id === m.id);
             const reconciled = msPays.some((p) => p.bank_txn_id);
-            const impact = milestoneImpact(m, reconciled);
+            // How much of THIS milestone has actually come in — so a part-payment
+            // shows on the milestone (received vs still-due), not just "Invoiced".
+            const paidSoFar = msPays.reduce((s, p) => s + (p.amount ?? 0), 0);
+            const balance   = Math.max(0, m.total_amount - paidSoFar);
+            const partial   = m.status !== "paid" && paidSoFar > 0;
+            const impact = milestoneImpact(m, reconciled, paidSoFar, balance);
             return (
             <div key={m.id} className="px-5 py-3">
               <div className="flex items-center gap-3 flex-wrap">
@@ -201,8 +206,17 @@ export default function ProjectDetailPage() {
                     {m.invoice_id && <> · Invoice <span className="font-mono">{m.invoice_id}</span></>}
                   </p>
                 </div>
-                <div className="font-mono text-sm text-ink whitespace-nowrap">{rupee(m.total_amount)}</div>
-                <MilestoneStatus status={m.status} />
+                <div className="text-right whitespace-nowrap">
+                  <div className="font-mono text-sm text-ink">{rupee(m.total_amount)}</div>
+                  {partial && (
+                    <div className="text-[10px]">
+                      <span className="text-emerald">{rupee(paidSoFar)} received</span>
+                      <span className="text-ink-3"> · </span>
+                      <span className="text-amber-ink">{rupee(balance)} baaki</span>
+                    </div>
+                  )}
+                </div>
+                <MilestoneStatus status={m.status} partial={partial} />
                 <div className="flex gap-2">
                   {isQuote ? (
                     <span className="text-[11px] text-ink-3 italic">Accept quotation to bill</span>
@@ -215,7 +229,7 @@ export default function ProjectDetailPage() {
                       )}
                       {m.status !== "paid" && (
                         <Button size="sm" variant="primary" onClick={() => setPayFor(m)}>
-                          Record payment
+                          {partial ? "Record balance" : "Record payment"}
                         </Button>
                       )}
                     </>
@@ -285,7 +299,18 @@ function Sum({ label, value, sub, strong, tone = "ink" }: {
 function milestoneImpact(
   m: ProjectMilestoneRow,
   reconciled: boolean,
+  paidSoFar = 0,
+  balance = 0,
 ): { text: string; tone: "warn" | "ok" | "info" } | null {
+  // Part-paid (not yet fully settled) — show received vs still-due.
+  if (m.status !== "paid" && paidSoFar > 0) {
+    return {
+      tone: "warn",
+      text: m.invoice_id
+        ? `Invoice raised (revenue & GST booked). ${rupee(paidSoFar)} aa gaya, ${rupee(balance)} abhi baaki (outstanding).`
+        : `${rupee(paidSoFar)} received, ${rupee(balance)} baaki. No GST invoice yet — raise it to book revenue & GST.`,
+    };
+  }
   if (m.status === "paid") {
     if (!m.invoice_id) {
       return {
@@ -306,8 +331,9 @@ function milestoneImpact(
   return null; // pending — no billing yet
 }
 
-function MilestoneStatus({ status }: { status: ProjectMilestoneRow["status"] }) {
+function MilestoneStatus({ status, partial }: { status: ProjectMilestoneRow["status"]; partial?: boolean }) {
   if (status === "paid")     return <Badge kind="success" size="sm" dot>Paid</Badge>;
+  if (partial)               return <Badge kind="warning" size="sm" dot>Part paid</Badge>;
   if (status === "invoiced") return <Badge kind="warning" size="sm" dot>Invoiced</Badge>;
   return <Badge kind="muted" size="sm" dot>Pending</Badge>;
 }

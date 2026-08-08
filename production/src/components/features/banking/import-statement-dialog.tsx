@@ -26,7 +26,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Icon } from "@/components/ui/icon";
-import { useImportBankTransactions } from "@/lib/queries/bank";
+import { useImportBankTransactions, useExistingTxnKeys, bankTxnKey } from "@/lib/queries/bank";
 import { rupee, formatDate } from "@/lib/utils";
 
 interface Props {
@@ -218,6 +218,14 @@ export function ImportStatementDialog({ open, onOpenChange, accountId }: Props) 
   const [mode, setMode]       = React.useState<"csv" | "ai">("csv");
   const [reading, setReading] = React.useState(false);
   const importMut = useImportBankTransactions();
+  const { data: existingKeys } = useExistingTxnKeys(open ? accountId : null);
+
+  // How many parsed rows are already in the books (will be skipped on import).
+  const dupCount = React.useMemo(() => {
+    if (!parsed || !existingKeys) return 0;
+    return parsed.rows.filter((r) => existingKeys.has(bankTxnKey(r))).length;
+  }, [parsed, existingKeys]);
+  const freshCount = (parsed?.rows.length ?? 0) - dupCount;
 
   React.useEffect(() => {
     if (!open) { setCsvText(""); setParsed(null); setMode("csv"); setReading(false); }
@@ -357,6 +365,12 @@ export function ImportStatementDialog({ open, onOpenChange, accountId }: Props) 
                   Skipped {parsed.skipped} row{parsed.skipped === 1 ? "" : "s"} (missing date or both amounts zero — usually opening-balance / sub-total lines)
                 </p>
               )}
+              {dupCount > 0 && (
+                <p className="text-[11px] text-amber-ink mb-2 flex items-start gap-1.5">
+                  <Icon name="alert" size={12} className="mt-0.5 shrink-0" />
+                  {dupCount} line{dupCount === 1 ? "" : "s"} pehle se books me hain — ye <b>skip</b> ho jaayengi{freshCount > 0 ? ` (sirf ${freshCount} nayi import hongi)` : " (kuch naya nahi)"}.
+                </p>
+              )}
               {parsed.rows.length > 0 && (
                 <div className="overflow-x-auto">
                   <table className="w-full text-[11px]">
@@ -403,11 +417,13 @@ export function ImportStatementDialog({ open, onOpenChange, accountId }: Props) 
           <Button
             variant="primary"
             icon="upload"
-            disabled={!parsed || parsed.rows.length === 0}
+            disabled={freshCount === 0}
             loading={importMut.isPending}
             onClick={handleImport}
           >
-            Import {parsed?.rows.length ?? 0} row{(parsed?.rows.length ?? 0) === 1 ? "" : "s"}
+            {dupCount > 0 && freshCount === 0
+              ? "Sab pehle se hain"
+              : `Import ${freshCount} row${freshCount === 1 ? "" : "s"}`}
           </Button>
         </SheetFooter>
       </SheetContent>

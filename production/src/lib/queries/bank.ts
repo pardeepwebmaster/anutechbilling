@@ -300,8 +300,44 @@ export function useBankTransactions(accountId: string | null | undefined) {
 }
 
 /**
- * Bulk insert bank transactions from a parsed CSV/Excel upload.
- * Skips rows where both debit and credit are zero. Auto-assigns
+ * Natural key for a bank line — used to skip a statement row that's already in
+ * the books (re-uploaded statement / overlapping date range). A UTR/reference
+ * is the most stable; else fall back to date + both amounts + description.
+ */
+export function bankTxnKey(r: { txn_date?: string | null; debit?: number | null; credit?: number | null; description?: string | null }): string {
+  const d = (r.txn_date ?? "").slice(0, 10);
+  // date + amount + description only. Reference is NOT used — a re-uploaded
+  // statement often omits it while the stored row has one (or vice-versa),
+  // which would make the same line look "new". Description is normalised
+  // (collapse whitespace, lowercase) so minor spacing differences still match.
+  const desc = (r.description ?? "").trim().toLowerCase().replace(/\s+/g, " ").slice(0, 80);
+  return `${d}|${Math.round(r.debit ?? 0)}|${Math.round(r.credit ?? 0)}|${desc}`;
+}
+
+/** Existing bank-line keys for an account — to flag/skip duplicate imports. */
+export function useExistingTxnKeys(accountId: string | null) {
+  return useQuery({
+    queryKey: ["bank_transactions", accountId, "keys"],
+    enabled: !!accountId,
+    queryFn: async (): Promise<Set<string>> => {
+      const supabase = createClient();
+      const { data, error } = await supabase
+        .from("bank_transactions")
+        .select("txn_date, debit, credit, description, reference")
+        .eq("bank_account_id", accountId as string)
+        .limit(5000);
+      if (error) throw error;
+      return new Set((data ?? []).map((r) => bankTxnKey(r as never)));
+    },
+    staleTime: 15_000,
+  });
+}
+
+/**
+ * Bulk insert bank transactions from a parsed CSV/PDF upload.
+ * Skips rows where both debit and credit are zero, AND skips DUPLICATES already
+ * in the account (same date + amount + description/reference) — so re-uploading
+ * a statement, or an overlapping date range, never double-counts. Auto-assigns
  * source='csv_upload' for the whole batch.
  */
 export function useImportBankTransactions() {
@@ -321,7 +357,7 @@ export function useImportBankTransactions() {
         .single();
       if (meErr) throw meErr;
 
-      const validRows = input.rows
+      const cleaned = input.rows
         .map((r) => {
           // A bank line is debit XOR credit — coerce to non-negative integers so
           // a stray minus/decimal can't break the integer column or the
@@ -330,15 +366,33 @@ export function useImportBankTransactions() {
           const credit = Math.max(0, Math.round(r.credit ?? 0));
           return { ...r, debit, credit };
         })
-        .filter((r) => (r.debit > 0) !== (r.credit > 0))   // exactly one side positive
-        .map((r) => ({
-          ...r,
-          tenant_id:       me!.tenant_id,
-          bank_account_id: input.accountId,
-          source:          "csv_upload" as const,
-        }));
+        .filter((r) => (r.debit > 0) !== (r.credit > 0));   // exactly one side positive
+
+      // Skip lines already in this account (re-uploaded / overlapping statement).
+      const { data: existing } = await supabase
+        .from("bank_transactions")
+        .select("txn_date, debit, credit, description, reference")
+        .eq("bank_account_id", input.accountId)
+        .limit(5000);
+      const seen = new Set((existing ?? []).map((r) => bankTxnKey(r as never)));
+      const fresh: typeof cleaned = [];
+      let duplicates = 0;
+      for (const r of cleaned) {
+        const k = bankTxnKey(r as never);
+        if (seen.has(k)) { duplicates++; continue; }
+        seen.add(k);   // also dedup within the same batch
+        fresh.push(r);
+      }
+
+      const validRows = fresh.map((r) => ({
+        ...r,
+        tenant_id:       me!.tenant_id,
+        bank_account_id: input.accountId,
+        source:          "csv_upload" as const,
+      }));
 
       if (validRows.length === 0) {
+        if (duplicates > 0) return { inserted: 0, duplicates };   // all already imported
         throw new Error("No valid transactions to import (each row needs exactly one of debit or credit > 0)");
       }
 
@@ -347,12 +401,14 @@ export function useImportBankTransactions() {
         .insert(validRows)
         .select("id");
       if (error) throw error;
-      return { inserted: data?.length ?? 0 };
+      return { inserted: data?.length ?? 0, duplicates };
     },
-    onSuccess: ({ inserted }, vars) => {
+    onSuccess: ({ inserted, duplicates }, vars) => {
       qc.invalidateQueries({ queryKey: ["bank_transactions", vars.accountId] });
       qc.invalidateQueries({ queryKey: ["bank_accounts"] });   // current_balance changed
-      toast.success(`${inserted} transaction${inserted === 1 ? "" : "s"} imported`);
+      const dupMsg = duplicates > 0 ? ` · ${duplicates} duplicate skip` : "";
+      if (inserted === 0 && duplicates > 0) toast.success(`Sab ${duplicates} lines pehle se hain — kuch naya nahi mila`);
+      else toast.success(`${inserted} transaction${inserted === 1 ? "" : "s"} imported${dupMsg}`);
     },
     onError: (err) => {
       // Supabase/PostgREST errors aren't Error instances — dig out their message

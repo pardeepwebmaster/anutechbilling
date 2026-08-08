@@ -150,6 +150,42 @@ export default function CustomerDetailPage() {
     ...allProjects.map((p) => ({ date: p.created_at, type: "Project" as const, ref: p.title, amount: p.total_amount, status: p.status, onClick: () => router.push(`/projects/${p.id}` as never) })),
   ].sort((a, b) => (b.date ?? "").localeCompare(a.date ?? ""));
 
+  // Hierarchical view (the "All" tab): Project → its invoices → their receipts,
+  // so the relationship is obvious. Standalone invoices / subscription payments /
+  // quotes sit at the top level. indent drives the left-inset in the render.
+  const invoiceProject = projPay?.invoiceProject ?? {};
+  type HRow = { indent: number; date: string; type: "Invoice" | "Payment" | "Refund" | "Quote" | "Project"; ref: string; amount: number; status: string; onClick?: () => void };
+  const hierRows: HRow[] = [];
+  const usedInv = new Set<string>();
+  const usedPay = new Set<string>();
+  for (const pr of allProjects) {
+    hierRows.push({ indent: 0, date: pr.created_at, type: "Project", ref: pr.title, amount: pr.total_amount, status: pr.status, onClick: () => router.push(`/projects/${pr.id}` as never) });
+    for (const i of allInvoices.filter((iv) => invoiceProject[iv.id]?.projectId === pr.id)) {
+      usedInv.add(i.id);
+      const pPaid = invoicePaid[i.id] ?? 0;
+      const st = pPaid <= 0 ? i.status : pPaid >= i.amount ? "paid" : "partially paid";
+      hierRows.push({ indent: 1, date: i.invoice_date, type: "Invoice", ref: i.id, amount: i.amount, status: st });
+      for (const p of projPayments.filter((pp) => pp.invoice_id === i.id)) {
+        usedPay.add(p.id);
+        hierRows.push({ indent: 2, date: p.received_at, type: "Payment", ref: p.reference?.trim() || "Payment", amount: p.amount, status: p.bank_txn_id ? "reconciled" : "received" });
+      }
+    }
+    // Advance receipts recorded before their milestone was invoiced.
+    for (const p of projPayments.filter((pp) => pp.project_id === pr.id && !pp.invoice_id && !usedPay.has(pp.id))) {
+      usedPay.add(p.id);
+      hierRows.push({ indent: 1, date: p.received_at, type: "Payment", ref: p.reference?.trim() || "Advance", amount: p.amount, status: p.bank_txn_id ? "reconciled" : "received" });
+    }
+  }
+  for (const i of allInvoices.filter((iv) => !usedInv.has(iv.id))) {
+    hierRows.push({ indent: 0, date: i.invoice_date, type: "Invoice", ref: i.id, amount: i.amount, status: i.status });
+  }
+  for (const p of customerPayments) {
+    hierRows.push({ indent: 0, date: p.status === "refunded" ? (p.refunded_at ?? p.received_at) : p.received_at, type: p.status === "refunded" ? "Refund" : "Payment", ref: p.receipt_voucher_no ?? p.id, amount: p.amount, status: p.status });
+  }
+  for (const q of allQuotes) {
+    hierRows.push({ indent: 0, date: q.created_date, type: "Quote", ref: q.id, amount: q.amount, status: q.status, onClick: () => router.push(`/quotes/${q.id}` as never) });
+  }
+
   // Running-balance ledger (Zoho "Statement" tab). Invoice = debit (owed),
   // payment = credit; positive closing balance = receivable still owed.
   const ledgerRaw = [
@@ -422,13 +458,21 @@ export default function CustomerDetailPage() {
                 {filteredTxns.length > 0 ? (
                   <RecordTable
                     head={["Date", "Type", "Reference", "Amount", "Status"]}
-                    rows={filteredTxns.map((t) => ({
+                    rows={(txnFilter === "all"
+                      ? hierRows
+                      : filteredTxns.map((t) => ({ indent: 0, ...t }))
+                    ).map((t) => ({
                       onClick: t.onClick,
                       cells: [
                         formatDate(t.date),
                         <Badge key="ty" kind={TXN_BADGE[t.type]} dot>{t.type}</Badge>,
-                        <span key="r" className="font-mono text-xs">{t.ref}</span>,
-                        <span key="a" className="tabular-nums font-medium">{rupee(t.amount)}</span>,
+                        // Indent children (invoices under a project, payments under
+                        // an invoice) with a tree connector so the relationship reads.
+                        <span key="r" className="font-mono text-xs inline-flex items-center" style={{ paddingLeft: t.indent * 18 }}>
+                          {t.indent > 0 && <span className="text-ink-4 mr-1">└</span>}
+                          {t.ref}
+                        </span>,
+                        <span key="a" className={cn("tabular-nums", t.indent === 0 ? "font-semibold" : "font-medium text-ink-2")}>{rupee(t.amount)}</span>,
                         <span key="s" className="text-ink-2 capitalize">{t.status}</span>,
                       ],
                     }))}

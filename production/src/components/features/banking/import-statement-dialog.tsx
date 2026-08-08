@@ -217,7 +217,16 @@ export function ImportStatementDialog({ open, onOpenChange, accountId }: Props) 
   // "csv" = parsed from pasted/CSV text; "ai" = read from a PDF/photo via Gemini.
   const [mode, setMode]       = React.useState<"csv" | "ai">("csv");
   const [reading, setReading] = React.useState(false);
+  const [readMsgIdx, setReadMsgIdx] = React.useState(0);
   const importMut = useImportBankTransactions();
+
+  // Rotating status while the AI reads — so a multi-second read never looks stuck.
+  const READ_MSGS = ["PDF khol rahe hai…", "Transactions dhoondh rahe hai…", "Rows nikaal rahe hai…", "Amounts check kar rahe hai…", "Almost done…"];
+  React.useEffect(() => {
+    if (!reading) { setReadMsgIdx(0); return; }
+    const t = setInterval(() => setReadMsgIdx((i) => Math.min(i + 1, READ_MSGS.length - 1)), 1600);
+    return () => clearInterval(t);
+  }, [reading]);
   const { data: existingKeys } = useExistingTxnKeys(open ? accountId : null);
 
   // How many parsed rows are already in the books (will be skipped on import).
@@ -314,20 +323,32 @@ export function ImportStatementDialog({ open, onOpenChange, accountId }: Props) 
         </SheetHeader>
 
         <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4 space-y-4">
-          {/* File upload — PDF/photo (AI) or CSV */}
+          {/* File upload — PDF/photo (AI) or CSV. Shows a live progress state
+              while the AI reads, so a multi-second read never looks frozen. */}
           <div className="rounded-md border border-dashed border-hairline-strong bg-paper-2/30 p-4">
-            <label className="cursor-pointer flex flex-col items-center text-center gap-2">
-              <Icon name={reading ? "sparkles" : "upload"} size={20} className={reading ? "text-amber-ink animate-pulse" : "text-ink-3"} />
-              <span className="text-sm font-medium">{reading ? "AI padh raha hai…" : "Choose file — PDF / CSV"}</span>
-              <span className="text-[11px] text-ink-3">Bank statement PDF (AI reads it) · ya .csv · up to 8 MB</span>
-              <input
-                type="file"
-                accept=".csv,text/csv,application/pdf,image/*"
-                className="hidden"
-                disabled={reading}
-                onChange={onFileChange}
-              />
-            </label>
+            <style>{"@keyframes ros-loadbar{0%{transform:translateX(-100%)}100%{transform:translateX(320%)}}"}</style>
+            {reading ? (
+              <div className="flex flex-col items-center text-center gap-3 py-1">
+                <Icon name="sparkles" size={22} className="text-amber-ink animate-pulse" />
+                <span className="text-sm font-medium text-ink">{READ_MSGS[readMsgIdx]}</span>
+                <div className="w-44 h-1.5 rounded-full bg-hairline overflow-hidden">
+                  <div className="h-full w-1/3 rounded-full bg-amber" style={{ animation: "ros-loadbar 1.1s ease-in-out infinite" }} />
+                </div>
+                <span className="text-[11px] text-ink-3">Bade statement mein thoda zyada waqt lag sakta hai — ruko mat 😊</span>
+              </div>
+            ) : (
+              <label className="cursor-pointer flex flex-col items-center text-center gap-2">
+                <Icon name="upload" size={20} className="text-ink-3" />
+                <span className="text-sm font-medium">Choose file — PDF / CSV</span>
+                <span className="text-[11px] text-ink-3">Bank statement PDF (AI reads it) · ya .csv · up to 8 MB</span>
+                <input
+                  type="file"
+                  accept=".csv,text/csv,application/pdf,image/*"
+                  className="hidden"
+                  onChange={onFileChange}
+                />
+              </label>
+            )}
           </div>
 
           {/* OR paste */}

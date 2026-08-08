@@ -1002,6 +1002,7 @@ function PayrollRowMenu({ e, p, me, paidVia, onYear, onEdit, onUndo }: {
   e: Employee; p?: SalaryPayment; me: CurrentUserInfo | null; paidVia: string | null;
   onYear: () => void; onEdit: () => void; onUndo: () => void;
 }) {
+  const router = useRouter();
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -1022,6 +1023,11 @@ function PayrollRowMenu({ e, p, me, paidVia, onYear, onEdit, onUndo }: {
         {p && p.paid_amount === 0 && (
           <>
             <DropdownMenuSeparator />
+            {/* Salary is booked but the bank debit isn't matched yet — reconcile
+                happens in Banking (match the actual pay-out to this salary). */}
+            <DropdownMenuItem className="gap-2.5 py-2 cursor-pointer" onClick={() => router.push("/accounting/banking" as never)}>
+              <Icon name="refresh" size={15} /> Reconcile in Banking →
+            </DropdownMenuItem>
             <DropdownMenuItem className="gap-2.5 py-2 cursor-pointer" onClick={onEdit}>
               <Icon name="edit" size={15} /> Edit salary
             </DropdownMenuItem>

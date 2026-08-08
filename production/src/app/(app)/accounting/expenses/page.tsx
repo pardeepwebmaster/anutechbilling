@@ -63,10 +63,11 @@ function ReconcileTag({ tone, label, title }: { tone: "emerald" | "amber"; label
 }
 
 /**
- * Status chip for a non-payroll expense. "Paid" (green) is EARNED — it shows
- * only once the expense is reconciled to a bank/cash line (proof the money
- * actually left). Before that a marked-paid expense reads "Unreconciled". A
- * bill not yet paid reads "To pay" / "Overdue".
+ * Status chip for a non-payroll expense. Two independent facts:
+ *   • Paid vs To-pay — did the money leave (the operator's record)?
+ *   • Reconciled — has it been matched to a bank/cash line (bank-verified)?
+ * So a paid expense reads "Paid" straight away; once it reconciles it gains a
+ * "✓ Paid" tick (bank-verified). An open bill reads "To pay" / "Overdue".
  */
 function PayBadge({ e, today }: { e: Expense; today: string }) {
   if (!e.paid) {
@@ -82,14 +83,17 @@ function PayBadge({ e, today }: { e: Expense; today: string }) {
     );
   }
   if (e.reconciled_txn_id) {
-    return <span className="ml-2 inline-flex items-center rounded-full bg-emerald/10 text-emerald px-1.5 py-0.5 text-[10px] font-medium align-middle">✓ Paid</span>;
+    return (
+      <span title="Paid & bank-verified — matched to a bank/cash line."
+        className="ml-2 inline-flex items-center rounded-full bg-emerald/10 text-emerald px-1.5 py-0.5 text-[10px] font-medium align-middle">
+        ✓ Paid
+      </span>
+    );
   }
   return (
-    <span
-      title="Marked paid — reconcile it against the bank line to confirm."
-      className="ml-2 inline-flex items-center rounded-full bg-paper-2 text-ink-3 px-1.5 py-0.5 text-[10px] font-medium align-middle"
-    >
-      Unreconciled
+    <span title="Payment recorded. Reconcile it against the bank line to bank-verify."
+      className="ml-2 inline-flex items-center rounded-full border border-emerald/30 text-emerald px-1.5 py-0.5 text-[10px] font-medium align-middle">
+      Paid
     </span>
   );
 }

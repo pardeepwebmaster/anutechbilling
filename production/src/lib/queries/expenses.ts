@@ -41,6 +41,38 @@ export const EXPENSE_CATEGORIES = [
   "Other",
 ] as const;
 
+/**
+ * Guess an expense category from the free-text "what was this for?" note.
+ * First keyword match wins (more specific patterns first). Returns null when
+ * nothing matches — so we never override with a wrong guess. The operator can
+ * always change the picked category. 'Salaries' is intentionally never guessed
+ * (those belong in Payroll).
+ */
+const CATEGORY_KEYWORDS: [RegExp, (typeof EXPENSE_CATEGORIES)[number]][] = [
+  [/\b(rent|lease)\b/i, "Office Rent"],
+  [/\b(cab|taxi|uber|ola|rapido|flight|air ?fare|train|irctc|hotel|stay|travel|petrol|diesel|fuel|toll|parking|mileage|conveyance)\b/i, "Travel"],
+  [/\b(internet|wi-?fi|broadband|phone|mobile|airtel|jio|vodafone|\bvi\b|bsnl|recharge|data ?pack|sim)\b/i, "Internet & Phone"],
+  [/(electric|power ?bill|water ?bill|utilit|gas ?bill|generator|\bdg\b)/i, "Utilities"],
+  [/\b(hosting|domain|server|cloud|aws|gcp|azure|vps|cpanel|\bssl\b|render|vercel|netlify)\b/i, "Hosting"],
+  [/\b(software|saas|subscription|licen[cs]e|zoom|slack|figma|adobe|github|notion|canva|chatgpt|openai|anthropic|claude|gemini)\b/i, "Software"],
+  [/\b(stationery|stationary|paper|printer ?ink|toner|cartridge|\bpen\b|register|folder|envelope|supplies)\b/i, "Office Supplies"],
+  [/\b(laptop|computer|desktop|monitor|keyboard|mouse|furniture|chair|\btable\b|hardware|equipment|air ?condition|\bac\b|ups\b)\b/i, "Equipment"],
+  [/\b(repair|maintenance|\bamc\b|servicing|service ?charge)\b/i, "Repairs & Maintenance"],
+  [/\b(insurance|premium|policy|mediclaim)\b/i, "Insurance"],
+  [/\b(advertis|\bads?\b|\bppc\b|google ?ads|facebook ?ads|meta ?ads|billboard|hoarding|banner ?ad)\b/i, "Advertising"],
+  [/\b(marketing|branding|\bseo\b|campaign|newsletter|email ?tool|\bcrm\b)\b/i, "Marketing"],
+  [/\b(lunch|dinner|breakfast|food|snack|tea|coffee|chai|restaurant|swiggy|zomato|catering|refreshment|sweets?|gift|party)\b/i, "Business Promotion"],
+  [/\b(\bca\b|chartered|accountant|audit|lawyer|legal|advocate|consultant|professional ?fee|retainer|notary)\b/i, "Professional Services"],
+  [/\b(bank ?charge|bank ?fee|processing ?fee|neft|rtgs|imps ?charge|transaction ?fee|convenience ?fee)\b/i, "Bank Charges"],
+];
+
+export function suggestCategory(text: string): (typeof EXPENSE_CATEGORIES)[number] | null {
+  const t = (text || "").toLowerCase();
+  if (!t.trim()) return null;
+  for (const [re, cat] of CATEGORY_KEYWORDS) if (re.test(t)) return cat;
+  return null;
+}
+
 export const PAYMENT_METHODS = [
   "bank_transfer",
   "upi",
@@ -130,6 +162,63 @@ export function useExpensesTotals(opts: { from: string; to: string }) {
       return totals;
     },
   });
+}
+
+// ────────────────────────────────────────────────────────────────
+// Duplicate detection — catch the same bill entered twice.
+// ────────────────────────────────────────────────────────────────
+
+/** Minimal shape used to detect a duplicate bill. */
+export type DupCandidate = {
+  vendorId?: string | null;
+  vendorName?: string | null;
+  billNo?: string | null;
+  billDate?: string | null;
+  amountInr?: number | null;   // ₹ — only known once currency is converted
+};
+
+/** Recent expenses (light columns) to check a new bill against. */
+export function useExpenseDupList() {
+  return useQuery({
+    queryKey: ["expenses", "dupList"],
+    queryFn: async (): Promise<Pick<Expense, "id" | "vendor_id" | "vendor_name" | "bill_no" | "expense_date" | "amount" | "currency">[]> => {
+      const supabase = createClient();
+      const { data, error } = await supabase
+        .from("expenses")
+        .select("id, vendor_id, vendor_name, bill_no, expense_date, amount, currency")
+        .order("expense_date", { ascending: false })
+        .limit(2000);
+      if (error) throw error;
+      return (data ?? []) as never;
+    },
+    staleTime: 30_000,
+  });
+}
+
+/**
+ * Pure duplicate finder. A match is:
+ *   - same vendor AND same bill number (the natural key), OR
+ *   - (no bill number) same vendor + same date + same ₹ amount.
+ * `selfId` excludes the row being edited. Returns the first match, else null.
+ */
+export function findDuplicateExpense(
+  c: DupCandidate,
+  list: { id: string; vendor_id: string | null; vendor_name: string | null; bill_no: string | null; expense_date: string; amount: number }[],
+  selfId?: string,
+): { id: string; expense_date: string; amount: number; bill_no: string | null } | null {
+  const name = (c.vendorName ?? "").trim().toLowerCase();
+  const billNo = (c.billNo ?? "").trim().toLowerCase();
+  for (const e of list) {
+    if (selfId && e.id === selfId) continue;
+    const sameVendor =
+      (!!c.vendorId && e.vendor_id === c.vendorId) ||
+      (!!name && (e.vendor_name ?? "").trim().toLowerCase() === name);
+    if (!sameVendor) continue;
+    if (billNo && (e.bill_no ?? "").trim().toLowerCase() === billNo) return e;
+    if (!billNo && !e.bill_no && c.billDate && e.expense_date === c.billDate &&
+        c.amountInr != null && Math.abs(e.amount - c.amountInr) <= 1) return e;
+  }
+  return null;
 }
 
 // ────────────────────────────────────────────────────────────────

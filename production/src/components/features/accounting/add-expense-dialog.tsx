@@ -26,10 +26,13 @@ import {
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
-import { cn, rupee, formatForeignAmount } from "@/lib/utils";
+import { cn, rupee, formatForeignAmount, formatDate } from "@/lib/utils";
 import {
   useCreateExpense,
   useUpdateExpense,
+  useExpenseDupList,
+  findDuplicateExpense,
+  suggestCategory,
   EXPENSE_CATEGORIES,
   PAYMENT_METHODS,
   type Expense,
@@ -37,6 +40,7 @@ import {
 import { useBankAccounts } from "@/lib/queries/bank";
 import { useVendors, ensureVendor } from "@/lib/queries/vendors";
 import { uploadBillAttachment } from "@/lib/queries/vendor-bills";
+import { useConfirm } from "@/components/providers/confirm-provider";
 
 const CURRENCY_OPTIONS = ["INR", "USD", "EUR", "GBP", "AED", "SGD", "AUD", "CAD"] as const;
 
@@ -123,6 +127,7 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
   type PendingExtract = {
     vendorName?: string;
     gstin?:      string;
+    billNo?:     string;
     billDate?:   string;
     currency:    string;
     total?:      number;
@@ -137,6 +142,18 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
   // After a bill read, whether the invoice's GSTIN/name matched an existing
   // vendor (link to it) or is new (add to the master on save). Drives a hint.
   const [vendorMatch, setVendorMatch] = React.useState<{ kind: "existing" | "new"; name: string } | null>(null);
+
+  // Supplier invoice number + the existing-expenses list — used to catch a bill
+  // that's already been entered (same bill uploaded / re-entered twice).
+  const [billNo, setBillNo] = React.useState<string>(expense?.bill_no ?? "");
+  const { data: dupList } = useExpenseDupList();
+  const confirm = useConfirm();
+
+  // Category is auto-picked from the "what was this for?" text — until the
+  // operator changes it manually (then we stop overriding). On edit we respect
+  // the saved category from the start.
+  const [categoryTouched, setCategoryTouched] = React.useState<boolean>(isEdit);
+  const [categoryAuto, setCategoryAuto] = React.useState(false);
 
   // Open the just-uploaded bill (a local File, not yet stored) in a new tab.
   // An anchor-click is more reliable than window.open for blob: URLs (some
@@ -181,6 +198,7 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
       setPending({
         vendorName: f.vendor_name ? String(f.vendor_name) : undefined,
         gstin:      f.vendor_gstin ? String(f.vendor_gstin).toUpperCase() : undefined,
+        billNo:     f.bill_no ? String(f.bill_no) : undefined,
         billDate:   f.bill_date   ? String(f.bill_date)   : undefined,
         currency:   cur,
         total:      f.total != null ? Number(f.total) : undefined,
@@ -204,6 +222,7 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
   function applyExtract() {
     if (!pending) return;
     if (pending.gstin) setAiGstin(pending.gstin);
+    setBillNo(pending.billNo ?? "");
     // Match the invoice's GSTIN (then name) against the Vendors master:
     //  match   → link to that existing vendor (no duplicate),
     //  no match → a new vendor is added on save (carrying this GSTIN).
@@ -289,6 +308,24 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
     // No input GST on a kaccha / no-bill expense.
     const gstAmt = isGstBill ? inr(values.gst_paid) : 0;
 
+    // Duplicate guard — same vendor + bill no. (or vendor + date + amount when a
+    // bill has no number) already recorded? Warn before creating a second entry.
+    const dup = findDuplicateExpense(
+      { vendorId: vId, vendorName: payee, billNo: billNo.trim() || null, billDate: values.expense_date, amountInr: inr(values.amount) },
+      (dupList ?? []) as never,
+      expense?.id,
+    );
+    if (dup) {
+      const ok = await confirm({
+        title: "Ye bill pehle se entered lagta hai",
+        body: `${payee || "Is vendor"} ka ${billNo.trim() ? `bill #${billNo.trim()}` : `${formatDate(dup.expense_date)} · ${rupee(dup.amount)}`} wala expense already record hai. Duplicate entry P&L + input GST dono double kar degi. Phir bhi ek aur banayein?`,
+        danger: true,
+        confirmLabel: "Haan, phir bhi save",
+        cancelLabel: "Nahi, rehne do",
+      });
+      if (!ok) return;
+    }
+
     // Line items — keep amounts in the bill's OWN currency (faithful to the
     // document); drop blank rows. Same shape as COGS bills (VendorBillLine).
     const line_items = lines
@@ -321,6 +358,7 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
           fx_rate:        rate,
           bill_type:      billType,
           line_items,
+          bill_no:        billNo.trim() || null,
           attachment_url,
           expense_date:   values.expense_date,
           amount:         inr(values.amount),
@@ -340,6 +378,7 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
       fx_rate:        rate,
       bill_type:      billType,
       line_items,
+      bill_no:        billNo.trim() || null,
       attachment_url,
       expense_date:   values.expense_date,
       amount:         inr(values.amount),
@@ -365,14 +404,19 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
           {/* What was this for — a short, human note first (e.g. "Team lunch"). */}
           <FormField label="What was this for?" htmlFor="description">
-            <Input id="description" placeholder="e.g. Team lunch · office snacks · cab fare · courier" {...register("description")} />
+            <Input id="description" placeholder="e.g. Team lunch · office snacks · cab fare · courier"
+              {...register("description", { onChange: (e) => {
+                if (categoryTouched) return;               // operator picked one — don't override
+                const s = suggestCategory(e.target.value);
+                if (s) { setValue("category", s); setCategoryAuto(true); }
+              } })} />
           </FormField>
 
           {/* ── Expense details — category/date + bill & amount, one card ── */}
           <section className="rounded-lg border border-hairline bg-paper-2/30 p-3 space-y-3">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <FormField label="Category" required htmlFor="category">
-                <Select value={watch("category")} onValueChange={(v) => setValue("category", v)}>
+                <Select value={watch("category")} onValueChange={(v) => { setValue("category", v); setCategoryTouched(true); setCategoryAuto(false); }}>
                   <SelectTrigger id="category"><SelectValue placeholder="Select" /></SelectTrigger>
                   <SelectContent>
                     {/* Salaries are booked in Payroll (payslip + statutory) — hide unless editing a legacy one. */}
@@ -381,6 +425,11 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
                       .map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
                   </SelectContent>
                 </Select>
+                {categoryAuto && !categoryTouched && (
+                  <p className="mt-1 flex items-center gap-1 text-[10px] text-amber-ink">
+                    <Icon name="sparkles" size={10} /> Text se auto-chuni — galat ho to badal do.
+                  </p>
+                )}
               </FormField>
               <FormField label="Date" required htmlFor="expense_date">
                 <Input id="expense_date" type="date" error={errors.expense_date?.message} {...register("expense_date")} />
@@ -461,11 +510,34 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
                     (v) => (pg && (v.gstin ?? "").trim().toUpperCase() === pg) || (pv && v.name.trim().toLowerCase() === pv),
                   );
                   const shownGstin = pending.gstin || existing?.gstin || null;
+                  // Already entered? Match by bill no (+ vendor), or vendor+date+
+                  // amount for INR bills without a number.
+                  const dupInReview = findDuplicateExpense(
+                    {
+                      vendorId: existing?.id ?? vendorId,
+                      vendorName: pending.vendorName,
+                      billNo: pending.billNo,
+                      billDate: pending.billDate,
+                      amountInr: pending.currency === "INR" ? (pending.total ?? null) : null,
+                    },
+                    (dupList ?? []) as never,
+                    expense?.id,
+                  );
                   return (
                     <div className="mt-2.5 rounded-md border border-amber/40 bg-paper p-3">
                       <p className="text-[12px] font-medium text-ink mb-2">
                         AI ne ye padha — sahi hai? Confirm karo tabhi bharega.
                       </p>
+                      {dupInReview && (
+                        <div className="mb-2 flex items-start gap-1.5 rounded-md bg-rose/10 px-2.5 py-2 text-[11px] text-rose">
+                          <Icon name="alert" size={13} className="mt-0.5 shrink-0" />
+                          <span>
+                            <b>Duplicate lagta hai</b> — ye bill pehle se entered hai
+                            {` (${pending.billNo ? `#${pending.billNo}` : `${formatDate(dupInReview.expense_date)} · ${rupee(dupInReview.amount)}`})`}.
+                            Dobara add karne se P&amp;L + input GST double ho jayega.
+                          </span>
+                        </div>
+                      )}
                       <div className="space-y-1 text-[12px] text-ink-2">
                         <div className="flex justify-between gap-2">
                           <span className="text-ink-3">Vendor</span>
@@ -477,6 +549,7 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
                           </span>
                         </div>
                         {shownGstin && <div className="flex justify-between gap-2"><span className="text-ink-3">GSTIN</span><span className="font-mono text-ink text-right">{shownGstin}</span></div>}
+                        {pending.billNo && <div className="flex justify-between gap-2"><span className="text-ink-3">Bill no.</span><span className="font-mono text-ink text-right">{pending.billNo}</span></div>}
                         <div className="flex justify-between gap-2"><span className="text-ink-3">Bill date</span><span className="text-right">{pending.billDate || "—"}</span></div>
                         <div className="flex justify-between gap-2"><span className="text-ink-3">Type</span><span className="text-right">{pending.billType === "gst" ? "GST invoice" : "Kaccha (no GST)"}</span></div>
                         <div className="flex justify-between gap-2"><span className="text-ink-3">Total{pending.currency !== "INR" ? ` (${pending.currency})` : ""}</span><span className="font-mono text-ink text-right">{pending.total != null ? fmt(pending.total) : "—"}{pending.gst > 0 ? ` · GST ${fmt(pending.gst)}` : ""}</span></div>

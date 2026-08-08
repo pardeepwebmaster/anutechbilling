@@ -30,6 +30,7 @@ import { ExpenseDetailDialog } from "@/components/features/accounting/expense-de
 import { MarkPaidDialog } from "@/components/features/accounting/mark-paid-dialog";
 import { ReconcileExpenseDialog } from "@/components/features/accounting/reconcile-expense-dialog";
 import { useSalaryPayments } from "@/lib/queries/payroll";
+import { useBankAccounts } from "@/lib/queries/bank";
 import { useConfirm } from "@/components/providers/confirm-provider";
 
 type DateRange = { from: string; to: string };
@@ -164,6 +165,7 @@ export default function ExpensesPage() {
   const q       = useExpenses({ from: range.from, to: range.to, category: catFilter || undefined });
   const totalsQ = useExpensesTotals(range);
   const payableQ = useOutstandingPayable();
+  const accountsQ = useBankAccounts();
   const del     = useDeleteExpense();
   const salariesQ = useSalaryPayments();
   const confirm = useConfirm();
@@ -200,6 +202,31 @@ export default function ExpensesPage() {
     }
     return !e.paid;
   }, [salByExpense]);
+
+  // Can this row still be reconciled? (a paid-but-unverified operating expense,
+  // or a payroll posting not yet fully settled). Drives the "Reconcile" button.
+  const canReconcile = React.useCallback((e: Expense): boolean => {
+    if (isPayrollExpense(e)) {
+      if (e.category === "Salaries") { const s = salByExpense.get(e.id); return s ? s.paid_status !== "paid" : false; }
+      return !e.reconciled_txn_id; // statutory / ESI
+    }
+    return e.paid && !e.reconciled_txn_id; // operating: paid, awaiting bank match
+  }, [salByExpense]);
+
+  // Start reconcile. Operating expenses use the expense-first picker; payroll
+  // (salary/statutory) go to Banking, where the salary-aware flow lives (a
+  // salary match flips its paid_status + supports partials — an expense match
+  // wouldn't). Route to the single bank account if there's one, else Banking.
+  const startReconcile = (e: Expense) => {
+    if (isPayrollExpense(e)) {
+      const s = e.category === "Salaries" ? salByExpense.get(e.id) : undefined;
+      const amt = s ? Math.max(0, s.net - s.paid_amount) : e.amount;
+      const banks = (accountsQ.data ?? []).filter((a) => a.is_active && a.account_type !== "cash");
+      router.push((banks.length === 1 ? `/accounting/banking/${banks[0].id}?match=${amt}` : "/accounting/banking") as never);
+      return;
+    }
+    setReconcilingExpense(e);
+  };
 
   // Rows after the client-side filters (category is applied in the query;
   // payee + "to pay" are applied here).
@@ -415,11 +442,11 @@ export default function ExpensesPage() {
                           Mark paid
                         </Button>
                       )}
-                      {e.paid && !e.reconciled_txn_id && !isPayrollExpense(e) && (
+                      {canReconcile(e) && (
                         <Button
                           variant="default"
                           className="mr-1 h-7 px-2 py-0 text-[11px] align-middle"
-                          onClick={(ev) => { ev.stopPropagation(); setReconcilingExpense(e); }}
+                          onClick={(ev) => { ev.stopPropagation(); startReconcile(e); }}
                         >
                           Reconcile
                         </Button>
@@ -478,9 +505,9 @@ export default function ExpensesPage() {
                           Mark paid
                         </Button>
                       )}
-                      {e.paid && !e.reconciled_txn_id && !isPayrollExpense(e) && (
+                      {canReconcile(e) && (
                         <Button variant="default" className="h-7 px-2 py-0 text-[11px] mr-1"
-                          onClick={(ev) => { ev.stopPropagation(); setReconcilingExpense(e); }}>
+                          onClick={(ev) => { ev.stopPropagation(); startReconcile(e); }}>
                           Reconcile
                         </Button>
                       )}

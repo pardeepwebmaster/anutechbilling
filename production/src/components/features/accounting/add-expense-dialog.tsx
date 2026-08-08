@@ -33,6 +33,7 @@ import {
   useExpenseDupList,
   findDuplicateExpense,
   suggestCategory,
+  splitLinesByCategory,
   EXPENSE_CATEGORIES,
   PAYMENT_METHODS,
   type Expense,
@@ -103,16 +104,19 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
   // Line items on the bill (e.g. an Anthropic / software invoice lists several).
   // Amounts stay in the bill's OWN currency, faithful to the document; the ₹
   // books use the converted `amount`. Same shape + behaviour as COGS bills.
-  type Line = { description: string; qty: string; unit_price: string; amount: string };
+  // Each line carries its OWN category so a mixed invoice auto-splits into one
+  // expense per category on save. Blank category = falls back to the header one.
+  type Line = { description: string; qty: string; unit_price: string; amount: string; category: string };
   const [lines, setLines] = React.useState<Line[]>(
     (expense?.line_items ?? []).map((li) => ({
       description: li.name ?? "",
       qty:         li.qty        != null ? String(li.qty)        : "",
       unit_price:  li.rate       != null ? String(li.rate)       : "",
       amount:      li.amount     != null ? String(li.amount)     : "",
+      category:    expense?.category ?? "",
     })),
   );
-  const addLine    = () => setLines((ls) => [...ls, { description: "", qty: "", unit_price: "", amount: "" }]);
+  const addLine    = () => setLines((ls) => [...ls, { description: "", qty: "", unit_price: "", amount: "", category: "" }]);
   const removeLine = (i: number) => setLines((ls) => ls.filter((_, idx) => idx !== i));
   const setLine    = (i: number, patch: Partial<Line>) =>
     setLines((ls) => ls.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
@@ -250,7 +254,7 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
     setCurrency(pending.currency);
     if (pending.total != null) setValue("amount", pending.total);
     setValue("gst_paid", pending.gst);
-    setLines(pending.items);
+    setLines(pending.items.map((it) => ({ ...it, category: "" })));   // category set per line by operator
     if (pending.items.length) setShowItems(true);   // AI found line items → show them
     if (pending.currency !== "INR") {
       setFxRate("");   // force today's rate before it hits the ₹ books
@@ -308,6 +312,24 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
     if (s) { setValue("category", s); setCategoryAuto(true); }
   }, [catText, vendorNameWatch, categoryTouched, categoryAuto, setValue]);
 
+  // Itemised totals + the category split preview.
+  const headerCategory = watch("category");
+  const itemiseActive = showItems && lines.some((l) => l.description.trim() || l.amount);
+  const lineSubtotalNum = lines.reduce((s, l) => s + Number(l.amount || 0), 0);
+  const splitGroups = React.useMemo(() => {
+    const m = new Map<string, number>();
+    for (const l of lines) {
+      if (!(l.description.trim() || l.amount)) continue;
+      const cat = l.category || headerCategory;
+      m.set(cat, (m.get(cat) ?? 0) + Number(l.amount || 0));
+    }
+    return Array.from(m.entries()).map(([category, amount]) => ({ category, amount }));
+  }, [lines, headerCategory]);
+  // When itemising, the total Amount is the items' sum — keep the field in sync.
+  React.useEffect(() => {
+    if (itemiseActive) setValue("amount", lineSubtotalNum || 0);
+  }, [itemiseActive, lineSubtotalNum, setValue]);
+
   async function onSubmit(values: FormData) {
     const payee = values.vendor_name?.trim() || "";
     // Only GST-invoice suppliers belong in the Vendors master. So: an already-
@@ -326,41 +348,6 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
     }
     setFxError(null);
     const inr = (n: number) => Math.round(n * rate);   // convert entered currency → ₹ (rate 1 for INR)
-    // No input GST on a kaccha / no-bill expense.
-    const gstAmt = isGstBill ? inr(values.gst_paid) : 0;
-
-    // Duplicate guard — same vendor + bill no. (or vendor + date + amount when a
-    // bill has no number) already recorded? Warn before creating a second entry.
-    const dup = findDuplicateExpense(
-      { vendorId: vId, vendorName: payee, billNo: billNo.trim() || null, billDate: values.expense_date, amountInr: inr(values.amount), category: values.category },
-      (dupList ?? []) as never,
-      expense?.id,
-    );
-    if (dup) {
-      const ok = await confirm({
-        title: "Ye bill pehle se entered lagta hai",
-        body: `${payee || "Is vendor"} ka ${billNo.trim() ? `bill #${billNo.trim()}` : `${formatDate(dup.expense_date)} · ${rupee(dup.amount)}`} — isi category (${values.category}) mein already record hai. Duplicate entry P&L + input GST dono double kar degi. (Alag category ka hissa ho to category badal ke save karo.) Phir bhi ek aur banayein?`,
-        danger: true,
-        confirmLabel: "Haan, phir bhi save",
-        cancelLabel: "Nahi, rehne do",
-      });
-      if (!ok) return;
-    }
-
-    // Line items — keep amounts in the bill's OWN currency (faithful to the
-    // document); drop blank rows. Same shape as COGS bills (VendorBillLine).
-    const line_items = lines
-      .map((l) => ({
-        name:   l.description.trim(),
-        qty:    l.qty ? Number(l.qty) : undefined,
-        rate:   l.unit_price ? Number(l.unit_price) : undefined,
-        amount: Number(l.amount || 0),
-      }))
-      .filter((l) => l.name || l.amount > 0);
-
-    // Expense description (for the list / P&L) — built from the item rows now
-    // that there's no separate note. Falls back to any existing description.
-    const derivedDescription = line_items.map((l) => l.name).filter(Boolean).join(", ") || values.description?.trim() || null;
 
     // Attach the uploaded bill (proof) — non-fatal if the upload hiccups; the
     // expense still saves. Keep any existing attachment on edit if no new file.
@@ -369,49 +356,102 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
       try { attachment_url = await uploadBillAttachment(attachFile); }
       catch { /* keep saving the expense even if the file upload fails */ }
     }
+    const shared = {
+      vendor_name:  payee || null,
+      vendor_id:    vId,
+      currency,
+      fx_rate:      rate,
+      bill_type:    billType,
+      bill_no:      billNo.trim() || null,
+      attachment_url,
+      expense_date: values.expense_date,
+      payment_method: values.payment_method || null,
+    };
+    const pettyCash = values.payment_method === "cash" ? (pettyCashAccountId || null) : null;
+
+    // ── Category-wise lines (itemised). Each line's category (blank → header).
+    //    A mixed bill auto-splits into one expense per category on save. ──
+    const catLines = lines
+      .map((l) => ({
+        name:     l.description.trim(),
+        amount:   Number(l.amount || 0),
+        category: l.category || values.category,
+        qty:      l.qty ? Number(l.qty) : undefined,
+        rate:     l.unit_price ? Number(l.unit_price) : undefined,
+      }))
+      .filter((l) => l.name || l.amount !== 0);
+    const distinctCats = new Set(catLines.map((l) => l.category));
+    // Split only makes sense for a NEW itemised bill spanning >1 category.
+    const isSplit = !expense && showItems && catLines.length > 0 && distinctCats.size > 1;
+
+    if (isSplit) {
+      // Apportion the (currency) GST across categories; each group → one expense.
+      const groups = splitLinesByCategory(catLines, isGstBill ? values.gst_paid : 0);
+      const dupCats = groups
+        .filter((g) => findDuplicateExpense({ vendorId: vId, vendorName: payee, billNo: shared.bill_no, category: g.category }, (dupList ?? []) as never))
+        .map((g) => g.category);
+      if (dupCats.length) {
+        const ok = await confirm({
+          title: "Kuch entries pehle se lagti hain",
+          body: `Is bill (${shared.bill_no ? `#${shared.bill_no}` : payee}) mein in category ki entry already hai: ${dupCats.join(", ")}. Phir bhi banayein?`,
+          danger: true, confirmLabel: "Haan, banao", cancelLabel: "Nahi",
+        });
+        if (!ok) return;
+      }
+      for (const g of groups) {
+        await create.mutateAsync({
+          ...shared,
+          category:   g.category,
+          line_items: g.items,
+          amount:     inr(g.amount + (isGstBill ? g.gst : 0)),   // subtotal + its GST share
+          gst_paid:   isGstBill ? inr(g.gst) : 0,
+          description: g.items.map((it) => it.name).filter(Boolean).join(", ") || null,
+          pettyCashAccountId: pettyCash,   // each leg deducts its share → total correct
+        });
+      }
+      onClose();
+      return;
+    }
+
+    // ── Single expense (simple, or itemised single-category). ──
+    // Itemise: amount = lines subtotal + GST; simple: the typed "incl GST" amount.
+    const lineSubtotal = catLines.reduce((s, l) => s + l.amount, 0);
+    const gstAmt = isGstBill ? inr(values.gst_paid) : 0;
+    const amountInr = showItems && catLines.length > 0
+      ? inr(lineSubtotal) + gstAmt
+      : inr(values.amount);
+    const line_items = catLines.map((l) => ({ name: l.name, qty: l.qty, rate: l.rate, amount: l.amount }));
+    const category = showItems && catLines.length > 0 ? (catLines[0].category || values.category) : values.category;
+    const derivedDescription = line_items.map((l) => l.name).filter(Boolean).join(", ") || values.description?.trim() || null;
+
+    // Duplicate guard — same vendor + bill no. + category (or vendor+date+amount).
+    const dup = findDuplicateExpense(
+      { vendorId: vId, vendorName: payee, billNo: shared.bill_no, billDate: values.expense_date, amountInr, category },
+      (dupList ?? []) as never,
+      expense?.id,
+    );
+    if (dup) {
+      const ok = await confirm({
+        title: "Ye bill pehle se entered lagta hai",
+        body: `${payee || "Is vendor"} ka ${shared.bill_no ? `bill #${shared.bill_no}` : `${formatDate(dup.expense_date)} · ${rupee(dup.amount)}`} — isi category (${category}) mein already record hai. Duplicate entry P&L + input GST dono double kar degi. (Alag category ka hissa ho to category badal ke save karo.) Phir bhi ek aur banayein?`,
+        danger: true, confirmLabel: "Haan, phir bhi save", cancelLabel: "Nahi, rehne do",
+      });
+      if (!ok) return;
+    }
 
     if (expense) {
-      // Edit updates the expense row's fields only. (A linked petty-cash leg,
-      // if any, isn't re-adjusted here — edit amount changes cautiously.)
       await update.mutateAsync({
         id: expense.id,
-        patch: {
-          category:       values.category,
-          vendor_name:    payee || null,
-          vendor_id:      vId,
-          currency,
-          fx_rate:        rate,
-          bill_type:      billType,
-          line_items,
-          bill_no:        billNo.trim() || null,
-          attachment_url,
-          expense_date:   values.expense_date,
-          amount:         inr(values.amount),
-          gst_paid:       gstAmt,
-          payment_method: values.payment_method || null,
-          description:    derivedDescription,
-        },
+        patch: { ...shared, category, line_items, amount: amountInr, gst_paid: gstAmt, description: derivedDescription },
       });
       onClose();
       return;
     }
     await create.mutateAsync({
-      category:       values.category,
-      vendor_name:    payee || null,
-      vendor_id:      vId,
-      currency,
-      fx_rate:        rate,
-      bill_type:      billType,
-      line_items,
-      bill_no:        billNo.trim() || null,
-      attachment_url,
-      expense_date:   values.expense_date,
-      amount:         inr(values.amount),
-      gst_paid:       gstAmt,
-      payment_method: values.payment_method || null,
-      description:    derivedDescription,
-      // Only tag a petty-cash out-flow when paid by cash from a chosen account.
-      pettyCashAccountId: values.payment_method === "cash" ? (pettyCashAccountId || null) : null,
+      ...shared,
+      category, line_items, amount: amountInr, gst_paid: gstAmt,
+      description: derivedDescription,
+      pettyCashAccountId: pettyCash,
     });
     onClose();
   }
@@ -647,37 +687,51 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
             ) : !isPayroll ? (
               <div className="rounded-md border border-hairline bg-paper/60 p-2.5">
                 <p className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold mb-1.5">
-                  Line items{isForeign ? ` · in ${currency}` : ""}
+                  Items — har item ki category{isForeign ? ` · amount ${currency} me` : ""}
                 </p>
                 <div className="space-y-2">
                   {lines.length > 0 && (
                     <div className="hidden sm:grid grid-cols-12 gap-2 text-[10px] uppercase tracking-wider text-ink-3">
                       <span className="col-span-5">Description</span>
-                      <span className="col-span-2 text-right">Qty</span>
-                      <span className="col-span-2 text-right">Unit price</span>
                       <span className="col-span-2 text-right">Amount</span>
+                      <span className="col-span-4">Category</span>
                       <span className="col-span-1" />
                     </div>
                   )}
                   {lines.map((l, i) => (
                     <div key={i} className="grid grid-cols-12 gap-2 items-center">
-                      <Input wrapperClassName="col-span-12 sm:col-span-5" placeholder="e.g. Team plan - Premium"
+                      <Input wrapperClassName="col-span-12 sm:col-span-5" placeholder="e.g. Laptop / A4 paper"
                         value={l.description} onChange={(e) => setLine(i, { description: e.target.value })} />
-                      <Input wrapperClassName="col-span-3 sm:col-span-2" className="text-right" type="number" min={0} step="any" placeholder="Qty"
-                        value={l.qty} onChange={(e) => setLine(i, { qty: e.target.value })} />
-                      <Input wrapperClassName="col-span-3 sm:col-span-2" className="text-right" type="number" step="any" placeholder="Unit"
-                        value={l.unit_price} onChange={(e) => setLine(i, { unit_price: e.target.value })} />
                       {/* Amount allows negatives — credit / unused-time lines. */}
-                      <Input wrapperClassName="col-span-3 sm:col-span-2" className="text-right" type="number" step="any" placeholder="Amount"
+                      <Input wrapperClassName="col-span-5 sm:col-span-2" className="text-right" type="number" step="any" placeholder="Amount"
                         value={l.amount} onChange={(e) => setLine(i, { amount: e.target.value })} />
+                      <select
+                        className="col-span-6 sm:col-span-4 h-9 rounded-md border border-hairline bg-paper px-2 text-[13px] text-ink"
+                        value={l.category || headerCategory}
+                        onChange={(e) => setLine(i, { category: e.target.value })}
+                      >
+                        {EXPENSE_CATEGORIES
+                          .filter((c) => c !== "Salaries")
+                          .map((c) => <option key={c} value={c}>{c}</option>)}
+                      </select>
                       <button type="button" onClick={() => removeLine(i)} aria-label="Remove item"
-                        className="col-span-3 sm:col-span-1 justify-self-center text-ink-3 hover:text-rose">
+                        className="col-span-1 justify-self-center text-ink-3 hover:text-rose">
                         <Icon name="x" size={14} />
                       </button>
                     </div>
                   ))}
                   <Button type="button" variant="ghost" size="sm" icon="plus" onClick={addLine}>Add item</Button>
                 </div>
+
+                {/* Split preview — >1 category ⇒ auto-split into that many entries. */}
+                {splitGroups.length > 1 && (
+                  <div className="mt-2 rounded-md bg-amber-soft/40 px-2.5 py-2 text-[11px] text-amber-ink leading-snug">
+                    <b>{splitGroups.length} categories</b> → Save par {splitGroups.length} alag entries banengi (ek hi bill se judi):
+                    <span className="block mt-0.5 text-ink-2">
+                      {splitGroups.map((g) => `${g.category} ${isForeign ? "" : "₹"}${g.amount.toLocaleString("en-IN")}`).join("  ·  ")}
+                    </span>
+                  </div>
+                )}
               </div>
             ) : null}
 
@@ -701,10 +755,10 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
                       </SelectContent>
                     </Select>
                   </FormField>
-                  <FormField label={`Amount (${isForeign ? currency : "₹"}) incl GST`} required htmlFor="amount" className="col-span-8 sm:col-span-5">
-                    <Input id="amount" type="number" min={1} step="any" error={errors.amount?.message} {...register("amount")} />
+                  <FormField label={itemiseActive ? `Subtotal (${isForeign ? currency : "₹"}) — items ka jod` : `Amount (${isForeign ? currency : "₹"}) incl GST`} required htmlFor="amount" className="col-span-8 sm:col-span-5">
+                    <Input id="amount" type="number" min={1} step="any" readOnly={itemiseActive} error={errors.amount?.message} {...register("amount")} />
                   </FormField>
-                  <FormField label={`of which GST (${isForeign ? currency : "₹"})`} htmlFor="gst_paid" className="col-span-12 sm:col-span-4">
+                  <FormField label={`${itemiseActive ? "GST" : "of which GST"} (${isForeign ? currency : "₹"})`} htmlFor="gst_paid" className="col-span-12 sm:col-span-4">
                     <Input id="gst_paid" type="number" min={0} step="any" {...register("gst_paid")} />
                   </FormField>
                 </div>
@@ -725,8 +779,8 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
                 )}
               </>
             ) : (
-              <FormField label="Amount (₹)" required htmlFor="amount">
-                <Input id="amount" type="number" min={1} step="any" error={errors.amount?.message} {...register("amount")} />
+              <FormField label={itemiseActive ? "Amount (₹) — items ka jod" : "Amount (₹)"} required htmlFor="amount">
+                <Input id="amount" type="number" min={1} step="any" readOnly={itemiseActive} error={errors.amount?.message} {...register("amount")} />
               </FormField>
             )}
           </section>

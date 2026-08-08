@@ -75,6 +75,42 @@ export function suggestCategory(text: string): (typeof EXPENSE_CATEGORIES)[numbe
   return null;
 }
 
+/**
+ * Split one invoice's lines into per-category groups — so a mixed bill (e.g.
+ * laptop=Equipment + paper=Office Supplies) becomes one expense per category,
+ * all sharing the invoice. Amounts stay in the input unit (bill currency); the
+ * total GST is apportioned by each group's amount share, with the LAST group
+ * absorbing any rounding remainder so the parts sum EXACTLY to the whole.
+ * Groups are returned in first-seen order.
+ */
+export type CatLine = { name: string; amount: number; category: string; qty?: number; rate?: number };
+type CatItem = { name: string; qty?: number; rate?: number; amount: number };
+export function splitLinesByCategory(
+  lines: CatLine[],
+  totalGst: number,
+): { category: string; amount: number; gst: number; items: CatItem[] }[] {
+  const order: string[] = [];
+  const byCat = new Map<string, { amount: number; items: CatItem[] }>();
+  for (const l of lines) {
+    const cat = l.category;
+    if (!byCat.has(cat)) { byCat.set(cat, { amount: 0, items: [] }); order.push(cat); }
+    const g = byCat.get(cat)!;
+    g.amount += l.amount;
+    g.items.push({ name: l.name, qty: l.qty, rate: l.rate, amount: l.amount });
+  }
+  const total = Array.from(byCat.values()).reduce((s, g) => s + g.amount, 0);
+  const groups = order.map((cat) => ({ category: cat, ...byCat.get(cat)! }));
+  // Apportion GST by amount share; last group takes the remainder.
+  let gstAssigned = 0;
+  return groups.map((g, i) => {
+    const gst = i === groups.length - 1
+      ? Math.round((totalGst - gstAssigned) * 100) / 100
+      : (total > 0 ? Math.round((totalGst * g.amount / total) * 100) / 100 : 0);
+    gstAssigned += gst;
+    return { category: g.category, amount: g.amount, gst, items: g.items };
+  });
+}
+
 export const PAYMENT_METHODS = [
   "bank_transfer",
   "upi",

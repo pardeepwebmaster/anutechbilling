@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { suggestCategory, findDuplicateExpense } from "./expenses";
+import { suggestCategory, findDuplicateExpense, splitLinesByCategory } from "./expenses";
 
 describe("suggestCategory", () => {
   it("maps common notes to a category", () => {
@@ -59,5 +59,34 @@ describe("findDuplicateExpense", () => {
   });
   it("same bill no. + DIFFERENT category = split, not a duplicate", () => {
     expect(findDuplicateExpense({ vendorId: "v9", billNo: "AMZ-77", category: "Office Supplies" }, list)).toBeNull();
+  });
+});
+
+describe("splitLinesByCategory", () => {
+  const lines = [
+    { name: "Laptop", amount: 55000, category: "Equipment" },
+    { name: "Mouse", amount: 1200, category: "Equipment" },
+    { name: "A4 paper", amount: 800, category: "Office Supplies" },
+  ];
+
+  it("groups lines by category in first-seen order", () => {
+    const out = splitLinesByCategory(lines, 0);
+    expect(out.map((g) => g.category)).toEqual(["Equipment", "Office Supplies"]);
+    expect(out[0].amount).toBe(56200);
+    expect(out[0].items).toHaveLength(2);
+    expect(out[1].amount).toBe(800);
+  });
+
+  it("apportions GST by amount share, last group absorbs remainder (parts = whole)", () => {
+    const out = splitLinesByCategory(lines, 1000);
+    const gstSum = out.reduce((s, g) => s + g.gst, 0);
+    expect(gstSum).toBe(1000);
+    expect(out[0].gst).toBeGreaterThan(out[1].gst);
+  });
+
+  it("single category → one group (no artificial split)", () => {
+    const out = splitLinesByCategory([{ name: "X", amount: 100, category: "Software" }], 18);
+    expect(out).toHaveLength(1);
+    expect(out[0]).toMatchObject({ category: "Software", amount: 100, gst: 18 });
   });
 });

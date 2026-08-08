@@ -476,6 +476,77 @@ export function useImportBankTransactions() {
  *
  * Pass matched_to_type=null to UN-reconcile.
  */
+/**
+ * One-step income booking from a money-IN bank line: a customer paid for a sale
+ * that wasn't invoiced yet. Raises the GST invoice (+ its one-off quote) via
+ * create_direct_invoice, records the payment against it, then reconciles THIS
+ * bank credit to that payment. `taxableAmount` is the ex-GST line value — the
+ * RPC adds GST per the customer's place of supply, so the invoice total may be
+ * higher than the taxable figure.
+ */
+export function useBookCreditAsInvoice() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: {
+      transactionId: string;
+      bankAccountId: string;
+      customerId: string;
+      lineName: string;
+      taxableAmount: number;   // ex-GST ₹
+      reference?: string | null;
+    }) => {
+      const supabase = createClient();
+      // 1. Invoice + one-off quote (atomic).
+      const { data: invData, error: e1 } = await supabase.rpc("create_direct_invoice", {
+        p_customer_id: input.customerId,
+        p_line_items:  [{ id: "line-1", name: input.lineName.trim() || "Sale", qty: 1, rate: Math.round(input.taxableAmount), cost: 0 }],
+        p_notes:       "Raised from a bank receipt (reconcile)",
+        p_recurring:   false,
+      });
+      if (e1) throw e1;
+      const inv = (Array.isArray(invData) ? invData[0] : invData) as { invoice_id: string; quote_id: string; net_payable: number };
+
+      // 2. Record the payment (full) against that quote. record_payment needs a
+      //    non-empty reference for bank methods — use the line's UTR, else derive
+      //    one from the bank-txn id (also makes the call idempotent per line).
+      const ref = (input.reference ?? "").trim() || `BANK-${input.transactionId}`;
+      const { data: payData, error: e2 } = await supabase.rpc("record_payment", {
+        p_quote_id:  inv.quote_id,
+        p_amount:    inv.net_payable,
+        p_method:    "bank_transfer",
+        p_reference: ref,
+        p_notes:     "Reconciled from bank receipt",
+      });
+      if (e2) throw e2;
+      const pay = (Array.isArray(payData) ? payData[0] : payData) as { payment_id?: string };
+      if (!pay?.payment_id) throw new Error("Payment record nahi bana.");
+
+      // 3. Tag the receiving account + reconcile THIS bank line to the payment.
+      await supabase.from("payments").update({ bank_account_id: input.bankAccountId }).eq("id", pay.payment_id);
+      const { data: { user } } = await supabase.auth.getUser();
+      const { error: e3 } = await supabase.from("bank_transactions").update({
+        matched_to_type:  "payment",
+        matched_to_id:    pay.payment_id,
+        matched_at:       new Date().toISOString(),
+        matched_by:       user?.id ?? null,
+        match_confidence: "manual",
+      }).eq("id", input.transactionId);
+      if (e3) throw e3;
+      return inv;
+    },
+    onSuccess: (inv) => {
+      qc.invalidateQueries({ queryKey: ["bank_transactions"] });
+      qc.invalidateQueries({ queryKey: ["invoices"] });
+      qc.invalidateQueries({ queryKey: ["quotes"] });
+      qc.invalidateQueries({ queryKey: ["payments"] });
+      qc.invalidateQueries({ queryKey: ["customers"] });
+      qc.invalidateQueries({ queryKey: ["aging"] });
+      toast.success(`Invoice ${inv.invoice_id} bana & reconcile ho gaya`);
+    },
+    onError: (err) => toast.error((err as Error).message),
+  });
+}
+
 export function useReconcileTransaction() {
   const qc = useQueryClient();
   return useMutation({

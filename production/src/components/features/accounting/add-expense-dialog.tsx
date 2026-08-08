@@ -120,6 +120,17 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
   const removeLine = (i: number) => setLines((ls) => ls.filter((_, idx) => idx !== i));
   const setLine    = (i: number, patch: Partial<Line>) =>
     setLines((ls) => ls.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
+  // Qty/Unit change → auto-fill Amount (qty × unit), still editable by hand.
+  const setQtyUnit = (i: number, patch: Partial<Line>) =>
+    setLines((ls) => ls.map((l, idx) => {
+      if (idx !== i) return l;
+      const next = { ...l, ...patch };
+      const q = Number(next.qty), u = Number(next.unit_price);
+      if (next.qty !== "" && next.unit_price !== "" && Number.isFinite(q) && Number.isFinite(u)) {
+        next.amount = String(Math.round(q * u * 100) / 100);
+      }
+      return next;
+    }));
 
   // ── AI bill reader — upload a stationery/software/rent invoice → Gemini
   //    extracts the fields → we PRE-FILL (operator verifies before saving).
@@ -657,22 +668,26 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
 
           {/* ── STEP 4: What & how much ── */}
           <section className="rounded-lg border border-hairline bg-paper-2/30 p-3 space-y-3">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <FormField label="Category" required htmlFor="category">
-                <Select value={watch("category")} onValueChange={(v) => { setValue("category", v); setCategoryTouched(true); setCategoryAuto(false); }}>
-                  <SelectTrigger id="category"><SelectValue placeholder="Select" /></SelectTrigger>
-                  <SelectContent>
-                    {EXPENSE_CATEGORIES
-                      .filter((c) => c !== "Salaries" || expense?.category === "Salaries")
-                      .map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-                {categoryAuto && !categoryTouched && (
-                  <p className="mt-1 flex items-center gap-1 text-[10px] text-amber-ink">
-                    <Icon name="sparkles" size={10} /> Auto-chuni — galat ho to badal do.
-                  </p>
-                )}
-              </FormField>
+            <div className={cn("grid gap-3", showItems ? "grid-cols-1" : "grid-cols-1 sm:grid-cols-2")}>
+              {/* Single category only in simple mode — in itemise mode each line
+                  carries its own category, so a top-level one is redundant. */}
+              {!showItems && (
+                <FormField label="Category" required htmlFor="category">
+                  <Select value={watch("category")} onValueChange={(v) => { setValue("category", v); setCategoryTouched(true); setCategoryAuto(false); }}>
+                    <SelectTrigger id="category"><SelectValue placeholder="Select" /></SelectTrigger>
+                    <SelectContent>
+                      {EXPENSE_CATEGORIES
+                        .filter((c) => c !== "Salaries" || expense?.category === "Salaries")
+                        .map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                  {categoryAuto && !categoryTouched && (
+                    <p className="mt-1 flex items-center gap-1 text-[10px] text-amber-ink">
+                      <Icon name="sparkles" size={10} /> Auto-chuni — galat ho to badal do.
+                    </p>
+                  )}
+                </FormField>
+              )}
               <FormField label="Date" required htmlFor="expense_date">
                 <Input id="expense_date" type="date" error={errors.expense_date?.message} {...register("expense_date")} />
               </FormField>
@@ -690,34 +705,37 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
                   Items — har item ki category{isForeign ? ` · amount ${currency} me` : ""}
                 </p>
                 <div className="space-y-2">
-                  {lines.length > 0 && (
-                    <div className="hidden sm:grid grid-cols-12 gap-2 text-[10px] uppercase tracking-wider text-ink-3">
-                      <span className="col-span-5">Description</span>
-                      <span className="col-span-2 text-right">Amount</span>
-                      <span className="col-span-4">Category</span>
-                      <span className="col-span-1" />
-                    </div>
-                  )}
                   {lines.map((l, i) => (
-                    <div key={i} className="grid grid-cols-12 gap-2 items-center">
-                      <Input wrapperClassName="col-span-12 sm:col-span-5" placeholder="e.g. Laptop / A4 paper"
-                        value={l.description} onChange={(e) => setLine(i, { description: e.target.value })} />
-                      {/* Amount allows negatives — credit / unused-time lines. */}
-                      <Input wrapperClassName="col-span-5 sm:col-span-2" className="text-right" type="number" step="any" placeholder="Amount"
-                        value={l.amount} onChange={(e) => setLine(i, { amount: e.target.value })} />
-                      <select
-                        className="col-span-6 sm:col-span-4 h-9 rounded-md border border-hairline bg-paper px-2 text-[13px] text-ink"
-                        value={l.category || headerCategory}
-                        onChange={(e) => setLine(i, { category: e.target.value })}
-                      >
-                        {EXPENSE_CATEGORIES
-                          .filter((c) => c !== "Salaries")
-                          .map((c) => <option key={c} value={c}>{c}</option>)}
-                      </select>
-                      <button type="button" onClick={() => removeLine(i)} aria-label="Remove item"
-                        className="col-span-1 justify-self-center text-ink-3 hover:text-rose">
-                        <Icon name="x" size={14} />
-                      </button>
+                    <div key={i} className="rounded-md border border-hairline bg-paper p-2 space-y-2">
+                      {/* Line 1: what it is + remove */}
+                      <div className="flex items-center gap-2">
+                        <Input wrapperClassName="flex-1" placeholder="e.g. Laptop / A4 paper"
+                          value={l.description} onChange={(e) => setLine(i, { description: e.target.value })} />
+                        <button type="button" onClick={() => removeLine(i)} aria-label="Remove item"
+                          className="shrink-0 text-ink-3 hover:text-rose p-1">
+                          <Icon name="x" size={14} />
+                        </button>
+                      </div>
+                      {/* Line 2: qty × unit = amount · category */}
+                      <div className="grid grid-cols-12 gap-2 items-center">
+                        <Input wrapperClassName="col-span-3 sm:col-span-2" className="text-right" type="number" min={0} step="any" placeholder="Qty"
+                          value={l.qty} onChange={(e) => setQtyUnit(i, { qty: e.target.value })} />
+                        <span className="col-span-1 text-center text-ink-3 text-xs">×</span>
+                        <Input wrapperClassName="col-span-4 sm:col-span-2" className="text-right" type="number" step="any" placeholder={`Price ${isForeign ? currency : "₹"}`}
+                          value={l.unit_price} onChange={(e) => setQtyUnit(i, { unit_price: e.target.value })} />
+                        {/* Amount = qty×price (auto), editable; negatives allowed for credit lines */}
+                        <Input wrapperClassName="col-span-4 sm:col-span-3" className="text-right font-medium" type="number" step="any" placeholder={`Amount ${isForeign ? currency : "₹"}`}
+                          value={l.amount} onChange={(e) => setLine(i, { amount: e.target.value })} />
+                        <select
+                          className="col-span-12 sm:col-span-4 h-9 rounded-md border border-hairline bg-paper px-2 text-[13px] text-ink"
+                          value={l.category || headerCategory}
+                          onChange={(e) => setLine(i, { category: e.target.value })}
+                        >
+                          {EXPENSE_CATEGORIES
+                            .filter((c) => c !== "Salaries")
+                            .map((c) => <option key={c} value={c}>{c}</option>)}
+                        </select>
+                      </div>
                     </div>
                   ))}
                   <Button type="button" variant="ghost" size="sm" icon="plus" onClick={addLine}>Add item</Button>

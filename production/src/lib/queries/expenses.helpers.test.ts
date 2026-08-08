@@ -31,8 +31,9 @@ describe("suggestCategory", () => {
 
 describe("findDuplicateExpense", () => {
   const list = [
-    { id: "EXP-1", vendor_id: "v1", vendor_name: "Anthropic, PBC", bill_no: "G06-0014", expense_date: "2026-07-10", amount: 5304 },
-    { id: "EXP-2", vendor_id: null, vendor_name: "Chai Point", bill_no: null, expense_date: "2026-08-01", amount: 250 },
+    { id: "EXP-1", vendor_id: "v1", vendor_name: "Anthropic, PBC", bill_no: "G06-0014", expense_date: "2026-07-10", amount: 5304, category: "Software" },
+    { id: "EXP-2", vendor_id: null, vendor_name: "Chai Point", bill_no: null, expense_date: "2026-08-01", amount: 250, category: "Business Promotion" },
+    { id: "EXP-3", vendor_id: "v9", vendor_name: "Amazon", bill_no: "AMZ-77", expense_date: "2026-08-02", amount: 60000, category: "Equipment" },
   ];
 
   it("flags same vendor + same bill number", () => {
@@ -52,5 +53,11 @@ describe("findDuplicateExpense", () => {
   });
   it("excludes the row being edited (selfId)", () => {
     expect(findDuplicateExpense({ vendorId: "v1", billNo: "G06-0014" }, list, "EXP-1")).toBeNull();
+  });
+  it("same bill no. + SAME category = duplicate", () => {
+    expect(findDuplicateExpense({ vendorId: "v9", billNo: "AMZ-77", category: "Equipment" }, list)?.id).toBe("EXP-3");
+  });
+  it("same bill no. + DIFFERENT category = split, not a duplicate", () => {
+    expect(findDuplicateExpense({ vendorId: "v9", billNo: "AMZ-77", category: "Office Supplies" }, list)).toBeNull();
   });
 });

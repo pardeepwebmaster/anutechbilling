@@ -177,17 +177,18 @@ export type DupCandidate = {
   billNo?: string | null;
   billDate?: string | null;
   amountInr?: number | null;   // ₹ — only known once currency is converted
+  category?: string | null;    // same bill no. + DIFFERENT category = a split, not a dup
 };
 
 /** Recent expenses (light columns) to check a new bill against. */
 export function useExpenseDupList() {
   return useQuery({
     queryKey: ["expenses", "dupList"],
-    queryFn: async (): Promise<Pick<Expense, "id" | "vendor_id" | "vendor_name" | "bill_no" | "expense_date" | "amount" | "currency">[]> => {
+    queryFn: async (): Promise<Pick<Expense, "id" | "vendor_id" | "vendor_name" | "bill_no" | "expense_date" | "amount" | "currency" | "category">[]> => {
       const supabase = createClient();
       const { data, error } = await supabase
         .from("expenses")
-        .select("id, vendor_id, vendor_name, bill_no, expense_date, amount, currency")
+        .select("id, vendor_id, vendor_name, bill_no, expense_date, amount, currency, category")
         .order("expense_date", { ascending: false })
         .limit(2000);
       if (error) throw error;
@@ -205,7 +206,7 @@ export function useExpenseDupList() {
  */
 export function findDuplicateExpense(
   c: DupCandidate,
-  list: { id: string; vendor_id: string | null; vendor_name: string | null; bill_no: string | null; expense_date: string; amount: number }[],
+  list: { id: string; vendor_id: string | null; vendor_name: string | null; bill_no: string | null; expense_date: string; amount: number; category?: string | null }[],
   selfId?: string,
 ): { id: string; expense_date: string; amount: number; bill_no: string | null } | null {
   const name = (c.vendorName ?? "").trim().toLowerCase();
@@ -216,7 +217,14 @@ export function findDuplicateExpense(
       (!!c.vendorId && e.vendor_id === c.vendorId) ||
       (!!name && (e.vendor_name ?? "").trim().toLowerCase() === name);
     if (!sameVendor) continue;
-    if (billNo && (e.bill_no ?? "").trim().toLowerCase() === billNo) return e;
+    if (billNo && (e.bill_no ?? "").trim().toLowerCase() === billNo) {
+      // Same vendor + same bill no. → a real duplicate ONLY if the category also
+      // matches. A different category under the same invoice is a legitimate
+      // split (multi-head purchase), not a duplicate. If no category was given
+      // (e.g. the pre-confirm review), fall back to a bill-no match.
+      if (!c.category || (e.category ?? "") === c.category) return e;
+      continue;
+    }
     if (!billNo && !e.bill_no && c.billDate && e.expense_date === c.billDate &&
         c.amountInr != null && Math.abs(e.amount - c.amountInr) <= 1) return e;
   }

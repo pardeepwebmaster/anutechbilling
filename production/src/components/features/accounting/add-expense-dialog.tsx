@@ -332,14 +332,14 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
     // Duplicate guard — same vendor + bill no. (or vendor + date + amount when a
     // bill has no number) already recorded? Warn before creating a second entry.
     const dup = findDuplicateExpense(
-      { vendorId: vId, vendorName: payee, billNo: billNo.trim() || null, billDate: values.expense_date, amountInr: inr(values.amount) },
+      { vendorId: vId, vendorName: payee, billNo: billNo.trim() || null, billDate: values.expense_date, amountInr: inr(values.amount), category: values.category },
       (dupList ?? []) as never,
       expense?.id,
     );
     if (dup) {
       const ok = await confirm({
         title: "Ye bill pehle se entered lagta hai",
-        body: `${payee || "Is vendor"} ka ${billNo.trim() ? `bill #${billNo.trim()}` : `${formatDate(dup.expense_date)} · ${rupee(dup.amount)}`} wala expense already record hai. Duplicate entry P&L + input GST dono double kar degi. Phir bhi ek aur banayein?`,
+        body: `${payee || "Is vendor"} ka ${billNo.trim() ? `bill #${billNo.trim()}` : `${formatDate(dup.expense_date)} · ${rupee(dup.amount)}`} — isi category (${values.category}) mein already record hai. Duplicate entry P&L + input GST dono double kar degi. (Alag category ka hissa ho to category badal ke save karo.) Phir bhi ek aur banayein?`,
         danger: true,
         confirmLabel: "Haan, phir bhi save",
         cancelLabel: "Nahi, rehne do",
@@ -509,9 +509,9 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
                   <div className="mt-2.5 rounded-md border border-amber/40 bg-paper p-3">
                     <p className="text-[12px] font-medium text-ink mb-2">AI ne ye padha — sahi hai? Confirm karo tabhi bharega.</p>
                     {dupInReview && (
-                      <div className="mb-2 flex items-start gap-1.5 rounded-md bg-rose/10 px-2.5 py-2 text-[11px] text-rose">
+                      <div className="mb-2 flex items-start gap-1.5 rounded-md bg-amber-soft/60 px-2.5 py-2 text-[11px] text-amber-ink">
                         <Icon name="alert" size={13} className="mt-0.5 shrink-0" />
-                        <span><b>Duplicate lagta hai</b> — ye bill pehle se entered hai{` (${pending.billNo ? `#${pending.billNo}` : `${formatDate(dupInReview.expense_date)} · ${rupee(dupInReview.amount)}`})`}. Dobara add karne se P&amp;L + input GST double ho jayega.</span>
+                        <span>Isi bill{` (${pending.billNo ? `#${pending.billNo}` : `${formatDate(dupInReview.expense_date)} · ${rupee(dupInReview.amount)}`})`} ki ek entry pehle se hai. Agar ye <b>alag category ka hissa</b> hai to theek — warna duplicate ho jayega.</span>
                       </div>
                     )}
                     <div className="space-y-1 text-[12px] text-ink-2">
@@ -609,6 +609,9 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
           {isGstBill && (
             <FormField label="Bill / invoice no. (optional)" htmlFor="bill_no">
               <Input id="bill_no" placeholder="e.g. INV-2026-0042" value={billNo} onChange={(e) => setBillNo(e.target.value)} />
+              <p className="text-[10px] text-ink-3 mt-1">
+                Ek hi invoice mein alag-alag category ka saaman? Har category ki <b>alag entry</b> banao — <b>same bill no.</b> daalo. Wo ek hi invoice ke hisse maane jayenge (duplicate warning nahi aayegi).
+              </p>
             </FormField>
           )}
 

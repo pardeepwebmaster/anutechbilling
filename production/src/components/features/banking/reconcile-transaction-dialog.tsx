@@ -329,6 +329,44 @@ export function ReconcileTransactionDialog({ open, onOpenChange, transaction }: 
               )}
             </div>
 
+            {/* Income from a sale — credit lines only. Most money-in with no
+                match is a customer paying for a sale that wasn't invoiced yet.
+                Route to the proper invoice/project builder (amount prefilled);
+                once the payment is recorded it shows here as a suggested match
+                to reconcile. Kept FIRST — it's the commonest money-in. */}
+            {isCredit && (
+              <div className="rounded-md border border-amber/50 bg-amber-soft/25 p-3">
+                <p className="text-xs font-semibold text-ink-2 mb-1">Kisi sale / customer ka paisa?</p>
+                <p className="text-[11px] text-ink-3 mb-3 leading-relaxed">
+                  Income aksar invoice se aati hai. Is {rupee(amount)} ki invoice abhi nahi bani? Yahan se invoice (ya project payment) banao — uska payment record karte hi ye line neeche <b>suggested match</b> me aa jayegi, phir ek click me reconcile.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    size="sm"
+                    variant="primary"
+                    icon="file"
+                    onClick={() => {
+                      onOpenChange(false);
+                      router.push(`/quotes?new=invoice&amount=${Math.round(amount)}&reconcile=${transaction?.id ?? ""}` as never);
+                    }}
+                  >
+                    Invoice banao
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="default"
+                    icon="external"
+                    onClick={() => {
+                      onOpenChange(false);
+                      router.push(`/projects?amount=${Math.round(amount)}&reconcile=${transaction?.id ?? ""}` as never);
+                    }}
+                  >
+                    Project payment
+                  </Button>
+                </div>
+              </div>
+            )}
+
             {/* Book money-IN as capital / a director's loan — credit lines only.
                 Adds the Balance-Sheet line AND reconciles, in one step. */}
             {isCredit && (

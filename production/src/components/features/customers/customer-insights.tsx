@@ -251,9 +251,12 @@ export function buildCustomerActivity(subs: Subscription[], invoices: Invoice[],
 /** 4-KPI answer-bar — health / owed / value in one glance (real numbers). */
 export function CustomerMetricBar({ insights }: { insights: CustomerInsights }) {
   const { outstanding, projectReceivable, overdueCount, lifetimePaid, totalMRR, activeSubs, seatsUsed, seatsTotal, nearestRenewal, renewalDays } = insights;
+  // Exact figures (not compact lakh) for the money KPIs so they match the
+  // Next-Best-Action + Transactions to the rupee — "₹15.2L" vs "₹15,16,000"
+  // for the same number read as two different amounts.
   const outHint = [
     overdueCount > 0 ? `${overdueCount} overdue` : null,
-    projectReceivable > 0 ? `${rupee(projectReceivable, { compact: projectReceivable >= 100000 })} project` : null,
+    projectReceivable > 0 ? `${rupee(projectReceivable)} project` : null,
   ].filter(Boolean).join(" · ") || undefined;
   // auto-fit → columns follow the CONTAINER width (not the viewport), so this
   // strip fits whether it's in the narrow split-view panel, the full-width panel,
@@ -262,11 +265,11 @@ export function CustomerMetricBar({ insights }: { insights: CustomerInsights }) 
     <div className="grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-3">
       <MetricCard
         label="Outstanding"
-        value={outstanding > 0 ? rupee(outstanding, { compact: outstanding >= 100000 }) : "All clear"}
+        value={outstanding > 0 ? rupee(outstanding) : "All clear"}
         tone={outstanding > 0 ? "danger" : "success"}
         hint={outHint}
       />
-      <MetricCard label="Lifetime paid" value={lifetimePaid > 0 ? rupee(lifetimePaid, { compact: lifetimePaid >= 100000 }) : "—"} />
+      <MetricCard label="Lifetime paid" value={lifetimePaid > 0 ? rupee(lifetimePaid) : "—"} />
       <MetricCard
         label="MRR"
         value={totalMRR > 0 ? rupee(totalMRR) : "—"}

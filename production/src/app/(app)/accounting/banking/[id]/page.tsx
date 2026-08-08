@@ -43,8 +43,11 @@ type FilterTab = "all" | "unmatched" | "matched";
 
 // Column order (left→right) + default widths (px) for the resizable table.
 const BANK_COL_ORDER = ["date", "description", "nikasi", "jama", "status", "action"];
+// Widths tuned to fit a laptop content area WITHOUT a horizontal scrollbar
+// (≈820px total). Description flexes widest; the rest are compact. Users can
+// still drag any column — only then does the table scroll inside its card.
 const BANK_COL_DEFAULTS: Record<string, number> = {
-  date: 130, description: 340, nikasi: 130, jama: 130, status: 140, action: 150,
+  date: 118, description: 256, nikasi: 108, jama: 108, status: 126, action: 104,
 };
 
 export default function BankAccountDetailPage() {
@@ -60,7 +63,7 @@ export default function BankAccountDetailPage() {
   const [reconcileTxn,  setReconcileTxn]  = React.useState<BankTransactionRow | null>(null);
 
   // Resizable columns — drag the full-height divider between any two columns.
-  const { colW, startResize, totalWidth: bankTableW } = useResizableColumns("ros_bank_colw", BANK_COL_DEFAULTS);
+  const { colW, startResize, totalWidth: bankTableW } = useResizableColumns("ros_bank_colw_v2", BANK_COL_DEFAULTS);
 
   // AA connection state (returns null if not connected yet)
   const { data: aaConn } = useBankAaConnection(accountId);

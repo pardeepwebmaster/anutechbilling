@@ -947,6 +947,7 @@ type InvoiceRow = {
   // Advance adjustment (CGST Section 31 + Rule 53) — populated at invoice issue time
   adjusted_advances: InvoiceAdvanceAdjustment[];
   net_payable:       number | null;        // amount - sum(adjusted_advances.amount), floor 0
+  paid_amount:       number;               // migration 0184 — ₹ received (project invoices synced by trigger)
   first_advance_at:  string | null;        // Drives 30-day GST clock (Sec 13(2))
   quote_id:          string | null;        // FK to source quote
   // GST breakdown persisted at issue time (migration 0116). taxable_value + tax_amount = amount.

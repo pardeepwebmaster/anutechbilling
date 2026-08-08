@@ -235,7 +235,10 @@ function InvoicesPageInner() {
           else if (days <= 60)  buckets.urgent.push({ ...q, days });
           else                  buckets.overdue.push({ ...q, days });
         }
-        const sumAmt = (arr: any[]) => arr.reduce((s, q) => s + (q.amount ?? 0), 0);
+        // Outstanding, not face value — subtract anything already received
+        // (paid_amount: project-milestone receipts, migration 0184) so a
+        // part-paid invoice doesn't overstate the receivable bucket.
+        const sumAmt = (arr: any[]) => arr.reduce((s, q) => s + Math.max(0, (q.amount ?? 0) - (q.paid_amount ?? 0)), 0);
         const totalAmt = sumAmt(pending);
 
         const togglePending = (id: string) => {
@@ -734,6 +737,12 @@ function InvoiceRow({
               Net due <span className="text-ink-2">{rupee(inv.net_payable)}</span>
             </span>
           )}
+          {/* Part-received (project milestone receipts) — show what's still due. */}
+          {(inv.paid_amount ?? 0) > 0 && inv.status !== "paid" && (
+            <span className="text-[10px] font-medium tabular-nums leading-tight text-emerald">
+              {rupee(inv.paid_amount)} paid · <span className="text-amber-ink">{rupee(Math.max(0, inv.amount - inv.paid_amount))} due</span>
+            </span>
+          )}
         </div>
       </td>
       <td className="px-3 py-2.5 align-top" onClick={(e) => e.stopPropagation()}>
@@ -744,11 +753,14 @@ function InvoiceRow({
           // bare "Pending" misleads the user into thinking nothing's been
           // received. Same for status='overdue' with advances applied —
           // "Overdue · Partial" reflects reality.
+          // Partial when advances were adjusted OR some money is already in
+          // (paid_amount — project invoices' milestone receipts, migration 0184).
           const hasAdvancesApplied = Array.isArray(inv.adjusted_advances) && inv.adjusted_advances.length > 0;
+          const partial = (hasAdvancesApplied || (inv.paid_amount ?? 0) > 0) && inv.status !== "paid";
           const badge =
               inv.status === "paid"    ? <Badge kind="success" dot>Paid</Badge>
-            : inv.status === "pending" ? (hasAdvancesApplied ? <Badge kind="warning" dot>Partial</Badge> : <Badge kind="warning" dot>Pending</Badge>)
-            : inv.status === "overdue" ? (hasAdvancesApplied ? <Badge kind="danger" dot>Overdue · Partial · {inv.overdue_days}d</Badge> : <Badge kind="danger" dot>Overdue {inv.overdue_days}d</Badge>)
+            : inv.status === "pending" ? (partial ? <Badge kind="warning" dot>Partial</Badge> : <Badge kind="warning" dot>Pending</Badge>)
+            : inv.status === "overdue" ? (partial ? <Badge kind="danger" dot>Overdue · Partial · {inv.overdue_days}d</Badge> : <Badge kind="danger" dot>Overdue {inv.overdue_days}d</Badge>)
             : inv.status === "draft"   ? <Badge kind="muted">Draft</Badge>
             : inv.status === "void"    ? <Badge kind="muted">Void</Badge>
             : null;

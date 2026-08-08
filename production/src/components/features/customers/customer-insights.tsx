@@ -139,12 +139,20 @@ function computeNBA(args: {
 
   // 1. Money owed — subscriptions AND/OR project payments.
   if (outstanding > 0 || overdueCount > 0) {
-    const projPart = projectReceivable > 0 ? ` · ${rupee(projectReceivable)} project` : "";
+    const allProject = projectReceivable > 0 && projectReceivable >= outstanding;
+    // Only break out the project figure when it's a PART of the total — when the
+    // whole outstanding IS the project, tag it "project" without repeating the ₹.
+    const projPart =
+      projectReceivable <= 0 ? "" :
+      allProject          ? " · project" :
+                            ` · ${rupee(projectReceivable)} project`;
     return {
       tone: "danger",
       icon: "alert",
       title: `${rupee(outstanding)} outstanding${projPart}${overdueCount > 0 ? ` · ${overdueCount} overdue invoice${overdueCount > 1 ? "s" : ""}` : ""}`,
-      body: projectReceivable > 0
+      body: allProject
+        ? "This is a project payment still owed — collect it before it ages. AI can draft a friendly reminder."
+        : projectReceivable > 0
         ? "Includes a project payment still owed — collect it before it ages. AI can draft a friendly reminder."
         : "Collect this before it ages further — let AI draft a friendly reminder you can edit and send.",
       cta: canMessage ? { label: "Draft reminder with AI", kind: "draft", channel, purpose: "reminder" } : undefined,

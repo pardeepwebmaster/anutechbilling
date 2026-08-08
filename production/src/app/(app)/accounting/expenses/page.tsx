@@ -286,13 +286,12 @@ export default function ExpensesPage() {
           {/* Desktop table — scrolls horizontally rather than clipping so the
               Amount / Actions columns are never cut off on narrower laptops. */}
           <Card className="hidden md:block overflow-x-auto">
-            <table className="w-full min-w-[860px] text-sm">
+            <table className="w-full min-w-[760px] text-sm">
               <thead className="bg-paper-2/50 text-[10px] uppercase tracking-wider text-ink-3 font-semibold">
                 <tr>
                   <th className="text-left  px-3 py-3 whitespace-nowrap">Date</th>
-                  <th className="text-left  px-3 py-3">Category</th>
+                  <th className="text-left  px-3 py-3">Category &amp; what for</th>
                   <th className="text-left  px-3 py-3">Vendor / payee</th>
-                  <th className="text-left  px-3 py-3">Description</th>
                   <th className="text-left  px-3 py-3">Method</th>
                   <th className="text-right px-3 py-3">GST</th>
                   <th className="text-right px-3 py-3">Amount</th>
@@ -303,17 +302,17 @@ export default function ExpensesPage() {
                 {rows.map((e) => (
                   <tr key={e.id} className="hover:bg-paper-2/40 cursor-pointer" onClick={() => openRow(e)}>
                     <td className="px-3 py-3 text-ink-2 whitespace-nowrap">{formatDate(e.expense_date)}</td>
-                    <td className="px-3 py-3 text-ink whitespace-nowrap">
-                      {e.category}
-                      {e.bill_type === "kaccha" && <span className="ml-1.5 text-[9px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-soft/60 text-amber-ink align-middle">Kaccha bill</span>}
-                      {e.bill_type === "none" && <span className="ml-1.5 text-[9px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-paper-2 text-ink-3 align-middle">No bill</span>}
-                      {(() => { const t = reconcileTag(e, salByExpense.get(e.id)); return t ? <ReconcileTag {...t} /> : null; })()}
+                    <td className="px-3 py-3 text-ink align-top">
+                      <span className="whitespace-nowrap">
+                        {e.category}
+                        {e.bill_type === "kaccha" && <span className="ml-1.5 text-[9px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-soft/60 text-amber-ink align-middle">Kaccha bill</span>}
+                        {e.bill_type === "none" && <span className="ml-1.5 text-[9px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-paper-2 text-ink-3 align-middle">No bill</span>}
+                        {(() => { const t = reconcileTag(e, salByExpense.get(e.id)); return t ? <ReconcileTag {...t} /> : null; })()}
+                      </span>
+                      {e.description && <div className="text-xs text-ink-3 mt-0.5 max-w-[280px] truncate" title={e.description}>{e.description}</div>}
                     </td>
-                    <td className="px-3 py-3 text-ink-2 whitespace-nowrap">{e.vendor_name ?? "—"}</td>
-                    <td className="px-3 py-3 text-ink-3">
-                      <span className="block max-w-[280px] truncate" title={e.description ?? undefined}>{e.description ?? "—"}</span>
-                    </td>
-                    <td className="px-3 py-3 text-ink-3 text-xs whitespace-nowrap">{e.payment_method ?? "—"}</td>
+                    <td className="px-3 py-3 text-ink-2 whitespace-nowrap align-top">{e.vendor_name ?? "—"}</td>
+                    <td className="px-3 py-3 text-ink-3 text-xs whitespace-nowrap align-top">{e.payment_method ?? "—"}</td>
                     <td className="px-3 py-3 text-right text-emerald font-mono whitespace-nowrap">
                       {e.gst_paid > 0 ? rupee(e.gst_paid) : "—"}
                       {(() => { const fx = e.gst_paid > 0 ? foreignAmount(e.currency, e.gst_paid, e.fx_rate) : null; return fx ? <div className="text-[10px] font-normal text-emerald/70">{fx}</div> : null; })()}

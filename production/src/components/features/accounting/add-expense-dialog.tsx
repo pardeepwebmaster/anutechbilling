@@ -452,14 +452,31 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
                     it's correct before it fills the form. Nothing auto-applies. */}
                 {pending && (() => {
                   const fmt = (n: number) => pending.currency !== "INR" ? (formatForeignAmount(pending.currency, n) ?? `${pending.currency} ${n}`) : rupee(n);
+                  // Does this bill's vendor already exist? Match GSTIN first, then
+                  // name — so we can flag "existing" right here + show its GSTIN
+                  // (even when the invoice itself didn't print one).
+                  const pg = pending.gstin?.trim().toUpperCase();
+                  const pv = pending.vendorName?.trim().toLowerCase();
+                  const existing = (vendors ?? []).find(
+                    (v) => (pg && (v.gstin ?? "").trim().toUpperCase() === pg) || (pv && v.name.trim().toLowerCase() === pv),
+                  );
+                  const shownGstin = pending.gstin || existing?.gstin || null;
                   return (
                     <div className="mt-2.5 rounded-md border border-amber/40 bg-paper p-3">
                       <p className="text-[12px] font-medium text-ink mb-2">
                         AI ne ye padha — sahi hai? Confirm karo tabhi bharega.
                       </p>
                       <div className="space-y-1 text-[12px] text-ink-2">
-                        <div className="flex justify-between gap-2"><span className="text-ink-3">Vendor</span><span className="text-ink text-right">{pending.vendorName || "—"}</span></div>
-                        {pending.gstin && <div className="flex justify-between gap-2"><span className="text-ink-3">GSTIN</span><span className="font-mono text-ink text-right">{pending.gstin}</span></div>}
+                        <div className="flex justify-between gap-2">
+                          <span className="text-ink-3">Vendor</span>
+                          <span className="text-ink text-right flex items-center gap-1.5 justify-end flex-wrap">
+                            {pending.vendorName || "—"}
+                            {existing
+                              ? <span className="inline-flex items-center gap-0.5 rounded-full bg-emerald/10 text-emerald px-1.5 py-0.5 text-[10px] font-medium"><Icon name="check_circle" size={10} /> Existing</span>
+                              : (pending.vendorName && <span className="inline-flex items-center gap-0.5 rounded-full bg-amber-soft text-amber-ink px-1.5 py-0.5 text-[10px] font-medium"><Icon name="plus" size={10} /> New</span>)}
+                          </span>
+                        </div>
+                        {shownGstin && <div className="flex justify-between gap-2"><span className="text-ink-3">GSTIN</span><span className="font-mono text-ink text-right">{shownGstin}</span></div>}
                         <div className="flex justify-between gap-2"><span className="text-ink-3">Bill date</span><span className="text-right">{pending.billDate || "—"}</span></div>
                         <div className="flex justify-between gap-2"><span className="text-ink-3">Type</span><span className="text-right">{pending.billType === "gst" ? "GST invoice" : "Kaccha (no GST)"}</span></div>
                         <div className="flex justify-between gap-2"><span className="text-ink-3">Total{pending.currency !== "INR" ? ` (${pending.currency})` : ""}</span><span className="font-mono text-ink text-right">{pending.total != null ? fmt(pending.total) : "—"}{pending.gst > 0 ? ` · GST ${fmt(pending.gst)}` : ""}</span></div>

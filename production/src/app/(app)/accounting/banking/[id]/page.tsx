@@ -66,7 +66,7 @@ export default function BankAccountDetailPage() {
   const [reconcileTxn,  setReconcileTxn]  = React.useState<BankTransactionRow | null>(null);
 
   // Resizable columns — drag the full-height divider between any two columns.
-  const { colW, startResize, totalWidth: bankTableW } = useResizableColumns("ros_bank_colw_v2", BANK_COL_DEFAULTS);
+  const { colW, startResize, totalWidth: bankTableW } = useResizableColumns("ros_bank_colw_v3", BANK_COL_DEFAULTS);
 
   // AA connection state (returns null if not connected yet)
   const { data: aaConn } = useBankAaConnection(accountId);
@@ -381,10 +381,12 @@ function TransactionRow({
       <td className="px-4 py-3 text-ink-2 whitespace-nowrap truncate">
         {formatDate(txn.txn_date)}
       </td>
-      <td className="px-4 py-3 overflow-hidden">
-        <div className="font-medium text-ink truncate" title={txn.description ?? undefined}>{txn.description}</div>
+      <td className="px-4 py-3 align-top">
+        {/* Wrap (not truncate) so the full narration is readable at the default
+            width — no need to widen the column and push other columns off. */}
+        <div className="font-medium text-ink break-words leading-snug">{txn.description}</div>
         {txn.reference && (
-          <div className="text-[10px] text-ink-3 font-mono mt-0.5 truncate">{txn.reference}</div>
+          <div className="text-[10px] text-ink-3 font-mono mt-0.5 break-all">{txn.reference}</div>
         )}
       </td>
       <td className="px-4 py-3 text-right tabular-nums whitespace-nowrap font-medium text-rose">

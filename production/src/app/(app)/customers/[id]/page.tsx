@@ -62,6 +62,9 @@ export default function CustomerDetailPage() {
   // Segment filter inside the Transactions tab so quotes / invoices / payments
   // can each be viewed on their own (not just the combined feed).
   const [txnFilter, setTxnFilter] = React.useState<"all" | "invoices" | "quotes" | "payments" | "projects">("all");
+  // Collapsed parent keys in the hierarchical "All" view (default: all expanded).
+  const [collapsed, setCollapsed] = React.useState<Set<string>>(new Set());
+  const toggleCollapse = (key: string) => setCollapsed((prev) => { const n = new Set(prev); if (n.has(key)) n.delete(key); else n.add(key); return n; });
   const [svcView, setSvcView] = React.useState<"subscription" | "project">("subscription");
   const [projQuoteOpen, setProjQuoteOpen] = React.useState(false);
   const [referralOpen, setReferralOpen] = React.useState(false);
@@ -154,37 +157,47 @@ export default function CustomerDetailPage() {
   // so the relationship is obvious. Standalone invoices / subscription payments /
   // quotes sit at the top level. indent drives the left-inset in the render.
   const invoiceProject = projPay?.invoiceProject ?? {};
-  type HRow = { indent: number; date: string; type: "Invoice" | "Payment" | "Refund" | "Quote" | "Project"; ref: string; amount: number; status: string; onClick?: () => void };
+  type HRow = {
+    key: string; parentKey: string | null; indent: number;
+    date: string; type: "Invoice" | "Payment" | "Refund" | "Quote" | "Project";
+    ref: string; amount: number; status: string; due?: number; onClick?: () => void;
+  };
   const hierRows: HRow[] = [];
   const usedInv = new Set<string>();
   const usedPay = new Set<string>();
   for (const pr of allProjects) {
-    hierRows.push({ indent: 0, date: pr.created_at, type: "Project", ref: pr.title, amount: pr.total_amount, status: pr.status, onClick: () => router.push(`/projects/${pr.id}` as never) });
+    const projKey = `proj:${pr.id}`;
+    hierRows.push({ key: projKey, parentKey: null, indent: 0, date: pr.created_at, type: "Project", ref: pr.title, amount: pr.total_amount, status: pr.status, onClick: () => router.push(`/projects/${pr.id}` as never) });
     for (const i of allInvoices.filter((iv) => invoiceProject[iv.id]?.projectId === pr.id)) {
       usedInv.add(i.id);
       const pPaid = invoicePaid[i.id] ?? 0;
       const st = pPaid <= 0 ? i.status : pPaid >= i.amount ? "paid" : "partially paid";
-      hierRows.push({ indent: 1, date: i.invoice_date, type: "Invoice", ref: i.id, amount: i.amount, status: st });
+      const invKey = `inv:${i.id}`;
+      hierRows.push({ key: invKey, parentKey: projKey, indent: 1, date: i.invoice_date, type: "Invoice", ref: i.id, amount: i.amount, status: st, due: pPaid > 0 && pPaid < i.amount ? i.amount - pPaid : undefined });
       for (const p of projPayments.filter((pp) => pp.invoice_id === i.id)) {
         usedPay.add(p.id);
-        hierRows.push({ indent: 2, date: p.received_at, type: "Payment", ref: p.reference?.trim() || "Payment", amount: p.amount, status: p.bank_txn_id ? "reconciled" : "received" });
+        hierRows.push({ key: `pay:${p.id}`, parentKey: invKey, indent: 2, date: p.received_at, type: "Payment", ref: p.reference?.trim() || "Payment", amount: p.amount, status: p.bank_txn_id ? "reconciled" : "received" });
       }
     }
     // Advance receipts recorded before their milestone was invoiced.
     for (const p of projPayments.filter((pp) => pp.project_id === pr.id && !pp.invoice_id && !usedPay.has(pp.id))) {
       usedPay.add(p.id);
-      hierRows.push({ indent: 1, date: p.received_at, type: "Payment", ref: p.reference?.trim() || "Advance", amount: p.amount, status: p.bank_txn_id ? "reconciled" : "received" });
+      hierRows.push({ key: `pay:${p.id}`, parentKey: projKey, indent: 1, date: p.received_at, type: "Payment", ref: p.reference?.trim() || "Advance", amount: p.amount, status: p.bank_txn_id ? "reconciled" : "received" });
     }
   }
   for (const i of allInvoices.filter((iv) => !usedInv.has(iv.id))) {
-    hierRows.push({ indent: 0, date: i.invoice_date, type: "Invoice", ref: i.id, amount: i.amount, status: i.status });
+    hierRows.push({ key: `inv:${i.id}`, parentKey: null, indent: 0, date: i.invoice_date, type: "Invoice", ref: i.id, amount: i.amount, status: i.status });
   }
   for (const p of customerPayments) {
-    hierRows.push({ indent: 0, date: p.status === "refunded" ? (p.refunded_at ?? p.received_at) : p.received_at, type: p.status === "refunded" ? "Refund" : "Payment", ref: p.receipt_voucher_no ?? p.id, amount: p.amount, status: p.status });
+    hierRows.push({ key: `cpay:${p.id}`, parentKey: null, indent: 0, date: p.status === "refunded" ? (p.refunded_at ?? p.received_at) : p.received_at, type: p.status === "refunded" ? "Refund" : "Payment", ref: p.receipt_voucher_no ?? p.id, amount: p.amount, status: p.status });
   }
   for (const q of allQuotes) {
-    hierRows.push({ indent: 0, date: q.created_date, type: "Quote", ref: q.id, amount: q.amount, status: q.status, onClick: () => router.push(`/quotes/${q.id}` as never) });
+    hierRows.push({ key: `q:${q.id}`, parentKey: null, indent: 0, date: q.created_date, type: "Quote", ref: q.id, amount: q.amount, status: q.status, onClick: () => router.push(`/quotes/${q.id}` as never) });
   }
+  // Which rows are parents (have children) + parent lookup for the collapse walk.
+  const parentOf: Record<string, string | null> = {};
+  const hasKids = new Set<string>();
+  for (const r of hierRows) { parentOf[r.key] = r.parentKey; if (r.parentKey) hasKids.add(r.parentKey); }
 
   // Running-balance ledger (Zoho "Statement" tab). Invoice = debit (owed),
   // payment = credit; positive closing balance = receivable still owed.
@@ -459,23 +472,47 @@ export default function CustomerDetailPage() {
                   <RecordTable
                     head={["Date", "Type", "Reference", "Amount", "Status"]}
                     rows={(txnFilter === "all"
-                      ? hierRows
-                      : filteredTxns.map((t) => ({ indent: 0, ...t }))
-                    ).map((t) => ({
+                      // Hierarchical: hide a row if any ancestor is collapsed.
+                      ? hierRows.filter((r) => {
+                          let pk = r.parentKey;
+                          while (pk) { if (collapsed.has(pk)) return false; pk = parentOf[pk] ?? null; }
+                          return true;
+                        })
+                      : filteredTxns.map((t) => ({ key: "", parentKey: null, indent: 0, due: undefined, ...t }))
+                    ).map((t) => {
+                      const canExpand = txnFilter === "all" && hasKids.has(t.key);
+                      const isCollapsed = collapsed.has(t.key);
+                      return {
                       onClick: t.onClick,
                       cells: [
                         formatDate(t.date),
                         <Badge key="ty" kind={TXN_BADGE[t.type]} dot>{t.type}</Badge>,
-                        // Indent children (invoices under a project, payments under
-                        // an invoice) with a tree connector so the relationship reads.
+                        // Indent children with a tree connector; parents get a
+                        // chevron to expand/collapse their nested rows inline.
                         <span key="r" className="font-mono text-xs inline-flex items-center" style={{ paddingLeft: t.indent * 18 }}>
-                          {t.indent > 0 && <span className="text-ink-4 mr-1">└</span>}
+                          {canExpand ? (
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); toggleCollapse(t.key); }}
+                              className="mr-1 -ml-1 p-0.5 rounded hover:bg-paper-2 text-ink-3"
+                              aria-label={isCollapsed ? "Expand" : "Collapse"}
+                            >
+                              <Icon name={isCollapsed ? "chevron_right" : "chevron_down"} size={13} />
+                            </button>
+                          ) : t.indent > 0 ? (
+                            <span className="text-ink-4 mr-1">└</span>
+                          ) : null}
                           {t.ref}
                         </span>,
-                        <span key="a" className={cn("tabular-nums", t.indent === 0 ? "font-semibold" : "font-medium text-ink-2")}>{rupee(t.amount)}</span>,
+                        <span key="a" className="inline-flex flex-col">
+                          <span className={cn("tabular-nums", t.indent === 0 ? "font-semibold" : "font-medium text-ink-2")}>{rupee(t.amount)}</span>
+                          {t.due != null && t.due > 0 && (
+                            <span className="text-[10px] text-amber-ink tabular-nums">{rupee(t.due)} due</span>
+                          )}
+                        </span>,
                         <span key="s" className="text-ink-2 capitalize">{t.status}</span>,
                       ],
-                    }))}
+                    };})}
                   />
                 ) : (
                   <EmptyState icon="receipt" title="Nothing here" body="No records of this type for this customer." compact />

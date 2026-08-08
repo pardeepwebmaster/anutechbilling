@@ -546,6 +546,15 @@ export function PayrollTab() {
   const undoSalary = useDeleteSalaryPayment();
   const confirm = useConfirm();
 
+  // "Reconcile in Banking" — jump to the bank account with the matching bank
+  // debit (= net salary) opened for reconcile. If there's a single bank (non-
+  // cash) account we deep-link to it with ?match=<net>; else the Banking list.
+  const reconcileSalary = (p: SalaryPayment) => {
+    const banks = (accountsQ.data ?? []).filter((a) => a.is_active && a.account_type !== "cash");
+    if (banks.length === 1) router.push(`/accounting/banking/${banks[0].id}?match=${p.net}` as never);
+    else router.push("/accounting/banking" as never);
+  };
+
   // Edit an UN-reconciled run: reverse it (tested delete_salary_payment RPC —
   // itself blocked server-side once reconciled) then reopen the pay form to
   // re-enter it. Only offered while paid_amount === 0 (not yet bank-matched).
@@ -733,6 +742,7 @@ export function PayrollTab() {
                                 e={e} p={p} me={meQ.data ?? null}
                                 paidVia={p.bank_account_id ? acctName.get(p.bank_account_id) ?? null : null}
                                 onYear={() => setCalendarFor(e)} onEdit={() => editSalary(e, p)} onUndo={() => undoSalaryFor(e, p)}
+                                onReconcile={() => reconcileSalary(p)}
                               />
                             </>
                           ) : (
@@ -802,6 +812,7 @@ export function PayrollTab() {
                             e={e} p={p} me={meQ.data ?? null}
                             paidVia={p.bank_account_id ? acctName.get(p.bank_account_id) ?? null : null}
                             onYear={() => setCalendarFor(e)} onEdit={() => editSalary(e, p)} onUndo={() => undoSalaryFor(e, p)}
+                            onReconcile={() => reconcileSalary(p)}
                           />
                         </>
                       ) : (
@@ -998,11 +1009,10 @@ async function generatePayslip(employee: Employee, payment: SalaryPayment, me: C
 
 /** One "…" menu per payroll row — full-year payroll, payslip, edit/undo (or a
  *  reconciled lock). `p` undefined → row not yet run. */
-function PayrollRowMenu({ e, p, me, paidVia, onYear, onEdit, onUndo }: {
+function PayrollRowMenu({ e, p, me, paidVia, onYear, onEdit, onUndo, onReconcile }: {
   e: Employee; p?: SalaryPayment; me: CurrentUserInfo | null; paidVia: string | null;
-  onYear: () => void; onEdit: () => void; onUndo: () => void;
+  onYear: () => void; onEdit: () => void; onUndo: () => void; onReconcile?: () => void;
 }) {
-  const router = useRouter();
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -1023,11 +1033,13 @@ function PayrollRowMenu({ e, p, me, paidVia, onYear, onEdit, onUndo }: {
         {p && p.paid_amount === 0 && (
           <>
             <DropdownMenuSeparator />
-            {/* Salary is booked but the bank debit isn't matched yet — reconcile
-                happens in Banking (match the actual pay-out to this salary). */}
-            <DropdownMenuItem className="gap-2.5 py-2 cursor-pointer" onClick={() => router.push("/accounting/banking" as never)}>
-              <Icon name="refresh" size={15} /> Reconcile in Banking →
-            </DropdownMenuItem>
+            {/* Salary is booked but the bank debit isn't matched yet — jump to
+                Banking with the matching unmatched line opened for reconcile. */}
+            {onReconcile && (
+              <DropdownMenuItem className="gap-2.5 py-2 cursor-pointer" onClick={onReconcile}>
+                <Icon name="refresh" size={15} /> Reconcile in Banking →
+              </DropdownMenuItem>
+            )}
             <DropdownMenuItem className="gap-2.5 py-2 cursor-pointer" onClick={onEdit}>
               <Icon name="edit" size={15} /> Edit salary
             </DropdownMenuItem>

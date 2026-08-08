@@ -17,6 +17,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -85,6 +86,32 @@ export default function BankAccountDetailPage() {
     if (tab === "matched")   return transactions.filter((t) => t.matched_to_type !== null);
     return transactions;
   }, [transactions, tab]);
+
+  // Deep-link from elsewhere (e.g. Payroll "Reconcile in Banking →"):
+  //   ?focus=<txnId>   → open that transaction's reconcile
+  //   ?match=<amount>  → open the matching unmatched debit's reconcile
+  // Runs once, after transactions load; cleans the URL so a refresh won't repeat.
+  const focusedRef = React.useRef(false);
+  React.useEffect(() => {
+    if (focusedRef.current || !transactions || transactions.length === 0) return;
+    if (typeof window === "undefined") return;
+    const sp = new URLSearchParams(window.location.search);
+    const focus = sp.get("focus");
+    const match = sp.get("match");
+    if (!focus && !match) return;
+    focusedRef.current = true;
+    let target: BankTransactionRow | undefined;
+    if (focus) target = transactions.find((t) => t.id === focus);
+    else if (match) {
+      const amt = Math.round(Number(match));
+      target = transactions.find((t) => t.matched_to_type === null && (t.debit ?? 0) === amt)
+            ?? transactions.find((t) => t.matched_to_type === null && (t.credit ?? 0) === amt);
+    }
+    setTab("unmatched");
+    if (target) setReconcileTxn(target);
+    else toast("Us amount ki koi unmatched bank line nahi mili — neeche se manually reconcile karo.");
+    window.history.replaceState(null, "", window.location.pathname);
+  }, [transactions]);
 
   if (accLoading) {
     return <div className="p-8"><Skeleton className="h-32" /></div>;

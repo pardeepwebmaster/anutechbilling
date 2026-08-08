@@ -299,6 +299,52 @@ export function useBankTransactions(accountId: string | null | undefined) {
   });
 }
 
+/** An unmatched debit line + its account name — candidates to reconcile an expense to. */
+export type UnmatchedDebit = {
+  id: string;
+  bank_account_id: string;
+  account_name: string;
+  txn_date: string;
+  description: string | null;
+  debit: number;
+};
+
+/**
+ * All unreconciled money-OUT (debit) lines across the tenant's accounts — the
+ * candidate list when reconciling a paid expense TO its bank line (expense-first
+ * reconcile). RLS scopes to the tenant. Newest first; the dialog ranks by
+ * amount/date closeness to the expense.
+ */
+export function useUnmatchedBankDebits() {
+  return useQuery({
+    queryKey: ["bank_transactions", "unmatched-debits"],
+    queryFn: async (): Promise<UnmatchedDebit[]> => {
+      const supabase = createClient();
+      const { data, error } = await supabase
+        .from("bank_transactions")
+        .select("id, bank_account_id, txn_date, description, debit, bank_accounts(name)")
+        .is("matched_to_id", null)
+        .gt("debit", 0)
+        .order("txn_date", { ascending: false })
+        .limit(500);
+      if (error) throw error;
+      return (data ?? []).map((r) => {
+        const acc = (r as { bank_accounts?: { name?: string } | { name?: string }[] }).bank_accounts;
+        const name = Array.isArray(acc) ? acc[0]?.name : acc?.name;
+        return {
+          id: r.id as string,
+          bank_account_id: r.bank_account_id as string,
+          account_name: name ?? "Account",
+          txn_date: r.txn_date as string,
+          description: (r.description ?? null) as string | null,
+          debit: (r.debit ?? 0) as number,
+        };
+      });
+    },
+    staleTime: 15_000,
+  });
+}
+
 /**
  * Natural key for a bank line — used to skip a statement row that's already in
  * the books (re-uploaded statement / overlapping date range). A UTR/reference

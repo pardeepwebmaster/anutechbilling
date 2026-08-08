@@ -28,6 +28,7 @@ import {
 import { AddExpenseDialog } from "@/components/features/accounting/add-expense-dialog";
 import { ExpenseDetailDialog } from "@/components/features/accounting/expense-detail-dialog";
 import { MarkPaidDialog } from "@/components/features/accounting/mark-paid-dialog";
+import { ReconcileExpenseDialog } from "@/components/features/accounting/reconcile-expense-dialog";
 import { useSalaryPayments } from "@/lib/queries/payroll";
 import { useConfirm } from "@/components/providers/confirm-provider";
 
@@ -148,6 +149,7 @@ export default function ExpensesPage() {
   const [editing, setEditing] = React.useState<Expense | null>(null);
   const [detail, setDetail]   = React.useState<Expense | null>(null);
   const [payingExpense, setPayingExpense] = React.useState<Expense | null>(null);
+  const [reconcilingExpense, setReconcilingExpense] = React.useState<Expense | null>(null);
   const today = new Date().toISOString().slice(0, 10);
   const router = useRouter();
 
@@ -400,6 +402,15 @@ export default function ExpensesPage() {
                           Mark paid
                         </Button>
                       )}
+                      {e.paid && !e.reconciled_txn_id && !isPayrollExpense(e) && (
+                        <Button
+                          variant="default"
+                          className="mr-1 h-7 px-2 py-0 text-[11px] align-middle"
+                          onClick={(ev) => { ev.stopPropagation(); setReconcilingExpense(e); }}
+                        >
+                          Reconcile
+                        </Button>
+                      )}
                       <IconButton
                         icon="edit"
                         aria-label="Edit expense"
@@ -454,6 +465,12 @@ export default function ExpensesPage() {
                           Mark paid
                         </Button>
                       )}
+                      {e.paid && !e.reconciled_txn_id && !isPayrollExpense(e) && (
+                        <Button variant="default" className="h-7 px-2 py-0 text-[11px] mr-1"
+                          onClick={(ev) => { ev.stopPropagation(); setReconcilingExpense(e); }}>
+                          Reconcile
+                        </Button>
+                      )}
                       <IconButton icon="edit" aria-label="Edit expense" onClick={(ev) => { ev.stopPropagation(); setEditing(e); }} />
                       <IconButton
                         icon="trash"
@@ -484,6 +501,9 @@ export default function ExpensesPage() {
       )}
       {payingExpense && (
         <MarkPaidDialog expense={payingExpense} onClose={() => setPayingExpense(null)} />
+      )}
+      {reconcilingExpense && (
+        <ReconcileExpenseDialog expense={reconcilingExpense} onClose={() => setReconcilingExpense(null)} />
       )}
     </div>
   );

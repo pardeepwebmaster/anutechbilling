@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { suggestCategory, findDuplicateExpense, splitLinesByCategory } from "./expenses";
+import { suggestCategory, findDuplicateExpense, splitLinesByCategory, expensePayStatus } from "./expenses";
 
 describe("suggestCategory", () => {
   it("maps common notes to a category", () => {
@@ -69,6 +69,22 @@ describe("findDuplicateExpense", () => {
   });
   it("same bill no. + DIFFERENT category = split, not a duplicate", () => {
     expect(findDuplicateExpense({ vendorId: "v9", billNo: "AMZ-77", category: "Office Supplies" }, list)).toBeNull();
+  });
+});
+
+describe("expensePayStatus", () => {
+  const today = "2026-08-08";
+  it("paid expense is always 'paid' (due date ignored)", () => {
+    expect(expensePayStatus({ paid: true, due_date: null }, today)).toBe("paid");
+    expect(expensePayStatus({ paid: true, due_date: "2026-01-01" }, today)).toBe("paid");
+  });
+  it("unpaid with a future/absent due date is 'due'", () => {
+    expect(expensePayStatus({ paid: false, due_date: null }, today)).toBe("due");
+    expect(expensePayStatus({ paid: false, due_date: "2026-08-20" }, today)).toBe("due");
+    expect(expensePayStatus({ paid: false, due_date: today }, today)).toBe("due"); // due today, not yet overdue
+  });
+  it("unpaid past its due date is 'overdue'", () => {
+    expect(expensePayStatus({ paid: false, due_date: "2026-08-07" }, today)).toBe("overdue");
   });
 });
 

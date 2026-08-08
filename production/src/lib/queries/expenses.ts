@@ -131,6 +131,25 @@ export const PAYMENT_METHODS = [
 ] as const;
 
 // ────────────────────────────────────────────────────────────────
+// Paid vs payable (migration 0183)
+// ────────────────────────────────────────────────────────────────
+
+export type ExpensePayStatus = "paid" | "due" | "overdue";
+
+/**
+ * An expense is `paid`, or a payable that's `overdue` (due date passed) or just
+ * `due`. Pure — pass today (YYYY-MM-DD) so it's deterministic/testable.
+ */
+export function expensePayStatus(
+  e: { paid: boolean; due_date?: string | null },
+  today: string,
+): ExpensePayStatus {
+  if (e.paid) return "paid";
+  if (e.due_date && e.due_date < today) return "overdue";
+  return "due";
+}
+
+// ────────────────────────────────────────────────────────────────
 // Reads
 // ────────────────────────────────────────────────────────────────
 
@@ -171,6 +190,9 @@ export function useUnreconciledExpenses() {
         .from("expenses")
         .select("*")
         .is("reconciled_txn_id", null)
+        // Only PAID expenses moved money, so only they can match a bank line.
+        // An unpaid payable has no cash movement yet — keep it out.
+        .eq("paid", true)
         // 'statutory' expenses (e.g. employer-ESI accrual) are settled via the
         // statutory payable, never matched to a single bank line — keep them out
         // of the reconcile candidate list. (.or keeps NULL payment_method rows,
@@ -324,7 +346,7 @@ export function useCreateExpense() {
       // Petty-cash out-flow — best-effort. If it fails the expense is still
       // saved; the operator can add the cash movement manually.
       if (pettyCashAccountId && expense.amount > 0) {
-        const { error: txnErr } = await supabase.from("bank_transactions").insert({
+        const { data: txn, error: txnErr } = await supabase.from("bank_transactions").insert({
           tenant_id:        me.tenant_id,
           bank_account_id:  pettyCashAccountId,
           txn_date:         expense.expense_date,
@@ -335,8 +357,11 @@ export function useCreateExpense() {
           matched_to_type:  "expense",
           matched_to_id:    expense.id,
           match_confidence: "manual",
-        });
+        }).select("id").single();
         if (txnErr) console.error("[create-expense] petty-cash debit failed (expense still saved):", txnErr);
+        // The cash-ledger line IS the reconciliation for a petty-cash spend, so
+        // link it back — the expense reads "Paid" (confirmed), not "Unreconciled".
+        else if (txn) await supabase.from("expenses").update({ reconciled_txn_id: txn.id }).eq("id", expense.id);
       }
 
       return expense;
@@ -346,6 +371,80 @@ export function useCreateExpense() {
       qc.invalidateQueries({ queryKey: ["bank_accounts"] });
       qc.invalidateQueries({ queryKey: ["bank_transactions"] });
       toast.success("Expense added");
+    },
+    onError: (err) => toast.error((err as Error).message),
+  });
+}
+
+/**
+ * Total still owed to vendors — ALL unpaid expenses regardless of date (a
+ * payable from last month is still owed today). Powers the "To pay" KPI.
+ */
+export function useOutstandingPayable() {
+  return useQuery({
+    queryKey: ["expenses", "outstanding"],
+    queryFn: async (): Promise<{ count: number; amount: number }> => {
+      const supabase = createClient();
+      const { data, error } = await supabase
+        .from("expenses")
+        .select("amount")
+        .eq("paid", false);
+      if (error) throw error;
+      const rows = data ?? [];
+      return { count: rows.length, amount: rows.reduce((s, r) => s + (r.amount ?? 0), 0) };
+    },
+    staleTime: 15_000,
+  });
+}
+
+/**
+ * Settle a payable: flip paid → true, stamp the paid date + method. If it was
+ * paid out of a petty-cash account, drop the matching cash debit NOW (not at
+ * bill time) so cash-in-hand only moves when the money actually left.
+ */
+export function useMarkExpensePaid() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: {
+      id: string;
+      paid_date: string;
+      payment_method: string;
+      pettyCashAccountId?: string | null;
+    }) => {
+      const supabase = createClient();
+      const { data, error } = await supabase
+        .from("expenses")
+        .update({ paid: true, paid_date: input.paid_date, payment_method: input.payment_method })
+        .eq("id", input.id)
+        .select()
+        .single();
+      if (error) throw error;
+      const expense = data as Expense;
+
+      if (input.pettyCashAccountId && expense.amount > 0) {
+        const { data: txn, error: txnErr } = await supabase.from("bank_transactions").insert({
+          tenant_id:        expense.tenant_id,
+          bank_account_id:  input.pettyCashAccountId,
+          txn_date:         input.paid_date,
+          description:      `Petty cash: ${expense.category}${expense.vendor_name ? ` · ${expense.vendor_name}` : ""}`,
+          debit:            expense.amount,
+          credit:           0,
+          source:           "manual",
+          matched_to_type:  "expense",
+          matched_to_id:    expense.id,
+          match_confidence: "manual",
+        }).select("id").single();
+        if (txnErr) console.error("[mark-paid] petty-cash debit failed (still marked paid):", txnErr);
+        // Cash-ledger line = the reconciliation → link it so it reads "Paid".
+        else if (txn) await supabase.from("expenses").update({ reconciled_txn_id: txn.id }).eq("id", expense.id);
+      }
+      return expense;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["expenses"] });
+      qc.invalidateQueries({ queryKey: ["bank_accounts"] });
+      qc.invalidateQueries({ queryKey: ["bank_transactions"] });
+      toast.success("Marked paid");
     },
     onError: (err) => toast.error((err as Error).message),
   });

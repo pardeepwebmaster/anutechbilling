@@ -1308,6 +1308,9 @@ export type ExpenseRow = {
   amount:           number;
   gst_paid:         number;
   payment_method:   string | null;           // 'bank_transfer' | 'upi' | 'cash' | 'card' | 'cheque'
+  paid:             boolean;                  // migration 0183 — false = payable (pay later)
+  paid_date:        string | null;            // date settled (null while unpaid)
+  due_date:         string | null;            // date owed (optional; while unpaid)
   description:      string | null;
   attachment_url:   string | null;
   reconciled_txn_id: string | null;          // bank line this expense is reconciled to (migration 0123)
@@ -1329,6 +1332,9 @@ type ExpenseInsert = {
   amount:           number;
   gst_paid?:        number;
   payment_method?:  string | null;
+  paid?:            boolean;
+  paid_date?:       string | null;
+  due_date?:        string | null;
   description?:     string | null;
   attachment_url?:  string | null;
   reconciled_txn_id?: string | null;

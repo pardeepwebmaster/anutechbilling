@@ -66,6 +66,13 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
   const cashAccounts = (bankAccounts ?? []).filter((a) => a.account_type === "cash");
   const [pettyCashAccountId, setPettyCashAccountId] = React.useState<string>("");
 
+  // Paid vs payable. Most expenses are already paid when recorded → default true.
+  // "To pay" = a bill received on credit; it hits the P&L now (accrual) but must
+  // NOT touch cash/bank until settled, so an unpaid expense skips the petty-cash
+  // debit and stays out of the bank-reconcile candidates.
+  const [paid, setPaid] = React.useState<boolean>(expense?.paid ?? true);
+  const [dueDate, setDueDate] = React.useState<string>(expense?.due_date ?? "");
+
   // Vendor master link — pick an existing supplier or type a new one (auto-added
   // to Vendors on save), so every OPEX supplier is a managed vendor too.
   const { data: vendors } = useVendors();
@@ -377,8 +384,14 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
       attachment_url,
       expense_date: values.expense_date,
       payment_method: values.payment_method || null,
+      // Paid → stamp when (bill date is a fine proxy for an immediate spend);
+      // payable → carry the due date and leave paid_date empty.
+      paid,
+      paid_date: paid ? values.expense_date : null,
+      due_date:  paid ? null : (dueDate || null),
     };
-    const pettyCash = values.payment_method === "cash" ? (pettyCashAccountId || null) : null;
+    // Cash only leaves petty cash once actually PAID — an unpaid bill must not.
+    const pettyCash = paid && values.payment_method === "cash" ? (pettyCashAccountId || null) : null;
 
     // ── Category-wise lines (itemised). Each line's category (blank → header).
     //    A mixed bill auto-splits into one expense per category on save. ──
@@ -803,19 +816,44 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
             )}
           </section>
 
-          {/* ── STEP 5: How it was paid ── */}
-          <FormField label="Paid by" htmlFor="payment_method">
-            <Select value={watch("payment_method")} onValueChange={(v) => setValue("payment_method", v)}>
-              <SelectTrigger id="payment_method"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {PAYMENT_METHODS.map((m) => (
-                  <SelectItem key={m} value={m}>{m.replace(/_/g, " ")}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </FormField>
+          {/* ── STEP 5: Paid already, or still to pay? ── */}
+          <div>
+            <p className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold mb-1.5">Paisa de diya?</p>
+            <div className="grid grid-cols-2 gap-1.5">
+              <button type="button" onClick={() => setPaid(true)}
+                className={cn("rounded-md border px-3 py-2 text-sm text-left transition-colors",
+                  paid ? "border-amber bg-amber-soft/60 text-amber-ink" : "border-hairline text-ink-2 hover:bg-paper-2")}>
+                <span className="font-medium">Haan, de diya</span>
+                <span className="block text-[10px] text-ink-3">Cash/UPI/bank se pay ho gaya</span>
+              </button>
+              <button type="button" onClick={() => setPaid(false)}
+                className={cn("rounded-md border px-3 py-2 text-sm text-left transition-colors",
+                  !paid ? "border-amber bg-amber-soft/60 text-amber-ink" : "border-hairline text-ink-2 hover:bg-paper-2")}>
+                <span className="font-medium">Nahi, baad me</span>
+                <span className="block text-[10px] text-ink-3">Udhaar — dena baaki hai</span>
+              </button>
+            </div>
+          </div>
 
-          {!isEdit && watch("payment_method") === "cash" && cashAccounts.length > 0 && (
+          {paid ? (
+            <FormField label="Paid by" htmlFor="payment_method">
+              <Select value={watch("payment_method")} onValueChange={(v) => setValue("payment_method", v)}>
+                <SelectTrigger id="payment_method"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {PAYMENT_METHODS.map((m) => (
+                    <SelectItem key={m} value={m}>{m.replace(/_/g, " ")}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </FormField>
+          ) : (
+            <FormField label="Kab tak dena hai? (due date — optional)" htmlFor="due_date">
+              <Input id="due_date" type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
+              <p className="text-[10px] text-ink-3 mt-1">P&amp;L mein aaj hi count hoga; bank/cash tab minus hoga jab &quot;Mark paid&quot; karoge.</p>
+            </FormField>
+          )}
+
+          {paid && !isEdit && watch("payment_method") === "cash" && cashAccounts.length > 0 && (
             <FormField label="Paid from petty cash" htmlFor="petty_cash">
               <Select value={pettyCashAccountId || "none"} onValueChange={(v) => setPettyCashAccountId(v === "none" ? "" : v)}>
                 <SelectTrigger id="petty_cash"><SelectValue placeholder="Don't deduct from petty cash" /></SelectTrigger>

@@ -21,10 +21,13 @@ import {
   useExpenses,
   useExpensesTotals,
   useDeleteExpense,
+  useOutstandingPayable,
+  expensePayStatus,
   type Expense,
 } from "@/lib/queries/expenses";
 import { AddExpenseDialog } from "@/components/features/accounting/add-expense-dialog";
 import { ExpenseDetailDialog } from "@/components/features/accounting/expense-detail-dialog";
+import { MarkPaidDialog } from "@/components/features/accounting/mark-paid-dialog";
 import { useSalaryPayments } from "@/lib/queries/payroll";
 import { useConfirm } from "@/components/providers/confirm-provider";
 
@@ -55,6 +58,38 @@ function ReconcileTag({ tone, label, title }: { tone: "emerald" | "amber"; label
   return (
     <span title={title} className={`ml-2 inline-flex items-center gap-0.5 rounded-full ${cls} px-1.5 py-0.5 text-[10px] font-medium align-middle`}>
       {label}
+    </span>
+  );
+}
+
+/**
+ * Status chip for a non-payroll expense. "Paid" (green) is EARNED — it shows
+ * only once the expense is reconciled to a bank/cash line (proof the money
+ * actually left). Before that a marked-paid expense reads "Unreconciled". A
+ * bill not yet paid reads "To pay" / "Overdue".
+ */
+function PayBadge({ e, today }: { e: Expense; today: string }) {
+  if (!e.paid) {
+    const overdue = expensePayStatus(e, today) === "overdue";
+    const due = e.due_date ? ` · due ${formatDate(e.due_date)}` : "";
+    return (
+      <span
+        title={overdue ? "Payable overdue — settle it and Mark paid." : "Payable — not paid yet."}
+        className={`ml-2 inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium align-middle ${overdue ? "bg-rose/10 text-rose" : "bg-amber-soft text-amber-ink"}`}
+      >
+        {overdue ? "Overdue" : "To pay"}{due}
+      </span>
+    );
+  }
+  if (e.reconciled_txn_id) {
+    return <span className="ml-2 inline-flex items-center rounded-full bg-emerald/10 text-emerald px-1.5 py-0.5 text-[10px] font-medium align-middle">✓ Paid</span>;
+  }
+  return (
+    <span
+      title="Marked paid — reconcile it against the bank line to confirm."
+      className="ml-2 inline-flex items-center rounded-full bg-paper-2 text-ink-3 px-1.5 py-0.5 text-[10px] font-medium align-middle"
+    >
+      Unreconciled
     </span>
   );
 }
@@ -104,9 +139,12 @@ export default function ExpensesPage() {
   const [range, setRange]     = React.useState(RANGE_PRESETS[0].range());
   const [catFilter, setCatFilter] = React.useState("");
   const [payeeFilter, setPayeeFilter] = React.useState("");
+  const [unpaidOnly, setUnpaidOnly] = React.useState(false);
   const [addOpen, setAddOpen] = React.useState(false);
   const [editing, setEditing] = React.useState<Expense | null>(null);
   const [detail, setDetail]   = React.useState<Expense | null>(null);
+  const [payingExpense, setPayingExpense] = React.useState<Expense | null>(null);
+  const today = new Date().toISOString().slice(0, 10);
   const router = useRouter();
 
   // Row click: payroll/statutory postings open in Payroll (their source); every
@@ -118,6 +156,7 @@ export default function ExpensesPage() {
 
   const q       = useExpenses({ from: range.from, to: range.to, category: catFilter || undefined });
   const totalsQ = useExpensesTotals(range);
+  const payableQ = useOutstandingPayable();
   const del     = useDeleteExpense();
   const salariesQ = useSalaryPayments();
   const confirm = useConfirm();
@@ -143,15 +182,19 @@ export default function ExpensesPage() {
     [allRows],
   );
 
-  // Rows after the client-side payee filter (category is applied in the query).
-  const rows = payeeFilter ? allRows.filter((e) => (e.vendor_name ?? "") === payeeFilter) : allRows;
+  // Rows after the client-side filters (category is applied in the query;
+  // payee + unpaid are applied here).
+  const rows = allRows.filter((e) =>
+    (!payeeFilter || (e.vendor_name ?? "") === payeeFilter) &&
+    (!unpaidOnly || !e.paid),
+  );
 
   // Totals for whatever is currently filtered — count, amount, and input GST.
   const filtered = React.useMemo(() => rows.reduce(
     (acc, e) => { acc.amount += e.amount ?? 0; acc.gst += e.gst_paid ?? 0; return acc; },
     { amount: 0, gst: 0 },
   ), [rows]);
-  const isFiltered = Boolean(payeeFilter || catFilter);
+  const isFiltered = Boolean(payeeFilter || catFilter || unpaidOnly);
 
   return (
     <div className="p-4 md:p-6 lg:p-8 max-w-[1800px] mx-auto">
@@ -191,10 +234,17 @@ export default function ExpensesPage() {
       </details>
 
       {/* KPI strip — tight inline stats, minimal height. */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 mb-3">
         <KPI label="Entries" value={totals ? String(totals.count) : "—"} />
         <KPI label="Total spend"  value={totals ? rupee(totals.amount) : "—"} tone="rose" />
         <KPI label="Input GST"    value={totals ? rupee(totals.gstPaid) : "—"} tone="emerald" />
+        {/* Outstanding = ALL unpaid payables (any date). Click to filter. */}
+        <button type="button" onClick={() => setUnpaidOnly((v) => !v)} className="text-left"
+          title="Show only what's still to pay" aria-pressed={unpaidOnly}>
+          <KPI label="To pay" value={payableQ.data ? rupee(payableQ.data.amount) : "—"}
+               tone={payableQ.data && payableQ.data.amount > 0 ? "amber" : undefined}
+               sub={payableQ.data && payableQ.data.count > 0 ? `${payableQ.data.count} unpaid` : "all clear"} />
+        </button>
         <KPI label="Top category"
              value={totals && categoryOptions.length > 0
                ? Object.entries(totals.byCategory).sort((a, b) => b[1] - a[1])[0][0]
@@ -222,6 +272,19 @@ export default function ExpensesPage() {
               </button>
             );
           })}
+          <span className="mx-1 h-4 w-px bg-hairline" aria-hidden />
+          <button
+            type="button"
+            onClick={() => setUnpaidOnly((v) => !v)}
+            aria-pressed={unpaidOnly}
+            className={`rounded-full px-2.5 py-0.5 text-[11px] font-medium border transition-colors ${
+              unpaidOnly
+                ? "bg-amber text-white border-amber"
+                : "bg-paper border-hairline text-ink-2 hover:border-hairline-strong"
+            }`}
+          >
+            To pay{payableQ.data && payableQ.data.count > 0 ? ` · ${payableQ.data.count}` : ""}
+          </button>
           <span className="ml-auto text-[11px] text-ink-3">
             {rows.length} {rows.length === 1 ? "entry" : "entries"}
           </span>
@@ -251,7 +314,7 @@ export default function ExpensesPage() {
             ))}
           </select>
           {isFiltered && (
-            <button type="button" onClick={() => { setCatFilter(""); setPayeeFilter(""); }}
+            <button type="button" onClick={() => { setCatFilter(""); setPayeeFilter(""); setUnpaidOnly(false); }}
               className="text-[11px] text-amber-ink hover:underline">Clear</button>
           )}
         </div>
@@ -307,7 +370,9 @@ export default function ExpensesPage() {
                         {e.category}
                         {e.bill_type === "kaccha" && <span className="ml-1.5 text-[9px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-soft/60 text-amber-ink align-middle">Kaccha bill</span>}
                         {e.bill_type === "none" && <span className="ml-1.5 text-[9px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-paper-2 text-ink-3 align-middle">No bill</span>}
-                        {(() => { const t = reconcileTag(e, salByExpense.get(e.id)); return t ? <ReconcileTag {...t} /> : null; })()}
+                        {isPayrollExpense(e)
+                          ? (() => { const t = reconcileTag(e, salByExpense.get(e.id)); return t ? <ReconcileTag {...t} /> : null; })()
+                          : <PayBadge e={e} today={today} />}
                       </span>
                       {e.description && <div className="text-xs text-ink-3 mt-0.5 max-w-[280px] truncate" title={e.description}>{e.description}</div>}
                     </td>
@@ -322,6 +387,15 @@ export default function ExpensesPage() {
                       {(() => { const fx = foreignAmount(e.currency, e.amount, e.fx_rate); return fx ? <div className="text-[10px] font-normal text-ink-3">{fx}</div> : null; })()}
                     </td>
                     <td className="px-3 py-3 text-right whitespace-nowrap">
+                      {!e.paid && !isPayrollExpense(e) && (
+                        <Button
+                          variant="default"
+                          className="mr-1 h-7 px-2 py-0 text-[11px] align-middle"
+                          onClick={(ev) => { ev.stopPropagation(); setPayingExpense(e); }}
+                        >
+                          Mark paid
+                        </Button>
+                      )}
                       <IconButton
                         icon="edit"
                         aria-label="Edit expense"
@@ -353,7 +427,9 @@ export default function ExpensesPage() {
                       {e.category}
                       {e.bill_type === "kaccha" && <span className="ml-1.5 text-[9px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-soft/60 text-amber-ink align-middle">Kaccha bill</span>}
                       {e.bill_type === "none" && <span className="ml-1.5 text-[9px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-paper-2 text-ink-3 align-middle">No bill</span>}
-                      {(() => { const t = reconcileTag(e, salByExpense.get(e.id)); return t ? <ReconcileTag {...t} /> : null; })()}
+                      {isPayrollExpense(e)
+                        ? (() => { const t = reconcileTag(e, salByExpense.get(e.id)); return t ? <ReconcileTag {...t} /> : null; })()
+                        : <PayBadge e={e} today={today} />}
                     </div>
                     <div className="font-serif text-xl text-ink leading-none">{rupee(e.amount)}</div>
                     {(() => { const fx = foreignAmount(e.currency, e.amount, e.fx_rate); return fx ? <div className="text-[11px] text-ink-3">{fx} @ ₹{e.fx_rate}/{e.currency}</div> : null; })()}
@@ -368,6 +444,12 @@ export default function ExpensesPage() {
                       <span className="text-[11px] text-emerald">+{foreignAmount(e.currency, e.gst_paid, e.fx_rate) ?? rupee(e.gst_paid)} input GST</span>
                     )}
                     <div className="ml-auto flex items-center gap-1">
+                      {!e.paid && !isPayrollExpense(e) && (
+                        <Button variant="default" className="h-7 px-2 py-0 text-[11px] mr-1"
+                          onClick={(ev) => { ev.stopPropagation(); setPayingExpense(e); }}>
+                          Mark paid
+                        </Button>
+                      )}
                       <IconButton icon="edit" aria-label="Edit expense" onClick={(ev) => { ev.stopPropagation(); setEditing(e); }} />
                       <IconButton
                         icon="trash"
@@ -396,24 +478,30 @@ export default function ExpensesPage() {
           onClose={() => setDetail(null)}
         />
       )}
+      {payingExpense && (
+        <MarkPaidDialog expense={payingExpense} onClose={() => setPayingExpense(null)} />
+      )}
     </div>
   );
 }
 
 function KPI({
-  label, value, tone,
+  label, value, tone, sub,
 }: {
   label: string;
   value: string;
-  tone?: "emerald" | "rose";
+  tone?: "emerald" | "rose" | "amber";
+  sub?: string;
 }) {
   const colorClass = tone === "emerald" ? "text-emerald"
                    : tone === "rose"    ? "text-rose"
+                   : tone === "amber"   ? "text-amber-ink"
                    : "text-ink";
   return (
     <Card className="p-2.5">
       <div className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold mb-0.5 truncate">{label}</div>
       <div className={`font-serif text-lg md:text-xl ${colorClass} leading-tight truncate`}>{value}</div>
+      {sub && <div className="text-[10px] text-ink-3 truncate">{sub}</div>}
     </Card>
   );
 }

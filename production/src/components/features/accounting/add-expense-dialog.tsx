@@ -287,6 +287,16 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
         },
   });
 
+  // Auto-pick the category from the item rows + vendor name (one category per
+  // bill). Stops the moment the operator changes the category themselves.
+  const itemText = lines.map((l) => l.description).filter(Boolean).join(" ");
+  const vendorNameWatch = watch("vendor_name") ?? "";
+  React.useEffect(() => {
+    if (categoryTouched) return;
+    const s = suggestCategory(`${itemText} ${vendorNameWatch}`);
+    if (s) { setValue("category", s); setCategoryAuto(true); }
+  }, [itemText, vendorNameWatch, categoryTouched, setValue]);
+
   async function onSubmit(values: FormData) {
     const payee = values.vendor_name?.trim() || "";
     // Only GST-invoice suppliers belong in the Vendors master. So: an already-
@@ -337,6 +347,10 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
       }))
       .filter((l) => l.name || l.amount > 0);
 
+    // Expense description (for the list / P&L) — built from the item rows now
+    // that there's no separate note. Falls back to any existing description.
+    const derivedDescription = line_items.map((l) => l.name).filter(Boolean).join(", ") || values.description?.trim() || null;
+
     // Attach the uploaded bill (proof) — non-fatal if the upload hiccups; the
     // expense still saves. Keep any existing attachment on edit if no new file.
     let attachment_url: string | null = expense?.attachment_url ?? null;
@@ -364,7 +378,7 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
           amount:         inr(values.amount),
           gst_paid:       gstAmt,
           payment_method: values.payment_method || null,
-          description:    values.description    || null,
+          description:    derivedDescription,
         },
       });
       onClose();
@@ -384,7 +398,7 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
       amount:         inr(values.amount),
       gst_paid:       gstAmt,
       payment_method: values.payment_method || null,
-      description:    values.description    || null,
+      description:    derivedDescription,
       // Only tag a petty-cash out-flow when paid by cash from a chosen account.
       pettyCashAccountId: values.payment_method === "cash" ? (pettyCashAccountId || null) : null,
     });
@@ -402,49 +416,35 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
         </DialogHeader>
 
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
-          {/* What was this for — a short, human note first (e.g. "Team lunch"). */}
-          <FormField label="What was this for?" htmlFor="description">
-            <Input id="description" placeholder="e.g. Team lunch · office snacks · cab fare · courier"
-              {...register("description", { onChange: (e) => {
-                if (categoryTouched) return;               // operator picked one — don't override
-                const s = suggestCategory(e.target.value);
-                if (s) { setValue("category", s); setCategoryAuto(true); }
-              } })} />
-          </FormField>
-
-          {/* ── Expense details — category/date + bill & amount, one card ── */}
-          <section className="rounded-lg border border-hairline bg-paper-2/30 p-3 space-y-3">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <FormField label="Category" required htmlFor="category">
-                <Select value={watch("category")} onValueChange={(v) => { setValue("category", v); setCategoryTouched(true); setCategoryAuto(false); }}>
-                  <SelectTrigger id="category"><SelectValue placeholder="Select" /></SelectTrigger>
-                  <SelectContent>
-                    {/* Salaries are booked in Payroll (payslip + statutory) — hide unless editing a legacy one. */}
-                    {EXPENSE_CATEGORIES
-                      .filter((c) => c !== "Salaries" || expense?.category === "Salaries")
-                      .map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-                {categoryAuto && !categoryTouched && (
-                  <p className="mt-1 flex items-center gap-1 text-[10px] text-amber-ink">
-                    <Icon name="sparkles" size={10} /> Text se auto-chuni — galat ho to badal do.
-                  </p>
-                )}
-              </FormField>
-              <FormField label="Date" required htmlFor="expense_date">
-                <Input id="expense_date" type="date" error={errors.expense_date?.message} {...register("expense_date")} />
-              </FormField>
-            </div>
-            {!isEdit && (
-              <p className="text-[11px] text-ink-3 leading-relaxed">
-                Paying a salary?{" "}
-                <button type="button" onClick={() => { onClose(); router.push("/accounting/payroll" as never); }}
-                  className="text-amber-ink font-medium underline hover:no-underline">Book it in Payroll &amp; Leave →</button>{" "}
-                so it gets a payslip + statutory handling.
+          {/* Category — WHAT this expense is. Auto-picked from the item rows +
+              vendor below (one category per bill), editable. */}
+          <FormField label="Category" required htmlFor="category">
+            <Select value={watch("category")} onValueChange={(v) => { setValue("category", v); setCategoryTouched(true); setCategoryAuto(false); }}>
+              <SelectTrigger id="category"><SelectValue placeholder="Select" /></SelectTrigger>
+              <SelectContent>
+                {/* Salaries are booked in Payroll (payslip + statutory) — hide unless editing a legacy one. */}
+                {EXPENSE_CATEGORIES
+                  .filter((c) => c !== "Salaries" || expense?.category === "Salaries")
+                  .map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            {categoryAuto && !categoryTouched && (
+              <p className="mt-1 flex items-center gap-1 text-[10px] text-amber-ink">
+                <Icon name="sparkles" size={10} /> Text se auto-chuni — galat ho to badal do.
               </p>
             )}
+          </FormField>
+          {!isEdit && (
+            <p className="text-[11px] text-ink-3 leading-relaxed -mt-2">
+              Paying a salary?{" "}
+              <button type="button" onClick={() => { onClose(); router.push("/accounting/payroll" as never); }}
+                className="text-amber-ink font-medium underline hover:no-underline">Book it in Payroll &amp; Leave →</button>{" "}
+              so it gets a payslip + statutory handling.
+            </p>
+          )}
 
-            <div className="border-t border-hairline pt-3 space-y-3">
+          {/* ── Bill & amount — the document + money (type, who, when, items, total) ── */}
+          <section className="rounded-lg border border-hairline bg-paper-2/30 p-3 space-y-3">
             <p className="text-[10px] uppercase tracking-wider text-ink-3 font-semibold">Bill &amp; amount</p>
 
             {/* Bill type — segmented; drives GST input-credit + vendor-master */}
@@ -643,6 +643,11 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
               )}
             </FormField>
 
+            {/* Bill date — a bill attribute, so it lives here with the bill. */}
+            <FormField label="Bill date" required htmlFor="expense_date">
+              <Input id="expense_date" type="date" error={errors.expense_date?.message} {...register("expense_date")} />
+            </FormField>
+
             {/* Line items — what's on the bill (auto-filled from the AI scan).
                 Hidden for payroll/statutory postings, which have no items. */}
             {!isPayroll && (
@@ -724,7 +729,6 @@ export function AddExpenseDialog({ onClose, expense }: { onClose: () => void; ex
             {isGstBill && !isForeign && (
               <p className="text-[10px] text-ink-3">GST is the input tax credit portion of the amount above — claimable in your GST return.</p>
             )}
-            </div>
           </section>
 
           <FormField label="Payment method" htmlFor="payment_method">

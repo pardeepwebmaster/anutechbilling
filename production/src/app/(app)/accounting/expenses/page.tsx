@@ -41,18 +41,19 @@ type SalMini = { paid_status: "unpaid" | "partial" | "paid"; paid_amount: number
 function reconcileTag(e: Expense, sal?: SalMini):
   { tone: "emerald" | "amber"; label: string; title?: string } | null {
   if (e.category === "Salaries" && sal) {
-    if (sal.paid_status === "paid") return { tone: "emerald", label: "✓ Reconciled" };
+    if (sal.paid_status === "paid") return { tone: "emerald", label: "✓ Paid" };
     if (sal.paid_status === "partial") {
       return {
         tone: "amber",
         label: `◐ Partial · ${rupee(sal.paid_amount)}/${rupee(sal.net)}`,
-        title: `Partly reconciled — ${rupee(sal.net - sal.paid_amount)} still owed. Reconcile another bank line in Banking to clear it.`,
+        title: `Partly paid — ${rupee(sal.net - sal.paid_amount)} still owed. Reconcile another bank line in Banking to clear it.`,
       };
     }
-    return null; // unpaid salary — no tag
+    return { tone: "amber", label: "To pay", title: "Salary not paid yet — pay it and reconcile in Banking." };
   }
-  if (e.reconciled_txn_id) return { tone: "emerald", label: "✓ Reconciled" };
-  return null;
+  // Statutory / other payroll posting: reconciled bank line = Paid, else payable.
+  if (e.reconciled_txn_id) return { tone: "emerald", label: "✓ Paid" };
+  return { tone: "amber", label: "To pay", title: "Not settled yet — reconcile its bank line to confirm." };
 }
 function ReconcileTag({ tone, label, title }: { tone: "emerald" | "amber"; label: string; title?: string }) {
   const cls = tone === "emerald" ? "bg-emerald/10 text-emerald" : "bg-amber-soft text-amber-ink";

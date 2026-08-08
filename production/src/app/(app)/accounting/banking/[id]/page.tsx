@@ -42,9 +42,9 @@ import { useBankAaConnection, useFetchAaNow } from "@/lib/queries/bank-aa";
 type FilterTab = "all" | "unmatched" | "matched";
 
 // Column order (left→right) + default widths (px) for the resizable table.
-const BANK_COL_ORDER = ["date", "description", "amount", "status", "action"];
+const BANK_COL_ORDER = ["date", "description", "nikasi", "jama", "status", "action"];
 const BANK_COL_DEFAULTS: Record<string, number> = {
-  date: 130, description: 380, amount: 150, status: 140, action: 150,
+  date: 130, description: 340, nikasi: 130, jama: 130, status: 140, action: 150,
 };
 
 export default function BankAccountDetailPage() {
@@ -289,7 +289,8 @@ export default function BankAccountDetailPage() {
                   <tr className="border-b border-hairline text-left text-[11px] uppercase tracking-wider text-ink-3">
                     <th className="px-4 py-2 font-semibold whitespace-nowrap">Date</th>
                     <th className="px-4 py-2 font-semibold whitespace-nowrap">Description</th>
-                    <th className="px-4 py-2 font-semibold text-right whitespace-nowrap">Amount</th>
+                    <th className="px-4 py-2 font-semibold text-right whitespace-nowrap">Nikasi (Dr.)</th>
+                    <th className="px-4 py-2 font-semibold text-right whitespace-nowrap">Jama (Cr.)</th>
                     <th className="px-4 py-2 font-semibold whitespace-nowrap">Status</th>
                     <th className="px-4 py-2 font-semibold text-right whitespace-nowrap">Action</th>
                   </tr>
@@ -381,8 +382,11 @@ function TransactionRow({
           <div className="text-[10px] text-ink-3 font-mono mt-0.5 truncate">{txn.reference}</div>
         )}
       </td>
-      <td className="px-4 py-3 text-right tabular-nums whitespace-nowrap font-medium">
-        <TxnAmount txn={txn} />
+      <td className="px-4 py-3 text-right tabular-nums whitespace-nowrap font-medium text-rose">
+        {txn.debit > 0 ? rupee(txn.debit) : <span className="text-ink-4">—</span>}
+      </td>
+      <td className="px-4 py-3 text-right tabular-nums whitespace-nowrap font-medium text-emerald">
+        {txn.credit > 0 ? rupee(txn.credit) : <span className="text-ink-4">—</span>}
       </td>
       <td className="px-4 py-3"><TxnStatusBadge txn={txn} /></td>
       <td className="px-4 py-3 text-right">

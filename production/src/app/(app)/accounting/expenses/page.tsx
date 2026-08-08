@@ -189,11 +189,23 @@ export default function ExpensesPage() {
     [allRows],
   );
 
+  // Does this row still owe money? Mirrors the per-row status chip exactly:
+  //  • payroll salary  → its salary payment isn't fully paid
+  //  • statutory/ESI    → not yet reconciled to a bank line
+  //  • everything else  → the expense is marked unpaid
+  const rowOwes = React.useCallback((e: Expense): boolean => {
+    if (isPayrollExpense(e)) {
+      if (e.category === "Salaries") { const s = salByExpense.get(e.id); return s ? s.paid_status !== "paid" : false; }
+      return !e.reconciled_txn_id;
+    }
+    return !e.paid;
+  }, [salByExpense]);
+
   // Rows after the client-side filters (category is applied in the query;
-  // payee + unpaid are applied here).
+  // payee + "to pay" are applied here).
   const rows = allRows.filter((e) =>
     (!payeeFilter || (e.vendor_name ?? "") === payeeFilter) &&
-    (!unpaidOnly || !e.paid),
+    (!unpaidOnly || rowOwes(e)),
   );
 
   // Totals for whatever is currently filtered — count, amount, and input GST.

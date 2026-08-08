@@ -377,21 +377,31 @@ export function useCreateExpense() {
 }
 
 /**
- * Total still owed to vendors — ALL unpaid expenses regardless of date (a
- * payable from last month is still owed today). Powers the "To pay" KPI.
+ * The true TOTAL OWED right now (any date), matching the per-row "To pay" chips:
+ *   A) operating payables  — non-payroll expenses marked unpaid (paid = false)
+ *   B) salaries not settled — remaining net (net − paid_amount) for unpaid/partial
+ *   C) employer statutory   — ESI/PF/etc. postings not yet reconciled to a bank line
+ * These three never overlap (payroll rows are paid = true, so they're not in A).
  */
 export function useOutstandingPayable() {
   return useQuery({
     queryKey: ["expenses", "outstanding"],
     queryFn: async (): Promise<{ count: number; amount: number }> => {
       const supabase = createClient();
-      const { data, error } = await supabase
-        .from("expenses")
-        .select("amount")
-        .eq("paid", false);
-      if (error) throw error;
-      const rows = data ?? [];
-      return { count: rows.length, amount: rows.reduce((s, r) => s + (r.amount ?? 0), 0) };
+      const [op, sal, stat] = await Promise.all([
+        supabase.from("expenses").select("amount").eq("paid", false),
+        supabase.from("salary_payments").select("net, paid_amount, paid_status").neq("paid_status", "paid"),
+        supabase.from("expenses").select("amount").eq("payment_method", "statutory").is("reconciled_txn_id", null),
+      ]);
+      if (op.error) throw op.error;
+      if (sal.error) throw sal.error;
+      if (stat.error) throw stat.error;
+
+      let amount = 0, count = 0;
+      for (const r of op.data ?? [])   { amount += r.amount ?? 0; count++; }
+      for (const s of sal.data ?? [])  { const rem = (s.net ?? 0) - (s.paid_amount ?? 0); if (rem > 0) { amount += rem; count++; } }
+      for (const r of stat.data ?? []) { amount += r.amount ?? 0; count++; }
+      return { count, amount };
     },
     staleTime: 15_000,
   });

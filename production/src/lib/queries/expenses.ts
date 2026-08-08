@@ -21,6 +21,10 @@ export type Expense = ExpenseRow;
 // website upkeep, email-automation tools). Advertising = paid outreach only
 // (social/TV ads, billboards, PPC). Kept as separate categories so the P&L can
 // tell brand-building spend apart from direct paid campaigns.
+// Business Promotion = spend on CLIENTS/customers (gifts, entertainment); Staff
+// Welfare = spend on your own TEAM (birthday cake, staff lunch, Diwali gift to staff).
+// Note: GST ITC on gifts + food is blocked (CGST s.17(5)) — record such bills
+// with GST paid = 0.
 export const EXPENSE_CATEGORIES = [
   "Hosting",
   "Software",
@@ -29,6 +33,7 @@ export const EXPENSE_CATEGORIES = [
   "Marketing",
   "Advertising",
   "Business Promotion",
+  "Staff Welfare",
   "Travel",
   "Professional Services",
   "Bank Charges",
@@ -63,6 +68,12 @@ const CATEGORY_KEYWORDS: [RegExp, (typeof EXPENSE_CATEGORIES)[number]][] = [
   [/\b(insurance|premium|policy|mediclaim|bima)\b/i, "Insurance"],
   [/\b(advertis|\bads?\b|\bppc\b|google ?ads|facebook ?ads|meta ?ads|billboard|hoarding|banner ?ad|vigyapan)\b/i, "Advertising"],
   [/\b(marketing|branding|\bseo\b|campaign|newsletter|email ?tool|\bcrm\b)\b/i, "Marketing"],
+  // Staff Welfare BEFORE Business Promotion: own-team spend (cake, team lunch,
+  // staff gift) wins over the generic food/gift → Business Promotion fallback.
+  // 'staff'/'employee' + a welfare noun in EITHER order (so "staff lunch" and
+  // "Diwali gift to staff" both catch); 'team' only for the unambiguous ones
+  // ('team lunch' could be a client meal, so it stays out).
+  [/\b(cake|birthday|b'?day|janam ?din|janamdin|karmchari|(?:staff|employee)[ -]?(?:welfare|gift|party|lunch|dinner|outing|sweets|mithai)|team[ -]?(?:gift|outing)|(?:welfare|gift|party|lunch|dinner|outing|sweets|mithai) ?(?:for |to |ke liye )?(?:staff|employee))\b/i, "Staff Welfare"],
   [/\b(lunch|dinner|breakfast|food|snack|tea|coffee|chai|chaay|khana|khaana|khane|nashta|naashta|mithai|bhojan|restaurant|swiggy|zomato|catering|refreshment|sweets?|gift|party)\b/i, "Business Promotion"],
   [/\b(\bca\b|chartered|accountant|audit|lawyer|legal|advocate|vakil|consultant|professional ?fee|retainer|notary)\b/i, "Professional Services"],
   [/\b(bank ?charge|bank ?fee|processing ?fee|neft|rtgs|imps ?charge|transaction ?fee|convenience ?fee)\b/i, "Bank Charges"],

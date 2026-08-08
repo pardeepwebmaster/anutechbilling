@@ -20,6 +20,16 @@ describe("suggestCategory", () => {
     expect(suggestCategory("bijli ka bill")).toBe("Utilities");
     expect(suggestCategory("mobile recharge")).toBe("Internet & Phone");
   });
+  it("routes own-team spend to Staff Welfare, not Business Promotion", () => {
+    expect(suggestCategory("Birthday cake for Abhishek")).toBe("Staff Welfare");
+    expect(suggestCategory("cake")).toBe("Staff Welfare");
+    expect(suggestCategory("staff lunch")).toBe("Staff Welfare");
+    expect(suggestCategory("Diwali gift to staff")).toBe("Staff Welfare");
+    expect(suggestCategory("employee welfare")).toBe("Staff Welfare");
+    // plain client-facing food/gift still falls to Business Promotion
+    expect(suggestCategory("gift for client")).toBe("Business Promotion");
+    expect(suggestCategory("lunch with customer")).toBe("Business Promotion");
+  });
   it("returns null when nothing matches (never a wrong guess)", () => {
     expect(suggestCategory("")).toBeNull();
     expect(suggestCategory("miscellaneous thing xyz")).toBeNull();

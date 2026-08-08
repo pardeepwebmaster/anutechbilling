@@ -149,6 +149,48 @@ export function useCustomerProjects(customerId: string | null | undefined) {
   });
 }
 
+// ── All of a customer's PROJECT payments (+ how much each project invoice has
+//    been paid). Project milestone receipts live in project_payments, NOT the
+//    `payments` table, so the customer's Transactions/Statement miss them unless
+//    we surface them here. invoicePaid maps a milestone's invoice_id → ₹ received,
+//    so a project invoice can show its true paid / partial / due state.
+export interface CustomerProjectPayment {
+  id: string; amount: number; received_at: string;
+  method: string | null; reference: string | null; bank_txn_id: string | null;
+  project_id: string; project_title: string;
+}
+export function useCustomerProjectPayments(customerId: string | null | undefined) {
+  return useQuery({
+    queryKey: ["project_payments", "by_customer", customerId],
+    enabled:  Boolean(customerId),
+    queryFn: async (): Promise<{ payments: CustomerProjectPayment[]; invoicePaid: Record<string, number> }> => {
+      if (!customerId) return { payments: [], invoicePaid: {} };
+      const supabase = createClient();
+      const { data: projects } = await supabase.from("project_sales").select("id, title").eq("customer_id", customerId);
+      const ids = (projects ?? []).map((p) => p.id);
+      if (ids.length === 0) return { payments: [], invoicePaid: {} };
+      const titleById = new Map((projects ?? []).map((p) => [p.id as string, (p.title as string) ?? "Project"]));
+      const [{ data: milestones }, { data: pays }] = await Promise.all([
+        supabase.from("project_milestones").select("id, invoice_id").in("project_id", ids),
+        supabase.from("project_payments").select("*").in("project_id", ids).order("received_at", { ascending: false }),
+      ]);
+      const invByMs = new Map<string, string | null>((milestones ?? []).map((m) => [m.id as string, (m.invoice_id as string | null)]));
+      const invoicePaid: Record<string, number> = {};
+      const payments: CustomerProjectPayment[] = [];
+      for (const p of pays ?? []) {
+        payments.push({
+          id: p.id, amount: p.amount ?? 0, received_at: p.received_at,
+          method: p.method ?? null, reference: p.reference ?? null, bank_txn_id: p.bank_txn_id ?? null,
+          project_id: p.project_id, project_title: titleById.get(p.project_id) ?? "Project",
+        });
+        const inv = p.milestone_id ? invByMs.get(p.milestone_id) : null;
+        if (inv) invoicePaid[inv] = (invoicePaid[inv] ?? 0) + (p.amount ?? 0);
+      }
+      return { payments, invoicePaid };
+    },
+  });
+}
+
 // ── Single project (with milestones + payments) ───────────────────────────────
 export function useProjectSale(id: string | null | undefined) {
   return useQuery({

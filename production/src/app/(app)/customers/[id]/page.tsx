@@ -19,7 +19,7 @@ import { useCustomerGroups } from "@/lib/queries/customer-groups";
 import { useCustomerSubscriptions } from "@/lib/queries/subscriptions";
 import { useCustomerInvoices, useCustomerQuotes } from "@/lib/queries/invoices";
 import { usePayments } from "@/lib/queries/payments";
-import { useCustomerProjects } from "@/lib/queries/projects";
+import { useCustomerProjects, useCustomerProjectPayments } from "@/lib/queries/projects";
 import { CreateProjectQuoteDialog } from "@/components/features/projects/create-project-quote-dialog";
 import { Card } from "@/components/ui/card";
 import { Button, IconButton } from "@/components/ui/button";
@@ -53,6 +53,7 @@ export default function CustomerDetailPage() {
   const { data: invoices } = useCustomerInvoices(params.id);
   const { data: quotes }   = useCustomerQuotes(params.id);
   const { data: projects } = useCustomerProjects(params.id);
+  const { data: projPay } = useCustomerProjectPayments(params.id);
   const { data: openCredit } = useCustomerOpenCredit(params.id);
   const { data: allPayments } = usePayments();
 
@@ -127,10 +128,24 @@ export default function CustomerDetailPage() {
   const insights = deriveCustomerInsights(c, allSubs, allInvoices, allProjects, allQuotes);
   const customerPayments = (allPayments ?? []).filter((p) => p.customer_id === c.id);
 
+  // Project milestone receipts live in project_payments (not `payments`) — pull
+  // them so the customer's Transactions/Statement + a project invoice's status
+  // reflect them (else a part-paid project invoice looks fully "Pending" here).
+  const invoicePaid = projPay?.invoicePaid ?? {};
+  const projPayments = projPay?.payments ?? [];
+
   // Unified transactions feed (Zoho "Transactions" tab) — every money record.
   const txns = [
-    ...allInvoices.map((i) => ({ date: i.invoice_date, type: "Invoice" as const, ref: i.id, amount: i.amount, status: i.status, onClick: undefined as (() => void) | undefined })),
+    ...allInvoices.map((i) => {
+      // A project invoice's real state comes from project_payments against its
+      // milestone: fully covered = paid, some = partially paid, else its own status.
+      const pPaid = invoicePaid[i.id] ?? 0;
+      const status = pPaid <= 0 ? i.status : pPaid >= i.amount ? "paid" : "partially paid";
+      return { date: i.invoice_date, type: "Invoice" as const, ref: i.id, amount: i.amount, status, onClick: undefined as (() => void) | undefined };
+    }),
     ...customerPayments.map((p) => ({ date: p.status === "refunded" ? (p.refunded_at ?? p.received_at) : p.received_at, type: p.status === "refunded" ? ("Refund" as const) : ("Payment" as const), ref: p.receipt_voucher_no ?? p.id, amount: p.amount, status: p.status, onClick: undefined as (() => void) | undefined })),
+    // Project milestone receipts — show as Payment rows so they're not invisible.
+    ...projPayments.map((p) => ({ date: p.received_at, type: "Payment" as const, ref: p.reference?.trim() || p.project_title, amount: p.amount, status: p.bank_txn_id ? "reconciled" : "received", onClick: undefined as (() => void) | undefined })),
     ...allQuotes.map((q) => ({ date: q.created_date, type: "Quote" as const, ref: q.id, amount: q.amount, status: q.status, onClick: () => router.push(`/quotes/${q.id}` as never) })),
     ...allProjects.map((p) => ({ date: p.created_at, type: "Project" as const, ref: p.title, amount: p.total_amount, status: p.status, onClick: () => router.push(`/projects/${p.id}` as never) })),
   ].sort((a, b) => (b.date ?? "").localeCompare(a.date ?? ""));
@@ -141,6 +156,8 @@ export default function CustomerDetailPage() {
     ...allInvoices.map((i) => ({ date: i.invoice_date, desc: `Invoice ${i.id}`, debit: i.amount, credit: 0 })),
     ...customerPayments.filter((p) => p.status === "received").map((p) => ({ date: p.received_at, desc: `Payment received${p.receipt_voucher_no ? ` · ${p.receipt_voucher_no}` : ""}`, debit: 0, credit: p.amount })),
     ...customerPayments.filter((p) => p.status === "refunded").map((p) => ({ date: p.refunded_at ?? p.received_at, desc: `Refund${p.receipt_voucher_no ? ` · ${p.receipt_voucher_no}` : ""}`, debit: p.amount, credit: 0 })),
+    // Project milestone receipts credit the ledger against their raised invoices.
+    ...projPayments.map((p) => ({ date: p.received_at, desc: `Payment received · ${p.reference?.trim() || p.project_title}`, debit: 0, credit: p.amount })),
   ].sort((a, b) => (a.date ?? "").localeCompare(b.date ?? ""));
   let runningBal = 0;
   const ledger = ledgerRaw.map((e) => { runningBal += e.debit - e.credit; return { ...e, balance: runningBal }; });

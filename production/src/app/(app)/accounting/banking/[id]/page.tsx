@@ -42,12 +42,15 @@ import { useBankAaConnection, useFetchAaNow } from "@/lib/queries/bank-aa";
 type FilterTab = "all" | "unmatched" | "matched";
 
 // Column order (left→right) + default widths (px) for the resizable table.
-const BANK_COL_ORDER = ["date", "description", "nikasi", "jama", "status", "action"];
+// Status is folded into the last column: an unmatched row just shows the
+// "Reconcile" button (so "Unmatched" is implied — no separate column needed);
+// a reconciled row shows WHAT it matched (green pill) + "Un-reconcile". That
+// frees a whole column for the description + amounts.
+const BANK_COL_ORDER = ["date", "description", "nikasi", "jama", "reconcile"];
 // Widths tuned to fit a laptop content area WITHOUT a horizontal scrollbar
-// (≈820px total). Description flexes widest; the rest are compact. Users can
-// still drag any column — only then does the table scroll inside its card.
+// (≈830px total). Description flexes widest; users can still drag any column.
 const BANK_COL_DEFAULTS: Record<string, number> = {
-  date: 118, description: 256, nikasi: 108, jama: 108, status: 126, action: 104,
+  date: 118, description: 340, nikasi: 116, jama: 116, reconcile: 140,
 };
 
 export default function BankAccountDetailPage() {
@@ -294,8 +297,7 @@ export default function BankAccountDetailPage() {
                     <th className="px-4 py-2 font-semibold whitespace-nowrap">Description</th>
                     <th className="px-4 py-2 font-semibold text-right whitespace-nowrap">Nikasi (Dr.)</th>
                     <th className="px-4 py-2 font-semibold text-right whitespace-nowrap">Jama (Cr.)</th>
-                    <th className="px-4 py-2 font-semibold whitespace-nowrap">Status</th>
-                    <th className="px-4 py-2 font-semibold text-right whitespace-nowrap">Action</th>
+                    <th className="px-4 py-2 font-semibold text-right whitespace-nowrap">Reconcile</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -348,12 +350,12 @@ function TxnAmount({ txn }: { txn: BankTransactionRow }) {
 }
 
 function txnStatusLabel(t: BankTransactionRow["matched_to_type"]): string {
-  return t === "payment"     ? "Matched payment" :
-         t === "expense"     ? "Matched expense" :
-         t === "vendor_bill" ? "Matched bill"    :
-         t === "transfer"    ? "Inter-account"   :
-         t === "split"       ? "Split · salaries" :
-         t                   ? "Reconciled"      : "Unmatched";
+  return t === "payment"     ? "Payment" :
+         t === "expense"     ? "Expense" :
+         t === "vendor_bill" ? "Bill"    :
+         t === "transfer"    ? "Inter-account" :
+         t === "split"       ? "Salaries" :
+         t                   ? "Reconciled" : "Unmatched";
 }
 
 function TxnStatusBadge({ txn }: { txn: BankTransactionRow }) {
@@ -391,30 +393,31 @@ function TransactionRow({
       <td className="px-4 py-3 text-right tabular-nums whitespace-nowrap font-medium text-emerald">
         {txn.credit > 0 ? rupee(txn.credit) : <span className="text-ink-4">—</span>}
       </td>
-      <td className="px-4 py-3"><TxnStatusBadge txn={txn} /></td>
       <td className="px-4 py-3 text-right">
         {txn.matched_to_type === "transfer" ? (
           // Inter-account transfers are auto-reconciled self-balancing pairs —
           // un-reconciling one leg would orphan it, so no action here.
-          <span className="text-[11px] text-ink-3">Auto</span>
+          <div className="flex flex-col items-end gap-0.5">
+            <Badge kind="success" size="sm" dot>Inter-account</Badge>
+            <span className="text-[10px] text-ink-3">Auto</span>
+          </div>
         ) : txn.matched_to_type ? (
-          <button
-            type="button"
-            onClick={() =>
-              reconcile.mutate({ transactionId: txn.id, matchedToType: null, matchedToId: null })
-            }
-            className="text-xs text-ink-3 hover:text-rose"
-            disabled={reconcile.isPending}
-          >
-            Un-reconcile
-          </button>
+          // Reconciled: show WHAT it matched (this replaces the Status column)
+          // plus a quiet way to undo it.
+          <div className="flex flex-col items-end gap-0.5">
+            <Badge kind="success" size="sm" dot>{txnStatusLabel(txn.matched_to_type)}</Badge>
+            <button
+              type="button"
+              onClick={() => reconcile.mutate({ transactionId: txn.id, matchedToType: null, matchedToId: null })}
+              className="text-[10px] text-ink-3 hover:text-rose"
+              disabled={reconcile.isPending}
+            >
+              Un-reconcile
+            </button>
+          </div>
         ) : (
-          <Button
-            size="sm"
-            variant="default"
-            onClick={onReconcile}
-            disabled={reconcile.isPending}
-          >
+          // Unmatched: the button alone conveys the status.
+          <Button size="sm" variant="default" onClick={onReconcile} disabled={reconcile.isPending}>
             Reconcile
           </Button>
         )}
